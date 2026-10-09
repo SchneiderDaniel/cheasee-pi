@@ -213,6 +213,10 @@ describe("fetch-report CLI adapter", () => {
 		assert.ok(parsed.jsonPath !== null, "misrouted JSON must be recovered");
 		assert.strictEqual(parsed.partial, false);
 		assert.strictEqual(parsed.recoveredFromMarkdownRoute, true);
+		// `path` must point at a real markdown artifact, not a dangling path.
+		assert.ok(parsed.path.endsWith("ignore/codeflow-report.md"), `unexpected path ${parsed.path}`);
+		assert.ok(existsSync(REPORT_PATH()), "markdown path must hold a real artifact");
+		assert.match(readFileSync(REPORT_PATH(), "utf-8"), /^# CodeFlow Analysis Report/);
 	});
 });
 

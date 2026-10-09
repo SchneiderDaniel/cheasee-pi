@@ -98,7 +98,10 @@ stop and ask the user to run an analysis in the CodeFlow UI, then retry with
 `--refresh`.
 
 Read `ignore/codeflow-report.md` in full before proceeding, and
-`ignore/codeflow-report.json` when `jsonPath` is non-null.
+`ignore/codeflow-report.json` when `jsonPath` is non-null. When a pre-#1976 shim
+serves the JSON export on the markdown route (`recoveredFromMarkdownRoute` true),
+the markdown file is a short placeholder — read it, then work from the JSON
+export it points at.
 
 Record the returned `analyzedAt` and the `## Summary` table. Every later step
 works from that snapshot: the freshness check in Step 7 compares against it, and
@@ -144,8 +147,9 @@ literal `# CodeFlow Analysis Report` inside its source snippets. The transport
 re-sniffs both route bodies for the same reason, so a misrouted or old-shim body
 still lands in the correct artifact (`recoveredFromMarkdownRoute`); recovery is
 reported as a warning, never silently. A body that classifies as the JSON export
-is stored only as the structured artifact — it is never written to the markdown
-path, so `path` never points at JSON content.
+is never written to the markdown path, so `path` never points at JSON content;
+because that shim serves no markdown narration, the transport writes a short
+markdown placeholder to `path` instead of leaving it dangling.
 
 Markdown is narration, **never the sole source of findings**. The markdown
 exporter does **not** emit duplicates, layer violations, or suggestions — those

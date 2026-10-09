@@ -421,15 +421,19 @@ describe("partial run disclosure", () => {
 		const outcome = await fetchAndStoreReport({ cwd });
 		assert.strictEqual(outcome.ok, true);
 		if (!outcome.ok) return;
-		const { jsonPath, partial, recoveredFromMarkdownRoute, warnings } = outcome.result;
+		const { path, jsonPath, partial, recoveredFromMarkdownRoute, warnings } = outcome.result;
 		assert.ok(jsonPath !== null, "misrouted JSON must be recovered into the JSON artifact");
 		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), MARKED_JSON_BODY);
-		// A recovered JSON body must never be persisted as the markdown artifact.
-		assert.ok(
-			!existsSync(REPORT_PATH()),
-			"the JSON body must never be left at (or written to) the markdown path",
-		);
-		assert.match(warnings.join(" "), /stale markdown artifact/i);
+		// A recovered JSON body must never be persisted as the markdown artifact,
+		// but `path` must still point at a readable markdown file (not a dangling
+		// path to a file nobody wrote).
+		assert.strictEqual(path, REPORT_PATH());
+		assert.ok(existsSync(REPORT_PATH()), "the markdown path must hold a real artifact");
+		const markdown = readFileSync(REPORT_PATH(), "utf-8");
+		assert.notStrictEqual(markdown, MARKED_JSON_BODY);
+		assert.match(markdown, /^# CodeFlow Analysis Report/, "markdown path must hold markdown");
+		assert.ok(!markdown.includes("architectureIssues"), "no JSON body at the markdown path");
+		assert.match(warnings.join(" "), /placeholder markdown/i);
 		assert.strictEqual(partial, false);
 		assert.strictEqual(recoveredFromMarkdownRoute, true);
 		assert.ok(warnings.join(" ").length > 0, "recovery must be loud, not silent");

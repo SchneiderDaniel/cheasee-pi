@@ -150,6 +150,24 @@ function decodeBody(bytes: Uint8Array): string {
 }
 
 /**
+ * Markdown narration for a JSON-only recovery: a pre-#1976 shim serves the
+ * structured export on the markdown route, so there is no markdown report to
+ * persist. `path` must still point at a readable markdown file (Step 1 of the
+ * skill reads it), so write a short placeholder that redirects the reader to
+ * the authoritative JSON artifact instead of leaving `path` dangling.
+ */
+function renderRecoveredMarkdown(analyzedAt: number | null): Uint8Array {
+	const when = analyzedAt === null ? "unknown" : new Date(analyzedAt).toISOString();
+	return new TextEncoder().encode(
+		"# CodeFlow Analysis Report\n\n" +
+			"> **JSON-only recovery.** This shim's markdown route served the structured JSON " +
+			"export and no markdown narration is available, so this file is narration only. " +
+			"The authoritative findings are in `" + REPORT_JSON_REL_PATH + "`.\n\n" +
+			`- Analysis timestamp: ${when}\n`,
+	);
+}
+
+/**
  * Fail closed when the on-disk parent directory resolves (through symlinks)
  * outside `cwd`. The lexical `resolveWithinRoot` check runs first, but a
  * symlinked `ignore` directory defeats it — this resolves the real path after
@@ -314,19 +332,19 @@ export async function fetchAndStoreReport(opts: {
 	// this bridges the gap only, and says so loudly).
 	const recoveredFromMarkdownRoute = classifyReportBody(decodeBody(bytes)) === "json";
 	let jsonBytes: Uint8Array | null = recoveredFromMarkdownRoute ? bytes : null;
+	// Byte count of the markdown artifact actually written to `path`.
+	let markdownBytes: Uint8Array = bytes;
 	if (recoveredFromMarkdownRoute) {
 		warnings.push(
 			"The markdown route returned a JSON export body (the browser bridge misrouted " +
-				"generateReport('json')); it was recovered as the structured artifact and was not " +
-				"written as the markdown artifact.",
+				"generateReport('json')); it was recovered as the structured artifact. This shim " +
+				"serves no markdown narration, so a placeholder markdown file was written to the " +
+				"markdown path.",
 		);
-		// A previous buggy run may have written the JSON body to the markdown
-		// path; drop it so `path` can never point at JSON content.
-		if (removeStaleArtifact(opts.cwd, target)) {
-			warnings.push(
-				"Removed a stale markdown artifact so a previously misrouted JSON body cannot be mistaken for this report's markdown.",
-			);
-		}
+		// The JSON body must never sit at the markdown path, but `path` must stay a
+		// readable markdown file (Step 1 reads it), so overwrite it with narration.
+		markdownBytes = renderRecoveredMarkdown(analyzedAt);
+		writeAtomically(opts.cwd, target, markdownBytes);
 	} else {
 		writeAtomically(opts.cwd, target, bytes);
 	}
@@ -382,7 +400,7 @@ export async function fetchAndStoreReport(opts: {
 	const result: ReportResult = {
 		path: target,
 		jsonPath,
-		bytes: bytes.length,
+		bytes: markdownBytes.length,
 		analyzedAt,
 		warnings,
 		partial,
