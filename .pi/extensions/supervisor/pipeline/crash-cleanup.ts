@@ -23,6 +23,9 @@ export interface CleanupOnExitDeps {
 	cwd: string;
 	notify: NotifyFn;
 	debugLogger: DebugLogger;
+	/** When true at signal time, keep the worktree + branch (timeout preservation
+	 *  failed, so their local commits may be the only copy of the work). */
+	shouldSkip?: () => boolean;
 	exit?: (code: number) => void;
 }
 
@@ -52,6 +55,14 @@ export interface CrashCleanup {
  * trust boundary in `cleanupStalePipelineState`.
  */
 export async function cleanupOnExit(signal: string, deps: CleanupOnExitDeps): Promise<void> {
+	if (deps.shouldSkip?.()) {
+		deps.debugLogger.warn(
+			"handler",
+			`Signal ${signal} — timeout work preservation failed, keeping worktree + branch`,
+		);
+		(deps.exit ?? process.exit)(0);
+		return;
+	}
 	if (deps.worktreePath && deps.worktreeBranch) {
 		// Step 1: Delete branch BEFORE the race — near-instant ref operation.
 		// This guarantees no orphaned branch even if the process is killed

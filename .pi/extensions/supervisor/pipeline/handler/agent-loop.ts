@@ -501,6 +501,11 @@ async function reportTimedOutAgent(
 				config.defaultBranch,
 			)
 			: undefined;
+	// Preservation failed (e.g. push rejected): post-pipeline cleanup must keep
+	// the worktree + branch, whose local commits are the only copy of the work.
+	if (preserved && !preserved.committed && preserved.error) {
+		runCtx.preservationFailed = true;
+	}
 	const preservedNote = preserved
 		? preserved.committed
 			? `, preserved ${preserved.files.length} file(s) as ${preserved.sha ?? "wip commit"}`

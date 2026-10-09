@@ -17,6 +17,7 @@ import type { RunContext } from "../../pipeline/handler/shared.ts";
 import type { PortCall } from "../helper/mock-github-port.ts";
 import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 import { runAgentLoop } from "../../pipeline/handler/agent-loop.ts";
+import { runPostPipelinePhase } from "../../pipeline/handler/post-pipeline.ts";
 import { buildPipelineSummary } from "../../pipeline/output.ts";
 import { createStageState } from "../../pipeline/stages/index.ts";
 import { ErrorCollector } from "../../pipeline/error-collector.ts";
@@ -83,9 +84,15 @@ function buildJourneyContext(opts: {
 	portCalls: PortCall[];
 	comments: Array<{ author: { login: string }; body: string }>;
 	wt: string;
+	onGit?: (args: string[]) => void;
+	pushFails?: boolean;
 }): RunContext {
 	const pi = {
 		exec: async (cmd: string, args: string[]) => {
+			opts.onGit?.(args || []);
+			if (opts.pushFails && args?.[0] === "push") {
+				return { code: 1, stdout: "", stderr: "push rejected" };
+			}
 			const r = journeyGit(args || []);
 			return { code: r?.code ?? 0, stdout: r?.stdout ?? "", stderr: r?.stderr ?? "" };
 		},
@@ -98,6 +105,7 @@ function buildJourneyContext(opts: {
 			setStatus: () => {},
 			setWidget: () => {},
 			confirm: async () => true,
+			theme: { fg: (_color: string, s: string) => s },
 		},
 	} as unknown as ExtensionCommandContext;
 	const port = createMockGitHubPort(
@@ -264,5 +272,36 @@ describe("operator journey — Tier-Large deadline + preservation (issue #1987)"
 
 		assert.ok(capturedTask.includes("continue, do not restart"), "resume instruction present");
 		assert.ok(capturedTask.includes(WIP_SHA), "resume instruction names the WIP sha");
+	});
+
+	it("preservation push failure keeps the worktree + branch through post-pipeline cleanup", async () => {
+		// Audit finding: when `git push` is rejected, preservation fails and the
+		// worktree/branch may hold the ONLY copy of the developer's work. Cleanup
+		// must not remove them just because the run ended.
+		const portCalls: PortCall[] = [];
+		const gitCalls: string[][] = [];
+		const runner = async () => timedOutDeveloper();
+		const wt = mkdtempSync(join(tmpdir(), "journey-preserve-fail-wt-"));
+		const runCtx = buildJourneyContext({
+			runner: runner as any,
+			portCalls,
+			comments: [{ author: { login: "user1" }, body: LARGE_TEST_PLAN }],
+			wt,
+			onGit: (args) => gitCalls.push(args),
+			pushFails: true,
+		});
+
+		await runAgentLoop(runCtx);
+		assert.equal(runCtx.preservationFailed, true, "push failure marks preservation failed");
+		assert.ok(
+			(runCtx.stopReason ?? "").includes("work preservation failed"),
+			runCtx.stopReason,
+		);
+
+		await runPostPipelinePhase(runCtx);
+
+		const commands = gitCalls.map((a) => a[0]);
+		assert.ok(!commands.includes("worktree"), "cleanupWorktree must not run");
+		assert.ok(!commands.includes("branch"), "branch -D must not run");
 	});
 });

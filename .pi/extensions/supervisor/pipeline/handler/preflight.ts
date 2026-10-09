@@ -442,6 +442,9 @@ async function createPipelineWorktree(runCtx: RunContext): Promise<boolean> {
 			cwd: ctx.cwd,
 			notify,
 			debugLogger: getDebugLogger(),
+			// Read live state at signal time: if timeout preservation failed the
+			// worktree/branch must survive a SIGTERM/SIGINT too (issue #1987).
+			shouldSkip: () => runCtx.preservationFailed === true,
 		};
 		runCtx.crashCleanup = setupCrashCleanup(cleanupDeps);
 		getDebugLogger().info("handler", "Crash cleanup handlers registered (SIGTERM/SIGINT)");

@@ -43,6 +43,7 @@ export async function runPostPipelinePhase(runCtx: RunContext): Promise<void> {
 		runCtx.collector,
 		runCtx.notify,
 		runCtx.port,
+		runCtx.preservationFailed,
 	);
 
 	// Completion notification
@@ -102,6 +103,7 @@ export async function handlePostPipeline(
 	collector?: ErrorCollector,
 	notify?: NotifyFn,
 	port?: GitHubPort,
+	preservationFailed?: boolean,
 ): Promise<boolean> {
 	let unresolvedConflicts = false;
 
@@ -132,6 +134,16 @@ export async function handlePostPipeline(
 				log.warn("handler", "Merge resolution failed — preserving worktree");
 				ctx.ui.notify(
 					`Merge conflicts remain in PR #${issueNum}. Worktree preserved at ${worktreePath} for manual resolution.`,
+					"error",
+				);
+			} else if (preservationFailed) {
+				// Timeout preservation failed (audit finding): the worktree/branch
+				// may hold the only copy of the developer's work. Keeping them is the
+				// whole point of the WIP path — cleanup here would lose it.
+				const log = getDebugLogger();
+				log.warn("handler", "Timeout work preservation failed — preserving worktree + branch");
+				ctx.ui.notify(
+					`Work preservation failed. Worktree and branch preserved at ${worktreePath} (branch ${worktreeBranch}) — local work may be the only copy.`,
 					"error",
 				);
 			} else if (isDebug && prFailed) {

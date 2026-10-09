@@ -72,8 +72,9 @@ async function runSupervisorPipeline(
 		const errMsg = err instanceof Error ? err.message : String(err);
 		getDebugLogger().error("handler", "Pipeline threw unhandled error", { error: errMsg });
 		runCtx.collector.push("handler", "error", `Pipeline threw unhandled error: ${errMsg}`);
-		// Also cleanup on error
-		if (runCtx.worktreePath && runCtx.worktreeBranch) {
+		// Also cleanup on error — unless timeout preservation failed, in which
+		// case the worktree/branch may hold the only copy of the work.
+		if (runCtx.worktreePath && runCtx.worktreeBranch && !runCtx.preservationFailed) {
 			const cleanResult = await cleanupWorktree(
 				runCtx.pi,
 				runCtx.ctx.cwd,
