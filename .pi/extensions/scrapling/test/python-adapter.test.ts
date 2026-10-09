@@ -12,6 +12,7 @@ import path from "node:path";
 import os from "node:os";
 import type { ExecFn, CrawlResult } from "../types.ts";
 import { PythonAdapter } from "../python-adapter.ts";
+import { ensureScraplingVenv } from "../venv-setup.ts";
 
 // ── Helpers ──
 
@@ -578,6 +579,131 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 		if (result.success) {
 			assert.equal(result.results[0].truncated, false);
 			assert.equal(result.attempted, 1);
+		}
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════════
+//  User journey: web_crawl over the real provisioning stack (#1986)
+// ══════════════════════════════════════════════════════════════════════
+
+/**
+ * Real PythonAdapter + real ensureScraplingVenv (ensureVenv + browser gate) over
+ * a mock exec modelling the container image. The failure this pins: a browser
+ * cache the agent cannot use must surface as a fast, actionable error — never as
+ * a repeated ~8-minute `patchright install` block.
+ */
+describe("web_crawl user journey — browser provisioning contract", () => {
+	interface JourneyExec {
+		exec: ExecFn;
+		calls: Array<{ cmd: string; args: string[] }>;
+	}
+
+	/** Mock exec modelling the fixed image: healthy venv, patchright rev 1234. */
+	function imageExec(): JourneyExec {
+		const calls: Array<{ cmd: string; args: string[] }> = [];
+		const exec: ExecFn = async (cmd, args) => {
+			calls.push({ cmd, args });
+			if (cmd.includes("bin/python3") && args[0] === "-c") {
+				// The crawl call carries `-c <script> <configJSON>`; the small in-process
+				// probes are 2-arg `-c <script>` calls.
+				if (args.length >= 3) {
+					return {
+						code: 0,
+						stdout: JSON.stringify({
+							ok: true,
+							results: [
+								{
+									url: "https://example.com",
+									markdown: "# Crawled page",
+									method: "stealth",
+									success: true,
+								},
+							],
+						}),
+						stderr: "",
+						killed: false,
+					};
+				}
+				const script = args[1] ?? "";
+				if (script.includes("browsers.json")) {
+					return { code: 0, stdout: "1234\n", stderr: "", killed: false };
+				}
+				return { code: 0, stdout: "ok", stderr: "", killed: false };
+			}
+			return {
+				code: 1,
+				stdout: "",
+				stderr: `mock: unexpected ${cmd} ${args.join(" ")}`,
+				killed: false,
+			};
+		};
+		return { exec, calls };
+	}
+
+	function installCalls(calls: Array<{ cmd: string; args: string[] }>) {
+		return calls.filter((c) => c.args[0] === "-m" && c.args[1] === "patchright");
+	}
+
+	function useCacheRoot(root: string): () => void {
+		const previous = process.env.PLAYWRIGHT_BROWSERS_PATH;
+		process.env.PLAYWRIGHT_BROWSERS_PATH = root;
+		return () => {
+			if (previous === undefined) delete process.env.PLAYWRIGHT_BROWSERS_PATH;
+			else process.env.PLAYWRIGHT_BROWSERS_PATH = previous;
+		};
+	}
+
+	it("(user-journey) fixed image: crawl succeeds with a page and issues no install subprocess", async () => {
+		const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "image-cache-"));
+		fs.mkdirSync(path.join(cacheRoot, "chromium-1234", "chrome-linux64"), { recursive: true });
+		fs.writeFileSync(path.join(cacheRoot, "chromium-1234", "chrome-linux64", "chrome"), "");
+		const restore = useCacheRoot(cacheRoot);
+		try {
+			const { exec, calls } = imageExec();
+			const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "image-cwd-"));
+			const adapter = new PythonAdapter(exec, cwd, undefined, ensureScraplingVenv);
+
+			const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
+
+			assert.ok(result.success, `crawl should succeed: ${JSON.stringify(result)}`);
+			if (result.success) {
+				assert.equal(result.results[0].markdown, "# Crawled page");
+				assert.equal(result.results[0].method, "stealth");
+			}
+			assert.equal(installCalls(calls).length, 0, "no browser install on a prepared image");
+		} finally {
+			restore();
+		}
+	});
+
+	it("(user-journey) broken image (chromium-1243 only, cache not writable): fast actionable error, no install", async () => {
+		const cacheRoot = fs.mkdtempSync(path.join(os.tmpdir(), "image-cache-"));
+		fs.mkdirSync(path.join(cacheRoot, "chromium-1243", "chrome-linux64"), { recursive: true });
+		fs.writeFileSync(path.join(cacheRoot, "chromium-1243", "chrome-linux64", "chrome"), "");
+		const restore = useCacheRoot(cacheRoot);
+		try {
+			const { exec, calls } = imageExec();
+			const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "image-cwd-"));
+			// isWritable seam: a root CI runner cannot be made to fail access(W_OK).
+			const adapter = new PythonAdapter(exec, cwd, undefined, (e, c, onUpdate) =>
+				ensureScraplingVenv(e, c, onUpdate, { cacheRoot, isWritable: () => false }),
+			);
+
+			const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
+
+			assert.equal(result.success, false, "a mismatched browser must not be reported as success");
+			if (!result.success) {
+				assert.ok(result.error.includes("1234"), `error must name the expected revision: ${result.error}`);
+				assert.ok(result.error.includes(cacheRoot), `error must name the cache root: ${result.error}`);
+			}
+			assert.equal(
+				installCalls(calls).length,
+				0,
+				"a non-writable cache must never start the ~8-minute install",
+			);
+		} finally {
+			restore();
 		}
 	});
 });

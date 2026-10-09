@@ -28,6 +28,7 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 		"docker-compose.yml",
 		"Dockerfile",
 		"entrypoint.sh",
+		"scrapling-constraints.txt",
 		"lib/worktree-fix.sh",
 		"lib/patch-pi-session-warning.js",
 		"codeflow/config.json",

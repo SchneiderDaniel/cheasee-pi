@@ -1,0 +1,24 @@
+# Pinned Python stack for the web_crawl (scrapling) venv.
+#
+# Why this file exists: `scrapling[fetchers]` floats its browser drivers
+# (`patchright>=1.62.1`, `playwright>=1.62.0`), and every patchright version
+# resolves a *different* chromium revision from its own registry. Build-time
+# (the baked /opt/playwright-browsers cache) and runtime (the workspace venv)
+# then disagree, so the crawler looks for a revision the image never shipped
+# (issue #1986: ~8 min failed self-heal, EACCES on a root-owned cache).
+#
+# Consumers — keep them on this one list so image and CI cannot drift:
+#   - cmd/cheasee-pi/embedded/docker/Dockerfile   `pip install -c …`
+#   - .github/workflows/tests.yml                 e2e parity with the image
+#
+# `-c` (not `-r`): these are ceilings; the requirement list owns what is
+# installed. Upgrading = bump here + rebuild the image — the Dockerfile build
+# guard re-reads the expected revision from the venv's own browsers.json.
+#
+# Note: constraints cannot carry extras, so `scrapling` is pinned bare while the
+# install command keeps `scrapling[fetchers]`.
+scrapling==0.4.15
+patchright==1.62.2
+playwright==1.62.0
+markdownify==1.2.3
+beautifulsoup4==4.15.0

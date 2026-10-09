@@ -153,9 +153,17 @@ ENV LANG=C.UTF-8 LC_CTYPE=C.UTF-8 LC_ALL=C.UTF-8
 RUN python3 -m venv /opt/venvs/web-search-venv --clear && \
     /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs 'idna>=3.15' 'anyio>=4.14.2'
 
-# scrapling venv: progressive web crawler (patchright-driven stealth)
+# scrapling venv: progressive web crawler (patchright-driven stealth).
+# Installed against scrapling-constraints.txt: `scrapling[fetchers]` floats its
+# browser drivers, and a floating patchright resolution is how the baked browser
+# cache and the runtime ended up on different chromium revisions (#1986).
+COPY scrapling-constraints.txt /opt/venvs/scrapling-constraints.txt
+# Runtime venv re-creation (a workspace without the baked copy) uses the same
+# pins, so an in-container `pip install` cannot reintroduce the drift.
+ENV SCRAPLING_PIP_CONSTRAINTS=/opt/venvs/scrapling-constraints.txt
 RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
     /opt/venvs/scrapling-venv/bin/pip install --no-cache-dir \
+        -c /opt/venvs/scrapling-constraints.txt \
         scrapling[fetchers] \
         markdownify \
         beautifulsoup4 \
@@ -163,13 +171,17 @@ RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
 
 # Pre-download Chromium for the scrapling stealth fetcher. Must use patchright,
 # NOT playwright: the stealth tier (StealthyFetcher) resolves its browser via
-# patchright's registry — chromium revision 1228 at patchright 1.61.2, vs 1234
-# at playwright 1.62.0 — so a playwright-installed build never matches.
+# patchright's registry, and the two registries pin different revisions — so a
+# playwright-installed build never matches. The revision is read from the venv's
+# own patchright/driver/package/browsers.json (pinned above); nothing is
+# hardcoded here.
 # Retry loop handles the ~646M/arch download (chromium + headless shell + ffmpeg)
-# which can glitch on slow/unstable connections. `test -n "$(find …)"` after the
+# which can glitch on slow/unstable connections. The `test -f` guard after the
 # loop keeps a total download failure fatal: the loop tail (`sleep 5`, exit 0)
-# would otherwise let the layer report success with an empty browser cache
-# (mirrors Layer 5c's `test -x` guard).
+# would otherwise let the layer report success with an empty browser cache — and
+# asserting the *expected* revision is what makes a mismatched cache (the #1986
+# root cause: chromium-1243 baked while patchright looks for 1234) a build
+# failure instead of a 8-minute runtime stall.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
 RUN for i in 1 2 3; do \
       /opt/venvs/scrapling-venv/bin/python -m patchright install chromium \
@@ -177,11 +189,18 @@ RUN for i in 1 2 3; do \
       echo "[attempt $i] patchright install chromium failed, retrying in 5s…"; \
       sleep 5; \
     done && \
-    test -n "$(find /opt/playwright-browsers -maxdepth 3 -type f -path '*/chrome-linux64/chrome' -print -quit)" && \
+    rev="$(/opt/venvs/scrapling-venv/bin/python -c "import json, pathlib, patchright; print(next(b['revision'] for b in json.loads((pathlib.Path(patchright.__file__).parent / 'driver/package/browsers.json').read_text())['browsers'] if b['name'] == 'chromium'))")" && \
+    test -f "/opt/playwright-browsers/chromium-$rev/chrome-linux64/chrome" && \
     chmod -R a+rX /opt/playwright-browsers
 
-# World-readable so agentuser (created next layer) can access
-RUN chmod -R a+rX /opt/venvs && \
+# World-readable so agentuser (created next layer) can access. The stamp file is
+# the baked venv's identity (pip freeze hash): entrypoint.sh re-copies the venv
+# into the workspace when the copy's stamp or ownership drifts, so a stale
+# root-owned .pi/scrapling-venv cannot shadow the baked one (#1986).
+RUN for v in web-search-venv scrapling-venv; do \
+      "/opt/venvs/$v/bin/pip" freeze | sort | sha256sum | cut -d' ' -f1 > "/opt/venvs/$v/.cheasee-venv-stamp"; \
+    done && \
+    chmod -R a+rX /opt/venvs && \
     rm -rf /root/.cache/* /tmp/*
 
 # ---------------------------------------------------------------
