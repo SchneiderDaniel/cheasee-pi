@@ -16,6 +16,11 @@ hooks `URL.createObjectURL` and POSTs the captured exports back here:
   GET|POST /api/analysis/report       -> markdown report (single slot, 404 before first POST)
   GET|POST /api/analysis/report.json  -> structured JSON report (single slot)
   GET /codeflow-bridge.js             -> the injected bridge script
+  GET /fp-filter.js                   -> the injected false-positive filter
+
+The served page also runs the same false-positive filter the headless runner
+applies (`fp-filter.js`), wrapped around `generateReport` at serve time, so the
+UI's health score and exports agree with the report pi reads.
 
 Headless producer (Option B): the shim can also fill both report slots without a
 browser, so a fresh session or rebuilt container no longer blocks the audit on a
@@ -119,7 +124,18 @@ _API_BASE = re.compile(rb"'https://api\.github\.com/'")
 # the served index.html by a _UI_REWRITES entry (silent no-op if upstream drops
 # the </body> tag) and served from this in-process constant, so the vendored
 # checkout stays pristine.
-_BRIDGE_SCRIPT = b'<script src="codeflow-bridge.js" defer></script>'
+# The headless runner requires the same module before it builds its exports, so
+# the two paths share one policy. Served from disk next to this file.
+_FP_FILTER_ROUTE = "/fp-filter.js"
+_FP_FILTER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fp-filter.js")
+
+
+def _fp_filter_bytes():
+    with open(_FP_FILTER_PATH, "rb") as fh:
+        return fh.read()
+
+
+_BRIDGE_SCRIPT = b'<script src="fp-filter.js" defer></script><script src="codeflow-bridge.js" defer></script>'
 _BRIDGE_JS = br"""(function () {
   "use strict";
   if (window.__codeflowBridge) return;
@@ -645,7 +661,38 @@ def _ts_rewrite(anchor, tail=b""):
     )
 
 
+# Rewrites applied to the served page. The page's `generateReport` gets the same
+# false-positive filter the headless runner applies, so the served UI's health
+# score and exports agree with the report pi reads. The filter reads cited files
+# from `data.files[].content`; a page that omits them still gets the rules that
+# need no file. The wrapper sanitizes `data` first, then calls the original
+# (renamed) function. A page whose bundle declares `data` as a constant throws
+# inside this wrapper and falls back to the unfiltered report.
+_FP_WRAPPER_HEAD = b"function generateReport"
+_FP_WRAPPER_BODY = (
+    b"() { try { data = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data)).data; }"
+    b" catch (e) { globalThis.__codeflowFpFilterError = String((e && e.message) || e);"
+    b" console.error(\"[fp-filter] \" + e); }"
+    b" return __piFpGenerateReport.apply(this, arguments); }\n"
+    b"function __piFpGenerateReport("
+)
+
+
+def _fp_rewrite():
+    """(regex, replacement) wrapping the page's own `generateReport`.
+
+    The negative lookahead keeps the rule idempotent: the spliced header is
+    followed by `)`, the real one by its parameter list."""
+    return (
+        re.compile(re.escape(_FP_WRAPPER_HEAD + b"(") + b"(?![)])"),
+        _FP_WRAPPER_HEAD + _FP_WRAPPER_BODY,
+    )
+
+
 _UI_REWRITES = (
+    # Browser parity for the headless false-positive filter. A silent no-op when
+    # upstream renames generateReport or the page never assigns `data`.
+    _fp_rewrite(),
     (re.compile(re.escape(b"repoSoft:300,repoMax:750")), b"repoSoft:10000,repoMax:10000"),
     # Hard-limit dialog: "Analyze a GitHub API sample?" — reachable only when a
     # workspace exceeds repoMax (>10000 files).
@@ -863,6 +910,12 @@ class Handler(BaseHTTPRequestHandler):
         path = parsed.path
 
         # --- Browser bridge + report store --------------------------------
+        if path == _FP_FILTER_ROUTE:
+            try:
+                self._serve_bytes(_fp_filter_bytes(), "text/javascript; charset=utf-8")
+            except OSError as exc:
+                self._error(500, "fp-filter.js unavailable: %s" % exc)
+            return
         if path == "/codeflow-bridge.js":
             self._serve_bytes(_BRIDGE_JS, "text/javascript; charset=utf-8")
             return

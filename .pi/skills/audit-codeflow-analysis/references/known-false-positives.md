@@ -24,6 +24,14 @@ Text-provable (auto-suppressed before validation, per `classifyKnownNoise`):
 rows 6, 7 and 9, plus any fact whose every cited file is unresolved. Everything else
 is a code-read shape: the validator gets it and proves it here, never a text filter.
 
+Rows 1-4 are also suppressed deterministically at the producer: the headless
+runner and the served page both pass the analyzer's `data` through
+`fp-filter.js`, which drops HIGH findings citing an empty or comment-only
+snippet, a string-literal type union, an env-resolved value, or a symbol absent
+from the cited file (and layer violations whose endpoints cannot import each
+other). Those shapes therefore no longer reach this validator — a row 1-4 fact
+that does appear here means the filter missed it, which is the bug to fix.
+
 Scope (is this a bug or a chore/refactor?) is decided before validation by
 `classifyFinding` in `lib/report.ts`, never here — so no row in this table uses
 "it is only a size/count metric" as a disproof.

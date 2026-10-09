@@ -38,7 +38,7 @@ function generateReportBody(emitJson = true): string {
 	return `
 function generateReport(format) {
   if (format === "json"${emitJson ? "" : " && false"}) {
-    var blob = new Blob([JSON.stringify({ architectureIssues: [], marker: data.marker })], { type: "application/json" });
+    var blob = new Blob([JSON.stringify({ architectureIssues: [], marker: data.marker, securityIssues: data.securityIssues || null, layerViolations: data.layerViolations || null })], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
@@ -63,6 +63,17 @@ interface Fixture {
 	uiDir: string;
 	sourceDir: string;
 	outDir: string;
+}
+
+/** The analysis.js stand-in that returns a fixed `data` object. */
+function analysisJs(data: unknown): string {
+	return `"use strict";
+module.exports = {
+  async analyze() {
+    return { schemaVersion: 1, data: ${JSON.stringify(data)}, snapshot: {} };
+  },
+};
+`;
 }
 
 function makeFixture(opts: { emitJson?: boolean; analyzerBlock?: string; analysisJs?: string | null } = {}): Fixture {
@@ -184,5 +195,123 @@ describe("run-analysis.mjs headless producer", () => {
 			assert.ok(spec.startsWith("node:"), `non-builtin import ${spec}`);
 		}
 		assert.doesNotMatch(src, /require\(\s*["'][^"']+["']\s*\)/, "no third-party require");
+	});
+
+	it("suppresses analyzer false positives before the exports are built", () => {
+		const fx = makeFixture({
+			analysisJs: analysisJs({
+				marker: "FP",
+				stats: { files: 3, functions: 1, loc: 3 },
+				securityIssues: [
+					{
+						severity: "high",
+						title: "Hardcoded Secret",
+						description: "Possible hardcoded API key.",
+						path: "types.ts",
+						line: 1,
+						code: 'export type UsageColorToken = "success" | "warning" | "error";',
+					},
+					{
+						severity: "high",
+						title: "Shell Command Execution",
+						description: "Shell() call detected.",
+						path: "main.rs",
+						line: 2,
+						code: "",
+					},
+					{
+						severity: "high",
+						title: "Hardcoded Secret",
+						description: "Possible hardcoded API key.",
+						path: "keep.ts",
+						line: 3,
+						code: 'const KEY = "sk-live-abc";',
+					},
+				],
+				layerViolations: [
+					{ from: "keep.ts", to: "main.rs", fromLayer: "ui", toLayer: "ui" },
+					{ from: "keep.ts", to: "other.ts", fromLayer: "ui" },
+				],
+				files: [
+					{ path: "keep.ts", layer: "ui" },
+					{ path: "other.ts", layer: "ui" },
+					{ path: "main.rs", layer: "ui" },
+				],
+				connections: [],
+			}),
+		});
+		writeFileSync(join(fx.sourceDir, "keep.ts"), 'export const KEY = "sk-live-abc";\n');
+		const { code, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		const json = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
+		assert.deepStrictEqual(
+			json.securityIssues.map((s: { path: string }) => s.path),
+			["keep.ts"],
+			"only the true positive may survive",
+		);
+		assert.deepStrictEqual(json.layerViolations, [], "the layer category is noise here");
+		assert.match(
+			stderr,
+			/fp-filter: suppressed 2 security issue\(s\), 2 layer violation\(s\)/,
+			"suppression must be observable, never silent",
+		);
+	});
+
+	it("reads the cited file from the snapshot: phantom symbol dropped, present symbol kept", () => {
+		const issue = (path: string) => ({
+			severity: "high",
+			title: "Shell Command Execution",
+			description: "Shell() call detected.",
+			path,
+			line: 1,
+			code: "let a = 1;",
+		});
+		const fx = makeFixture({
+			analysisJs: analysisJs({
+				marker: "READ",
+				securityIssues: [issue("phantom.ts"), issue("real.ts"), issue("absent.ts")],
+			}),
+		});
+		writeFileSync(join(fx.sourceDir, "phantom.ts"), "export const a = 1;\n");
+		writeFileSync(join(fx.sourceDir, "real.ts"), "export function Shell() {}\n");
+		const { code, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		const kept = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"))
+			.securityIssues.map((s: { path: string }) => s.path);
+		assert.deepStrictEqual(kept, ["real.ts", "absent.ts"]);
+	});
+
+	it("leaves data without securityIssues/layerViolations alone and stays quiet", () => {
+		const fx = makeFixture();
+		const { code, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		assert.strictEqual(stderr, "", "nothing was suppressed, so nothing is reported");
+		assert.strictEqual(
+			readFileSync(join(fx.outDir, "report.md"), "utf-8"),
+			"# CodeFlow Analysis Report\n\nmarker=FIXTURE\n",
+		);
+		assert.strictEqual(JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8")).securityIssues, null);
+	});
+
+	it("fails closed when the sanitizer throws, exporting no artifact", () => {
+		const fx = makeFixture({
+			analysisJs: `"use strict";
+module.exports = {
+  async analyze() {
+    return { data: { marker: "THROW", securityIssues: [{ get severity() { throw new Error("fp-filter exploded"); } }] } };
+  },
+};
+`,
+		});
+		const { code, stderr } = runRunner(fx);
+
+		assert.notStrictEqual(code, 0);
+		assert.match(stderr, /fp-filter exploded/);
+		assert.ok(stderr.length <= 4096, "stderr must be bounded");
+		assert.ok(!existsSync(join(fx.outDir, "report.md")), "no unsanitized markdown may be written");
+		assert.ok(!existsSync(join(fx.outDir, "report.json")), "no unsanitized JSON may be written");
 	});
 });

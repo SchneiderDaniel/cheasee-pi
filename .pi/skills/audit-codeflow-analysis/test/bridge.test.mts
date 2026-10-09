@@ -19,7 +19,7 @@
  */
 
 import assert from "node:assert";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
@@ -343,6 +343,30 @@ describe("codeflow bridge capture", () => {
 			FIXTURE_REVISION,
 			"the served revision (Dockerfile ARG CODEFLOW_REF) must equal the revision codeflow-ui-export.html was captured from; regenerate the fixture when moving the pin",
 		);
+	});
+
+	it("serves the false-positive filter the headless runner applies", () => {
+		const py = readFileSync(SERVER_PY, "utf-8");
+		const tag = /_BRIDGE_SCRIPT = b(['"])([\s\S]*?)\1/.exec(py)?.[2];
+		assert.ok(tag, "_BRIDGE_SCRIPT not found in server.py");
+		assert.strictEqual((tag.match(/fp-filter\.js/g) ?? []).length, 1, "one fp-filter tag");
+		assert.strictEqual((tag.match(/codeflow-bridge\.js/g) ?? []).length, 1, "one bridge tag");
+		assert.match(py, /_FP_FILTER_ROUTE = "\/fp-filter\.js"/);
+		assert.match(py, /_fp_rewrite\(\)/);
+
+		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
+		assert.ok(existsSync(filterPath), "fp-filter.js must sit next to server.py");
+		assert.match(
+			readFileSync(DOCKERFILE, "utf-8"),
+			/COPY fp-filter\.js \/opt\/codeflow\/fp-filter\.js/,
+		);
+
+		// Browser contract: loaded as a plain script it must publish piFpFilter.
+		const sandbox: Record<string, any> = {};
+		vm.createContext(sandbox);
+		vm.runInContext(readFileSync(filterPath, "utf-8"), sandbox);
+		assert.strictEqual(typeof sandbox.piFpFilter?.sanitizeAnalysisData, "function");
+		assert.strictEqual(typeof sandbox.piFpFilter?.readFileFrom, "function");
 	});
 
 	it("served-UI fixture still matches the contract the bridge relies on", () => {
