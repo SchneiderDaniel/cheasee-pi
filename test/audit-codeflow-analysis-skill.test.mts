@@ -111,16 +111,22 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 		assert.match(body, /only a retry that still exits `3`\/`4` is unverified/i);
 	});
 
-	it("names the path-less architecture entries the markdown fallback omits", () => {
-		for (const entry of [
-			"154 Architecture Violations",
-			"6 Duplicate Function Names",
-			"3 Similar Code Blocks",
-		]) {
-			assert.ok(body.includes(entry), `must name ${entry}`);
-		}
-		assert.match(body, /JSON-only/i);
-		assert.match(body, /not a parser fault/i);
+	it("documents the target model that keeps path-less architecture entries", () => {
+		// A `**Affected:**` item may name a path, a layer edge or a bare symbol; all
+		// three keep the finding as a candidate. The old "JSON-only in practice"
+		// exemption blessed the drop and is gone.
+		assert.match(body, /layer\s+-?\s*edge/i);
+		assert.match(body, /symbol/i);
+		assert.match(body, /targets?/i);
+		assert.doesNotMatch(body, /JSON-only in practice/i);
+		assert.doesNotMatch(body, /expected, not a parser fault/i);
+	});
+
+	it("lets a layer-edge or symbol finding be filed without naming a file", () => {
+		// Verification must not require a file: a validated `utils → ui` or `execFn`
+		// candidate has no path and would otherwise be unreachable at filing time.
+		assert.match(body, /cites at least one `target`/);
+		assert.match(body, /a layer edge\s*\(`utils → ui`\), or a symbol/);
 	});
 
 	it("discloses JSON-only categories and the owning component via bridge-status", () => {
@@ -132,7 +138,8 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 
 	it("states the canonical count unit and reconciles the UI security summary separately", () => {
 		assert.match(body, /post-`dedupeIssues`/);
-		assert.match(body, /\(kind, title, files\)/);
+		assert.match(body, /\(kind, title, targets\)/);
+		assert.match(body, /file-only projection/i);
 		assert.match(body, /dedupes by rule/i);
 		assert.match(body, /UI summary is a different unit/i);
 	});
@@ -147,6 +154,20 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 	it("documents --emit-findings", () => {
 		assert.match(body, /--emit-findings/);
 		assert.match(body, /NN-<slug>\.md/);
+	});
+
+	it("validates only bug-class candidates in the documented Step 3 loop", () => {
+		assert.match(body, /issueType: bug/);
+		assert.ok(body.includes("Issue type:"), "the Step 3 loop must filter on the triage tag");
+		assert.ok(body.includes("|| continue"), "the Step 3 loop must skip non-bug candidates");
+		assert.match(body, /never reach\s+the validator/i);
+	});
+
+	it("refers to classifyFinding without restating the kind → issue-type mapping", () => {
+		assert.match(body, /classifyFinding/);
+		assert.doesNotMatch(body, /`anti-pattern` is chore/);
+		assert.doesNotMatch(body, /`pattern` is informational/);
+		assert.doesNotMatch(body, /use the bug template/);
 	});
 
 	it("ships references/known-false-positives.md with one row per observed mechanism", () => {

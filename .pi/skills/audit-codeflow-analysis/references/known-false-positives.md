@@ -22,3 +22,7 @@ is the one to run first.
 Text-provable (auto-suppressed before validation, per `classifyKnownNoise`):
 rows 6 and 7, plus any fact whose every cited file is unresolved. Everything else
 is a code-read shape: the validator gets it and proves it here, never a text filter.
+
+Scope (is this a bug or a chore/refactor?) is decided before validation by
+`classifyFinding` in `lib/report.ts`, never here — so no row in this table uses
+"it is only a size/count metric" as a disproof.

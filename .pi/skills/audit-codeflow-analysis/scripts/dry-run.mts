@@ -18,11 +18,16 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+	classifyFinding,
 	classifyKnownNoise,
 	dedupeIssues,
 	parseBestReport,
 	reportSectionCoverage,
+	reportUnparsedItems,
 	type IssueFact,
+	type IssueType,
+	type SectionCoverage,
+	type Target,
 } from "../lib/report.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -46,24 +51,54 @@ function verdictDetail(output: string, prefix: string): string {
 	return last ? last.slice(prefix.length + 1).trim() : "";
 }
 
-function draftIssue(fact: IssueFact, sourceLabel: string): { title: string; body: string } {
-	const files = fact.files.length > 0 ? fact.files : ["(no file — derived signal)"];
-	const cited = files.map((f) => (f.startsWith("(") ? f : `\`${f}\``)).join(", ");
+function draftIssue(
+	fact: IssueFact,
+	sourceLabel: string,
+	issueType: IssueType,
+): { title: string; body: string } {
+	const cited = describeTargets(fact);
 	return {
 		title: `[Bug] CodeFlow ${fact.kind}: ${fact.title}`,
 		body: [
 			"## Describe the bug",
-			`CodeFlow reports **${fact.title}** (kind: \`${fact.kind}\`) in ${cited}.`,
+			`CodeFlow reports **${fact.title}** (kind: \`${fact.kind}\`, issue type: \`${issueType}\`) in ${cited}.`,
 			"",
 			"## Expected behavior",
 			"The finding no longer applies once the cited code is addressed.",
 			"",
 			"## Additional context",
 			`- Source: CodeFlow ${sourceLabel} finding \`${fact.id}\``,
-			`- Files: ${cited}`,
+			`- Targets: ${cited}`,
 			"- Verified against the source by a read-only subagent (VERDICT: VALID, exit 0).",
 		].join("\n"),
 	};
+}
+
+/** Render one target for a human: paths and symbols backticked, edges as `A → B`. */
+function renderTarget(target: Target): string {
+	if (target.kind === "file") return `\`${target.path}\``;
+	if (target.kind === "layer-edge") return `${target.from} → ${target.to}`;
+	return `\`${target.name}\``;
+}
+
+/** Human-readable target list; a fact with no target is a derived signal. */
+function describeTargets(fact: IssueFact): string {
+	const targets: Target[] = fact.targets ?? fact.files.map((path) => ({ kind: "file" as const, path }));
+	if (targets.length === 0) return "(no file — derived signal)";
+	return targets.map(renderTarget).join(", ");
+}
+
+/**
+ * The markdown exporter prints a fixed sample of a metric's files, never all N.
+ * Disclose the gap (`5 of 75`) so a filed body never implies it lists them all.
+ */
+function sampleNote(fact: IssueFact): string | null {
+	const m = /^(\d+)\s+/.exec(fact.title);
+	if (!m) return null;
+	const total = Number(m[1]);
+	const listed = fact.files.length;
+	if (listed === 0 || total <= listed) return null;
+	return `**Sample:** ${listed} of ${total} affected file(s) listed — the markdown export carries only a sample.`;
 }
 
 function renderResolved(file: string, r: FileResolution): string {
@@ -137,18 +172,24 @@ export function slugifyFinding(title: string): string {
 	);
 }
 
-/** Step 3 candidate body: kind, section/field, title, id and the cited files. */
+/** Step 3 candidate body: kind, triage issue type, targets, id and the cited files. */
 function findingFileContent(fact: IssueFact): string {
+	const { issueType, reason } = classifyFinding(fact);
+	const sample = sampleNote(fact);
 	return (
 		[
 			`# CodeFlow finding (${fact.kind})`,
 			"",
 			`**Kind:** ${fact.kind}`,
+			`**Issue type:** ${issueType}`,
 			`**Title:** ${fact.title}`,
 			`**Id:** ${fact.id}`,
 			`**Section:** ${fact.kind}`,
+			`**Targets:** ${describeTargets(fact)}`,
 			`**Files:** ${fact.files.length > 0 ? fact.files.join(", ") : "(none)"}`,
+			...(sample ? [sample] : []),
 			"",
+			`Triage: ${issueType} — ${reason}.`,
 			"The markdown/inspection export carries no description; read the cited code and",
 			"decide whether the finding is real.",
 		].join("\n") + "\n"
@@ -289,16 +330,44 @@ function selfCheck(): number {
 		[
 			"draft carries files",
 			draftIssue(
-				{ id: "security:0", kind: "security", title: "HIGH: X", files: ["a/b.ts"] },
+				{
+					id: "security:0",
+					kind: "security",
+					title: "HIGH: X",
+					targets: [{ kind: "file", path: "a/b.ts" }],
+					files: ["a/b.ts"],
+				},
 				"markdown",
+				"bug",
 			).body.includes("`a/b.ts`"),
 		],
 		[
 			"draft handles file-less fact",
 			draftIssue(
-				{ id: "suggestion:0", kind: "suggestion", title: "Split module", files: [] },
+				{
+					id: "suggestion:0",
+					kind: "suggestion",
+					title: "Split module",
+					targets: [],
+					files: [],
+				},
 				"markdown",
+				"bug",
 			).body.includes("(no file"),
+		],
+		[
+			"draft renders a layer edge",
+			draftIssue(
+				{
+					id: "architecture:0",
+					kind: "architecture",
+					title: "157 Architecture Violations",
+					targets: [{ kind: "layer-edge", from: "utils", to: "ui" }],
+					files: [],
+				},
+				"markdown",
+				"bug",
+			).body.includes("utils → ui"),
 		],
 		[
 			"basename resolution",
@@ -332,6 +401,39 @@ function lastMeaningfulLine(output: string): string {
 		.map((l) => l.trim())
 		.filter((l) => l !== "" && !l.startsWith("```"));
 	return lines[lines.length - 1] ?? "(no output)";
+}
+
+/** Disclosure printed whenever the structured JSON export is unavailable. */
+function jsonNote(): string {
+	return (
+		"JSON export unavailable — duplicate, layer-violation and suggestion categories\n" +
+		"cannot be extracted from markdown; those categories are partially unauditable from this report.\n"
+	);
+}
+
+/**
+ * Coverage table plus the `###` titles the markdown format could not turn into
+ * candidates. Every mode prints it (not just `--list`), so a partial parse is
+ * always disclosed as a partial audit and never mistaken for a clean run. A
+ * section with `candidates === 0` is flagged `UNREADABLE`.
+ */
+function coverageReport(markdown: string, coverage: SectionCoverage[]): string {
+	const lines = ["section coverage (### items the exporter emitted vs candidates parsed):"];
+	for (const c of coverage) {
+		const flag = c.items > 0 && c.candidates === 0 ? "  <-- UNREADABLE" : "";
+		lines.push(
+			`  ${c.heading}: ${c.items} item(s), ${c.candidates} candidate(s), ${c.unparsedItems} unparsed${flag}`,
+		);
+	}
+	const unparsed = reportUnparsedItems(markdown);
+	if (unparsed.length > 0) {
+		lines.push(
+			"",
+			"items the exporter declared but the markdown format cannot turn into candidates:",
+		);
+		for (const u of unparsed) lines.push(`  ${u.heading}: ${u.title}`);
+	}
+	return lines.join("\n") + "\n";
 }
 
 async function main(): Promise<void> {
@@ -390,6 +492,13 @@ async function main(): Promise<void> {
 	// is always reported so the candidate set never shrinks silently.
 	const { candidates, suppressed } = selectCandidates(unique, resolveFile);
 
+	// Scope is decided once, here, before any validator reads code: metrics and
+	// informational facts are routed (never validated as bugs), the rest are the
+	// bug-class candidate set. `classifyFinding` is the single policy source.
+	const issueTypeOf = (fact: IssueFact): IssueType => classifyFinding(fact).issueType;
+	const bugCandidates = candidates.filter((f) => issueTypeOf(f) === "bug");
+	const routed = candidates.filter((f) => issueTypeOf(f) !== "bug");
+
 	if (args.emitFindings) {
 		// Extraction only: write the Step 3 candidate set and exit. No subagent is
 		// spawned, --limit does not truncate, and the directory is never removed.
@@ -397,47 +506,51 @@ async function main(): Promise<void> {
 		const files = writeFindingFiles(dir, candidates);
 		process.stdout.write(
 			`CodeFlow findings emitted — ${files.length} candidate(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
+				`${routed.length} finding(s) routed by triage (chore/informational, not bug-validated).\n` +
 				`${suppressed} known-noise/unresolved candidate(s) suppressed, not written.\n` +
-				`No validation run, no issues created.\n`,
+				`\n${coverageReport(markdown, coverage)}` +
+				(!json ? `\n${jsonNote()}` : "") +
+				`\nNo validation run, no issues created.\n`,
 		);
 		process.exit(0);
 	}
 
-	const selected = candidates.slice(0, args.limit);
-
 	if (args.listOnly) {
-		const cited = selected.flatMap((f) => f.files).map(resolveFile);
-		for (const [i, fact] of selected.entries()) {
+		const cited = candidates.flatMap((f) => f.files).map(resolveFile);
+		for (const [i, fact] of candidates.entries()) {
 			const files =
 				fact.files.length > 0
 					? fact.files.map((f) => renderResolved(f, resolveFile(f))).join(", ")
 					: "(none)";
-			process.stdout.write(`[${i + 1}] ${fact.kind} — ${fact.title}\n      files: ${files}\n`);
-		}
-		const unresolved = cited.filter((r) => r.how === "unresolved");
-		process.stdout.write(
-			"\nsection coverage (### items the exporter emitted vs candidates parsed):\n",
-		);
-		for (const c of coverage) {
-			const flag = c.items > 0 && c.candidates === 0 ? "  <-- UNREADABLE" : "";
 			process.stdout.write(
-				`  ${c.heading}: ${c.items} item(s), ${c.candidates} candidate(s), ${c.unparsedItems} unparsed${flag}\n`,
+				`[${i + 1}] ${fact.kind} — ${fact.title} [${issueTypeOf(fact)}]\n` +
+					`      targets: ${describeTargets(fact)}\n      files: ${files}\n`,
 			);
 		}
+		const unresolved = cited.filter((r) => r.how === "unresolved");
+		process.stdout.write(`\n${coverageReport(markdown, coverage)}`);
+		if (!json) process.stdout.write(`\n${jsonNote()}`);
 		process.stdout.write(
-			`\n${selected.length} finding(s), ${suppressed} suppressed as noise/unresolved, ` +
+			`\n${candidates.length} finding(s), ${routed.length} routed by triage (chore/informational, not bug-validated), ` +
+				`${suppressed} suppressed as noise/unresolved, ` +
 				`${cited.length} cited file(s), ${cited.length - unresolved.length} found, ` +
 				`${unresolved.length} unresolved. No validation run, no issues created.\n`,
 		);
 		process.exit(0);
 	}
 
+	const selected = bugCandidates.slice(0, args.limit);
+
 	const sourceLabel = json ? "json" : "markdown";
 	process.stdout.write(
 		`CodeFlow dry run — ${reportPath.replace(`${repoRoot}/`, "")} (${sourceLabel}, ` +
 			`${facts.length} finding(s), ${unique.length} unique, ${facts.length - unique.length} duplicate(s) dropped, ` +
 			`${suppressed} suppressed)\n` +
-			`Validating first ${selected.length} of ${candidates.length} candidate(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
+			`${routed.length} finding(s) routed by triage, not validated:\n` +
+			routed.map((f) => `  [${issueTypeOf(f)}] ${f.title}\n`).join("") +
+			`\n${coverageReport(markdown, coverage)}\n` +
+			(!json ? jsonNote() : "") +
+			`Validating first ${selected.length} of ${bugCandidates.length} bug candidate(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
 	);
 
 	const findingsDir = join(repoRoot, "ignore/codeflow-findings");
@@ -473,7 +586,7 @@ async function main(): Promise<void> {
 
 		if (verdict === "VALID") {
 			valid++;
-			const draft = draftIssue(v.fact, sourceLabel);
+			const draft = draftIssue(v.fact, sourceLabel, issueTypeOf(v.fact));
 			process.stdout.write(`      VALID (exit 0) — would file:\n`);
 			process.stdout.write(`      Title: ${draft.title}\n`);
 			for (const line of draft.body.split("\n")) process.stdout.write(`      │ ${line}\n`);

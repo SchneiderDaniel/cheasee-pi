@@ -18,13 +18,16 @@ import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import {
 	dedupeIssues,
+	classifyFinding,
 	classifyKnownNoise,
 	groupIssues,
 	parseBestReport,
 	parseReport,
 	parseReportJson,
 	reportSectionCoverage,
+	reportUnparsedItems,
 	type IssueFact,
+	type Target,
 } from "../lib/report.ts";
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
@@ -32,21 +35,36 @@ const FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8"
 const FIXTURE_JSON = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.json"), "utf-8");
 
 const byKind = (facts: IssueFact[], kind: string) => facts.filter((f) => f.kind === kind);
+const tFile = (path: string): Target => ({ kind: "file", path });
+const tSymbol = (name: string): Target => ({ kind: "symbol", name });
+const tEdge = (from: string, to: string): Target => ({ kind: "layer-edge", from, to });
+const fileTargets = (files: string[]): Target[] => files.map(tFile);
 
 describe("parseReport (captured markdown fixture)", () => {
 	const facts = parseReport(FIXTURE);
 
-	it("extracts architecture issues with their affected files", () => {
+	it("keeps a path-less layer-violation item as a layer-edge target", () => {
 		const arch = byKind(facts, "architecture");
-		// The real exporter prints a layer-violation issue's item as `fromLayer →
-		// toLayer` (no path), which is not a file reference and is dropped here;
-		// the JSON parser recovers that file from `affectedFiles`.
 		assert.deepStrictEqual(
 			arch.map((a) => a.title),
-			["High coupling in parser layer", "Circular dependency"],
+			["High coupling in parser layer", "1 Architecture Violations", "Circular dependency"],
 		);
 		assert.deepStrictEqual(arch[0].files, ["src/parser/ast.ts", "src/ui/render.ts"]);
-		assert.deepStrictEqual(arch[1].files, ["src/cycle/a.ts", "src/cycle/b.ts"]);
+		// `domain → ui` carries no path; the edge keeps the item alive.
+		assert.deepStrictEqual(arch[1].targets, [{ kind: "layer-edge", from: "domain", to: "ui" }]);
+		assert.deepStrictEqual(arch[1].files, []);
+		assert.deepStrictEqual(arch[2].files, ["src/cycle/a.ts", "src/cycle/b.ts"]);
+	});
+
+	it("projects files from targets and keeps every fact with at least one target", () => {
+		for (const f of facts) {
+			assert.ok(f.targets.length >= 1, `${f.id} has no target`);
+			assert.deepStrictEqual(
+				f.files,
+				f.targets.filter((t) => t.kind === "file").map((t) => (t as { path: string }).path),
+			);
+		}
+		assert.ok(byKind(facts, "architecture")[0].targets.every((t) => t.kind === "file"));
 	});
 
 	it("extracts dead functions with their owning file", () => {
@@ -284,11 +302,17 @@ describe("parseReport (defensive)", () => {
 		);
 		assert.deepStrictEqual(facts[0].files, ["index.test.ts", "jsonl-logger.ts"]);
 		assert.deepStrictEqual(facts[1].files, ["capture.test.mts"]);
-		// Bare function names, layer labels and count-only names stay dropped.
+		// File targets project to `files`; the edge and bare symbol ride along as
+		// non-file targets instead of being dropped with the item.
 		assert.deepStrictEqual(facts[2].files, ["prune_test.go"]);
+		assert.deepStrictEqual(facts[2].targets, [
+			tFile("prune_test.go"),
+			tEdge("utils", "ui"),
+			tSymbol("execFn"),
+		]);
 	});
 
-	it("drops non-path backticked names (function names) from affected lists", () => {
+	it("keeps a bare symbol on the ref line as a symbol target alongside a path", () => {
 		const md = [
 			"## Architecture Issues",
 			"",
@@ -297,18 +321,99 @@ describe("parseReport (defensive)", () => {
 			"",
 		].join("\n");
 		const facts = parseReport(md);
+		assert.deepStrictEqual(facts[0].targets, [tSymbol("doThing"), tFile("src/a.ts")]);
 		assert.deepStrictEqual(facts[0].files, ["src/a.ts"]);
 	});
 
-	it("deduplicates paths within a single issue", () => {
+	it("deduplicates identical targets within a single issue", () => {
 		const md = [
 			"## Architecture Issues",
 			"",
 			"### Dup",
-			"**Affected:** `src/a.ts`, `src/a.ts`",
+			"**Affected:** `src/a.ts`, `utils → ui`, `utils → ui`",
 			"",
 		].join("\n");
-		assert.deepStrictEqual(parseReport(md)[0].files, ["src/a.ts"]);
+		assert.deepStrictEqual(parseReport(md)[0].targets, [tFile("src/a.ts"), tEdge("utils", "ui")]);
+	});
+
+	it("recovers a lone layer edge with no files", () => {
+		const facts = parseReport(
+			["## Architecture Issues", "", "### Edges", "**Affected:** `utils → ui`", ""].join("\n"),
+		);
+		assert.strictEqual(facts.length, 1);
+		assert.deepStrictEqual(facts[0].targets, [tEdge("utils", "ui")]);
+		assert.deepStrictEqual(facts[0].files, []);
+	});
+
+	it("keeps two edges in source order", () => {
+		const facts = parseReport(
+			["## Architecture Issues", "", "### Edges", "**Affected:** `utils → ui`, `db → ui`", ""].join(
+				"\n",
+			),
+		);
+		assert.deepStrictEqual(facts[0].targets, [tEdge("utils", "ui"), tEdge("db", "ui")]);
+	});
+
+	it("treats a path-shaped edge as one edge, not two files", () => {
+		const facts = parseReport(
+			[
+				"## Architecture Issues",
+				"",
+				"### Edge",
+				"**Affected:** `src/a.ts → src/b.ts`",
+				"",
+			].join("\n"),
+		);
+		assert.deepStrictEqual(facts[0].targets, [tEdge("src/a.ts", "src/b.ts")]);
+		assert.deepStrictEqual(facts[0].files, []);
+	});
+
+	it("strips an inlined count from a bare symbol", () => {
+		const facts = parseReport(
+			["## Architecture Issues", "", "### Dups", "**Affected:** `execFn (3 files)`", ""].join("\n"),
+		);
+		assert.deepStrictEqual(facts[0].targets, [tSymbol("execFn")]);
+		assert.deepStrictEqual(facts[0].files, []);
+	});
+
+	it("keeps a comma-joined symbol token as one symbol target", () => {
+		const facts = parseReport(
+			[
+				"## Architecture Issues",
+				"",
+				"### Similar",
+				"**Affected:** `readSettingsCodeflowPort, readSettingsUIPort`",
+				"",
+			].join("\n"),
+		);
+		const first = facts[0].targets[0];
+		assert.strictEqual(first.kind, "symbol");
+		assert.match((first as { name: string }).name, /readSettingsCodeflowPort/);
+	});
+
+	it("yields no fact for an item without a target-bearing ref line", () => {
+		assert.deepStrictEqual(
+			parseReport(["## Architecture Issues", "", "### No ref", "Some prose.", ""].join("\n")),
+			[],
+		);
+		assert.deepStrictEqual(
+			parseReport(["## Architecture Issues", "", "### Empty", "**Affected:**", ""].join("\n")),
+			[],
+		);
+	});
+
+	it("ignores backticked symbols on a non-ref line", () => {
+		const facts = parseReport(
+			[
+				"## Architecture Issues",
+				"",
+				"### Has file",
+				"See `doThing` for details.",
+				"**Affected:** `src/a.ts`",
+				"",
+			].join("\n"),
+		);
+		assert.deepStrictEqual(facts[0].targets, [tFile("src/a.ts")]);
 	});
 
 	it("returns an empty list for empty, unknown and truncated input without throwing", () => {
@@ -326,6 +431,7 @@ describe("groupIssues", () => {
 		id,
 		kind: "architecture",
 		title: id,
+		targets: fileTargets(files),
 		files,
 	});
 
@@ -347,6 +453,20 @@ describe("groupIssues", () => {
 
 	it("keeps file-less issues isolated instead of merging them", () => {
 		const groups = groupIssues([fact("a", []), fact("b", [])]);
+		assert.strictEqual(groups.length, 2);
+		assert.ok(groups.every((g) => g.isolated));
+	});
+
+	it("keeps layer-edge/symbol facts (files: []) isolated from file facts", () => {
+		const edge: IssueFact = {
+			id: "architecture:edge",
+			kind: "architecture",
+			title: "157 Architecture Violations",
+			targets: [tEdge("utils", "ui")],
+			files: [],
+		};
+		const file = fact("a", ["src/a.ts"]);
+		const groups = groupIssues([edge, file]);
 		assert.strictEqual(groups.length, 2);
 		assert.ok(groups.every((g) => g.isolated));
 	});
@@ -386,10 +506,11 @@ describe("dedupeIssues", () => {
 		id: `${kind}:${title}`,
 		kind,
 		title,
+		targets: fileTargets(files),
 		files,
 	});
 
-	it("keeps the first of each (kind, title, files) group in input order", () => {
+	it("keeps the first of each (kind, title, targets) group in input order", () => {
 		const issues = [
 			fact("on_open()", ["src/retry.rs"]),
 			fact("other()", ["src/retry.rs"]),
@@ -417,7 +538,7 @@ describe("dedupeIssues", () => {
 
 	it("collapses repeated security findings while preserving distinct titles (canonical count)", () => {
 		// Live shape: one LOW per matching line in the same file. Only the
-		// (kind, title, files) unit is canonical; the UI summary dedupes by rule.
+		// (kind, title, targets) unit is canonical; the UI summary dedupes by rule.
 		const stop = fact("LOW: Code Comments", ["src/a.ts"], "security");
 		const debug = fact("LOW: Debug Statements", ["src/a.ts"], "security");
 		const high = fact("HIGH: Hardcoded Secret", ["src/a.ts"], "security");
@@ -427,6 +548,25 @@ describe("dedupeIssues", () => {
 			["LOW: Code Comments", "LOW: Debug Statements", "HIGH: Hardcoded Secret"],
 		);
 	});
+
+	it("treats different targets as distinct facts and identical targets as duplicates", () => {
+		const a: IssueFact = {
+			id: "architecture:a",
+			kind: "architecture",
+			title: "Architecture Violations",
+			targets: [tEdge("utils", "ui")],
+			files: [],
+		};
+		const b: IssueFact = {
+			id: "architecture:b",
+			kind: "architecture",
+			title: "Architecture Violations",
+			targets: [tEdge("db", "ui")],
+			files: [],
+		};
+		assert.strictEqual(dedupeIssues([a, b]).length, 2);
+		assert.strictEqual(dedupeIssues([a, a, b]).length, 2);
+	});
 });
 
 describe("classifyKnownNoise", () => {
@@ -434,6 +574,7 @@ describe("classifyKnownNoise", () => {
 		id: `${kind}:0`,
 		kind,
 		title,
+		targets: fileTargets(files),
 		files,
 	});
 
@@ -489,13 +630,13 @@ describe("reportSectionCoverage", () => {
 		});
 
 		const unreadable = reportSectionCoverage(
-			"## Architecture Issues\n\n### Broken\n\n**Affected:** `x`\n",
+			"## Architecture Issues\n\n### Broken\n\nNo reference line.\n",
 		);
 		assert.strictEqual(unreadable[0].items, 1);
 		assert.strictEqual(unreadable[0].candidates, 0);
 	});
 
-	it("counts every declared item and reports the path-less architecture entry", () => {
+	it("counts every declared item, including the path-less architecture entry", () => {
 		assert.deepStrictEqual(
 			reportSectionCoverage(FIXTURE).map((c) => [c.kind, c.items, c.candidates, c.unparsedItems]),
 			[
@@ -503,23 +644,184 @@ describe("reportSectionCoverage", () => {
 				["dead-code", 3, 3, 0],
 				["pattern", 1, 1, 0],
 				["anti-pattern", 1, 1, 0],
-				// `domain → ui` carries no path in the markdown format: JSON-only.
-				["architecture", 3, 2, 1],
+				// `domain → ui` is now a layer-edge target, so the item is a candidate.
+				["architecture", 3, 3, 0],
 			],
+		);
+	});
+
+	it("counts an edge-only item as parsed and a ref-less item as unparsed", () => {
+		const edgeOnly = reportSectionCoverage(
+			"## Architecture Issues\n\n### Edge\n\n**Affected:** `utils → ui`\n",
+		);
+		assert.deepStrictEqual([edgeOnly[0].items, edgeOnly[0].candidates, edgeOnly[0].unparsedItems], [1, 1, 0]);
+
+		const refLess = reportSectionCoverage(
+			"## Architecture Issues\n\n### No ref\n\nprose\n",
+		);
+		assert.deepStrictEqual([refLess[0].items, refLess[0].candidates, refLess[0].unparsedItems], [1, 0, 1]);
+	});
+
+	it("reports the live 7-item architecture shape as 7 candidates", () => {
+		const live = [
+			"## Architecture Issues",
+			"",
+			"### 21 Unused Functions",
+			"**Affected:** `defaultFetch`, `defaultWriteFile`, `opened`",
+			"",
+			"### 75 Large Files",
+			"**Affected:** `index.test.ts (46 fns)`, `jsonl-logger.ts (21 fns)`",
+			"",
+			"### 196 Highly Coupled",
+			"**Affected:** `capture.test.mts (72 imports)`",
+			"",
+			"### 6 Duplicate Function Names",
+			"**Affected:** `execFn (3 files)`, `info (4 files)`",
+			"",
+			"### 4 Similar Code Blocks",
+			"**Affected:** `readSettingsCodeflowPort, readSettingsUIPort`",
+			"",
+			"### 157 Architecture Violations",
+			"**Affected:** `utils → ui`, `utils → ui`",
+			"",
+			"### 276 High Complexity Files",
+			"**Affected:** `server.py (233)`, `prune_test.go (206)`",
+		].join("\n");
+		const covered = reportSectionCoverage(live).find((c) => c.kind === "architecture");
+		assert.deepStrictEqual(
+			[covered?.items, covered?.candidates, covered?.unparsedItems],
+			[7, 7, 0],
 		);
 	});
 
 	it("reports every item of a whole-section drop as unparsed", () => {
 		const dropped = reportSectionCoverage(
-			"## Architecture Issues\n\n### Broken\n\n**Affected:** `x`\n",
+			"## Architecture Issues\n\n### Broken\n\nNo reference line.\n",
 		);
 		assert.strictEqual(dropped[0].items, 1);
 		assert.strictEqual(dropped[0].candidates, 0);
 		assert.strictEqual(dropped[0].unparsedItems, dropped[0].items);
 	});
 
+	it("keeps unparsedItems === max(0, items - candidates) for every input", () => {
+		const live = [
+			"## Architecture Issues",
+			"",
+			"### 157 Architecture Violations",
+			"**Affected:** `utils → ui`",
+			"",
+			"### Mystery",
+			"prose",
+			"",
+		].join("\n");
+		for (const md of [FIXTURE, live, ""]) {
+			for (const c of reportSectionCoverage(md)) {
+				assert.strictEqual(c.unparsedItems, Math.max(0, c.items - c.candidates), c.heading);
+			}
+		}
+	});
+
 	it("reports no issue sections for empty or unrelated input", () => {
 		assert.deepStrictEqual(reportSectionCoverage(""), []);
 		assert.deepStrictEqual(reportSectionCoverage("## Summary\n\n### nothing\n"), []);
+	});
+});
+
+describe("classifyFinding", () => {
+	const fact = (kind: string, title: string): IssueFact => ({
+		id: `${kind}:0`,
+		kind,
+		title,
+		targets: [tSymbol(title)],
+		files: [],
+	});
+
+	it("routes size/coupling/complexity metrics to chore with a reason", () => {
+		for (const title of [
+			"75 Large Files",
+			"196 Highly Coupled",
+			"276 High Complexity Files",
+			"5 Large Files",
+		]) {
+			const r = classifyFinding(fact("architecture", title));
+			assert.strictEqual(r.issueType, "chore", title);
+			assert.ok(r.reason.length > 0, title);
+		}
+	});
+
+	it("keeps architecture edge/duplicate findings on the bug template", () => {
+		for (const title of [
+			"157 Architecture Violations",
+			"6 Duplicate Function Names",
+			"4 Similar Code Blocks",
+			"Circular dependency",
+			"High coupling in parser layer",
+			"21 Unused Functions",
+		]) {
+			assert.strictEqual(classifyFinding(fact("architecture", title)).issueType, "bug", title);
+		}
+	});
+
+	it("maps the remaining kinds", () => {
+		for (const kind of ["security", "dead-code", "duplicate", "layer-violation", "suggestion"]) {
+			assert.strictEqual(classifyFinding(fact(kind, "x")).issueType, "bug", kind);
+		}
+		assert.strictEqual(classifyFinding(fact("pattern", "Singleton")).issueType, "informational");
+		assert.strictEqual(classifyFinding(fact("anti-pattern", "God Object")).issueType, "chore");
+	});
+
+	it("is deterministic and always inside the union", () => {
+		const all = [
+			fact("architecture", "75 Large Files"),
+			fact("architecture", "157 Architecture Violations"),
+			fact("security", "HIGH: X"),
+			fact("pattern", "Singleton"),
+			fact("anti-pattern", "God Object"),
+		];
+		const allowed = new Set(["bug", "chore", "informational", "out-of-scope"]);
+		for (const f of all) {
+			const a = classifyFinding(f);
+			assert.deepStrictEqual(a, classifyFinding(f));
+			assert.ok(allowed.has(a.issueType), a.issueType);
+		}
+	});
+});
+
+describe("reportUnparsedItems", () => {
+	it("names the items a section declared but could not parse", () => {
+		const md = [
+			"## Architecture Issues",
+			"",
+			"### 157 Architecture Violations",
+			"**Affected:** `utils → ui`",
+			"",
+			"### Mystery",
+			"prose only",
+			"",
+		].join("\n");
+		assert.deepStrictEqual(reportUnparsedItems(md), [
+			{ heading: "Architecture Issues", title: "Mystery" },
+		]);
+	});
+
+	it("returns nothing for fully parsed or empty input", () => {
+		assert.deepStrictEqual(reportUnparsedItems(""), []);
+		assert.deepStrictEqual(
+			reportUnparsedItems("## Architecture Issues\n\n### X\n**Affected:** `src/a.ts`\n"),
+			[],
+		);
+	});
+});
+
+describe("triage policy is single-sourced", () => {
+	const SKILL_DIR = resolve(FIXTURE_DIR, "..", "..");
+	const read = (rel: string) => readFileSync(resolve(SKILL_DIR, rel), "utf-8");
+
+	it("drops the threshold clause and points at classifyFinding", () => {
+		assert.ok(!read("references/finding-validator.md").includes("size or count threshold"));
+		const skill = read("SKILL.md");
+		assert.ok(!skill.includes("JSON-only in practice"));
+		assert.ok(!skill.includes("expected, not a parser fault"));
+		assert.ok(skill.includes("classifyFinding"));
 	});
 });

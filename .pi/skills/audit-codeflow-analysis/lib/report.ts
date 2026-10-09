@@ -15,14 +15,26 @@
  *
  * Both parsers are defensive: the format is owned by the vendored UI and may
  * change, so unknown/absent sections yield no facts and truncated input never
- * throws. Only facts with at least one file path participate in file-isolation
- * grouping; file-less facts (e.g. suggestions) are still surfaced as isolated
- * groups.
+ * throws. A fact is kept when it has at least one recoverable target — a file
+ * path, a layer edge or a bare symbol — so the markdown format's path-less
+ * architecture items survive instead of being dropped whole. Only file targets
+ * drive file-isolation grouping; file-less facts are still surfaced.
  *
  * Formats verified against CodeFlow b0e82d1
  * (`test/fixtures/generate-report-fixtures.mjs` regenerates the fixtures from
  * the real generator).
  */
+
+/**
+ * A recoverable identity for a finding. The markdown exporter emits only
+ * `x.name || x.file`, so an item may name a file, a `from → to` layer edge, or a
+ * bare symbol (`execFn (3 files)`) — all three keep the finding alive; only the
+ * `file` kind participates in file-isolation grouping.
+ */
+export type Target =
+	| { kind: "file"; path: string }
+	| { kind: "layer-edge"; from: string; to: string }
+	| { kind: "symbol"; name: string };
 
 export interface IssueFact {
 	/** Stable id, unique within one parse (kind + per-kind index). */
@@ -30,6 +42,12 @@ export interface IssueFact {
 	/** architecture | security | dead-code | duplicate | layer-violation | suggestion | pattern | anti-pattern */
 	kind: string;
 	title: string;
+	/** Recoverable identities; a fact is kept when this is non-empty. */
+	targets: Target[];
+	/**
+	 * File-only projection of `targets`, derived one-way so `groupIssues`,
+	 * `selectCandidates` and file resolution keep operating on paths.
+	 */
 	files: string[];
 }
 
@@ -66,6 +84,26 @@ function isPathLike(token: string): boolean {
 	return /\.[A-Za-z0-9]+$/.test(t);
 }
 
+/** `A → B` (or ASCII `A -> B`), the layer-violation shape the exporter emits. */
+const LAYER_EDGE = /^(.+?)\s*(?:→|->)\s*(.+)$/;
+
+/** A file-only projection of a target list, for the path-based helpers. */
+function fileTargets(files: string[]): Target[] {
+	return files.map((path) => ({ kind: "file", path }));
+}
+
+function targetKey(target: Target): string {
+	return JSON.stringify(target);
+}
+
+/** Turn one backticked affected token into its target (path, edge or symbol). */
+function tokenTarget(token: string): Target {
+	const edge = LAYER_EDGE.exec(token);
+	if (edge) return { kind: "layer-edge", from: edge[1].trim(), to: edge[2].trim() };
+	if (isPathLike(token)) return { kind: "file", path: token };
+	return { kind: "symbol", name: token };
+}
+
 /**
  * Drop a trailing display count the exporter inlines into an item's `name` for
  * the derived architecture metrics — `index.test.ts (46 fns)`, `capture.test.mts
@@ -78,23 +116,34 @@ function stripTrailingCount(token: string): string {
 	return token.replace(/\s*\([^()]*\)\s*$/, "").trim();
 }
 
-/** Every path-like token in a line's backticks, in order. */
-function backtickPaths(line: string): string[] {
-	const out: string[] = [];
+/** Is this line the `**Affected:**` / `**Files:**` reference line of an item? */
+function isRefLine(line: string): boolean {
+	const t = line.trim();
+	return /^([-*]\s+)?\*\*(affected( files)?|files?|file)\s*:?\*\*/i.test(t);
+}
+
+/**
+ * Every target a backticked reference line names, in order, deduped. A
+ * path-shaped edge (`src/a.ts → src/b.ts`) is an edge, not two files: the layer
+ * shape wins over the path check so the edge keeps its labels.
+ */
+function targetsFromRefLine(line: string): Target[] {
+	if (!isRefLine(line)) return [];
+	const out: Target[] = [];
+	const seen = new Set<string>();
 	const re = /`([^`]+)`/g;
 	let m: RegExpExecArray | null;
 	while ((m = re.exec(line)) !== null) {
 		const token = stripTrailingCount(m[1]);
-		if (isPathLike(token)) out.push(token);
+		if (token === "") continue;
+		const target = tokenTarget(token);
+		const key = targetKey(target);
+		if (!seen.has(key)) {
+			seen.add(key);
+			out.push(target);
+		}
 	}
 	return out;
-}
-
-/** A line that carries file references for the enclosing `###` item. */
-function pathsFromRefLine(line: string): string[] {
-	const t = line.trim();
-	if (/^([-*]\s+)?\*\*(affected( files)?|files?|file)\s*:?\*\*/i.test(t)) return backtickPaths(t);
-	return [];
 }
 
 /**
@@ -108,7 +157,12 @@ export function parseReport(markdown: string): IssueFact[] {
 	let current: IssueFact | null = null;
 
 	const flush = () => {
-		if (current && current.files.length > 0) facts.push(current);
+		if (current && current.targets.length > 0) {
+			current.files = current.targets
+				.filter((t): t is Extract<Target, { kind: "file" }> => t.kind === "file")
+				.map((t) => t.path);
+			facts.push(current);
+		}
 		current = null;
 	};
 
@@ -126,13 +180,20 @@ export function parseReport(markdown: string): IssueFact[] {
 			if (kind) {
 				const n = counters.get(kind) ?? 0;
 				counters.set(kind, n + 1);
-				current = { id: `${kind}:${n}`, kind, title: h3[1].replace(/`/g, "").trim(), files: [] };
+				current = {
+					id: `${kind}:${n}`,
+					kind,
+					title: h3[1].replace(/`/g, "").trim(),
+					targets: [],
+					files: [],
+				};
 			}
 			continue;
 		}
 		if (!kind || !current) continue;
-		for (const p of pathsFromRefLine(line)) {
-			if (!current.files.includes(p)) current.files.push(p);
+		for (const target of targetsFromRefLine(line)) {
+			const key = targetKey(target);
+			if (!current.targets.some((t) => targetKey(t) === key)) current.targets.push(target);
 		}
 	}
 	flush();
@@ -175,7 +236,7 @@ export function parseReportJson(text: string): IssueFact[] {
 	const push = (kind: string, title: string, files: string[]): void => {
 		const n = counters.get(kind) ?? 0;
 		counters.set(kind, n + 1);
-		facts.push({ id: `${kind}:${n}`, kind, title, files });
+		facts.push({ id: `${kind}:${n}`, kind, title, targets: fileTargets(files), files });
 	};
 
 	for (const issue of Array.isArray(r.architectureIssues) ? r.architectureIssues : []) {
@@ -269,13 +330,15 @@ export function parseBestReport(markdown: string, json?: string | null): IssueFa
  * once (two `on_open()` entries in one file, a security issue per matching
  * line), and validation runs per fact — so a duplicate is both a wasted
  * read-only subagent run and a duplicate candidate at the confirmation gate.
- * Preserves input order; keeps the first of each `(kind, title, files)` group.
+ * Preserves input order; keeps the first of each `(kind, title, targets)` group
+ * (`files` being the file-only projection).
  */
 export function dedupeIssues(issues: IssueFact[]): IssueFact[] {
 	const seen = new Set<string>();
 	const out: IssueFact[] = [];
 	for (const issue of issues) {
-		const key = `${issue.kind}\u0000${issue.title}\u0000${issue.files.join("\u0000")}`;
+		const identity = (issue.targets ?? fileTargets(issue.files)).map(targetKey);
+		const key = `${issue.kind}\u0000${issue.title}\u0000${identity.join("\u0000")}`;
 		if (seen.has(key)) continue;
 		seen.add(key);
 		out.push(issue);
@@ -293,6 +356,53 @@ export interface SectionCoverage {
 	candidates: number;
 	/** `items` that yielded no parsed fact (`items - candidates`). */
 	unparsedItems: number;
+}
+
+export interface UnparsedItem {
+	/** The `## ` heading the item was declared under. */
+	heading: string;
+	/** The `### ` title the exporter emitted, with inline backticks stripped. */
+	title: string;
+}
+
+/**
+ * Name every `### ` item that yielded no target, in source order.
+ * `reportSectionCoverage` counts these; this names them so a run can list what
+ * the markdown format could not turn into a candidate.
+ */
+export function reportUnparsedItems(markdown: string): UnparsedItem[] {
+	const md = markdown ?? "";
+	const out: UnparsedItem[] = [];
+	let kind: string | null = null;
+	let heading = "";
+	let title: string | null = null;
+	let hasTarget = false;
+
+	const flush = () => {
+		if (title !== null && !hasTarget) out.push({ heading, title });
+		title = null;
+		hasTarget = false;
+	};
+
+	for (const raw of md.split("\n")) {
+		const line = raw.replace(/\r$/, "");
+		const h2 = /^##\s+(.*)$/.exec(line);
+		if (h2) {
+			flush();
+			heading = h2[1].trim();
+			kind = sectionKind(heading);
+			continue;
+		}
+		const h3 = /^###\s+(.*)$/.exec(line);
+		if (h3) {
+			flush();
+			title = kind ? h3[1].replace(/`/g, "").trim() : null;
+			continue;
+		}
+		if (title !== null && targetsFromRefLine(line).length > 0) hasTarget = true;
+	}
+	flush();
+	return out;
 }
 
 /**
@@ -359,6 +469,38 @@ export function classifyKnownNoise(fact: IssueFact): "suppress" | "keep" {
 	if (fact.kind !== "security") return "keep";
 	const title = fact.title.replace(/\s+/g, " ").trim().toLowerCase();
 	return /^low:\s*(code comments|debug statements)$/.test(title) ? "suppress" : "keep";
+}
+
+/** Issue type the triage policy assigns to a fact. */
+export type IssueType = "bug" | "chore" | "informational" | "out-of-scope";
+
+/** The derived architecture metrics the exporter emits as `<N> Metric` titles. */
+const METRIC_TITLE = /^\d+\s+(large files|highly coupled|high complexity files)\b/i;
+
+/**
+ * Triage policy: decide an issue type *before* any validator reads code, so scope
+ * is never a validator's call. `pattern` is informational; `anti-pattern` and
+ * the derived size/coupling/complexity metrics are chore/refactor scope; every
+ * other known kind is bug-template scope. Pure and deterministic.
+ */
+export function classifyFinding(fact: IssueFact): { issueType: IssueType; reason: string } {
+	if (fact.kind === "pattern") {
+		return { issueType: "informational", reason: "design pattern present — informational, not a defect" };
+	}
+	if (fact.kind === "anti-pattern") {
+		return { issueType: "chore", reason: "anti-pattern — chore/refactor scope, never the bug template" };
+	}
+	if (METRIC_TITLE.test(fact.title)) {
+		return { issueType: "chore", reason: "size/coupling/complexity metric — chore/refactor scope" };
+	}
+	if (
+		["architecture", "security", "dead-code", "duplicate", "layer-violation", "suggestion"].includes(
+			fact.kind,
+		)
+	) {
+		return { issueType: "bug", reason: "bug-template kind" };
+	}
+	return { issueType: "out-of-scope", reason: `unknown kind ${JSON.stringify(fact.kind)}` };
 }
 
 /**

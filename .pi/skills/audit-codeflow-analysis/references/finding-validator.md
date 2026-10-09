@@ -15,11 +15,14 @@ maintainer who reads the cited code agree the finding is real?
 - VALID when the cited code matches the claim and the defect is real. Severity
   and priority are not your call — a small real defect is still VALID.
 - INVALID when there is nothing to remediate, even if the claim is true. A
-  design pattern being present (`dataclasses are used`), a size or count
-  threshold being crossed (`this file is over 500 lines`), or a stylistic
+  design pattern being present (`dataclasses are used`), or a stylistic
   preference is a descriptive observation, not a defect. VALID asserts that a
   maintainer must change the code; if the only honest action is "keep doing
   this", the verdict is INVALID.
+- Scope is not your call. Whether a finding is a bug, a chore/refactor, or a
+  descriptive metric is decided before you run, by `classifyFinding` in
+  `lib/report.ts`; size/coupling/complexity metrics never reach this prompt. You
+  answer only whether the cited code makes the claim true.
 - Ambiguous or unverifiable evidence is INVALID. Never guess. Never say "cannot
   determine" — pick INVALID and state what was missing.
 
