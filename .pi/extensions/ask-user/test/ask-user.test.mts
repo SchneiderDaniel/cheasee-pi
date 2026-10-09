@@ -10,7 +10,6 @@
 
 import assert from "node:assert";
 import fs from "node:fs";
-import type { PathLike } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -23,7 +22,6 @@ import {
 	toJsonlLine,
 	parseJsonlLine,
 	parseCsvLine,
-	splitCsvRows,
 	appendQnaEntry,
 	readQnaEntries,
 	getQnaEntry,

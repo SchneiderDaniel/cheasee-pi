@@ -5,6 +5,11 @@
  *
  * Class-only rule: interface shadows are benign (they carry no behaviour).
  *
+ * Second guard (#1995): an extension test must not carry dead import bindings.
+ * CodeFlow's coupling term charges one connection per imported name, so an
+ * unused value import is pure score debt. Type-only, side-effect and namespace
+ * imports are exempt — the analyzer skips them.
+ *
  * Run with:
  *   node --experimental-strip-types --test test/extension-test-imports.test.mts
  */
@@ -84,6 +89,39 @@ interface ExtensionScan {
 	productionClasses: Set<string>;
 }
 
+/** Named value bindings of `import { ... } from "..."` — type-only entries dropped. */
+function importedValueBindings(source: string): string[] {
+	const names: string[] = [];
+	for (const m of source.matchAll(/^[ \t]*import\s+(?!type\b)\{([^}]*)\}\s*from\s*["']/gm)) {
+		for (const part of m[1]!.split(",")) {
+			const raw = part.trim();
+			if (!raw || /^type\s/.test(raw)) continue;
+			const alias = raw.split(/\s+as\s+/);
+			names.push((alias[1] ?? alias[0])!.trim());
+		}
+	}
+	return names;
+}
+
+/** The source with every import statement removed, so a binding's own
+ * declaration cannot count as a use of itself. Anchored at line start so the
+ * word "import" inside a comment or string cannot swallow real code. */
+function withoutImports(source: string): string {
+	return source.replace(
+		/^[ \t]*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?|^[ \t]*import\s*["'][^"']+["']\s*;?/gm,
+		"",
+	);
+}
+
+/** Imported value bindings never referenced outside their import statement. */
+function unusedImports(source: string): string[] {
+	const body = withoutImports(source);
+	return importedValueBindings(source).filter((name) => {
+		const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		return !new RegExp(`(?<![\\w$])${esc}(?![\\w$])`).test(body);
+	});
+}
+
 function scanExtension(name: string): ExtensionScan {
 	const extDir = join(EXTENSIONS_DIR, name);
 
@@ -134,6 +172,50 @@ describe("extension tests — no shadowed production classes", () => {
 				for (const name of shadowViolations(readFileSync(file, "utf-8"), scan.productionClasses)) {
 					violations.push(`${relative(ROOT, file)}: ${name}`);
 				}
+			}
+		}
+		assert.deepStrictEqual(violations, []);
+	});
+});
+
+describe("extension tests — no dead import bindings", () => {
+	it("walk found extension test files (non-vacuity)", () => {
+		assert.ok(allTestFiles.length >= 1, "no extension test files found");
+	});
+
+	it("detector reports an unreferenced value binding (falsifiable)", () => {
+		assert.deepStrictEqual(
+			unusedImports('import { used, dead } from "../x.ts";\nconsole.log(used);'),
+			["dead"],
+		);
+	});
+
+	it("detector ignores a binding used only in a type position", () => {
+		assert.deepStrictEqual(
+			unusedImports('import { Held } from "../x.ts";\nlet v: Held | null = null;'),
+			[],
+		);
+	});
+
+	it("detector exempts type-only, side-effect and namespace imports", () => {
+		assert.deepStrictEqual(
+			unusedImports(
+				[
+					'import type { A } from "../a.ts";',
+					'import { type B } from "../b.ts";',
+					'import "../side-effect.ts";',
+					'import * as ns from "../ns.ts";',
+				].join("\n"),
+			),
+			[],
+		);
+	});
+
+	it("no extension test file carries an unused value import", () => {
+		const violations: string[] = [];
+		for (const file of allTestFiles) {
+			for (const name of unusedImports(readFileSync(file, "utf-8"))) {
+				violations.push(`${relative(ROOT, file)}: ${name}`);
 			}
 		}
 		assert.deepStrictEqual(violations, []);

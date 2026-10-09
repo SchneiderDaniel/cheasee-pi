@@ -6,7 +6,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { runPackageSafetyAudit, SAFETY_THRESHOLD_DAYS } from "../checks/package-safety.ts";
-import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 
 // ─── ExecFn type for mock ──────────────────────────────────────────
 

@@ -11,7 +11,6 @@
 import assert from "node:assert";
 import { describe, it, mock } from "node:test";
 import { FooterState } from "../footer-state.ts";
-import type { InstallFooterFn } from "../footer-state.ts";
 import { setSupervisorIssueData, clearSupervisorIssueData } from "../index.ts";
 
 // ---------------------------------------------------------------------------

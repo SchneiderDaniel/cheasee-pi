@@ -11,7 +11,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { truncateToWidth, visibleWidth, hyperlink } from "@earendil-works/pi-tui";
+import { visibleWidth, hyperlink } from "@earendil-works/pi-tui";
 import { installFooter } from "../footer.ts";
 import { createDefaultFooterConfig } from "../footer-state.ts";
 import type { ContextStatusBarConfig, FooterConfig } from "../types.ts";

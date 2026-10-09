@@ -15,7 +15,6 @@ import {
 	existsSync,
 	readFileSync,
 	realpathSync,
-	renameSync,
 } from "node:fs";
 import { resolve, join, basename } from "node:path";
 import { tmpdir } from "node:os";

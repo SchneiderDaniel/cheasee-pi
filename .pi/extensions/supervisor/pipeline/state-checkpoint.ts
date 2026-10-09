@@ -33,7 +33,7 @@ import {
 	readdirSync,
 	rmSync,
 } from "node:fs";
-import { resolve, dirname, isAbsolute, join } from "node:path";
+import { resolve, isAbsolute, join } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";

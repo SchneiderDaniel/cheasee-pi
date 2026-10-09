@@ -15,7 +15,6 @@ import {
 	formatSessionTimer,
 	formatCacheStats,
 } from "../formatting.ts";
-import { formatTokens } from "../../lib/format-tokens.ts";
 
 // Runtime import from index.ts — verified through the test assertion below.
 // All local imports in index.ts use .ts extensions (changed from .js)
@@ -27,7 +26,7 @@ import { contextInfo } from "../index.ts";
 // The imports verify their module-level exports are valid at runtime.
 import { listLocalPrompts, promptsLocator, promptsNameOf } from "../prompts.ts";
 import { listLocalSkills, skillsLocator, skillsNameOf } from "../skills.ts";
-import { listMarkdownResources, type ResourceMeta } from "../markdown-resources.ts";
+import { listMarkdownResources } from "../markdown-resources.ts";
 
 // CodeFlow URL resolver + pi-tui capability seam for the session_start hint
 // tests (setCapabilities gates the OSC 8 hyperlink branch deterministically).
