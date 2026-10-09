@@ -143,7 +143,9 @@ markdown marker considered. This matters because the JSON export embeds the
 literal `# CodeFlow Analysis Report` inside its source snippets. The transport
 re-sniffs both route bodies for the same reason, so a misrouted or old-shim body
 still lands in the correct artifact (`recoveredFromMarkdownRoute`); recovery is
-reported as a warning, never silently.
+reported as a warning, never silently. A body that classifies as the JSON export
+is stored only as the structured artifact — it is never written to the markdown
+path, so `path` never points at JSON content.
 
 Markdown is narration, **never the sole source of findings**. The markdown
 exporter does **not** emit duplicates, layer violations, or suggestions — those

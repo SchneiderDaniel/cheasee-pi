@@ -415,12 +415,21 @@ describe("partial run disclosure", () => {
 	it("re-homes a JSON body misrouted to the markdown route into the JSON artifact", async () => {
 		const s = await shim({ status: 200, body: MARKED_JSON_BODY, jsonStatus: 404, bridgeStatusStatus: 404 });
 		routeTo(s);
+		// A previous buggy run left the misrouted JSON at the markdown path.
+		mkdirSync(join(cwd, "ignore"), { recursive: true });
+		writeFileSync(REPORT_PATH(), MARKED_JSON_BODY, "utf-8");
 		const outcome = await fetchAndStoreReport({ cwd });
 		assert.strictEqual(outcome.ok, true);
 		if (!outcome.ok) return;
 		const { jsonPath, partial, recoveredFromMarkdownRoute, warnings } = outcome.result;
 		assert.ok(jsonPath !== null, "misrouted JSON must be recovered into the JSON artifact");
 		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), MARKED_JSON_BODY);
+		// A recovered JSON body must never be persisted as the markdown artifact.
+		assert.ok(
+			!existsSync(REPORT_PATH()),
+			"the JSON body must never be left at (or written to) the markdown path",
+		);
+		assert.match(warnings.join(" "), /stale markdown artifact/i);
 		assert.strictEqual(partial, false);
 		assert.strictEqual(recoveredFromMarkdownRoute, true);
 		assert.ok(warnings.join(" ").length > 0, "recovery must be loud, not silent");

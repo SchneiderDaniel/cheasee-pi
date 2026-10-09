@@ -305,20 +305,30 @@ export async function fetchAndStoreReport(opts: {
 	const analyzedAt = parseAnalyzedAt(resp.headers.get("X-Codeflow-Analysis-At"));
 
 	const target = resolveWithinRoot(opts.cwd, REPORT_REL_PATH);
-	writeAtomically(opts.cwd, target, bytes);
 
 	const warnings: string[] = [];
 	// Defense-in-depth: an old bridge or a manual POST can land a JSON body on
-	// the markdown route. Re-sniff by content and recover the structured
-	// artifact instead of losing it (the shim's own routing is fixed in
-	// `_BRIDGE_JS.capture`; this bridges the gap only, and says so loudly).
+	// the markdown route. Classify *before* persisting so a recovered JSON body
+	// is recovered into the structured artifact and never written as the
+	// markdown artifact (the shim's own routing is fixed in `_BRIDGE_JS.capture`;
+	// this bridges the gap only, and says so loudly).
 	const recoveredFromMarkdownRoute = classifyReportBody(decodeBody(bytes)) === "json";
 	let jsonBytes: Uint8Array | null = recoveredFromMarkdownRoute ? bytes : null;
 	if (recoveredFromMarkdownRoute) {
 		warnings.push(
 			"The markdown route returned a JSON export body (the browser bridge misrouted " +
-				"generateReport('json')); it was recovered as the structured artifact.",
+				"generateReport('json')); it was recovered as the structured artifact and was not " +
+				"written as the markdown artifact.",
 		);
+		// A previous buggy run may have written the JSON body to the markdown
+		// path; drop it so `path` can never point at JSON content.
+		if (removeStaleArtifact(opts.cwd, target)) {
+			warnings.push(
+				"Removed a stale markdown artifact so a previously misrouted JSON body cannot be mistaken for this report's markdown.",
+			);
+		}
+	} else {
+		writeAtomically(opts.cwd, target, bytes);
 	}
 
 	try {
