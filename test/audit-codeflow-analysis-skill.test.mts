@@ -111,16 +111,15 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 		assert.match(body, /only a retry that still exits `3`\/`4` is unverified/i);
 	});
 
-	it("names the path-less architecture entries the markdown fallback omits", () => {
-		for (const entry of [
-			"154 Architecture Violations",
-			"6 Duplicate Function Names",
-			"3 Similar Code Blocks",
-		]) {
-			assert.ok(body.includes(entry), `must name ${entry}`);
-		}
-		assert.match(body, /JSON-only/i);
-		assert.match(body, /not a parser fault/i);
+	it("documents the target model that keeps path-less architecture entries", () => {
+		// A `**Affected:**` item may name a path, a layer edge or a bare symbol; all
+		// three keep the finding as a candidate. The old "JSON-only in practice"
+		// exemption blessed the drop and is gone.
+		assert.match(body, /layer\s+-?\s*edge/i);
+		assert.match(body, /symbol/i);
+		assert.match(body, /targets?/i);
+		assert.doesNotMatch(body, /JSON-only in practice/i);
+		assert.doesNotMatch(body, /expected, not a parser fault/i);
 	});
 
 	it("discloses JSON-only categories and the owning component via bridge-status", () => {

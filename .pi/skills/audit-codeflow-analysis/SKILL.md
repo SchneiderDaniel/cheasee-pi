@@ -141,14 +141,15 @@ The fetch warning names the owning component using the shim's
 JSON export (a capture-side gap); `postedAt` set with a 404 on GET means the
 shim's `/api/analysis/report.json` route is down. Either way the JSON-only
 categories (duplicates, layer violations, suggestions) are disclosed unavailable,
-never silently omitted.
+never silently omitted, and the run states that those categories are partially
+unauditable from markdown.
 
-A `## Architecture Issues` entry whose `**Affected:**` is only a derived metric
-(`154 Architecture Violations` (`utils → ui`), `6 Duplicate Function Names`
-(`execFn (3 files)`) and `3 Similar Code Blocks`) carries no path in the markdown
-format at all: those kinds are JSON-only in practice, and a zero for them is
-expected, not a parser fault. Only the derived entries that inline a real file
-(whose trailing count is stripped) carry a path.
+A `## Architecture Issues` entry's `**Affected:**` line is parsed into **targets**,
+not just paths. The markdown exporter emits only `x.name || x.file`, so an item may
+name a path (`index.test.ts (46 fns)` — the trailing count is stripped), a layer
+edge (`utils → ui`) or a bare symbol (`execFn (3 files)`). All three keep the item
+as a candidate; only the `file` kind enters the file-conflict graph. The parser
+(`parseReport`) keeps a fact whenever it has at least one target.
 
 Before validating, apply the text-provable pre-filter documented in
 `references/known-false-positives.md` and implemented by `classifyKnownNoise`: it
@@ -178,9 +179,10 @@ The check is cheap and catches a whole class of silent loss: CodeFlow's derived
 architecture metrics arrive as `index.test.ts (46 fns)`, and a section whose every
 entry is unparseable disappears without a single error.
 
-Only keep tokens that name a file path (contain `/` or an extension); drop bare
-function names and layer labels. Unknown, absent, or truncated sections yield no
-candidates and must never abort the run.
+Unknown, absent, or truncated sections yield no candidates and must never abort
+the run. A section that parsed some entries but still reports `unparsedItems > 0`
+is not unreadable: list the unparsed `###` titles (`reportUnparsedItems`) and
+disclose that the markdown format could not turn them into candidates.
 
 ### Step 3 — Validate every candidate (read-only subagent)
 
@@ -248,11 +250,19 @@ the group's affected files as the scope and include:
 - the best-effort isolation note,
 - the `analyzedAt` of the report the finding came from.
 
-**Kind → issue type.** `pattern` is informational — record it in the run summary
-and stop there, it is not a defect and has no issue. `anti-pattern` is
-chore/refactor work: draft it through the freeform "Other" path. `security`,
-`dead-code`, `architecture`, `duplicate`, `layer-violation` and `suggestion` use
-the bug template.
+**Kind → issue type.** Scope is decided once, before any validator reads code, by
+`classifyFinding` in `lib/report.ts` — that function is the single policy source;
+do not restate it.
+
+- `pattern` is informational — record it in the run summary and stop there, it is
+  not a defect and has no issue.
+- `anti-pattern` is chore/refactor work: draft it through the freeform "Other" path.
+- The derived size/coupling/complexity metrics (`75 Large Files`,
+  `196 Highly Coupled`, `276 High Complexity Files`) are chore/refactor scope too:
+  route them (freeform "Other") or drop them, but never send a confirmed metric to
+  the bug validator and then call the "it is true but out of scope" verdict INVALID.
+- `security`, `dead-code`, `architecture`, `duplicate`, `layer-violation` and
+  `suggestion` use the bug template.
 
 Do the duplicate check (`gh issue list`) for every draft. Drop drafts that match
 an existing open issue; keep the rest as the proposed set.
@@ -319,11 +329,16 @@ false, `2` for bad usage or a missing report.
 
 - `ignore/codeflow-report.md` exists and is non-empty before parsing.
 - When `jsonPath` is null, the run discloses that the JSON-only categories
-  (duplicates, layer violations, suggestions) were unavailable, and names the
-owning component (browser capture vs shim route) using bridge-status.
-- Every `## ` section that emitted `###` items produced at least one candidate,
-  or the run stopped and named the unreadable section. A partial candidate set is
+  (duplicates, layer violations, suggestions) were unavailable, states those
+  categories are partially unauditable, and names the owning component (browser
+  capture vs shim route) using bridge-status.
+- Every `## ` section that emitted `###` items produced at least one candidate, or
+  the run stopped and named the unreadable section. A section with
+  `unparsedItems > 0` lists its unparsed `###` titles. A partial candidate set is
   never presented as a complete audit.
+- The metric policy is applied once: size/coupling/complexity metrics are routed
+  as chore/refactor (never bug-validated), so no confirmed metric is reported
+  VALID-but-INVALID.
 - The `analyzedAt` re-fetch before filing matches the Step 1 value.
 - Duplicates dropped by `dedupeIssues` are reported as a count.
 - No `pattern` fact was filed, and no `anti-pattern` fact used the bug template.
