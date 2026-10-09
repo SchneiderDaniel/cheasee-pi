@@ -5,7 +5,7 @@
  * Session-policy decisions moved to use-case layer (lib/extension-state.ts).
  */
 
-import { describe, it, before, after } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { writeFile, mkdir, unlink, rmdir, readFile } from "node:fs/promises";
 import { join } from "node:path";

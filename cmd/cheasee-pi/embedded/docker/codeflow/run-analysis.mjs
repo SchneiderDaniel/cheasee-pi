@@ -42,9 +42,9 @@ function fail(message) {
 // unusable stats yield `terms: null` instead of failing the run.
 function scoreTerms(stats) {
 	if (!stats || typeof stats !== "object") return null;
-	// Bracket access keeps these generic keys out of the analyzer's identifier
-	// index, which otherwise counts `stats.files` as a reference to every
-	// `files` function in the repository (a false coupling edge).
+	// Read the keys without destructuring: the destructuring token for the
+	// "files" key is otherwise counted as a reference to each repo function of
+	// that name, one false coupling edge. Measured: 3135 -> 3134 connections.
 	const fileCount = stats["files"];
 	const linkCount = stats["connections"];
 	const fnCount = stats["functions"];
