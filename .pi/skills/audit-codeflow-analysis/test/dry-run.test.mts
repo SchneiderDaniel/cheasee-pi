@@ -295,6 +295,28 @@ describe("dry-run --emit-findings", () => {
 		assert.match(r.stdout, /2 known-noise\/unresolved candidate\(s\) suppressed/);
 	});
 
+	it("discloses a partial parse and the missing JSON export before exiting", () => {
+		const partial = join(dir, "emit-partial.md");
+		writeFileSync(partial, PARTIAL_ARCH_FIXTURE, "utf-8");
+		const outDir = join(dir, "emit-partial-findings");
+		const r = runDryRun([
+			"--report",
+			partial,
+			"--json",
+			join(dir, "absent.json"),
+			"--emit-findings",
+			outDir,
+		]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		// Emission must not look complete: the coverage shortfall and the
+		// JSON-only categories are printed before the process exits.
+		assert.match(r.stdout, /Architecture Issues: 2 item\(s\), 1 candidate\(s\), 1 unparsed/);
+		assert.match(r.stdout, /Mystery Failure Mode/);
+		assert.match(r.stdout, /JSON export unavailable/);
+		assert.match(r.stdout, /partially unauditable/);
+		assert.ok(!/UNREADABLE/.test(r.stdout), "a partial section must not be flagged unreadable");
+	});
+
 	it("exits 2 and creates no directory when the report is missing", () => {
 		const outDir = join(dir, "never");
 		const r = runDryRun(["--report", join(dir, "absent.md"), "--emit-findings", outDir]);

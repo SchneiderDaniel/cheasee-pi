@@ -508,7 +508,9 @@ async function main(): Promise<void> {
 			`CodeFlow findings emitted — ${files.length} candidate(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
 				`${routed.length} finding(s) routed by triage (chore/informational, not bug-validated).\n` +
 				`${suppressed} known-noise/unresolved candidate(s) suppressed, not written.\n` +
-				`No validation run, no issues created.\n`,
+				`\n${coverageReport(markdown, coverage)}` +
+				(!json ? `\n${jsonNote()}` : "") +
+				`\nNo validation run, no issues created.\n`,
 		);
 		process.exit(0);
 	}
