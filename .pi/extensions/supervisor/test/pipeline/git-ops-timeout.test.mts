@@ -115,6 +115,42 @@ describe("preserveTimedOutWork — adapter (issue #1987)", () => {
 		assert.ok(!calls.some((c) => c.args[0] === "push"), "no push for a clean worktree");
 	});
 
+	it("clean worktree but branch ahead of remote → pushes the unpushed commits and marks them wip", async () => {
+		// Audit finding: a developer can commit locally and time out before
+		// pushing. Worktree recreation resets to `<remote>/<branch>`, so the
+		// clean-worktree early return must still push local-ahead commits.
+		const { pi, calls } = happyGit((args) => {
+			if (args[0] === "status") return { code: 0, stdout: "" };
+			if (args[0] === "rev-list") return { code: 0, stdout: "2\n" };
+			if (args[0] === "diff") return { code: 1, stdout: "src/a.ts\n" };
+			return null;
+		});
+		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
+
+		assert.equal(result.committed, true);
+		assert.equal(result.sha, SHA);
+		assert.deepEqual(result.files, ["src/a.ts"]);
+		assert.ok(
+			calls.some((c) => c.args[0] === "commit" && (c.args[3] || "").includes("wip(#1987)")),
+			"an empty marker commit makes the ahead work detectable for resume",
+		);
+		assert.ok(
+			calls.some((c) => c.args[0] === "push"),
+			"ahead commits pushed — reset --hard would discard them",
+		);
+	});
+
+	it("clean worktree, rev-list failure → fail-soft {committed:false, error}", async () => {
+		const { pi } = happyGit((args) => {
+			if (args[0] === "status") return { code: 0, stdout: "" };
+			if (args[0] === "rev-list") return { code: 128, stderr: "unknown revision" };
+			return null;
+		});
+		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
+		assert.equal(result.committed, false);
+		assert.ok(result.error && /git rev-list failed/.test(result.error), `error surfaced: ${result.error}`);
+	});
+
 	it("git add failure → fail-soft {committed:false, error}, no throw", async () => {
 		const { pi } = happyGit((args) => (args[0] === "add" ? { code: 1, stderr: "boom" } : null));
 		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);

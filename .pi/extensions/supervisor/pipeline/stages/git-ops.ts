@@ -9,7 +9,7 @@ import type { SupervisorConfig } from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
 import type { GitHubPort } from "../../github/ports.ts";
-import { commitAndPush } from "../../github/git.ts";
+import { commitAndPush, pushBranch } from "../../github/git.ts";
 
 export async function hasBranchCommits(
 	execFn: (
@@ -206,11 +206,13 @@ export async function detectPreservedWork(
 }
 
 /**
- * Preserve a timed-out agent's uncommitted work as a marked `wip(#N)` commit
- * pushed to the branch, so the next run resumes instead of restarting. The
- * push is required: worktree recreation runs `git reset --hard <remote>/<branch>`
- * and would discard a local-only commit. Fail-soft — never throws, so a git
- * failure cannot suppress the timeout stop that the caller still reports.
+ * Preserve a timed-out agent's work as a marked `wip(#N)` commit pushed to the
+ * branch, so the next run resumes instead of restarting. Covers both a dirty
+ * worktree (uncommitted edits) and a clean worktree with local commits the
+ * developer made but did not push before the deadline. The push is required:
+ * worktree recreation runs `git reset --hard <remote>/<branch>` and would
+ * discard a local-only commit. Fail-soft — never throws, so a git failure
+ * cannot suppress the timeout stop that the caller still reports.
  */
 export async function preserveTimedOutWork(
 	pi: ExtensionAPI,
@@ -238,7 +240,73 @@ export async function preserveTimedOutWork(
 			.map((line) => line.trim())
 			.filter((line) => line.length > 0)
 			.map((line) => line.replace(/^\S+\s+/, ""));
-		if (files.length === 0) return { committed: false, files: [] };
+		if (files.length === 0) {
+			// Clean worktree — but the developer may have committed locally and
+			// timed out before pushing. Worktree recreation resets to
+			// `<remote>/<branch>`, so any ahead commits must be pushed too, or the
+			// recovery the WIP path exists for is lost.
+			const ahead = await pi.exec(
+				"git",
+				["rev-list", "--count", `${remote}/${branch}..HEAD`],
+				{ cwd: worktreePath, timeout: 10_000 },
+			);
+			if (ahead.code !== 0) {
+				return {
+					committed: false,
+					files: [],
+					error: `git rev-list failed: ${ahead.stderr || ahead.stdout || ""}`,
+				};
+			}
+			if ((parseInt(ahead.stdout?.trim() || "0", 10) || 0) === 0) {
+				return { committed: false, files: [] };
+			}
+			const changed = await pi.exec(
+				"git",
+				["diff", "--name-only", `${remote}/${branch}..HEAD`],
+				{ cwd: worktreePath, timeout: 10_000 },
+			);
+			const changedFiles =
+				changed.code <= 1 // 1 = differences (same --exit-code semantics as commitAndPush)
+					? (changed.stdout || "")
+							.split("\n")
+							.map((s) => s.trim())
+							.filter((s) => s.length > 0)
+					: [];
+			// Mark HEAD so detectPreservedWork/parseWipCommit sees the preserved
+			// work on the next run; an empty marker commit keeps the real commits
+			// intact and makes the ahead work detectable for resume.
+			const markResult = await pi.exec(
+				"git",
+				["commit", "--allow-empty", "-m", `wip(#${issueNum}): partial work preserved on timeout`],
+				{ cwd: worktreePath, timeout: 10_000 },
+			);
+			if (markResult.code !== 0) {
+				return {
+					committed: false,
+					files: changedFiles,
+					error: `git commit failed: ${markResult.stderr || markResult.stdout || ""}`,
+				};
+			}
+			const pushResult = await pushBranch(
+				pi.exec.bind(pi),
+				worktreePath,
+				remote,
+				branch,
+				pushNotify,
+			);
+			if (!pushResult.ok) {
+				return { committed: false, files: changedFiles, error: pushResult.error };
+			}
+			const aheadHead = await pi.exec("git", ["rev-parse", "HEAD"], {
+				cwd: worktreePath,
+				timeout: 10_000,
+			});
+			return {
+				committed: true,
+				files: changedFiles,
+				sha: aheadHead.code === 0 ? (aheadHead.stdout || "").trim() || undefined : undefined,
+			};
+		}
 
 		const message = `wip(#${issueNum}): partial work preserved on timeout`;
 		const commitResult = await commitAndPush(
