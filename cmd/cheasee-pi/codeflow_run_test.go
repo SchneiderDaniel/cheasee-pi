@@ -644,3 +644,53 @@ func TestCodeFlowServer_RunGuards(t *testing.T) {
 		}
 	})
 }
+
+// TestCodeFlowServer_RunJsonPassthrough pins that the headless producer's rich
+// JSON reaches the slot verbatim, bypassing the browser-POST guard, and can
+// replace an accepted empty slot (issue #1993, acceptance #3).
+func TestCodeFlowServer_RunJsonPassthrough(t *testing.T) {
+	const richRunJSON = `{"architectureIssues":[{"title":"a"}],"duplicates":[{"files":["x","y"]}],"layerViolations":[{"from":"UI","to":"DB"}],"suggestions":[{"text":"split"}]}`
+	cfg := map[string]any{
+		"markdown": "# CodeFlow Analysis Report\n\n### Run finding\n",
+		"json":     richRunJSON,
+	}
+
+	t.Run("run fills json with all JSON-only categories", func(t *testing.T) {
+		s := startRunShim(t, initRunRepo(t), cfg)
+		defer s.stop(t)
+
+		s.do(t, http.MethodPost, "/api/analysis/run", nil, "")
+		if st := s.waitTerminal(t, 20*time.Second); st.State != "succeeded" {
+			t.Fatalf("status = %+v, want succeeded", st)
+		}
+		status, _, body := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		if status != http.StatusOK || string(body) != richRunJSON {
+			t.Fatalf("json report = %d %q", status, body)
+		}
+		for _, key := range []string{"duplicates", "layerViolations", "suggestions"} {
+			if !strings.Contains(string(body), key) {
+				t.Errorf("json report missing %q", key)
+			}
+		}
+		if e := s.bridgeStatus(t)["/api/analysis/report.json"]; e.RejectedAt != nil || e.RejectReason != nil {
+			t.Errorf("run path set rejection telemetry: %+v", e)
+		}
+	})
+
+	t.Run("run replaces an accepted empty json slot", func(t *testing.T) {
+		s := startRunShim(t, initRunRepo(t), cfg)
+		defer s.stop(t)
+
+		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report.json", []byte(`{"architectureIssues":[]}`), "application/json"); status != http.StatusNoContent {
+			t.Fatalf("seed empty json = %d, want 204", status)
+		}
+		s.do(t, http.MethodPost, "/api/analysis/run", nil, "")
+		if st := s.waitTerminal(t, 20*time.Second); st.State != "succeeded" {
+			t.Fatalf("status = %+v", st)
+		}
+		status, _, body := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		if status != http.StatusOK || string(body) != richRunJSON {
+			t.Fatalf("json report = %d %q, want run payload", status, body)
+		}
+	})
+}

@@ -63,6 +63,12 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 		"/api/analysis/run-status",
 		"ANALYZER_CMD",
 		"run_timeout_s",
+		// issue #1993: a stale embedded source cannot ship without the routes
+		// the running image is probed for.
+		"/api/analysis/bridge-status",
+		"_BRIDGE_STATUS_ROUTE",
+		"_RUN_ROUTE",
+		"_RUN_STATUS_ROUTE",
 	} {
 		if !strings.Contains(code, want) {
 			t.Errorf("preserved surface missing %q", want)
