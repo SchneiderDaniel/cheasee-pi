@@ -31,6 +31,10 @@ import type { IssueFact } from "../lib/report.ts";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 const CLI = resolve(REPO_ROOT, ".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts");
+const VALIDATOR = resolve(
+	REPO_ROOT,
+	".pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh",
+);
 const NODE = process.execPath;
 
 // A real repo file every kept candidate can cite (resolution is against the
@@ -524,6 +528,68 @@ describe("dry-run triage routing (live 7-item architecture shape)", () => {
 		assert.match(validate.stdout, /JSON export unavailable/);
 		assert.match(validate.stdout, /partially unauditable/);
 		assert.strictEqual(piCallCount(log), 4);
+	});
+});
+
+describe("dry-run validation-mode disclosure", () => {
+	it("discloses a partially parsed section and lists its unparsed title", () => {
+		const partial = join(dir, "partial-validate.md");
+		writeFileSync(partial, PARTIAL_ARCH_FIXTURE, "utf-8");
+		const bin = join(dir, "partial-bin");
+		const log = join(dir, "partial-pi.log");
+		writePiStub(bin, log);
+		const r = runDryRun(["--report", partial, "--json", join(dir, "absent.json")], {
+			PATH: `${bin}:${process.env.PATH ?? ""}`,
+		});
+		assert.strictEqual(r.status, 0, r.stderr);
+		// Normal validation mode must surface the coverage shortfall, not just --list.
+		assert.match(r.stdout, /Architecture Issues: 2 item\(s\), 1 candidate\(s\), 1 unparsed/);
+		assert.match(r.stdout, /Mystery Failure Mode/);
+		assert.match(r.stdout, /partially unauditable/);
+		assert.ok(!/UNREADABLE/.test(r.stdout), "a partial section must not be flagged unreadable");
+	});
+});
+
+describe("documented emit → validate loop", () => {
+	it("validates only issueType: bug findings from the emitted candidate set", () => {
+		const archFixture = join(dir, "documented-arch.md");
+		writeFileSync(archFixture, ARCH_FIXTURE, "utf-8");
+		const outDir = join(dir, "documented-findings");
+		const emit = runDryRun([
+			"--report",
+			archFixture,
+			"--json",
+			join(dir, "absent.json"),
+			"--emit-findings",
+			outDir,
+		]);
+		assert.strictEqual(emit.status, 0, emit.stderr);
+		// --emit-findings writes every candidate, triage-tagged.
+		assert.strictEqual(readdirSync(outDir).length, 7);
+
+		const bin = join(dir, "documented-bin");
+		const log = join(dir, "documented-pi.log");
+		writePiStub(bin, log);
+		// The exact Step 3 loop from SKILL.md: skip non-bug candidates.
+		const loop = [
+			`for f in ${outDir}/*.md; do`,
+			`  grep -q '^\\*\\*Issue type:\\*\\* bug$' "$f" || continue`,
+			`  bash "${VALIDATOR}" "$f" "${REPO_ROOT}" > "\${f%.md}.verdict" &`,
+			`  while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done`,
+			`done`,
+			`wait`,
+		].join("\n");
+		const r = spawnSync("bash", ["-c", loop], {
+			cwd: REPO_ROOT,
+			encoding: "utf-8",
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
+		});
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.strictEqual(piCallCount(log), 4, "only the 4 bug-class items may be validated");
+		const all = piLog(log);
+		assert.ok(!all.includes("75 Large Files"), "a metric must never reach a validator");
+		assert.ok(!all.includes("196 Highly Coupled"), "a metric must never reach a validator");
+		assert.ok(!all.includes("276 High Complexity Files"), "a metric must never reach a validator");
 	});
 });
 

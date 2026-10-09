@@ -148,6 +148,20 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 		assert.match(body, /NN-<slug>\.md/);
 	});
 
+	it("validates only bug-class candidates in the documented Step 3 loop", () => {
+		assert.match(body, /issueType: bug/);
+		assert.ok(body.includes("Issue type:"), "the Step 3 loop must filter on the triage tag");
+		assert.ok(body.includes("|| continue"), "the Step 3 loop must skip non-bug candidates");
+		assert.match(body, /never reach\s+the validator/i);
+	});
+
+	it("refers to classifyFinding without restating the kind → issue-type mapping", () => {
+		assert.match(body, /classifyFinding/);
+		assert.doesNotMatch(body, /`anti-pattern` is chore/);
+		assert.doesNotMatch(body, /`pattern` is informational/);
+		assert.doesNotMatch(body, /use the bug template/);
+	});
+
 	it("ships references/known-false-positives.md with one row per observed mechanism", () => {
 		const refPath = resolve(
 			ROOT,

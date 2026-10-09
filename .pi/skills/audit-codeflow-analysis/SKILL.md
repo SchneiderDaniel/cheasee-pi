@@ -42,9 +42,10 @@ Load this skill when the user asks to:
 - **Re-check freshness before filing.** The shim replaces the report when a new
   browser run finishes. If `analyzedAt` moved since Step 1, the validated set no
   longer describes the current analysis: stop and restart from Step 1.
-- **Informational findings are not issues.** A `pattern` fact (a design pattern
-  exists) is never filed. An `anti-pattern` fact that survives validation is
-  chore/refactor scope, never bug-template scope.
+- **Only `bug`-class findings are validated and filed as bugs.** `classifyFinding`
+  (`lib/report.ts`) is the single policy source and assigns every fact its issue
+  type before any validator reads code; `informational` facts are never filed
+  and `chore` facts are routed, never bug-template scope.
 - **Confirm before filing.** No `gh issue create` (directly or via
   `create-internal-issue`) until the user has explicitly confirmed via
   `ask_user`. Drafting is free; creating is not.
@@ -190,10 +191,14 @@ A finding is a candidate until the source confirms it. Write each candidate to
 `ignore/codeflow-findings/NN-<slug>.md` (kind, section/field, title, description,
 claimed files) — `dry-run.mts --emit-findings [DIR]` writes exactly those files
 for every post-dedupe, post-suppression candidate, with no subagent and no
-deletion. Then validate all of them in one batched `bash` call:
+deletion. Then validate every `issueType: bug` candidate in one batched `bash`
+call — `--emit-findings` also writes the `chore`/`informational` candidates (each
+file is tagged `**Issue type:**`), but those are routed in Step 5 and never reach
+the validator:
 
 ```bash
 for f in ignore/codeflow-findings/*.md; do
+  grep -q '^\*\*Issue type:\*\* bug$' "$f" || continue
   .pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh "$f" > "${f%.md}.verdict" &
   while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done
 done
@@ -251,18 +256,16 @@ the group's affected files as the scope and include:
 - the `analyzedAt` of the report the finding came from.
 
 **Kind → issue type.** Scope is decided once, before any validator reads code, by
-`classifyFinding` in `lib/report.ts` — that function is the single policy source;
-do not restate it.
+`classifyFinding` in `lib/report.ts` — that function is the single policy source.
+Consult its result per fact and act on the returned `issueType`; never re-derive a
+kind → issue-type mapping here:
 
-- `pattern` is informational — record it in the run summary and stop there, it is
-  not a defect and has no issue.
-- `anti-pattern` is chore/refactor work: draft it through the freeform "Other" path.
-- The derived size/coupling/complexity metrics (`75 Large Files`,
-  `196 Highly Coupled`, `276 High Complexity Files`) are chore/refactor scope too:
-  route them (freeform "Other") or drop them, but never send a confirmed metric to
-  the bug validator and then call the "it is true but out of scope" verdict INVALID.
-- `security`, `dead-code`, `architecture`, `duplicate`, `layer-violation` and
-  `suggestion` use the bug template.
+- `bug` — a Step 3-validated candidate; draft it with the bug template.
+- `chore` — refactor/cleanup scope: route it through the freeform "Other" path, or
+  drop it, but never send it to the bug validator.
+- `informational` — record it in the run summary and stop there; it is not a defect
+  and has no issue.
+- `out-of-scope` — drop it and state why.
 
 Do the duplicate check (`gh issue list`) for every draft. Drop drafts that match
 an existing open issue; keep the rest as the proposed set.
@@ -341,7 +344,8 @@ false, `2` for bad usage or a missing report.
   VALID-but-INVALID.
 - The `analyzedAt` re-fetch before filing matches the Step 1 value.
 - Duplicates dropped by `dedupeIssues` are reported as a count.
-- No `pattern` fact was filed, and no `anti-pattern` fact used the bug template.
+- No `informational` fact was filed and no `chore` fact used the bug template —
+  every filed issue came from a `bug`-class candidate.
 - Every proposed issue names at least one file (except file-less suggestions,
   which must reference the signal that produced them).
 - Every filed issue's finding exited `0` from `validate-finding.sh`; every

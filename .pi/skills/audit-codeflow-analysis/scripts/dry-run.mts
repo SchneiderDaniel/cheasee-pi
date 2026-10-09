@@ -26,6 +26,7 @@ import {
 	reportUnparsedItems,
 	type IssueFact,
 	type IssueType,
+	type SectionCoverage,
 	type Target,
 } from "../lib/report.ts";
 
@@ -410,6 +411,31 @@ function jsonNote(): string {
 	);
 }
 
+/**
+ * Coverage table plus the `###` titles the markdown format could not turn into
+ * candidates. Every mode prints it (not just `--list`), so a partial parse is
+ * always disclosed as a partial audit and never mistaken for a clean run. A
+ * section with `candidates === 0` is flagged `UNREADABLE`.
+ */
+function coverageReport(markdown: string, coverage: SectionCoverage[]): string {
+	const lines = ["section coverage (### items the exporter emitted vs candidates parsed):"];
+	for (const c of coverage) {
+		const flag = c.items > 0 && c.candidates === 0 ? "  <-- UNREADABLE" : "";
+		lines.push(
+			`  ${c.heading}: ${c.items} item(s), ${c.candidates} candidate(s), ${c.unparsedItems} unparsed${flag}`,
+		);
+	}
+	const unparsed = reportUnparsedItems(markdown);
+	if (unparsed.length > 0) {
+		lines.push(
+			"",
+			"items the exporter declared but the markdown format cannot turn into candidates:",
+		);
+		for (const u of unparsed) lines.push(`  ${u.heading}: ${u.title}`);
+	}
+	return lines.join("\n") + "\n";
+}
+
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
 	if (args.selfCheck) process.exit(selfCheck());
@@ -500,22 +526,7 @@ async function main(): Promise<void> {
 			);
 		}
 		const unresolved = cited.filter((r) => r.how === "unresolved");
-		process.stdout.write(
-			"\nsection coverage (### items the exporter emitted vs candidates parsed):\n",
-		);
-		for (const c of coverage) {
-			const flag = c.items > 0 && c.candidates === 0 ? "  <-- UNREADABLE" : "";
-			process.stdout.write(
-				`  ${c.heading}: ${c.items} item(s), ${c.candidates} candidate(s), ${c.unparsedItems} unparsed${flag}\n`,
-			);
-		}
-		const unparsed = reportUnparsedItems(markdown);
-		if (unparsed.length > 0) {
-			process.stdout.write(
-				"\nitems the exporter declared but the markdown format cannot turn into candidates:\n",
-			);
-			for (const u of unparsed) process.stdout.write(`  ${u.heading}: ${u.title}\n`);
-		}
+		process.stdout.write(`\n${coverageReport(markdown, coverage)}`);
 		if (!json) process.stdout.write(`\n${jsonNote()}`);
 		process.stdout.write(
 			`\n${candidates.length} finding(s), ${routed.length} routed by triage (chore/informational, not bug-validated), ` +
@@ -535,6 +546,7 @@ async function main(): Promise<void> {
 			`${suppressed} suppressed)\n` +
 			`${routed.length} finding(s) routed by triage, not validated:\n` +
 			routed.map((f) => `  [${issueTypeOf(f)}] ${f.title}\n`).join("") +
+			`\n${coverageReport(markdown, coverage)}\n` +
 			(!json ? jsonNote() : "") +
 			`Validating first ${selected.length} of ${bugCandidates.length} bug candidate(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
 	);
