@@ -417,6 +417,38 @@ def _run_failure(reason, error):
     }
 
 
+def _member_escapes(member, dest):
+    """True when extracting `member` would write outside `dest`.
+
+    `git archive` faithfully reproduces committed symlinks and hardlinks. The
+    analyzer reads the extracted tree, so a link whose target resolves outside
+    the snapshot would let it read container files outside committed HEAD and
+    leak their contents into the report. Absolute paths, `..` traversal and any
+    symlink/hardlink that resolves outside `dest` are therefore refused.
+    """
+    root = os.path.realpath(dest)
+    name = member.name
+    if not name or os.path.isabs(name) or ".." in name.split("/"):
+        return True
+    target = os.path.realpath(os.path.join(dest, name))
+    if target != root and not target.startswith(root + os.sep):
+        return True
+    if member.issym() or member.islnk():
+        link = member.linkname
+        # Symlink targets are relative to the link's directory; hardlink
+        # targets are relative to the archive root.
+        base = root if member.islnk() else os.path.dirname(target)
+        resolved = os.path.realpath(link if os.path.isabs(link) else os.path.join(base, link))
+        if resolved != root and not resolved.startswith(root + os.sep):
+            return True
+    return False
+
+
+def _extract_snapshot(tf, dest):
+    """Extract archive members, skipping any that escape `dest`."""
+    tf.extractall(dest, members=[m for m in tf if not _member_escapes(m, dest)])
+
+
 def _snapshot_head(source):
     """Extract the committed HEAD tree into `source` (git archive, no working tree)."""
     try:
@@ -432,7 +464,7 @@ def _snapshot_head(source):
         return False
     try:
         with tarfile.open(fileobj=io.BytesIO(proc.stdout)) as tf:
-            tf.extractall(source)
+            _extract_snapshot(tf, source)
     except (tarfile.TarError, OSError):
         return False
     return True

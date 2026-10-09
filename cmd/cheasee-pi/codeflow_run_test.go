@@ -36,6 +36,13 @@ if cfg.get("list_source"):
         for f in files:
             entries.append(os.path.relpath(os.path.join(root, f), src))
     open(cfg["list_source"], "w").write("\n".join(sorted(entries)))
+if cfg.get("read_link"):
+    p = os.path.join(src, cfg["read_link"])
+    if os.path.lexists(p):
+        try:
+            open(cfg["read_link_out"], "w").write(open(p).read())
+        except OSError as e:
+            open(cfg["read_link_out"], "w").write("ERR:" + str(e))
 if cfg.get("pid_file"):
     open(cfg["pid_file"], "w").write(str(os.getpid()))
 if cfg.get("sleep"):
@@ -86,17 +93,7 @@ func startRunShim(t *testing.T, repoRoot string, cfg map[string]any, extraEnv ..
 func initRunRepo(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
-	git := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = root
-		cmd.Env = append(os.Environ(),
-			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
-			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
+	git := gitInit(t, root)
 	git("init", "-q")
 	git("config", "user.email", "t@t")
 	git("config", "user.name", "t")
@@ -108,6 +105,42 @@ func initRunRepo(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(root, "untracked.txt"), []byte("no"), 0644); err != nil {
 		t.Fatalf("write untracked file: %v", err)
 	}
+	return root
+}
+
+// gitInit returns a git runner bound to a temp repo root with deterministic
+// committer/author identities.
+func gitInit(t *testing.T, root string) func(args ...string) {
+	t.Helper()
+	return func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+}
+
+// initRunRepoSymlink commits a symlink named "escape" pointing at linkTarget.
+func initRunRepoSymlink(t *testing.T, linkTarget string) string {
+	t.Helper()
+	root := t.TempDir()
+	git := gitInit(t, root)
+	git("init", "-q")
+	git("config", "user.email", "t@t")
+	git("config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(root, "committed.txt"), []byte("yes"), 0644); err != nil {
+		t.Fatalf("write committed file: %v", err)
+	}
+	if err := os.Symlink(linkTarget, filepath.Join(root, "escape")); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "init")
 	return root
 }
 
@@ -402,6 +435,39 @@ func TestCodeFlowServer_Run(t *testing.T) {
 			if strings.HasPrefix(e.Name(), "codeflow-run-") {
 				t.Fatalf("snapshot temp dir %q not removed", e.Name())
 			}
+		}
+	})
+
+	t.Run("committed symlink escaping the snapshot is never extracted or read", func(t *testing.T) {
+		secret := filepath.Join(t.TempDir(), "secret.txt")
+		if err := os.WriteFile(secret, []byte("TOP-SECRET"), 0600); err != nil {
+			t.Fatalf("write secret: %v", err)
+		}
+		repo := initRunRepoSymlink(t, secret)
+		listing := filepath.Join(t.TempDir(), "listing")
+		readOut := filepath.Join(t.TempDir(), "read-link")
+		s := startRunShim(t, repo, map[string]any{
+			"list_source":   listing,
+			"read_link":     "escape",
+			"read_link_out": readOut,
+			"markdown":      "# CodeFlow Analysis Report\n\nSYMLINK\n",
+		})
+		defer s.stop(t)
+
+		s.do(t, http.MethodPost, "/api/analysis/run", nil, "")
+		if st := s.waitTerminal(t, 20*time.Second); st.State != "succeeded" {
+			t.Fatalf("status = %+v, want succeeded", st)
+		}
+		raw, err := os.ReadFile(listing)
+		if err != nil {
+			t.Fatalf("stub did not record the source listing: %v", err)
+		}
+		files := strings.Split(strings.TrimSpace(string(raw)), "\n")
+		if len(files) != 1 || files[0] != "committed.txt" {
+			t.Fatalf("source snapshot = %v, want [committed.txt] (escaping symlink dropped)", files)
+		}
+		if data, err := os.ReadFile(readOut); err == nil {
+			t.Fatalf("escaping symlink was read: %q", data)
 		}
 	})
 

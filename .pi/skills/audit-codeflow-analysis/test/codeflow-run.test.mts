@@ -237,6 +237,89 @@ describe("ensureReport", () => {
 			/cancelled/,
 		);
 	});
+
+	it("bounds a stalled trigger request and fails as timeout", async () => {
+		const h = harness(() => json(statusBody()));
+		const hanging: RunFetchFn = (_url, init) =>
+			new Promise((_resolve, reject) => {
+				const signal = init?.signal;
+				if (signal?.aborted) return reject(signal.reason ?? new Error("aborted"));
+				signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true });
+			});
+
+		const start = Date.now();
+		const res = await ensureReport({
+			fetchFn: hanging,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+			timeoutMs: 40,
+		});
+
+		assert.strictEqual(res.ok, false);
+		if (res.ok) return;
+		assert.strictEqual(res.kind, "timeout");
+		assert.ok(Date.now() - start < 5000, "a stalled trigger must not hang");
+		assert.strictEqual(h.statusPolls(), 0, "must not poll after a stalled trigger");
+	});
+
+	it("bounds a stalled status request and fails as timeout", async () => {
+		const h = harness(() => json(statusBody()));
+		const hanging: RunFetchFn = async (url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			return new Promise((_resolve, reject) => {
+				const signal = init?.signal;
+				if (signal?.aborted) return reject(signal.reason ?? new Error("aborted"));
+				signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true });
+			});
+		};
+
+		const start = Date.now();
+		const res = await ensureReport({
+			fetchFn: hanging,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+			timeoutMs: 40,
+		});
+
+		assert.strictEqual(res.ok, false);
+		if (res.ok) return;
+		assert.strictEqual(res.kind, "timeout");
+		assert.ok(Date.now() - start < 5000, "a stalled status request must not hang");
+	});
+
+	it("bounds a stalled response body inside the deadline", async () => {
+		const h = harness(() => json(statusBody()));
+		const stalledBody: RunFetchFn = async (url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			const signal = init?.signal;
+			const stream = new ReadableStream({
+				start(controller) {
+					signal?.addEventListener(
+						"abort",
+						() => controller.error(signal.reason ?? new Error("aborted")),
+						{ once: true },
+					);
+				},
+			});
+			return new Response(stream, { status: 200, headers: { "Content-Type": "application/json" } });
+		};
+
+		const start = Date.now();
+		const res = await ensureReport({
+			fetchFn: stalledBody,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+			timeoutMs: 40,
+		});
+
+		assert.strictEqual(res.ok, false);
+		if (res.ok) return;
+		assert.strictEqual(res.kind, "timeout");
+		assert.ok(Date.now() - start < 5000, "a stalled response body must not hang");
+	});
 });
 
 describe("parseRunStatus", () => {

@@ -81,6 +81,14 @@ const defaultSleep: SleepFn = (ms, signal) =>
 		signal?.addEventListener("abort", onAbort, { once: true });
 	});
 
+/** Thrown when a request exceeds the remaining client budget. */
+class RequestTimeoutError extends Error {
+	constructor() {
+		super("CodeFlow request exceeded the client timeout");
+		this.name = "RequestTimeoutError";
+	}
+}
+
 /** Decode a `/api/analysis/run-status` body; null when the shape is unusable. */
 export function parseRunStatus(data: unknown): RunStatus | null {
 	if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
@@ -127,6 +135,10 @@ function runFailureMessage(status: RunStatus): string {
  * Trigger a headless run when needed and wait for it to fill the report slots.
  * Never throws for run outcomes (only for an aborted signal); the caller maps
  * `ok:false` to a user-visible message.
+ *
+ * The client budget starts before the trigger request and bounds *every*
+ * request: a stalled trigger or status response must not outlive the deadline,
+ * or the CLI would wait forever on a wedged shim.
  */
 export async function ensureReport(opts: EnsureReportOptions = {}): Promise<EnsureReportResult> {
 	const base = opts.base ?? codeflowServiceUrl();
@@ -135,22 +147,66 @@ export async function ensureReport(opts: EnsureReportOptions = {}): Promise<Ensu
 	const now = opts.nowFn ?? Date.now;
 	const timeoutMs = opts.timeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
 	const interval = opts.pollIntervalMs ?? RUN_POLL_INTERVAL_MS;
+	const deadline = now() + timeoutMs;
 
-	const trigger = await fetchFn(`${base}/api/analysis/run`, {
-		method: "POST",
-		signal: opts.signal,
+	const timedOut = (): EnsureReportResult => ({
+		ok: false,
+		kind: "timeout",
+		message: `CodeFlow run did not finish within ${Math.round(timeoutMs / 1000)}s.`,
 	});
+
+	// One request, bounded by the caller signal and the remaining client budget;
+	// `consume` runs inside that bound, so a stalled response body cannot outlive
+	// the deadline either. A caller abort rethrows through `throwIfAborted`; only
+	// a budget expiry maps to a timeout result.
+	const doFetch = async <T>(
+		url: string,
+		init: RequestInit,
+		consume: (resp: Response) => Promise<T>,
+	): Promise<T> => {
+		opts.signal?.throwIfAborted();
+		const remaining = deadline - now();
+		if (remaining <= 0) throw new RequestTimeoutError();
+		const ctrl = new AbortController();
+		let fired = false;
+		const onAbort = (): void => ctrl.abort(opts.signal?.reason ?? new Error("aborted"));
+		if (opts.signal?.aborted) onAbort();
+		else opts.signal?.addEventListener("abort", onAbort, { once: true });
+		const timer = setTimeout(() => {
+			fired = true;
+			ctrl.abort(new Error("client timeout"));
+		}, remaining);
+		try {
+			return await consume(await fetchFn(url, { ...init, signal: ctrl.signal }));
+		} catch (err) {
+			opts.signal?.throwIfAborted();
+			if (fired) throw new RequestTimeoutError();
+			throw err;
+		} finally {
+			clearTimeout(timer);
+			opts.signal?.removeEventListener("abort", onAbort);
+		}
+	};
+
+	let trigger: { status: number; reason: string | null };
+	try {
+		trigger = await doFetch(`${base}/api/analysis/run`, { method: "POST" }, async (resp) => ({
+			status: resp.status,
+			reason: resp.status === 503 ? await readReason(resp) : null,
+		}));
+	} catch (err) {
+		if (err instanceof RequestTimeoutError) return timedOut();
+		throw err;
+	}
 	opts.signal?.throwIfAborted();
 
 	if (trigger.status === 404) return { ok: false, kind: "run-route-absent" };
 	if (trigger.status === 503) {
-		const reason = await readReason(trigger);
-		opts.signal?.throwIfAborted();
 		return {
 			ok: false,
 			kind: "analyzer-unavailable",
 			message:
-				`CodeFlow headless analyzer is unavailable (HTTP 503${reason ? `: ${reason}` : ""}); ` +
+				`CodeFlow headless analyzer is unavailable (HTTP 503${trigger.reason ? `: ${trigger.reason}` : ""}); ` +
 				"the codeflow image must ship Node and run-analysis.mjs.",
 		};
 	}
@@ -163,22 +219,28 @@ export async function ensureReport(opts: EnsureReportOptions = {}): Promise<Ensu
 		};
 	}
 
-	const deadline = now() + timeoutMs;
 	for (;;) {
 		opts.signal?.throwIfAborted();
-		const resp = await fetchFn(`${base}/api/analysis/run-status`, {
-			method: "GET",
-			signal: opts.signal,
-		});
+		if (now() >= deadline) return timedOut();
+		let result: { ok: boolean; status: number; run: RunStatus | null };
+		try {
+			result = await doFetch(`${base}/api/analysis/run-status`, { method: "GET" }, async (resp) => {
+				if (!resp.ok) return { ok: false, status: resp.status, run: null };
+				return { ok: true, status: resp.status, run: parseRunStatus(await resp.json()) };
+			});
+		} catch (err) {
+			if (err instanceof RequestTimeoutError) return timedOut();
+			throw err;
+		}
 		opts.signal?.throwIfAborted();
-		if (!resp.ok) {
+		if (!result.ok) {
 			return {
 				ok: false,
 				kind: "run-failed",
-				message: `CodeFlow run status fetch failed: HTTP ${resp.status}`,
+				message: `CodeFlow run status fetch failed: HTTP ${result.status}`,
 			};
 		}
-		const status = parseRunStatus(await resp.json());
+		const status = result.run;
 		if (status === null) {
 			return {
 				ok: false,
@@ -206,13 +268,7 @@ export async function ensureReport(opts: EnsureReportOptions = {}): Promise<Ensu
 				message: `CodeFlow run reported an unknown state ${JSON.stringify(status.state)}.`,
 			};
 		}
-		if (now() >= deadline) {
-			return {
-				ok: false,
-				kind: "timeout",
-				message: `CodeFlow run did not finish within ${Math.round(timeoutMs / 1000)}s.`,
-			};
-		}
-		await sleep(interval, opts.signal);
+		if (now() >= deadline) return timedOut();
+		await sleep(Math.min(interval, Math.max(0, deadline - now())), opts.signal);
 	}
 }
