@@ -510,7 +510,7 @@ describe("dedupeIssues", () => {
 		files,
 	});
 
-	it("keeps the first of each (kind, title, files) group in input order", () => {
+	it("keeps the first of each (kind, title, targets) group in input order", () => {
 		const issues = [
 			fact("on_open()", ["src/retry.rs"]),
 			fact("other()", ["src/retry.rs"]),
@@ -538,7 +538,7 @@ describe("dedupeIssues", () => {
 
 	it("collapses repeated security findings while preserving distinct titles (canonical count)", () => {
 		// Live shape: one LOW per matching line in the same file. Only the
-		// (kind, title, files) unit is canonical; the UI summary dedupes by rule.
+		// (kind, title, targets) unit is canonical; the UI summary dedupes by rule.
 		const stop = fact("LOW: Code Comments", ["src/a.ts"], "security");
 		const debug = fact("LOW: Debug Statements", ["src/a.ts"], "security");
 		const high = fact("HIGH: Hardcoded Secret", ["src/a.ts"], "security");

@@ -128,7 +128,7 @@ Markdown fallback sections:
 
 | Section | Kind | File source |
 |---------|------|-------------|
-| `## Architecture Issues` | architecture | `**Affected:**` paths |
+| `## Architecture Issues` | architecture | `**Affected:**` targets (paths, `A → B` edges, symbols) |
 | `## Security Issues` | security | `- **File:**` |
 | `## Unused Functions (N)` | dead-code | `- **File:**` |
 | `## Design Patterns` | pattern | `**Files:**` |
@@ -161,20 +161,24 @@ count. Probe that reference before re-deriving a mechanism by reading code.
 Then, before validating anything, run the two checks that keep the candidate set
 honest. Both are pure functions in the same module:
 
-1. **Dedupe.** `dedupeIssues(facts)` drops facts whose `(kind, title, files)`
-   already appeared. The exporter repeats findings (two `on_open()` entries in
-   one file, one security issue per matching line) and validation is per fact, so
-   every duplicate is a wasted read-only subagent run. Report the dropped count;
-   never remove findings silently.
+1. **Dedupe.** `dedupeIssues(facts)` drops facts whose `(kind, title, targets)`
+   already appeared. `files` is the file-only projection of `targets`, so two
+   file-less facts that differ only by layer edge or symbol stay distinct. The
+   exporter repeats findings (two `on_open()` entries in one file, one security
+   issue per matching line) and validation is per fact, so every duplicate is a
+   wasted read-only subagent run. Report the dropped count; never remove findings
+   silently.
 2. **Reconcile.** `reportSectionCoverage(markdown)` counts the `###` items each
    `## ` section declares against the candidates extracted for that kind. Any
    section with `items > 0 && candidates === 0` is unreadable: stop, fix the
    extraction, and only then continue. Include the coverage table in the run
    report, and read a zero there as "the parser is dropping this", never as "no
-   findings in this section". A section that parsed *some* entries
-   (`unparsedItems > 0` with `candidates > 0`) is not unreadable: path-less
-   markdown kinds are expected to drop, and the coverage table reports the
-   per-entry `unparsedItems`.
+   findings in this section". `unparsedItems` counts items with no recoverable
+   target, not path-less ones: a `**Affected:**` layer edge (`utils → ui`) or a
+   bare symbol (`execFn (3 files)`) is a target and keeps the item as a candidate.
+   A section that parsed *some* entries (`unparsedItems > 0` with
+   `candidates > 0`) is not unreadable — the coverage table reports the per-entry
+   `unparsedItems` and the run lists those titles.
 
 The check is cheap and catches a whole class of silent loss: CodeFlow's derived
 architecture metrics arrive as `index.test.ts (46 fns)`, and a section whose every
@@ -295,8 +299,9 @@ the user, and restart from Step 1.
 
 ### Canonical count vs the UI summary
 
-The skill's canonical unit is the post-`dedupeIssues` `(kind, title, files)`
-tuple. The CodeFlow UI summary is a different unit: it dedupes by rule, so it can
+The skill's canonical unit is the post-`dedupeIssues` `(kind, title, targets)`
+tuple (`files` being the file-only projection of `targets`). The CodeFlow
+UI summary is a different unit: it dedupes by rule, so it can
 report a smaller number (e.g. 9 security issues) than the exported report's
 per-entry count (e.g. 37 `###` entries across 7 distinct titles). Disclose the UI
 summary separately rather than comparing it directly with the canonical count, and
@@ -346,8 +351,9 @@ false, `2` for bad usage or a missing report.
 - Duplicates dropped by `dedupeIssues` are reported as a count.
 - No `informational` fact was filed and no `chore` fact used the bug template —
   every filed issue came from a `bug`-class candidate.
-- Every proposed issue names at least one file (except file-less suggestions,
-  which must reference the signal that produced them).
+- Every proposed issue cites at least one `target`: a file path, a layer edge
+  (`utils → ui`), or a symbol (`execFn`), matching the candidate's identity. A
+  file-less suggestion must reference the signal that produced it.
 - Every filed issue's finding exited `0` from `validate-finding.sh`; every
   dropped finding has a recorded `REASON`.
 - No `gh issue create` ran before the `ask_user` answer.

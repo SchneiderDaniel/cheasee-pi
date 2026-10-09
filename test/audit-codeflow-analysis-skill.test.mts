@@ -122,6 +122,13 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 		assert.doesNotMatch(body, /expected, not a parser fault/i);
 	});
 
+	it("lets a layer-edge or symbol finding be filed without naming a file", () => {
+		// Verification must not require a file: a validated `utils → ui` or `execFn`
+		// candidate has no path and would otherwise be unreachable at filing time.
+		assert.match(body, /cites at least one `target`/);
+		assert.match(body, /a layer edge\s*\(`utils → ui`\), or a symbol/);
+	});
+
 	it("discloses JSON-only categories and the owning component via bridge-status", () => {
 		assert.match(body, /bridge-status/);
 		assert.match(body, /capture/i);
@@ -131,7 +138,8 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 
 	it("states the canonical count unit and reconciles the UI security summary separately", () => {
 		assert.match(body, /post-`dedupeIssues`/);
-		assert.match(body, /\(kind, title, files\)/);
+		assert.match(body, /\(kind, title, targets\)/);
+		assert.match(body, /file-only projection/i);
 		assert.match(body, /dedupes by rule/i);
 		assert.match(body, /UI summary is a different unit/i);
 	});

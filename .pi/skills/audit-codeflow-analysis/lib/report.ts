@@ -330,7 +330,8 @@ export function parseBestReport(markdown: string, json?: string | null): IssueFa
  * once (two `on_open()` entries in one file, a security issue per matching
  * line), and validation runs per fact — so a duplicate is both a wasted
  * read-only subagent run and a duplicate candidate at the confirmation gate.
- * Preserves input order; keeps the first of each `(kind, title, files)` group.
+ * Preserves input order; keeps the first of each `(kind, title, targets)` group
+ * (`files` being the file-only projection).
  */
 export function dedupeIssues(issues: IssueFact[]): IssueFact[] {
 	const seen = new Set<string>();
