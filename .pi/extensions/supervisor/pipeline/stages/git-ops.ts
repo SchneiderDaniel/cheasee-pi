@@ -9,7 +9,16 @@ import type { SupervisorConfig } from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
 import type { GitHubPort } from "../../github/ports.ts";
+import type { ExecFn } from "../../../lib/port-types.ts";
 import { commitAndPush, pushBranch } from "../../github/git.ts";
+
+/**
+ * Per-git-command bound for timeout preservation. `pushBranch` shells out to
+ * `git push` with no timeout, so a stalled push would hang the timeout path
+ * until SIGTERM — before the caller can flag the worktree for retention. Explicit
+ * per-call timeouts stay authoritative; unit-bounded calls inherit this bound.
+ */
+export const PRESERVATION_GIT_TIMEOUT_MS = 30_000;
 
 export async function hasBranchCommits(
 	execFn: (
@@ -213,7 +222,7 @@ export async function detectPreservedWork(
  * rather than pushing a spurious marker commit.
  */
 async function resolvePreservationBase(
-	pi: ExtensionAPI,
+	exec: ExecFn,
 	worktreePath: string,
 	remote: string,
 	branch: string,
@@ -222,7 +231,7 @@ async function resolvePreservationBase(
 	const candidates = [`${remote}/${branch}`, `${remote}/${baseBranch}`, baseBranch];
 	let lastError = "";
 	for (const ref of candidates) {
-		const ahead = await pi.exec("git", ["rev-list", "--count", `${ref}..HEAD`], {
+		const ahead = await exec("git", ["rev-list", "--count", `${ref}..HEAD`], {
 			cwd: worktreePath,
 			timeout: 10_000,
 		});
@@ -253,8 +262,13 @@ export async function preserveTimedOutWork(
 	baseBranch = "main",
 ): Promise<PreservedWork> {
 	const pushNotify: NotifyFn = notify || { info: () => {}, error: () => {} };
+	// Bound every preservation git call (see PRESERVATION_GIT_TIMEOUT_MS). Explicit
+	// per-call timeouts win; untimed calls (notably the inner `git push`) inherit
+	// the bound so a stalled remote cannot hang the timeout path indefinitely.
+	const exec: ExecFn = (cmd, args, opts) =>
+		pi.exec(cmd, args, { timeout: PRESERVATION_GIT_TIMEOUT_MS, ...opts });
 	try {
-		const status = await pi.exec("git", ["status", "--porcelain"], {
+		const status = await exec("git", ["status", "--porcelain"], {
 			cwd: worktreePath,
 			timeout: 10_000,
 		});
@@ -281,7 +295,7 @@ export async function preserveTimedOutWork(
 			// ref: otherwise preservation reports failure and post-pipeline cleanup
 			// (worktree removal + branch delete) discards the only copy of the work.
 			const ahead = await resolvePreservationBase(
-				pi,
+				exec,
 				worktreePath,
 				remote,
 				branch,
@@ -293,7 +307,7 @@ export async function preserveTimedOutWork(
 			if (ahead.count === 0) {
 				return { committed: false, files: [] };
 			}
-			const changed = await pi.exec(
+			const changed = await exec(
 				"git",
 				["diff", "--name-only", `${ahead.ref}..HEAD`],
 				{ cwd: worktreePath, timeout: 10_000 },
@@ -308,7 +322,7 @@ export async function preserveTimedOutWork(
 			// Mark HEAD so detectPreservedWork/parseWipCommit sees the preserved
 			// work on the next run; an empty marker commit keeps the real commits
 			// intact and makes the ahead work detectable for resume.
-			const markResult = await pi.exec(
+			const markResult = await exec(
 				"git",
 				["commit", "--allow-empty", "-m", `wip(#${issueNum}): partial work preserved on timeout`],
 				{ cwd: worktreePath, timeout: 10_000 },
@@ -321,7 +335,7 @@ export async function preserveTimedOutWork(
 				};
 			}
 			const pushResult = await pushBranch(
-				pi.exec.bind(pi),
+				exec,
 				worktreePath,
 				remote,
 				branch,
@@ -330,7 +344,7 @@ export async function preserveTimedOutWork(
 			if (!pushResult.ok) {
 				return { committed: false, files: changedFiles, error: pushResult.error };
 			}
-			const aheadHead = await pi.exec("git", ["rev-parse", "HEAD"], {
+			const aheadHead = await exec("git", ["rev-parse", "HEAD"], {
 				cwd: worktreePath,
 				timeout: 10_000,
 			});
@@ -343,7 +357,7 @@ export async function preserveTimedOutWork(
 
 		const message = `wip(#${issueNum}): partial work preserved on timeout`;
 		const commitResult = await commitAndPush(
-			pi.exec.bind(pi),
+			exec,
 			worktreePath,
 			remote,
 			branch,
@@ -352,7 +366,7 @@ export async function preserveTimedOutWork(
 		);
 		if (!commitResult.ok) return { committed: false, files, error: commitResult.error };
 
-		const head = await pi.exec("git", ["rev-parse", "HEAD"], {
+		const head = await exec("git", ["rev-parse", "HEAD"], {
 			cwd: worktreePath,
 			timeout: 10_000,
 		});

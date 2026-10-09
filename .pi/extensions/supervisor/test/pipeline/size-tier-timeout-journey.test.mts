@@ -18,6 +18,7 @@ import type { PortCall } from "../helper/mock-github-port.ts";
 import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 import { runAgentLoop } from "../../pipeline/handler/agent-loop.ts";
 import { runPostPipelinePhase } from "../../pipeline/handler/post-pipeline.ts";
+import { cleanupOnExit, shouldRetainWorktree } from "../../pipeline/crash-cleanup.ts";
 import { buildPipelineSummary } from "../../pipeline/output.ts";
 import { createStageState } from "../../pipeline/stages/index.ts";
 import { ErrorCollector } from "../../pipeline/error-collector.ts";
@@ -86,12 +87,17 @@ function buildJourneyContext(opts: {
 	wt: string;
 	onGit?: (args: string[]) => void;
 	pushFails?: boolean;
+	stallPush?: () => Promise<void>;
 }): RunContext {
 	const pi = {
 		exec: async (cmd: string, args: string[]) => {
 			opts.onGit?.(args || []);
 			if (opts.pushFails && args?.[0] === "push") {
 				return { code: 1, stdout: "", stderr: "push rejected" };
+			}
+			if (opts.stallPush && args?.[0] === "push") {
+				await opts.stallPush();
+				return { code: 0, stdout: "", stderr: "" };
 			}
 			const r = journeyGit(args || []);
 			return { code: r?.code ?? 0, stdout: r?.stdout ?? "", stderr: r?.stderr ?? "" };
@@ -303,5 +309,53 @@ describe("operator journey — Tier-Large deadline + preservation (issue #1987)"
 		const commands = gitCalls.map((a) => a[0]);
 		assert.ok(!commands.includes("worktree"), "cleanupWorktree must not run");
 		assert.ok(!commands.includes("branch"), "branch -D must not run");
+	});
+
+	it("stalled preservation push + shutdown retains the worktree (issue #1987)", async () => {
+		// Audit finding: an unbounded push can stall until SIGTERM, before
+		// `preservationFailed` is set, so crash cleanup would delete the
+		// worktree/branch holding the only copy of the work. The in-flight flag
+		// must keep them; the push itself is bounded.
+		const portCalls: PortCall[] = [];
+		const runner = async () => timedOutDeveloper();
+		const wt = mkdtempSync(join(tmpdir(), "journey-stall-wt-"));
+		let releasePush: () => void = () => {};
+		const pushGate = new Promise<void>((res) => {
+			releasePush = res;
+		});
+		const runCtx = buildJourneyContext({
+			runner: runner as any,
+			portCalls,
+			comments: [{ author: { login: "user1" }, body: LARGE_TEST_PLAN }],
+			wt,
+			stallPush: () => pushGate,
+		});
+
+		const loop = runAgentLoop(runCtx);
+		for (let i = 0; i < 500 && runCtx.preservationInProgress !== true; i++) {
+			await new Promise((r) => setTimeout(r, 1));
+		}
+		assert.equal(runCtx.preservationInProgress, true, "preservation in flight");
+
+		const cleanupCalls: string[][] = [];
+		await cleanupOnExit("SIGTERM", {
+			worktreePath: runCtx.worktreePath,
+			worktreeBranch: runCtx.worktreeBranch,
+			pi: {
+				exec: async (_cmd: string, args: string[]) => {
+					cleanupCalls.push(args);
+					return { code: 0, stdout: "", stderr: "" };
+				},
+			} as unknown as ExtensionAPI,
+			cwd: wt,
+			notify: { info: () => {}, error: () => {} },
+			debugLogger: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as any,
+			shouldSkip: () => shouldRetainWorktree(runCtx),
+			exit: () => {},
+		});
+		assert.equal(cleanupCalls.length, 0, "worktree + branch retained during in-flight preservation");
+
+		releasePush();
+		await loop;
 	});
 });

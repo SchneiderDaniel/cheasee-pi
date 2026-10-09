@@ -36,6 +36,19 @@ export interface CrashCleanup {
 	teardown(): void;
 }
 
+/**
+ * Whether crash cleanup must retain the worktree + branch. True while timeout
+ * work preservation is in flight (a SIGTERM during a stalled push means the
+ * push may not have completed) or after it failed — local work may be its only
+ * copy either way (issue #1987). Pure so tests can pin the retention policy.
+ */
+export function shouldRetainWorktree(state: {
+	preservationFailed?: boolean;
+	preservationInProgress?: boolean;
+}): boolean {
+	return state.preservationFailed === true || state.preservationInProgress === true;
+}
+
 // ─── Core Cleanup Logic ──────────────────────────────────────────
 
 /**

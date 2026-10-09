@@ -54,6 +54,7 @@ import {
 	handleEmptyWorktree,
 	preserveTimedOutWork,
 	type EmptyWorktreeOutcome,
+	type PreservedWork,
 	type StageState,
 } from "../stages/index.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
@@ -489,9 +490,14 @@ async function reportTimedOutAgent(
 	nextStatus: string | null | undefined,
 ): Promise<string> {
 	const { ctx, pi, config, issueNum, worktreePath, worktreeBranch, notify } = runCtx;
-	const preserved =
-		agentName === "developer" && worktreePath && worktreeBranch
-			? await preserveTimedOutWork(
+	let preserved: PreservedWork | undefined;
+	if (agentName === "developer" && worktreePath && worktreeBranch) {
+		// Mark preservation in flight BEFORE awaiting: crash cleanup reads this
+		// live, so a SIGTERM during a bounded-but-stalled push retains the
+		// worktree (preservationFailed is only set after the attempt returns).
+		runCtx.preservationInProgress = true;
+		try {
+			preserved = await preserveTimedOutWork(
 				pi,
 				worktreePath,
 				config.remote!,
@@ -499,8 +505,11 @@ async function reportTimedOutAgent(
 				issueNum,
 				notify,
 				config.defaultBranch,
-			)
-			: undefined;
+			);
+		} finally {
+			runCtx.preservationInProgress = false;
+		}
+	}
 	// Preservation failed (e.g. push rejected): post-pipeline cleanup must keep
 	// the worktree + branch, whose local commits are the only copy of the work.
 	if (preserved && !preserved.committed && preserved.error) {

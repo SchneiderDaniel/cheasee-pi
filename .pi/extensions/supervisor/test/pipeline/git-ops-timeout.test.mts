@@ -11,6 +11,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	preserveTimedOutWork,
 	parseWipCommit,
+	PRESERVATION_GIT_TIMEOUT_MS,
 } from "../../pipeline/stages/git-ops.ts";
 
 interface ExecCall {
@@ -213,6 +214,23 @@ describe("preserveTimedOutWork — adapter (issue #1987)", () => {
 		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
 		assert.equal(result.committed, false);
 		assert.ok(result.error && /git push failed/.test(result.error), `error surfaced: ${result.error}`);
+	});
+
+	it("bounds the preservation push so a stalled remote cannot hang the timeout path", async () => {
+		// Audit finding: pushBranch shells out to `git push` with no timeout, so a
+		// stalled push would keep the timeout path pending until SIGTERM — before
+		// the caller marks the worktree for retention. The bound closes that race.
+		const { pi, calls } = happyGit(() => null);
+		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
+		assert.equal(result.committed, true);
+
+		const push = calls.find((c) => c.args[0] === "push");
+		assert.ok(push, "push issued");
+		assert.equal(
+			push!.opts.timeout,
+			PRESERVATION_GIT_TIMEOUT_MS,
+			"push carries an explicit timeout bound",
+		);
 	});
 
 	it("git status failure → fail-soft {committed:false, error}", async () => {

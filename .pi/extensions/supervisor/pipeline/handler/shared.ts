@@ -75,6 +75,13 @@ export interface RunContext {
 	 */
 	preservationFailed?: boolean;
 
+	/**
+	 * True while timeout work preservation is in flight. Crash cleanup reads this
+	 * live: a SIGTERM during a bounded-but-stalled preservation must retain the
+	 * worktree, because `preservationFailed` is only set once the attempt returns.
+	 */
+	preservationInProgress?: boolean;
+
 	// Test injection seam (issue #1472): optional mock agent runner passed
 	// through to executeAgent and the PR-readiness gate's developer dispatch.
 	// Production callers omit this — undefined means the real runner is used.
