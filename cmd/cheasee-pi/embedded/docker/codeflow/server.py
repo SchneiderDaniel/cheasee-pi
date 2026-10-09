@@ -373,12 +373,19 @@ def _status_store(route):
         return dict(_STATUS.get(route) or _status_slot())
 
 
-def _record_post(route, http_status, nbytes=None, reason=None):
-    """Record that a POST reached the shim, accepted or rejected.
+# Default refusal reason per status, so every failed POST path (bad length,
+# empty, oversize, incomplete) is attributed even without a guard-specific
+# reason. Any non-204 is a refusal.
+_POST_REJECT_REASONS = {400: "invalid-body", 411: "length-required", 413: "too-large"}
 
-    A non-None `reason` marks a refusal; the next accepted POST (reason None)
-    clears the rejection fields so bridge-status reflects the last word on the
-    route.
+
+def _record_post(route, http_status, nbytes=None, reason=None):
+    """Record that a POST reached the shim, accepted or refused.
+
+    Only an accepted POST (204) clears the rejection fields; every refused POST
+    sets `rejectedAt` and a non-empty `rejectReason` (the guard's specific
+    reason, or a per-status default). This keeps a 409 followed by a 400/413
+    attributed instead of silently cleared.
     """
     with _STATUS_LOCK:
         slot = _STATUS.setdefault(route, _status_slot())
@@ -386,8 +393,12 @@ def _record_post(route, http_status, nbytes=None, reason=None):
         slot["httpStatus"] = http_status
         if nbytes is not None:
             slot["bytes"] = nbytes
-        slot["rejectedAt"] = int(time.time() * 1000) if reason is not None else None
-        slot["rejectReason"] = reason
+        if http_status == 204:
+            slot["rejectedAt"] = None
+            slot["rejectReason"] = None
+        else:
+            slot["rejectedAt"] = int(time.time() * 1000)
+            slot["rejectReason"] = reason or _POST_REJECT_REASONS.get(http_status, "refused")
 
 
 def _record_capture(route):

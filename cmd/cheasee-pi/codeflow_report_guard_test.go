@@ -323,6 +323,45 @@ func TestCodeFlowServer_RejectionTelemetry(t *testing.T) {
 		}
 	})
 
+	// A refused POST is the last word on the route: a later malformed or
+	// oversize POST must not clear the rejection attribution (issue #1993
+	// audit). Only a 204 clears it.
+	t.Run("refusal after a 409 stays attributed", func(t *testing.T) {
+		checkRefused := func(t *testing.T, want int) {
+			t.Helper()
+			e := s.bridgeStatus(t)["/api/analysis/report.json"]
+			if e.HTTPStatus == nil || *e.HTTPStatus != want {
+				t.Errorf("httpStatus = %v, want %d", e.HTTPStatus, want)
+			}
+			if e.RejectedAt == nil {
+				t.Errorf("rejectedAt = nil after %d refusal", want)
+			}
+			if e.RejectReason == nil || *e.RejectReason == "" {
+				t.Errorf("rejectReason = %v after %d refusal, want non-empty", e.RejectReason, want)
+			}
+		}
+		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report.json", []byte(emptyJSON), "application/json"); status != http.StatusConflict {
+			t.Fatalf("status = %d, want 409", status)
+		}
+		checkRefused(t, http.StatusConflict)
+		if status := s.postRawTo(t, "/api/analysis/report.json", "0"); status != http.StatusBadRequest {
+			t.Fatalf("empty body status = %d, want 400", status)
+		}
+		checkRefused(t, http.StatusBadRequest)
+		if status := s.postRawTo(t, "/api/analysis/report.json", strconv.Itoa(maxReportBytes+1)); status != http.StatusRequestEntityTooLarge {
+			t.Fatalf("oversize status = %d, want 413", status)
+		}
+		checkRefused(t, http.StatusRequestEntityTooLarge)
+		// A following accepted POST is the only thing that clears them.
+		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report.json", []byte(richJSON2), "application/json"); status != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", status)
+		}
+		e := s.bridgeStatus(t)["/api/analysis/report.json"]
+		if e.RejectedAt != nil || e.RejectReason != nil {
+			t.Errorf("rejection fields not cleared by accept: %+v", e)
+		}
+	})
+
 	t.Run("analysis-at survives a rejection", func(t *testing.T) {
 		_, before, _ := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
 		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report.json", []byte(emptyJSON), "application/json"); status != http.StatusConflict {
