@@ -12,7 +12,8 @@
  * stdout is pure JSON `{path, jsonPath, bytes, analyzedAt, warnings}`; stderr
  * carries messages. Exit codes:
  *   0  report fetched and written
- *   2  no report yet (HTTP 404) or bad usage — run an analysis in the CodeFlow UI
+ *   2  no report and the headless run produced none (shim run route missing or
+ *      the run failed), or bad usage — check GET /api/analysis/run-status
  *   1  transport or write failure
  */
 

@@ -17,7 +17,12 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { resetReportCache, setFetchFactory, setWriteFileFactory } from "../lib/fetch-report.ts";
+import {
+	fetchAndStoreReport,
+	resetReportCache,
+	setFetchFactory,
+	setWriteFileFactory,
+} from "../lib/fetch-report.ts";
 import { runFetchReportCli, type CliIo } from "../scripts/fetch-report.mts";
 
 // ── Capturing IO ────────────────────────────────
@@ -40,19 +45,51 @@ function capture(): Capture {
 
 // ── Mock shim ───────────────────────────────────
 
+interface ShimOpts {
+	/** Markdown status per GET; the last entry repeats. Defaults to `status`. */
+	mdStatuses?: number[];
+	/** When present, POST /api/analysis/run is served and run-status walks these states. */
+	runStates?: string[];
+}
+
 interface Shim {
 	base: string;
 	mdCount(): number;
+	runCount(): number;
 	close(): Promise<void>;
 }
 
-async function startShim(status: number, body: string): Promise<Shim> {
+async function startShim(status: number, body: string, opts: ShimOpts = {}): Promise<Shim> {
 	let md = 0;
+	let runs = 0;
+	let polls = 0;
 	const server: Server = createServer((req, res) => {
 		const url = req.url ?? "";
+		const json = (code: number, payload: unknown) => {
+			res.statusCode = code;
+			res.setHeader("Content-Type", "application/json");
+			res.end(JSON.stringify(payload));
+		};
 		if (url.endsWith("/api/analysis/bridge-status")) {
 			res.statusCode = 404;
 			res.end();
+			return;
+		}
+		if (url.endsWith("/api/analysis/run") && req.method === "POST") {
+			if (!opts.runStates) {
+				res.statusCode = 404;
+				res.end();
+				return;
+			}
+			runs++;
+			json(202, { state: "running" });
+			return;
+		}
+		if (url.endsWith("/api/analysis/run-status")) {
+			const states = opts.runStates ?? ["done"];
+			const state = states[Math.min(polls, states.length - 1)];
+			polls++;
+			json(200, { state, error: state === "error" ? "boom" : null });
 			return;
 		}
 		if (url.endsWith("/report.json")) {
@@ -61,8 +98,10 @@ async function startShim(status: number, body: string): Promise<Shim> {
 			return;
 		}
 		md++;
-		res.statusCode = status;
-		if (status === 200) {
+		const series = opts.mdStatuses ?? [status];
+		const current = series[Math.min(md - 1, series.length - 1)];
+		res.statusCode = current;
+		if (current === 200) {
 			res.setHeader("Content-Type", "text/markdown; charset=utf-8");
 			res.setHeader("X-Codeflow-Analysis-At", "1767225600000");
 			res.end(body);
@@ -75,6 +114,7 @@ async function startShim(status: number, body: string): Promise<Shim> {
 	return {
 		base: `http://127.0.0.1:${port}`,
 		mdCount: () => md,
+		runCount: () => runs,
 		close: () => new Promise<void>((r) => server.close(() => r())),
 	};
 }
@@ -99,8 +139,8 @@ afterEach(async () => {
 	shims = [];
 });
 
-async function shim(status: number, body = "MD"): Promise<Shim> {
-	const s = await startShim(status, body);
+async function shim(status: number, body = "MD", opts: ShimOpts = {}): Promise<Shim> {
+	const s = await startShim(status, body, opts);
 	shims.push(s);
 	return s;
 }
@@ -133,9 +173,42 @@ describe("fetch-report CLI adapter", () => {
 		const code = await runFetchReportCli([], cap.io, cwd);
 
 		assert.strictEqual(code, 2);
-		assert.match(cap.err(), /run analysis in CodeFlow/);
+		assert.match(cap.err(), /No CodeFlow report yet/);
 		assert.strictEqual(cap.out(), "");
 		assert.ok(!existsSync(REPORT_PATH()));
+	});
+
+	it("starts a headless run when no report exists and then fetches it", async () => {
+		const s = await shim(404, "# CodeFlow Analysis Report\n", {
+			mdStatuses: [404, 200],
+			runStates: ["done"],
+		});
+		routeTo(s);
+		const cap = capture();
+
+		const code = await runFetchReportCli([], cap.io, cwd);
+
+		assert.strictEqual(code, 0);
+		assert.strictEqual(s.runCount(), 1, "the run route must be called once");
+		const parsed = JSON.parse(cap.out());
+		assert.ok(parsed.bytes > 0);
+		assert.ok(
+			parsed.warnings.every((w: string) => !w.includes("Headless CodeFlow run")),
+			`unexpected run warning: ${parsed.warnings}`,
+		);
+		assert.ok(existsSync(REPORT_PATH()));
+	});
+
+	it("exits 2 and surfaces the failure when the headless run errors", async () => {
+		const s = await shim(404, "MD", { mdStatuses: [404], runStates: ["error"] });
+		routeTo(s);
+		const cap = capture();
+
+		const code = await runFetchReportCli([], cap.io, cwd);
+
+		assert.strictEqual(code, 2);
+		assert.match(cap.err(), /boom/);
+		assert.strictEqual(cap.out(), "");
 	});
 
 	it("exits 1 on a transport failure", async () => {
@@ -181,6 +254,22 @@ describe("fetch-report CLI adapter", () => {
 		const cap = capture();
 		assert.strictEqual(await runFetchReportCli(["--nope"], cap.io, cwd), 2);
 		assert.match(cap.err(), /unknown argument/);
+	});
+});
+
+describe("headless run polling", () => {
+	it("waits through running states and returns the report once done", async () => {
+		const s = await shim(404, "# CodeFlow Analysis Report\n", {
+			mdStatuses: [404, 200],
+			runStates: ["running", "running", "done"],
+		});
+		routeTo(s);
+
+		const outcome = await fetchAndStoreReport({ cwd, pollIntervalMs: 1 });
+
+		if (!outcome.ok) assert.fail(outcome.message);
+		assert.strictEqual(outcome.result.analyzedAt, 1767225600000);
+		assert.strictEqual(s.runCount(), 1);
 	});
 });
 

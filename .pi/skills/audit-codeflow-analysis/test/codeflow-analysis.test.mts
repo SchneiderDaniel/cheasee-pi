@@ -291,7 +291,7 @@ describe("transport + artifact", () => {
 
 		const outcome = await fetchAndStoreReport({ cwd });
 		assert.strictEqual(outcome.ok, false);
-		assert.match(outcome.ok === false ? outcome.message : "", /run analysis in CodeFlow/);
+		assert.match(outcome.ok === false ? outcome.message : "", /No CodeFlow report yet/);
 		assert.strictEqual(outcome.ok === false ? outcome.status : 0, 404);
 		assert.strictEqual(readFileSync(target, "utf-8"), "PRE-EXISTING");
 	});
@@ -487,10 +487,12 @@ describe("e2e: real codeflow shim subprocess", () => {
 		const jsonFixture = readFileSync(join(fixtureDir, "codeflow-report.json"), "utf-8");
 
 		try {
-			// Before the browser bridge POSTs, the tool must report the actionable 404.
+			// Before the bridge POSTs, the tool starts the headless run. In this
+			// test environment no runner exists, so the run fails and the message
+			// names the failure while staying actionable.
 			const miss = await fetchAndStoreReport({ cwd, refresh: true });
 			assert.strictEqual(miss.ok, false);
-			assert.match(miss.ok === false ? miss.message : "", /run analysis in CodeFlow/);
+			assert.match(miss.ok === false ? miss.message : "", /Headless CodeFlow run failed/);
 
 			// Simulate the browser bridge: POST both captured fixtures.
 			const postedMd = await fetch(base + "/api/analysis/report", {

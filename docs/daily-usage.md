@@ -140,6 +140,12 @@ Consequently, workspace artifacts such as `.pi/git` package clones, Python
 virtualenvs under `.pi/`, and session logs remain outside the graph even when
 the repository's `.gitignore` does not list them.
 
+The sidecar also runs the analysis without a browser. `POST /api/analysis/run`
+starts CodeFlow's own headless analyzer over the same committed `HEAD` tree and
+fills both report slots on completion; `GET /api/analysis/run-status` reports
+`idle`, `running`, `done`, or `error`. The `audit-codeflow-analysis` skill drives
+this path, so an audit needs no UI step.
+
 To pin a port explicitly, set `docker.codeflowPort` in
 `cheasee-settings.json`, or the `CODEFLOW_PORT` env var (env wins over
 derivation, the settings file wins over the env).

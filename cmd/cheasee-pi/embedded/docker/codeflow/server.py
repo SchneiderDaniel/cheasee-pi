@@ -17,6 +17,12 @@ hooks `URL.createObjectURL` and POSTs the captured exports back here:
   GET|POST /api/analysis/report.json  -> structured JSON report (single slot)
   GET /codeflow-bridge.js             -> the injected bridge script
 
+Headless analyzer (Option B): when no report exists, a caller can POST
+/api/analysis/run to start CodeFlow's own card analyzer against a HEAD checkout;
+GET /api/analysis/run-status reports the outcome and both report slots are
+filled on completion. The browser bridge writes the same two artifacts, so the
+UI path and the headless path stay interchangeable.
+
 The served index.html has its hardcoded 'https://api.github.com/' base rewritten
 to the relative './api/' at serve time, plus a set of byte rewrites (_UI_REWRITES)
 that raise the analysis size limits, reword the GitHub-specific dialogs, and
@@ -37,6 +43,9 @@ Env (deployment overrides, used when config.json is absent):
   PORT          listen port                        (fallback for port)
   HOST          bind address                       (fallback for host)
   FP_TTL        workspace fingerprint memo window, seconds (default: 2.0)
+  CODEFLOW_RUNNER      headless runner script      (default: /opt/codeflow/report-runner.js)
+  CODEFLOW_NODE        node binary for the runner  (default: node)
+  CODEFLOW_RUN_TIMEOUT runner timeout, seconds     (default: 1800)
 """
 import base64
 import hashlib
@@ -44,8 +53,10 @@ import json
 import mimetypes
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -252,6 +263,130 @@ _REPORT_ROUTES = {
     "/api/analysis/report.json": "application/json; charset=utf-8",
 }
 
+# --- Headless analysis runner ---------------------------------------------
+# The browser bridge stores exports the UI builds client-side. This route owns
+# the same two artifacts without a browser: a background thread checks HEAD out
+# with `git archive`, runs CodeFlow's own headless analyzer
+# (report-runner.js over the card package that ships in the UI checkout), and
+# fills both report slots. The run is asynchronous because a whole-workspace
+# analysis takes minutes; GET /api/analysis/run-status reports progress. The
+# browser bridge stays a second, independent producer.
+_RUN_ROUTE = "/api/analysis/run"
+_RUN_STATUS_ROUTE = "/api/analysis/run-status"
+_RUNNER = os.environ.get("CODEFLOW_RUNNER", "/opt/codeflow/report-runner.js")
+_RUNNER_NODE = os.environ.get("CODEFLOW_NODE", "node")
+try:
+    _RUN_TIMEOUT = float(os.environ.get("CODEFLOW_RUN_TIMEOUT") or 1800.0)
+except (TypeError, ValueError):
+    _RUN_TIMEOUT = 1800.0
+_RUN_LOCK = threading.Lock()
+_RUN_STATE = {"state": "idle", "startedAt": None, "finishedAt": None, "error": None}
+
+
+def _run_status():
+    """Snapshot of the runner slot (single slot, like the report store)."""
+    with _RUN_LOCK:
+        return dict(_RUN_STATE)
+
+
+def _start_run():
+    """Claim the runner slot and start the background thread.
+
+    Returns False when a run is already in flight, so the HTTP layer answers 409
+    instead of queueing a second whole-workspace analysis.
+    """
+    with _RUN_LOCK:
+        if _RUN_STATE["state"] == "running":
+            return False
+        _RUN_STATE.update(
+            state="running", startedAt=int(time.time() * 1000), finishedAt=None, error=None
+        )
+    threading.Thread(target=_run_worker, daemon=True).start()
+    return True
+
+
+def _checkout_head(dest):
+    """Extract HEAD's committed tree into `dest` (the browser's snapshot).
+
+    The shim only ever serves HEAD, so a runner reading the working tree would
+    report a different analysis than the browser path for the same session.
+    """
+    archive = subprocess.Popen(
+        ["git", "-c", "safe.directory=*", "-C", REPO_ROOT, "archive", "HEAD"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        extract = subprocess.Popen(["tar", "-x", "-C", dest], stdin=archive.stdout)
+        archive.stdout.close()
+        extract.wait()
+    finally:
+        detail = archive.stderr.read()
+        archive.stderr.close()
+        archive.wait()
+    if archive.returncode != 0:
+        raise RuntimeError(
+            "git archive HEAD failed: %s" % detail.decode("utf-8", "replace").strip()[:300]
+        )
+    if extract.returncode != 0:
+        raise RuntimeError("tar extraction failed (exit %d)" % extract.returncode)
+
+
+def _run_analysis():
+    """Run the headless analyzer and return (markdown bytes, json bytes)."""
+    work = tempfile.mkdtemp(prefix="codeflow-run-")
+    try:
+        tree = os.path.join(work, "tree")
+        out = os.path.join(work, "out")
+        os.makedirs(tree)
+        _checkout_head(tree)
+        # Serve the runner the same patched index.html the browser gets: the UI
+        # rewrites register .mts/.cts as TypeScript and raise the size limits, so
+        # a runner reading the vendored file would drop those files from the set.
+        ui = os.path.join(work, "ui")
+        os.makedirs(ui)
+        with open(os.path.join(ui, "index.html"), "wb") as fh:
+            fh.write(_patched_index())
+        os.symlink(os.path.join(UI_DIR, "card"), os.path.join(ui, "card"))
+        command = [_RUNNER_NODE, _RUNNER, "--ui", ui, "--path", tree, "--out", out]
+        for name in sorted(EXCLUDE_DIRS):
+            command += ["--exclude", name]
+        proc = subprocess.run(command, capture_output=True, timeout=_RUN_TIMEOUT)
+        if proc.returncode != 0:
+            lines = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+            raise RuntimeError(
+                "runner exited %d: %s" % (proc.returncode, lines[-1] if lines else "no output")
+            )
+        with open(os.path.join(out, "codeflow-report.md"), "rb") as fh:
+            markdown = fh.read()
+        with open(os.path.join(out, "codeflow-report.json"), "rb") as fh:
+            structured = fh.read()
+        return markdown, structured
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def _run_worker():
+    """Background body of a run: analyze, then fill both report slots.
+
+    Any failure is recorded in the run status rather than raised, so a crashing
+    analyzer leaves a diagnosable `error` instead of a silent idle state.
+    """
+    try:
+        markdown, structured = _run_analysis()
+    except Exception as exc:  # noqa: BLE001 - every failure path becomes run status
+        with _RUN_LOCK:
+            _RUN_STATE.update(
+                state="error", finishedAt=int(time.time() * 1000), error=str(exc)[:500]
+            )
+        return
+    at = int(time.time() * 1000)
+    with _REPORT_LOCK:
+        _REPORTS["/api/analysis/report"] = (markdown, at)
+        _REPORTS["/api/analysis/report.json"] = (structured, at)
+    with _RUN_LOCK:
+        _RUN_STATE.update(state="done", finishedAt=at, error=None)
+
 # Bridge telemetry: what the browser actually shipped, so a 404 on the JSON
 # route can be attributed. `capturedAt` is set when the bridge sees a report
 # marker in a Blob, `postedAt`/`httpStatus`/`bytes` are set when this server
@@ -390,6 +525,21 @@ _MIME = {"wasm": "application/wasm", "js": "text/javascript", "mjs": "text/javas
 def _mime(path):
     ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
     return _MIME.get(ext) or mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
+def _patched_index():
+    """The UI's index.html with api base, size limits, .mts/.cts and bridge patches.
+
+    The browser serves the patched bytes, and so does the headless runner: both
+    classifiers must see the same file set or .mts/.cts files would drop out of
+    the analysis.
+    """
+    with open(os.path.join(UI_DIR, "index.html"), "rb") as fh:
+        data = fh.read()
+    data = _API_BASE.sub(b"'api/'", data)
+    for pat, repl in _UI_REWRITES:
+        data = pat.sub(lambda _: repl, data)
+    return data
 
 
 _GIT_WARNED = False
@@ -562,6 +712,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == _BRIDGE_STATUS_ROUTE:
             self._json({route: _status_store(route) for route in _REPORT_ROUTES})
             return
+        if path == _RUN_STATUS_ROUTE:
+            self._json(_run_status())
+            return
         if path in _REPORT_ROUTES:
             self._serve_report(path)
             return
@@ -581,6 +734,9 @@ class Handler(BaseHTTPRequestHandler):
         path = urllib.parse.urlparse(self.path).path
         if path == _BRIDGE_STATUS_ROUTE:
             self._bridge_status_post()
+            return
+        if path == _RUN_ROUTE:
+            self._run_post()
             return
         if path not in _REPORT_ROUTES:
             # Any body on an unknown path is left unread — close so keep-alive
@@ -627,6 +783,20 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    def _run_post(self):
+        """Start a headless analysis (202), or report the in-flight one (409)."""
+        declared = self.headers.get("Content-Length")
+        if declared:
+            try:
+                self.rfile.read(int(declared))
+            except (TypeError, ValueError):
+                self.close_connection = True
+        if not _start_run():
+            self._json({"state": "running"}, 409)
+            return
+        status = _run_status()
+        self._json({"state": status["state"], "startedAt": status["startedAt"]}, 202)
 
     def _bridge_status_post(self):
         """Record a bridge capture/result event ({route, event, httpStatus})."""
@@ -704,13 +874,18 @@ class Handler(BaseHTTPRequestHandler):
         if not target.startswith(os.path.realpath(UI_DIR) + os.sep) or not os.path.isfile(target):
             self._not_found()
             return
-        try:
-            with open(target, "rb") as fh:
-                data = fh.read()
-        except OSError:
-            self._not_found()
-            return
-        if patch_api_base:
+        if rel == "index.html":
+            # index.html is the one patched file: api base, size limits, .mts/.cts
+            # classification and the bridge script, exactly as the browser sees it.
+            data = _patched_index()
+        else:
+            try:
+                with open(target, "rb") as fh:
+                    data = fh.read()
+            except OSError:
+                self._not_found()
+                return
+        if patch_api_base and rel != "index.html":
             data = _API_BASE.sub(b"'api/'", data)
             for pat, repl in _UI_REWRITES:
                 data = pat.sub(lambda _: repl, data)

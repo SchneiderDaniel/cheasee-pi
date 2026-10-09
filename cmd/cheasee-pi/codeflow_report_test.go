@@ -33,7 +33,7 @@ type reportShim struct {
 
 // startShim launches the embedded server.py on a free loopback port with the
 // given repo/UI dirs and waits until it accepts connections.
-func startReportShim(t *testing.T, repoRoot, uiDir string) *reportShim {
+func startReportShim(t *testing.T, repoRoot, uiDir string, extraEnv ...string) *reportShim {
 	t.Helper()
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -70,6 +70,7 @@ func startReportShim(t *testing.T, repoRoot, uiDir string) *reportShim {
 		"HOST=127.0.0.1",
 		"PYTHONUNBUFFERED=1",
 	)
+	s.cmd.Env = append(s.cmd.Env, extraEnv...)
 	s.cmd.Stdout = s.log
 	s.cmd.Stderr = s.log
 	if err := s.cmd.Start(); err != nil {

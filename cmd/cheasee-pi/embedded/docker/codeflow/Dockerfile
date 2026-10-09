@@ -12,12 +12,15 @@ ARG CODEFLOW_REF=b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 
 COPY server.py /opt/codeflow/server.py
 COPY config.json /opt/codeflow/config.json
+# Headless analysis path: POST /api/analysis/run spawns this against the card
+# analyzer that ships in the pinned UI checkout (nodejs, added below).
+COPY report-runner.js /opt/codeflow/report-runner.js
 
 # Fail the build loudly if server.py is corrupt. A SyntaxError here would
 # otherwise build fine and crash the container silently at startup.
 RUN python3 -m py_compile /opt/codeflow/server.py
 
-RUN apk add --no-cache git && \
+RUN apk add --no-cache git nodejs && \
     git init /opt/codeflow-ui && \
     cd /opt/codeflow-ui && \
     git remote add origin https://github.com/braedonsaunders/codeflow && \

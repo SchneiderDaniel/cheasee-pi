@@ -43,7 +43,7 @@ Customize ruthlessly. Make it yours.
 | **Worktree Sandbox** | Worktree path enforcement |
 | **RTK** | Token-saving bash rewrite — 60-90% less output per command |
 | **LSP Auditor** | LSP diagnostics pre-audit for pipeline |
-| **CodeFlow Analysis Report** | Save browser-run CodeFlow analysis reports to the workspace |
+| **CodeFlow Analysis Report** | Run CodeFlow analyses (headless or browser) and save the reports to the workspace |
 | **Dump Context** | Inspect the assembled system prompt and its sources |
 
 ## Quick start

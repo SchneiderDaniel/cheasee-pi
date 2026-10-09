@@ -41,6 +41,13 @@ export const REPORT_REL_PATH = "ignore/codeflow-report.md";
 /** Structured JSON artifact path, relative to the session cwd (gitignored). */
 export const REPORT_JSON_REL_PATH = "ignore/codeflow-report.json";
 
+/** Shim route that starts a headless analysis. */
+const RUN_ROUTE = "/api/analysis/run";
+/** Shim route that reports the runner's progress. */
+const RUN_STATUS_ROUTE = "/api/analysis/run-status";
+const DEFAULT_RUN_TIMEOUT_MS = 20 * 60 * 1000;
+const DEFAULT_POLL_INTERVAL_MS = 2000;
+
 interface ReportResult {
 	path: string;
 	jsonPath: string | null;
@@ -208,31 +215,106 @@ async function jsonUnavailableWarning(base: string, signal?: AbortSignal): Promi
 }
 
 /**
+ * Start a headless analysis through the shim and wait for it to finish.
+ *
+ * A whole-workspace analysis takes minutes, so `POST /api/analysis/run`
+ * answers 202 (or 409 for an in-flight run) and `GET /api/analysis/run-status`
+ * carries the outcome. Returns false when the shim has no run route (an older
+ * sidecar), the run fails, or it outlives the timeout — the caller then keeps
+ * the actionable "no report" message rather than reporting success.
+ */
+async function runHeadlessAnalysis(
+	base: string,
+	warnings: string[],
+	opts: { signal?: AbortSignal; runTimeoutMs?: number; pollIntervalMs?: number },
+): Promise<boolean> {
+	const timeoutMs = opts.runTimeoutMs ?? DEFAULT_RUN_TIMEOUT_MS;
+	let started: Response;
+	try {
+		started = await fetchFn(`${base}${RUN_ROUTE}`, { method: "POST", signal: opts.signal });
+	} catch (err) {
+		opts.signal?.throwIfAborted();
+		warnings.push(
+			`Headless CodeFlow run request failed: ${err instanceof Error ? err.message : String(err)}.`,
+		);
+		return false;
+	}
+	if (started.status === 404) return false;
+	if (started.status !== 202 && started.status !== 409) {
+		warnings.push(`Headless CodeFlow run was refused (HTTP ${started.status}).`);
+		return false;
+	}
+
+	const deadline = Date.now() + timeoutMs;
+	while (Date.now() < deadline) {
+		opts.signal?.throwIfAborted();
+		let status: { state?: string; error?: string | null };
+		try {
+			const resp = await fetchFn(`${base}${RUN_STATUS_ROUTE}`, {
+				method: "GET",
+				signal: opts.signal,
+			});
+			if (!resp.ok) {
+				await new Promise((resolve) =>
+					setTimeout(resolve, opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS),
+				);
+				continue;
+			}
+			status = (await resp.json()) as { state?: string; error?: string | null };
+		} catch (err) {
+			opts.signal?.throwIfAborted();
+			warnings.push(
+				`Headless CodeFlow run status failed: ${err instanceof Error ? err.message : String(err)}.`,
+			);
+			return false;
+		}
+		if (status.state === "done") return true;
+		if (status.state === "error") {
+			warnings.push(`Headless CodeFlow run failed: ${status.error ?? "unknown error"}.`);
+			return false;
+		}
+		await new Promise((resolve) =>
+			setTimeout(resolve, opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS),
+		);
+	}
+	warnings.push(`Headless CodeFlow run did not finish within ${Math.round(timeoutMs / 1000)}s.`);
+	return false;
+}
+
+/**
  * Fetch both report artifacts and persist them. A 404 on the markdown route
- * means the browser has not bridged an analysis yet — returned as an
- * actionable `{ ok: false, status: 404 }`. JSON is optional; its failures are
+ * means no report exists yet: the shim is asked to run the headless analyzer,
+ * and the fetch is retried once it finishes. JSON is optional; its failures are
  * surfaced as warnings but never hide an available markdown report.
  */
 export async function fetchAndStoreReport(opts: {
 	cwd: string;
 	refresh?: boolean;
 	signal?: AbortSignal;
+	runTimeoutMs?: number;
+	pollIntervalMs?: number;
 }): Promise<ReportOutcome> {
 	if (!opts.refresh && cache && cacheCwd === opts.cwd) return { ok: true, result: cache };
 
 	const base = codeflowServiceUrl();
 	const url = `${base}/api/analysis/report`;
+	const warnings: string[] = [];
 
-	const resp = await getReport(url, opts.signal);
+	let resp = await getReport(url, opts.signal);
 	opts.signal?.throwIfAborted();
 
+	if (resp.status === 404 && (await runHeadlessAnalysis(base, warnings, opts))) {
+		resp = await getReport(url, opts.signal);
+		opts.signal?.throwIfAborted();
+	}
 	if (resp.status === 404) {
+		const detail = warnings.length > 0 ? ` ${warnings.join(" ")}` : "";
 		return {
 			ok: false,
 			status: 404,
 			message:
-				`No CodeFlow report yet — run analysis in CodeFlow (${base}) and wait for it to finish, ` +
-				`then run the fetch script again.`,
+				`No CodeFlow report yet — the shim holds none (${base}). ` +
+				`Fix the run (GET /api/analysis/run-status) or run an analysis in the CodeFlow UI, then retry.${detail}`,
 		};
 	}
 	if (!resp.ok) {
@@ -249,7 +331,6 @@ export async function fetchAndStoreReport(opts: {
 	const target = resolveWithinRoot(opts.cwd, REPORT_REL_PATH);
 	writeAtomically(opts.cwd, target, bytes);
 
-	const warnings: string[] = [];
 	let jsonPath: string | null = null;
 	try {
 		const jsonResp = await getReport(`${base}/api/analysis/report.json`, opts.signal);

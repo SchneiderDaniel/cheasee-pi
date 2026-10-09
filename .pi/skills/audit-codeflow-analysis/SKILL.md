@@ -40,8 +40,8 @@ Load this skill when the user asks to:
   extraction before validating anything. Never present a partial candidate set
   as a complete audit.
 - **Re-check freshness before filing.** The shim replaces the report when a new
-  browser run finishes. If `analyzedAt` moved since Step 1, the validated set no
-  longer describes the current analysis: stop and restart from Step 1.
+  analysis (headless or browser) finishes. If `analyzedAt` moved since Step 1, the
+  validated set no longer describes the current analysis: stop and restart from Step 1.
 - **Only `bug`-class findings are validated and filed as bugs.** `classifyFinding`
   (`lib/report.ts`) is the single policy source and assigns every fact its issue
   type before any validator reads code; `informational` facts are never filed
@@ -58,8 +58,10 @@ Load this skill when the user asks to:
   is present, and Node runs with `--experimental-strip-types`.
 - `ask_user` tool available (the `ask-user` extension).
 - `.pi/settings.json` has `supervisor.repo` set to `owner/repo`.
-- The CodeFlow UI has been run at least once in this session (the browser
-  bridge POSTs the report exports to the shim).
+- The CodeFlow sidecar is reachable and carries the headless runner
+  (`/opt/codeflow/report-runner.js`). No browser run is required: the fetch
+  starts an analysis itself when no report exists. A browser run remains a valid
+  alternative, because the bridge writes the same two artifacts.
 
 ## Workflow
 
@@ -71,9 +73,16 @@ Run the skill-owned fetch script:
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/fetch-report.mts
 ```
 
-It writes the report to `ignore/codeflow-report.md` (markdown) and, when the
-browser posted it, `ignore/codeflow-report.json` (structured), then prints a
-single JSON object to stdout:
+When the shim already holds a report, the script writes it and returns. When it
+answers 404, the script starts an analysis itself: it POSTs
+`/api/analysis/run`, polls `/api/analysis/run-status` until the run finishes, and
+retries the fetch. The shim runs CodeFlow's own headless analyzer over the
+committed `HEAD` tree, so no browser and no user action are involved. This takes
+minutes on a large workspace.
+
+It writes the report to `ignore/codeflow-report.md` (markdown) and, when
+available, `ignore/codeflow-report.json` (structured), then prints a single JSON
+object to stdout:
 
 ```json
 { "path": "…", "jsonPath": "…", "bytes": 0, "analyzedAt": 0, "warnings": [] }
@@ -88,12 +97,12 @@ Exit codes:
 | Exit | Meaning |
 |------|---------|
 | `0` | report fetched and written |
-| `2` | no report yet (HTTP 404) or bad usage — ask the user to run an analysis in the CodeFlow UI |
+| `2` | no report, and the headless run produced none — inspect `GET /api/analysis/run-status`; a browser run in the CodeFlow UI remains a fallback |
 | `1` | transport or write failure |
 
-If it exits **`2`** with **"No CodeFlow report yet — run analysis in CodeFlow"**,
-stop and ask the user to run an analysis in the CodeFlow UI, then retry with
-`--refresh`.
+If it exits **`2`** while the shim exposes no run route (an older sidecar) or the
+run failed, stop and report the run status to the user, then offer the CodeFlow UI
+as the fallback and retry with `--refresh` once a report exists.
 
 Read `ignore/codeflow-report.md` in full before proceeding, and
 `ignore/codeflow-report.json` when `jsonPath` is non-null.
