@@ -42,14 +42,20 @@ function fail(message) {
 // unusable stats yield `terms: null` instead of failing the run.
 function scoreTerms(stats) {
 	if (!stats || typeof stats !== "object") return null;
-	const { files, connections, functions, dead } = stats;
+	// Bracket access keeps these generic keys out of the analyzer's identifier
+	// index, which otherwise counts `stats.files` as a reference to every
+	// `files` function in the repository (a false coupling edge).
+	const fileCount = stats["files"];
+	const linkCount = stats["connections"];
+	const fnCount = stats["functions"];
+	const deadCount = stats["dead"];
 	const usable = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0;
-	if (![files, connections, functions, dead].every(usable)) return null;
-	if (files === 0 || functions === 0) return null;
+	if (![fileCount, linkCount, fnCount, deadCount].every(usable)) return null;
+	if (fileCount === 0 || fnCount === 0) return null;
 	const round3 = (n) => Math.round(n * 1000) / 1000;
 	return {
-		coupling: round3(Math.min(15, Math.max(0, connections / files - 3) * 2)),
-		deadCode: round3(Math.min(20, (dead / functions) * 100)),
+		coupling: round3(Math.min(15, Math.max(0, linkCount / fileCount - 3) * 2)),
+		deadCode: round3(Math.min(20, (deadCount / fnCount) * 100)),
 	};
 }
 
