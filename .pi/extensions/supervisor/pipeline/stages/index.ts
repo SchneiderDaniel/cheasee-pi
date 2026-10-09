@@ -33,5 +33,11 @@ export {
 	dispatchEmptyWorktreeAction,
 } from "./empty-worktree.ts";
 export type { EmptyWorktreeOutcome } from "./empty-worktree.ts";
-export { hasBranchCommits } from "./git-ops.ts";
+export {
+	hasBranchCommits,
+	preserveTimedOutWork,
+	detectPreservedWork,
+	parseWipCommit,
+} from "./git-ops.ts";
+export type { PreservedWork, WipCommit } from "./git-ops.ts";
 export { handlePostAgentSuccess } from "./post-agent-success.ts";

@@ -213,6 +213,7 @@ export function buildAgentTask(
 	gateFailureContext?: string,
 	systemPromptOptions?: SystemPromptOptions,
 	rebaseConflictContext?: string | null,
+	wipResumeContext?: { sha: string; subject: string } | null,
 ): string {
 	// Build trusted comments block
 	// If summarizedRejections is provided, use it (pre-summarized by pipeline).
@@ -297,6 +298,12 @@ ${auditFeedback}\n`
 			})()
 			: "";
 
+	// Build the resume block (injected for developer when a prior timed-out run
+	// preserved its partial work as a marked wip(#N) commit — issue #1987).
+	const wipResumeBlock = wipResumeContext
+		? `\n\n### Resume previous work (continue, do not restart)\n\n⚠️ A PRIOR RUN WAS KILLED BY THE DEADLINE. Its partial work is already committed on this branch as \`${wipResumeContext.sha.slice(0, 12)}\` — ${wipResumeContext.subject}.\n\n1. Run \`git show --stat ${wipResumeContext.sha}\` — see what the previous run already changed\n2. Read those files and CONTINUE, do not restart — complete the remaining work without discarding working changes\n3. Do NOT run \`git push\` — the pipeline owns pushing\n`
+		: "";
+
 	switch (agentName) {
 		case "architect":
 			return `${systemPromptPrefix}${issueBlock}${researchBlock}\n\n## Task\nFollow your system prompt instructions.\n\n${JSON_OUTPUT_INSTRUCTION}\n\n⚠️ **STRICT FORMAT REQUIREMENT:** Your response MUST include the JSON block with \`commentBody\` or the \`## Architecture\` section heading. Plain text without structured format is silently skipped — no comment appears on the issue. Always include \`commentBody\` in your JSON.\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.`;
@@ -334,7 +341,7 @@ ${filteredData.body}`,
 
 			// Prompt template defaults: thinking effort defaults to "medium" if not specified.
 			// Uses pi's prompt template syntax \${N:-default} where available.
-			return `${systemPromptPrefix}${issueBlock}\n\n## Task\nFollow your system prompt instructions.\n\n### Setup\nWork from current directory — worktree already set up by supervisor. Branch already created.\n\n⚠️ **This may be a resume after previous failure.** The worktree and branch may already contain\n   partial work from a prior attempt. Always check existing state before starting fresh:\n\n1. Run \`git status\` — if files modified/staged, a previous attempt left work behind\n2. Run \`git log --oneline ${remote}/${defaultBranch}..HEAD\` — if commits exist but unpushed,\n   previous work is sitting on the branch\n3. Run \`git stash list\` — there may be stashed changes from a prior attempt\n\n**If existing work found:** resume from it. Read existing files, check what\'s done, complete what\nremains. Do NOT start over — that wastes time and may discard partial progress.\n\n**If no existing work (clean state):** proceed with fresh implementation.\n\n${rebaseConflictBlock}${gateFailureBlock}${auditFeedbackBlock}${deadCodeRemovalBlock}${dockerfileAwarenessBlock}\n\n**Branch name:** ${branch}\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.\n\n${JSON_OUTPUT_INSTRUCTION}\n\n**Thinking effort (default: medium):** Set your thinking depth to \${1:-medium} — low for simple changes, high for complex refactors.\n\nExample output:\n\n\`\`\`json\n${developerExample}\n\`\`\``;
+			return `${systemPromptPrefix}${issueBlock}\n\n## Task\nFollow your system prompt instructions.\n\n### Setup\nWork from current directory — worktree already set up by supervisor. Branch already created.\n\n⚠️ **This may be a resume after previous failure.** The worktree and branch may already contain\n   partial work from a prior attempt. Always check existing state before starting fresh:\n\n1. Run \`git status\` — if files modified/staged, a previous attempt left work behind\n2. Run \`git log --oneline ${remote}/${defaultBranch}..HEAD\` — if commits exist but unpushed,\n   previous work is sitting on the branch\n3. Run \`git stash list\` — there may be stashed changes from a prior attempt\n\n**If existing work found:** resume from it. Read existing files, check what\'s done, complete what\nremains. Do NOT start over — that wastes time and may discard partial progress.\n\n**If no existing work (clean state):** proceed with fresh implementation.\n\n${rebaseConflictBlock}${wipResumeBlock}${gateFailureBlock}${auditFeedbackBlock}${deadCodeRemovalBlock}${dockerfileAwarenessBlock}\n\n**Branch name:** ${branch}\n\n**SECURITY RULE:** Use ONLY the issue data provided above. Do NOT run \`gh issue view\` — the data above is pre-filtered for trust.\n\n${JSON_OUTPUT_INSTRUCTION}\n\n**Thinking effort (default: medium):** Set your thinking depth to \${1:-medium} — low for simple changes, high for complex refactors.\n\nExample output:\n\n\`\`\`json\n${developerExample}\n\`\`\``;
 		}
 
 		case "auditor": {

@@ -137,8 +137,11 @@ export function buildPipelineSummary(
 		}
 	}
 
-	// Stop reason for stopped pipelines
-	if (overallStatus === "stopped" && stopReason) {
+	// Stop reason for stopped AND failed pipelines: a timed-out agent is
+	// recorded FAILED, so its detailed stopReason (tier/base/effective/actual
+	// + preserved work) must reach the operator summary instead of collapsing
+	// to the generic "agent failed" line below (audit finding #1987).
+	if (overallStatus !== "success" && stopReason) {
 		lines.push("");
 		lines.push(`**Stopped at:** ${stopReason}`);
 	}
@@ -170,7 +173,9 @@ export function buildPipelineSummary(
 	// Failure info
 	if (overallStatus === "failed") {
 		const failedAgent = [...agentResults].reverse().find((a) => a.status === "FAILED");
-		if (failedAgent) {
+		// Only fall back to the generic line when no detailed stopReason was
+		// supplied (the stopReason block above already rendered it otherwise).
+		if (failedAgent && !stopReason) {
 			lines.push("");
 			lines.push(`**Stopped at:** ${failedAgent.agentName} — agent failed`);
 		}

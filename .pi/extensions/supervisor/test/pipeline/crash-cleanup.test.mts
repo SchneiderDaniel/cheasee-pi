@@ -549,6 +549,20 @@ describe("cleanupOnExit() — Phase 2: cleanup logic (reordered: branch first)",
 			"Invariant: exec call #0 is always git branch -D (preserved across timeout)",
 		);
 	});
+
+	it("shouldSkip=true (timeout preservation failed) → no cleanup exec, worktree + branch kept, exit(0)", async () => {
+		const execCalls: ExecCall[] = [];
+		const pi = createMockPi([], execCalls);
+		const exitSpy = mock.fn() as unknown as (code: number) => void;
+		const deps = createMinimalDeps({ pi, exit: exitSpy, shouldSkip: () => true });
+
+		await cleanupOnExit("SIGTERM", deps);
+
+		assert.equal(execCalls.length, 0, "no git commands — worktree + branch kept");
+		const exitMock = exitSpy as unknown as MockedFn;
+		assert.equal(exitMock.mock.calls.length, 1);
+		assert.equal(exitMock.mock.calls[0]!.arguments[0], 0);
+	});
 });
 
 // ══════════════════════════════════════════════════════════════════

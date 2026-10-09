@@ -35,7 +35,8 @@ import type {
 } from "../../config/types.ts";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { GitHubPort } from "../../github/ports.ts";
-import { resolveTimeoutPolicy } from "../../config/config.ts";
+import { resolveTimeoutPolicy, type TimeoutPolicy } from "../../config/config.ts";
+import { parseSizeTier } from "../../lib/size-tier.ts";
 import { executeAgent } from "../execute-agent.ts";
 import { tryRebaseOntoBase } from "../rebase.ts";
 import { GATE_HOOKS, type WorkflowStep } from "../../config/workflow.ts";
@@ -51,7 +52,9 @@ import {
 	handlePostAgentSuccess,
 	applyGateFailureContext,
 	handleEmptyWorktree,
+	preserveTimedOutWork,
 	type EmptyWorktreeOutcome,
+	type PreservedWork,
 	type StageState,
 } from "../stages/index.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
@@ -171,8 +174,11 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		ctx.ui.setStatus("supervisor", `Running ${agent.config.name}...`);
 		ctx.ui.notify(`Dispatching ${agent.config.name}...`, "info");
 		// Per-agent wall-clock timeout: agentTimeoutSec (seconds, 0 = no
-		// timeout) → agentTimeoutsMin (legacy minutes) → 30-min default.
-		const timeoutMs = resolveTimeoutPolicy(agentName, config).timeoutMs;
+		// timeout) → agentTimeoutsMin (legacy minutes) → 30-min default ×
+		// size-tier scale (issue #1987; large ×2 → 60 min).
+		const sizeTier = parseSizeTier(loopFilteredData.comments);
+		const timeoutPolicy = resolveTimeoutPolicy(agentName, config, sizeTier);
+		const timeoutMs = timeoutPolicy.timeoutMs;
 
 		// Pre-Implementation rebase (issue #1473) — policy lives in the helper.
 		// Refresh the worktree onto the latest default branch before every
@@ -187,11 +193,14 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 				: undefined;
 
 		// ─── Assemble task ───
-		const task = assembleAgentTask(runCtx, agentName, loopFilteredData, rebaseConflictContext);
+		const task = await assembleAgentTask(runCtx, agentName, loopFilteredData, rebaseConflictContext);
 
 		getDebugLogger().info("handler", `Dispatching agent ${agentName}`, {
 			model: agent.config.model,
 			timeoutMs,
+			sizeTier,
+			baseTimeoutMs: timeoutPolicy.baseTimeoutMs,
+			scale: timeoutPolicy.scale,
 			taskLen: task.length,
 			cwdOverride: worktreePath,
 		});
@@ -284,14 +293,7 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// marker-based transition (empty-worktree, PR-approval, budget
 		// degradation), naming the agent + configured duration.
 		if (result.timedOut) {
-			stopReason = `Agent ${agent.config.name} timed out (configured ${Math.round((result.configuredTimeoutMs ?? 0) / 1000)}s, actual ${result.durationMs}ms)`;
-			ctx.ui.notify(`Agent ${agent.config.name} timed out. Pipeline stops.`, "warning");
-			getDebugLogger().error("handler", "Agent timed out, pipeline stopping", {
-				agentName: agent.config.name,
-				nextStatus,
-				configuredTimeoutMs: result.configuredTimeoutMs,
-				durationMs: result.durationMs,
-			});
+			stopReason = await reportTimedOutAgent(runCtx, agent.config.name, result, timeoutPolicy, nextStatus);
 			break;
 		}
 
@@ -472,6 +474,66 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 	runCtx.loopStatus = loopStatus;
 	runCtx.stopReason = stopReason;
 	runCtx.prCreationResult = prCreationResult;
+}
+
+/**
+ * Report a timed-out agent (issue #1987). Preserves a developer's partial work
+ * as a pushed `wip(#N)` commit (fail-soft — a git failure is reported, never
+ * thrown), notifies, logs the tier/base/effective/actual breakdown, and returns
+ * the stopReason. Extracted from runAgentLoop (≤400-line skeleton).
+ */
+async function reportTimedOutAgent(
+	runCtx: RunContext,
+	agentName: string,
+	result: AgentRunResult,
+	policy: TimeoutPolicy,
+	nextStatus: string | null | undefined,
+): Promise<string> {
+	const { ctx, pi, config, issueNum, worktreePath, worktreeBranch, notify } = runCtx;
+	let preserved: PreservedWork | undefined;
+	if (agentName === "developer" && worktreePath && worktreeBranch) {
+		// Mark preservation in flight BEFORE awaiting: crash cleanup reads this
+		// live, so a SIGTERM during a bounded-but-stalled push retains the
+		// worktree (preservationFailed is only set after the attempt returns).
+		runCtx.preservationInProgress = true;
+		try {
+			preserved = await preserveTimedOutWork(
+				pi,
+				worktreePath,
+				config.remote!,
+				worktreeBranch,
+				issueNum,
+				notify,
+				config.defaultBranch,
+			);
+		} finally {
+			runCtx.preservationInProgress = false;
+		}
+	}
+	// Preservation failed (e.g. push rejected): post-pipeline cleanup must keep
+	// the worktree + branch, whose local commits are the only copy of the work.
+	if (preserved && !preserved.committed && preserved.error) {
+		runCtx.preservationFailed = true;
+	}
+	const preservedNote = preserved
+		? preserved.committed
+			? `, preserved ${preserved.files.length} file(s) as ${preserved.sha ?? "wip commit"}`
+			: preserved.error
+				? `, work preservation failed: ${preserved.error}`
+				: ""
+		: "";
+	ctx.ui.notify(`Agent ${agentName} timed out. Pipeline stops.`, "warning");
+	getDebugLogger().error("handler", "Agent timed out, pipeline stopping", {
+		agentName,
+		nextStatus,
+		configuredTimeoutMs: result.configuredTimeoutMs,
+		durationMs: result.durationMs,
+		sizeTier: policy.sizeTier,
+		baseTimeoutMs: policy.baseTimeoutMs,
+		scale: policy.scale,
+		preserved,
+	});
+	return `Agent ${agentName} timed out (configured ${Math.round((result.configuredTimeoutMs ?? policy.timeoutMs ?? 0) / 1000)}s, actual ${result.durationMs}ms; tier ${policy.sizeTier ?? "none"}, base ${policy.baseTimeoutMs ?? 0}ms, effective ${policy.timeoutMs ?? 0}ms${preservedNote})`;
 }
 
 /**

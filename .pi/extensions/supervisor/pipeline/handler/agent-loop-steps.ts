@@ -30,6 +30,7 @@ import {
 	inferForwardStatus,
 	buildDuplicateCodeContext,
 	computeAuditGateRejection,
+	detectPreservedWork,
 } from "../stages/index.ts";
 import { buildDeadCodeContext } from "../../checks/dead-code.ts";
 import { buildVulnContext } from "../../checks/osv-scanner.ts";
@@ -254,14 +255,15 @@ export async function loadLoopAgentFile(
  * plus the shared buildAgentTask call. The pre-Implementation rebase
  * context is resolved by the caller and threaded in unchanged.
  */
-export function assembleAgentTask(
+export async function assembleAgentTask(
 	runCtx: RunContext,
 	agentName: string,
 	loopFilteredData: FilteredIssueData,
 	rebaseConflictContext: string | undefined,
-): string {
+): Promise<string> {
 	const {
 		ctx,
+		pi,
 		config,
 		issueNum,
 		issueTitle,
@@ -270,6 +272,14 @@ export function assembleAgentTask(
 		systemPromptOptions,
 		stageState,
 	} = runCtx;
+
+	// Resume-instead-of-restart (issue #1987): a prior timed-out developer run
+	// pushed a marked wip(#N) commit; feed it to task assembly so the next run
+	// continues instead of restarting.
+	const wipResumeContext =
+		agentName === "developer" && worktreePath
+			? await detectPreservedWork(pi, worktreePath, issueNum)
+			: undefined;
 
 	const dupContext: string | undefined =
 		agentName === "auditor"
@@ -335,6 +345,7 @@ export function assembleAgentTask(
 		stageState.gateFailureContext,
 		systemPromptOptions,
 		rebaseConflictContext,
+		wipResumeContext,
 	);
 	return task;
 }

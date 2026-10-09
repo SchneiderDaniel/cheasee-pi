@@ -20,7 +20,7 @@ import { createGitHubPort } from "../../github/ports.ts";
 import { generateBranchName } from "../../agent/task.ts";
 import { createWorktree, installWorktreeDeps } from "../worktree.ts";
 import { cleanupStalePipelineState } from "../state-checkpoint.ts";
-import { setupCrashCleanup, type CleanupOnExitDeps } from "../crash-cleanup.ts";
+import { setupCrashCleanup, shouldRetainWorktree, type CleanupOnExitDeps } from "../crash-cleanup.ts";
 import { ErrorCollector, setErrorCollector } from "../error-collector.ts";
 import { fetchIssue, readProjectBoard, checkDependencies } from "../helpers.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
@@ -442,6 +442,11 @@ async function createPipelineWorktree(runCtx: RunContext): Promise<boolean> {
 			cwd: ctx.cwd,
 			notify,
 			debugLogger: getDebugLogger(),
+			// Read live state at signal time: if timeout preservation is in flight or
+			// failed, the worktree/branch must survive a SIGTERM/SIGINT too — the
+			// push may not have completed, so local work may be the only copy
+			// (issue #1987).
+			shouldSkip: () => shouldRetainWorktree(runCtx),
 		};
 		runCtx.crashCleanup = setupCrashCleanup(cleanupDeps);
 		getDebugLogger().info("handler", "Crash cleanup handlers registered (SIGTERM/SIGINT)");

@@ -49,7 +49,10 @@ export function sendPipelineSummary(
 		issueNum,
 		issueTitle,
 		config,
-		overallStatus === "stopped" ? stopReason : undefined,
+		// Pass the stopReason for every non-success outcome: a timed-out agent is
+		// recorded FAILED (not stopped), and dropping the reason here would hide
+		// the tier/effective-timeout/preserved-work detail (audit finding #1987).
+		overallStatus === "success" ? undefined : stopReason,
 		prCreationResult,
 		gateFailureHistory,
 		packageSafetyResult,

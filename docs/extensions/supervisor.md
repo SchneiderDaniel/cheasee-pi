@@ -288,7 +288,8 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
 | `agentTokenBudget` | `0` | Soft token cap per agent dispatch. `0` = unlimited |
 | `maxToolCalls` | `0` | Hard cap on tool invocations per agent. `0` = unlimited |
 | `agentTimeoutsMin` | `{}` | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`) |
-| `agentTimeoutSec` | `{}` | Per-agent wall-clock timeout in seconds: `{ "developer": 600 }`. `0` = no timeout (timers and kill disarmed) |
+| `agentTimeoutSec` | `{}` | Per-agent wall-clock timeout in seconds: `{ "developer": 600 }`. `0` = no timeout (timers and kill disarmed). Authoritative override — **unscaled** by `agentTimeoutTierScale` |
+| `agentTimeoutTierScale` | `{ small: 1, medium: 1.5, large: 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker: a `Large` issue scales 30 min → 60 min |
 | `agentKillGraceSec` | `10` | SIGTERM→SIGKILL grace (s) for the subprocess kill ladder on timeout. `0` = immediate SIGKILL |
 | `bellOnComplete` | `false` | Ring terminal bell when pipeline finishes |
 | `enableExperimentalFeatures` | `false` | When false, only core pipeline stages run |

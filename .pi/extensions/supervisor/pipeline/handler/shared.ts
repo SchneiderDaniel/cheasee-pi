@@ -68,6 +68,20 @@ export interface RunContext {
 	stopReason: string | undefined;
 	agentResults: PipelineAgentResult[];
 
+	/**
+	 * Set by reportTimedOutAgent when timeout work preservation failed (e.g. the
+	 * push was rejected). Post-pipeline cleanup then keeps the worktree and its
+	 * branch — those local commits may be the only copy of the developer's work.
+	 */
+	preservationFailed?: boolean;
+
+	/**
+	 * True while timeout work preservation is in flight. Crash cleanup reads this
+	 * live: a SIGTERM during a bounded-but-stalled preservation must retain the
+	 * worktree, because `preservationFailed` is only set once the attempt returns.
+	 */
+	preservationInProgress?: boolean;
+
 	// Test injection seam (issue #1472): optional mock agent runner passed
 	// through to executeAgent and the PR-readiness gate's developer dispatch.
 	// Production callers omit this — undefined means the real runner is used.
