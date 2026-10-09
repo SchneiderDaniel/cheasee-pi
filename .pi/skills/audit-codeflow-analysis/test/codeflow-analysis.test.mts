@@ -426,6 +426,23 @@ describe("partial run disclosure", () => {
 		assert.ok(warnings.join(" ").length > 0, "recovery must be loud, not silent");
 	});
 
+	it("removes a stale JSON artifact so a partial refresh cannot look complete", async () => {
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 404, bridgeStatusStatus: 404 });
+		routeTo(s);
+		// An earlier analysis left a structured artifact behind; `dry-run.mts`
+		// auto-loads this path, so a JSON-less refresh must not leave it in place.
+		mkdirSync(join(cwd, "ignore"), { recursive: true });
+		writeFileSync(REPORT_JSON_PATH(), '{"architectureIssues":[{"title":"stale"}]}', "utf-8");
+
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.jsonPath, null);
+		assert.strictEqual(outcome.result.partial, true);
+		assert.ok(!existsSync(REPORT_JSON_PATH()), "stale JSON artifact must not survive a JSON-less fetch");
+		assert.match(outcome.result.warnings.join(" "), /stale structured JSON artifact/i);
+	});
+
 	it("marks a run with genuinely absent JSON partial and names the blind categories", async () => {
 		const s = await shim({ status: 200, body: "MD", jsonStatus: 404, bridgeStatusStatus: 404 });
 		routeTo(s);

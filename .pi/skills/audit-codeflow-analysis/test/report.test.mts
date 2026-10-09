@@ -29,6 +29,7 @@ import {
 	type IssueFact,
 	type Target,
 } from "../lib/report.ts";
+import { buildFullReport, FULL_REPORT_TOTALS } from "./fixtures/full-report.mts";
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 const FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8");
@@ -253,6 +254,47 @@ describe("parseReportJson full-category coverage", () => {
 				"security",
 				"suggestion",
 			],
+		);
+	});
+});
+
+describe("full-report extraction (acceptance totals)", () => {
+	const facts = parseReportJson(JSON.stringify(buildFullReport()));
+
+	it("extracts one fact per item across every category", () => {
+		assert.strictEqual(facts.length, FULL_REPORT_TOTALS.facts, "no item may be dropped");
+		assert.strictEqual(
+			dedupeIssues(facts).length,
+			FULL_REPORT_TOTALS.facts,
+			"no distinct fact may collapse",
+		);
+		const counts: Record<string, number> = {};
+		for (const f of facts) counts[f.kind] = (counts[f.kind] ?? 0) + 1;
+		assert.deepStrictEqual(counts, {
+			architecture: 4,
+			security: 13,
+			"dead-code": 16,
+			duplicate: 10,
+			"layer-violation": 145,
+			suggestion: 7,
+			pattern: 8,
+			"anti-pattern": 4,
+		});
+	});
+
+	it("classifies exactly the 193 bug-kind facts as bug candidates", () => {
+		const bugs = facts.filter((f) => classifyFinding(f).issueType === "bug");
+		assert.strictEqual(bugs.length, FULL_REPORT_TOTALS.bugCandidates);
+		const routed = facts.filter((f) => classifyFinding(f).issueType !== "bug");
+		assert.strictEqual(routed.length, FULL_REPORT_TOTALS.routed);
+		assert.ok(
+			routed.every(
+				(f) =>
+					f.kind === "pattern" ||
+					f.kind === "anti-pattern" ||
+					/Large Files|Highly Coupled/.test(f.title),
+			),
+			`unexpected routed facts: ${routed.map((f) => f.title).join(", ")}`,
 		);
 	});
 });

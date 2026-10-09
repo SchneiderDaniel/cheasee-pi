@@ -28,6 +28,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { selectCandidates, slugifyFinding, type FileResolution } from "../scripts/dry-run.mts";
 import type { IssueFact } from "../lib/report.ts";
+import { buildFullReport, FULL_REPORT_TOTALS } from "./fixtures/full-report.mts";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 const CLI = resolve(REPO_ROOT, ".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts");
@@ -371,6 +372,35 @@ describe("dry-run --emit-findings", () => {
 		const r = runDryRun(["--report", join(dir, "absent.md"), "--emit-findings", outDir]);
 		assert.strictEqual(r.status, 2);
 		assert.ok(!existsSync(outDir), "must not create the target directory on a missing report");
+	});
+
+	it("lists 207 findings / 193 bug candidates and emits one file per fact (#1982 totals)", () => {
+		const json = join(dir, "full.json");
+		writeFileSync(json, JSON.stringify(buildFullReport()), "utf-8");
+		const report = join(dir, "full.md");
+		writeFileSync(report, "# CodeFlow Analysis Report\n", "utf-8");
+		const args = ["--report", report, "--json", json];
+
+		const list = runDryRun([...args, "--list"]);
+		assert.strictEqual(list.status, 0, list.stderr);
+		assert.match(list.stdout, /207 finding\(s\)/);
+		assert.strictEqual(
+			(list.stdout.match(/\[bug\]/g) ?? []).length,
+			FULL_REPORT_TOTALS.bugCandidates,
+		);
+		assert.ok(!/UNREADABLE/.test(list.stdout), "no category may be unreadable");
+
+		const outDir = join(dir, "full-findings");
+		const emit = runDryRun([...args, "--emit-findings", outDir]);
+		assert.strictEqual(emit.status, 0, emit.stderr);
+		const files = readdirSync(outDir);
+		assert.strictEqual(files.length, FULL_REPORT_TOTALS.facts, files.slice(0, 5).join(","));
+		assert.ok(
+			files.every((f) => Buffer.byteLength(f, "utf-8") <= 255),
+			"every emitted filename must fit the filesystem limit",
+		);
+		assert.match(emit.stdout, /207 candidate\(s\) written/);
+		assert.match(emit.stdout, /14 finding\(s\) routed by triage/);
 	});
 
 	it("fails closed instead of mixing a rerun with stale findings", () => {

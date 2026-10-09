@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import {
 	closeSync,
 	constants,
+	existsSync,
 	mkdirSync,
 	openSync,
 	realpathSync,
@@ -187,6 +188,22 @@ function writeAtomically(cwd: string, target: string, data: Uint8Array): void {
 	}
 }
 
+/**
+ * Delete an artifact a previous fetch left behind, refusing to reach outside
+ * `cwd` through a symlinked parent. Returns true when a file was removed.
+ *
+ * A refresh that finds no JSON must not leave the earlier analysis's JSON
+ * artifact on disk: `dry-run.mts` auto-loads that default path, so a stale file
+ * makes a partial run look complete.
+ */
+function removeStaleArtifact(cwd: string, target: string): boolean {
+	const dir = dirname(target);
+	if (!existsSync(dir) || !existsSync(target)) return false;
+	assertRealDirWithinRoot(cwd, dir);
+	rmSync(target, { force: true });
+	return true;
+}
+
 /** GET a report route; returns the response or throws on transport failure. */
 async function getReport(url: string, signal?: AbortSignal): Promise<Response> {
 	try {
@@ -333,10 +350,14 @@ export async function fetchAndStoreReport(opts: {
 	}
 
 	let jsonPath: string | null = null;
+	const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
 	if (jsonBytes !== null) {
-		const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
 		writeAtomically(opts.cwd, jsonTarget, jsonBytes);
 		jsonPath = jsonTarget;
+	} else if (removeStaleArtifact(opts.cwd, jsonTarget)) {
+		warnings.push(
+			"Removed a stale structured JSON artifact left by an earlier analysis, so it cannot be mistaken for this report's JSON.",
+		);
 	}
 
 	const partial = jsonPath === null;

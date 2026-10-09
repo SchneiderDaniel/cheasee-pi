@@ -157,7 +157,10 @@ JSON export (a capture-side gap); `postedAt` set with a 404 on GET means the
 shim's `/api/analysis/report.json` route is down. Either way the JSON-only
 categories (duplicates, layer violations, suggestions) are disclosed unavailable,
 never silently omitted, and the run states that those categories are partially
-unauditable from markdown.
+unauditable from markdown. A partial refresh also deletes any
+`ignore/codeflow-report.json` an earlier analysis left behind, so the artifact set
+on disk always matches the current fetch result and a stale file can never make a
+partial run look complete.
 
 A `## Architecture Issues` entry's `**Affected:**` line is parsed into **targets**,
 not just paths. The markdown exporter emits only `x.name || x.file`, so an item may
