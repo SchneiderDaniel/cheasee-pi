@@ -44,8 +44,9 @@ Load this skill when the user asks to:
   longer describes the current analysis: stop and restart from Step 1.
 - **Only `bug`-class findings are validated and filed as bugs.** `classifyFinding`
   (`lib/report.ts`) is the single policy source and assigns every fact its issue
-  type before any validator reads code; `informational` facts are never filed
-  and `chore` facts are routed, never bug-template scope.
+  type and disposition before any validator reads code. `chore` facts are filed as
+  refactor issues and `informational` facts are offered as optional filings — both
+  after the Step 6 gate, never through the bug validator and never the bug template.
 - **Confirm before filing.** No `gh issue create` (directly or via
   `create-internal-issue`) until the user has explicitly confirmed via
   `ask_user`. Drafting is free; creating is not.
@@ -133,7 +134,7 @@ Structured JSON sources (authoritative):
 
 | Field | Kind | File source |
 |-------|------|-------------|
-| `architectureIssues[]` | architecture | `affectedFiles[]` |
+| `architectureIssues[]` | architecture | `affectedFiles[]`, `affectedItems[].file`/`.toFile`, `affectedItems[].files[].file` |
 | `duplicates[]` | duplicate | `files[].file` |
 | `layerViolations[]` | layer-violation | `from`, `to` |
 | `suggestions[]` | suggestion | (none — derived from other signals) |
@@ -167,7 +168,9 @@ markdown placeholder to `path` instead of leaving it dangling.
 
 Markdown is narration, **never the sole source of findings**. The markdown
 exporter does **not** emit duplicates, layer violations, or suggestions — those
-come from the JSON export only. When `jsonPath` is null the run is **partial**: it
+come from the JSON export only. `jsonPath` is null when no *usable* structured
+export was stored — absent, or a body that classifies as JSON but yields no facts
+(an empty stub). Then the run is **partial**: it
 names the categories it cannot see (`duplicate`, `layer-violation`,
 `suggestion`) and states they are partially unauditable from markdown. A JSON-less
 run never presents itself as complete.
@@ -234,8 +237,8 @@ claimed files) — `dry-run.mts --emit-findings [DIR]` writes exactly those file
 for every post-dedupe, post-suppression candidate, with no subagent and no
 deletion. Then validate every `issueType: bug` candidate in one batched `bash`
 call — `--emit-findings` also writes the `chore`/`informational` candidates (each
-file is tagged `**Issue type:**`), but those are routed in Step 5 and never reach
-the validator:
+file is tagged `**Issue type:**` and `**Disposition:**`), but those are routed in
+Step 5 and never reach the validator:
 
 ```bash
 for f in ignore/codeflow-findings/*.md; do
@@ -298,15 +301,21 @@ the group's affected files as the scope and include:
 
 **Kind → issue type.** Scope is decided once, before any validator reads code, by
 `classifyFinding` in `lib/report.ts` — that function is the single policy source.
-Consult its result per fact and act on the returned `issueType`; never re-derive a
-kind → issue-type mapping here:
+Consult its result per fact and act on both the returned `issueType` and its
+`disposition` (`file-bug` / `file-refactor` / `offer-optional` / `drop`); never
+re-derive a kind → issue-type mapping here:
 
-- `bug` — a Step 3-validated candidate; draft it with the bug template.
-- `chore` — refactor/cleanup scope: route it through the freeform "Other" path, or
-  drop it, but never send it to the bug validator.
-- `informational` — record it in the run summary and stop there; it is not a defect
-  and has no issue.
-- `out-of-scope` — drop it and state why.
+- `bug` (`file-bug`) — a Step 3-validated candidate; draft it with the bug template.
+- `chore` (`file-refactor`) — refactor/cleanup scope: draft a refactor issue via
+  `create-internal-issue` (freeform "Other" path). It is part of the proposed set
+  by default, so the run offers work that improves the CodeFlow score; the Step 6
+  gate keeps it opt-out, never silently rerouted. Never send it to the bug
+  validator.
+- `informational` (`offer-optional`) — an **opt-in** filing (a descriptive
+  observation, not a defect): present it in the Step 6 gate with its disposition
+  stated so the user can act on it. Never filed as a bug, never left structurally
+  unactionable.
+- `out-of-scope` (`drop`) — drop it and state why.
 
 Do the duplicate check (`gh issue list`) for every draft. Drop drafts that match
 an existing open issue; keep the rest as the proposed set.
@@ -321,7 +330,9 @@ their `REASON` — then ask with `ask_user`, offering exactly three choices:
 - **some** → ask which ones, then create only those.
 - **all** → create the full set.
 
-Never proceed to Step 7 without the user's answer.
+Never proceed to Step 7 without the user's answer. The `chore` (refactor) drafts
+are proposed by default and the `informational` (optional) drafts are offered for
+opt-in; the gate is where they are accepted or excluded, never a silent drop.
 
 ### Step 7 — File the confirmed issues
 
@@ -362,10 +373,12 @@ node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-r
 `--emit-findings [DIR]` writes one `NN-<slug>.md` per post-dedupe,
 post-suppression candidate (default `ignore/codeflow-findings/`), spawns no
 subagent, is not truncated by `--limit`, and leaves the directory in place. It
-prints the suppressed known-noise/unresolved count next to the written count.
-It fails closed (exit `2`, writes nothing) when the destination already holds
-`.md` findings, so a rerun can never mix stale candidates into the set: point at
-a fresh directory or remove the stale files first.
+prints the suppressed known-noise/unresolved count next to the written count, plus
+a `dispositions:` line naming each nonzero disposition (`file-bug`,
+`file-refactor`, `offer-optional`) with its count. It fails closed (exit `2`,
+writes nothing) when the destination already holds `.md` findings, so a rerun can
+never mix stale candidates into the set: point at a fresh directory or remove the
+stale files first.
 
 It never calls `gh`. Exit `0` for a completed run even when every finding is
 false, `2` for bad usage or a missing report.
@@ -376,7 +389,8 @@ false, `2` for bad usage or a missing report.
 - When `jsonPath` is null, the run discloses that the JSON-only categories
   (duplicates, layer violations, suggestions) were unavailable, states those
   categories are partially unauditable, and names the owning component (browser
-  capture vs shim route) using bridge-status.
+  capture vs shim route) using bridge-status. A JSON body that parses to no facts
+  (an empty stub served by the shim's slot) counts as absent, never as complete.
 - Every `## ` section that emitted `###` items produced at least one candidate, or
   the run stopped and named the unreadable section. A section with
   `unparsedItems > 0` lists its unparsed `###` titles. A partial candidate set is
@@ -386,8 +400,10 @@ false, `2` for bad usage or a missing report.
   VALID-but-INVALID.
 - The `analyzedAt` re-fetch before filing matches the Step 1 value.
 - Duplicates dropped by `dedupeIssues` are reported as a count.
-- No `informational` fact was filed and no `chore` fact used the bug template —
-  every filed issue came from a `bug`-class candidate.
+- No filed issue used the bug template unless it came from a `bug`-class
+  candidate; `chore` facts were filed as refactor issues and `informational` facts
+  offered as optional filings, all after the Step 6 gate — none was silently
+  routed away or dropped.
 - Every proposed issue cites at least one `target`: a file path, a layer edge
   (`utils → ui`), or a symbol (`execFn`), matching the candidate's identity. A
   file-less suggestion must reference the signal that produced it.

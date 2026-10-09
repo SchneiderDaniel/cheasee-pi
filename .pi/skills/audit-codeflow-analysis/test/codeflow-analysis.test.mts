@@ -590,6 +590,80 @@ describe("partial run disclosure", () => {
 		assert.strictEqual(outcome.result.partial, true);
 		assert.ok(!existsSync(REPORT_JSON_PATH()));
 	});
+
+	it("treats a facts-less stub JSON body as no structured export (partial, categories named)", async () => {
+		const stub = '{"architectureIssues":[]}';
+		const s = await shim({
+			status: 200,
+			body: "# CodeFlow Analysis Report\n",
+			jsonStatus: 200,
+			jsonBody: stub,
+		});
+		routeTo(s);
+		// A previous analysis left a structured artifact behind; the stub must not
+		// let it (or the stub) masquerade as this run's complete JSON.
+		mkdirSync(join(cwd, "ignore"), { recursive: true });
+		writeFileSync(REPORT_JSON_PATH(), '{"architectureIssues":[{"title":"stale"}]}', "utf-8");
+
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.jsonPath, null);
+		assert.strictEqual(outcome.result.partial, true);
+		assert.deepStrictEqual(outcome.result.unavailableCategories, [
+			"duplicate",
+			"layer-violation",
+			"suggestion",
+		]);
+		assert.match(outcome.result.warnings.join(" "), /stub|no findings|yields no facts/i);
+		assert.ok(!existsSync(REPORT_JSON_PATH()), "a stale JSON artifact must be removed");
+		assert.ok(existsSync(REPORT_PATH()), "the markdown artifact is still written");
+	});
+
+	it("does not write a JSON artifact when the JSON route serves only a stub", async () => {
+		const s = await shim({
+			status: 200,
+			body: "MD",
+			jsonStatus: 200,
+			jsonBody: '{"architectureIssues":[]}',
+		});
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.ok(!existsSync(REPORT_JSON_PATH()), "a stub must never be stored as JSON");
+	});
+
+	it("treats a stub JSON body on the markdown route as a misroute, not a recovery", async () => {
+		const stub = '{"architectureIssues":[]}';
+		const s = await shim({ status: 200, body: stub, jsonStatus: 404, bridgeStatusStatus: 404 });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.partial, true);
+		assert.strictEqual(outcome.result.jsonPath, null);
+		assert.strictEqual(outcome.result.recoveredFromMarkdownRoute, false);
+		const markdown = readFileSync(REPORT_PATH(), "utf-8");
+		assert.match(markdown, /^# CodeFlow Analysis Report/);
+		assert.ok(!markdown.includes("architectureIssues"), "JSON bytes must never sit at the markdown path");
+		assert.match(outcome.result.warnings.join(" "), /markdown route returned a JSON body|stub/i);
+	});
+
+	it("keeps a usable JSON route export when the markdown route served a stub", async () => {
+		const stub = '{"architectureIssues":[]}';
+		const s = await shim({ status: 200, body: stub, jsonStatus: 200, jsonBody: JSON_BODY });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.partial, false);
+		assert.strictEqual(outcome.result.recoveredFromMarkdownRoute, false);
+		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), JSON_BODY);
+		const markdown = readFileSync(REPORT_PATH(), "utf-8");
+		assert.match(markdown, /^# CodeFlow Analysis Report/);
+		assert.ok(!markdown.includes("architectureIssues"), "no JSON body at the markdown path");
+	});
 });
 
 describe("headless run integration", () => {

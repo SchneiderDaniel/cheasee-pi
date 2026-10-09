@@ -18,9 +18,10 @@ is the one to run first.
 | 6 | `LOW: Code Comments` | `TODO` occurs inside `grep`/`xargs` string literals in test fixtures, not in a comment. | Read the cited line: the token sits inside a quoted string (test data), not after a comment marker. |
 | 7 | `LOW: Debug Statements` | `console.log(...)` text inside ast-grep pattern strings or a JSON fixture. | Read the cited line: the call text is a pattern/fixture payload, not executable debug code. |
 | 8 | dead code | The function is reached indirectly — via a callback seam (`fetchFn`/`writeFileFn`) or a Rust trait method invoked from `wire()`. | Structural-search for the function name as a value passed by reference or through a trait object before calling it dead. |
+| 9 | `layer-violation` | The edge pairs files in different language families (e.g. a `.ts` endpoint with a Rust `ui/src/*.rs` one); a language cannot import across that boundary, so the match is a bare identifier (`dir`, `root`, `state`). | Compare the endpoint extensions: an import-based violation only exists within one language family (`.ts`/`.mts`/`.tsx`/`.js`/`.mjs`/`.jsx` are one family). |
 
 Text-provable (auto-suppressed before validation, per `classifyKnownNoise`):
-rows 6 and 7, plus any fact whose every cited file is unresolved. Everything else
+rows 6, 7 and 9, plus any fact whose every cited file is unresolved. Everything else
 is a code-read shape: the validator gets it and proves it here, never a text filter.
 
 Scope (is this a bug or a chore/refactor?) is decided before validation by

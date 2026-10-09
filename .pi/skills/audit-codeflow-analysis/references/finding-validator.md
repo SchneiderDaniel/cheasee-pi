@@ -32,6 +32,11 @@ unions, comment-only SQL, phantom symbols, arg-array spawns, fixture string
 literals, pattern text, indirect/trait dead code) with the exact disproof step for
 each. Reuse the listed disproof instead of re-deriving the mechanism from scratch.
 
+Some text-provable shapes never reach this prompt: `classifyKnownNoise` filters
+the LOW stylistic security categories and cross-language `layer-violation` edges
+(rows 6, 7 and 9) before a validator is spawned, so a candidate you see here is
+already past that boundary.
+
 ## Output
 
 End your reply with exactly one verdict block:
