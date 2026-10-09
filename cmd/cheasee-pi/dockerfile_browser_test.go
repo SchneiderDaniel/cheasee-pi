@@ -40,8 +40,7 @@ func TestDockerfile_BrowserInstallGuardPrecedesChmod(t *testing.T) {
 	// executed command is `sleep 5` (exit 0), so without a guard the && chain
 	// proceeds and the layer reports success with an empty browser cache. The
 	// guard must run before chmod (mirrors Layer 5c's `test -x` guard).
-	guard := `test -n "$(find /opt/playwright-browsers -maxdepth 3 -type f -path '*/chrome-linux64/chrome' -print -quit)"`
-	guardIdx := strings.Index(content, guard)
+	guardIdx := strings.Index(content, browserGuardExpr)
 	if guardIdx == -1 {
 		t.Fatal("Layer 5e must guard the browser install after the retry loop (total download failure must fail the build)")
 	}
@@ -51,6 +50,34 @@ func TestDockerfile_BrowserInstallGuardPrecedesChmod(t *testing.T) {
 	}
 	if guardIdx > chmodIdx {
 		t.Error("the browser-existence guard must run before chmod (guard failure must fail the build)")
+	}
+}
+
+func TestDockerfile_BrowserGuardRevisionSpecific(t *testing.T) {
+	content := readDockerfile(t)
+	// The guard must assert the revision *patchright* resolves, read from the
+	// venv's own browsers.json — not "some chromium build exists". The #1986
+	// image shipped chromium-1243 while patchright looked for 1234 and the old
+	// any-chrome find guard happily passed.
+	if !strings.Contains(content, browserRevisionLookup) {
+		t.Error("Layer 5e must read the expected revision from the venv's patchright browsers.json")
+	}
+	if !strings.Contains(content, "rev=\"$("+browserRevisionLookup+")\"") {
+		t.Error("the guard's revision must come from the browsers.json lookup, not a hardcoded number")
+	}
+	if !strings.Contains(content, browserGuardExpr) {
+		t.Errorf("Layer 5e must assert %q", browserGuardExpr)
+	}
+	if strings.Contains(content, anyChromeFindGuard) {
+		t.Error("the any-chrome find guard must be gone — it passes on a mismatched revision")
+	}
+	// The stale revision contract in the comment (patchright 1.61.2 / chromium
+	// 1228) described a stack nobody installs any more; the pins live in
+	// scrapling-constraints.txt.
+	for _, stale := range []string{"1.61.2", "chromium revision 1228"} {
+		if strings.Contains(content, stale) {
+			t.Errorf("layer 5e comment must not state the stale browser contract (%q)", stale)
+		}
 	}
 }
 
@@ -77,20 +104,28 @@ func TestDockerfile_BrowserLayerSizeCommentUpdated(t *testing.T) {
 // Phase 9b: Layer 5e browser guard — behavioral check
 // ──────────────────────────────────────────────
 
-// browserGuardFindCmd is the exact find expression the Dockerfile guard runs.
-const browserGuardFindCmd = `find /opt/playwright-browsers -maxdepth 3 -type f -path '*/chrome-linux64/chrome' -print -quit`
+// browserRevisionLookup is the exact python one-liner the Dockerfile runs to
+// learn which chromium revision the pinned patchright resolves.
+const browserRevisionLookup = `/opt/venvs/scrapling-venv/bin/python -c "import json, pathlib, patchright; print(next(b['revision'] for b in json.loads((pathlib.Path(patchright.__file__).parent / 'driver/package/browsers.json').read_text())['browsers'] if b['name'] == 'chromium'))"`
 
-// runBrowserGuard evaluates `test -n "$(find …)"` (the Dockerfile's extracted
-// guard expression) against cacheRoot in a real bash and reports whether the
-// guard passes (exit 0).
-func runBrowserGuard(t *testing.T, cacheRoot string) bool {
+// browserGuardExpr is the exact guard the Dockerfile applies to that revision.
+const browserGuardExpr = `test -f "/opt/playwright-browsers/chromium-$rev/chrome-linux64/chrome"`
+
+// anyChromeFindGuard is the pre-#1986 guard: it passed for ANY chromium build,
+// including one whose revision patchright never resolves.
+const anyChromeFindGuard = `test -n "$(find /opt/playwright-browsers -maxdepth 3 -type f -path '*/chrome-linux64/chrome' -print -quit)"`
+
+// runBrowserGuard evaluates the Dockerfile's extracted guard expression in a real
+// bash against cacheRoot, with the expected revision set to rev.
+func runBrowserGuard(t *testing.T, cacheRoot, rev string) bool {
 	t.Helper()
 	content := readDockerfile(t)
-	if !strings.Contains(content, browserGuardFindCmd) {
-		t.Fatal("Dockerfile must contain the browser guard find command")
+	if !strings.Contains(content, browserGuardExpr) {
+		t.Fatal("Dockerfile must contain the browser guard expression")
 	}
-	guard := strings.ReplaceAll(browserGuardFindCmd, "/opt/playwright-browsers", `"`+cacheRoot+`"`)
-	script := `test -n "$(` + guard + `)"; echo $?`
+	// via $root: t.TempDir() paths can contain shell metacharacters ("(").
+	guard := strings.ReplaceAll(browserGuardExpr, "/opt/playwright-browsers", "$root")
+	script := "rev='" + rev + "'; root='" + cacheRoot + "'; " + guard + "; echo $?"
 	out, err := exec.Command("bash", "-c", script).CombinedOutput()
 	if err != nil {
 		t.Fatalf("bash guard run failed: %v (%s)", err, out)
@@ -102,15 +137,18 @@ func TestDockerfile_BrowserGuardBehavior(t *testing.T) {
 	// Behavioral check of the extracted guard expression in real bash:
 	//   empty dir → fail
 	//   only .links/ marker → fail (observed broken image state)
-	//   chromium-<rev>/chrome-linux64/chrome present → pass
-	//   two chromium-* dirs with one complete → pass (partial-retry safe)
+	//   chromium-1243 present but expected 1234 → fail (the #1986 mismatch)
+	//   expected chromium-<rev> present → pass
+	//   both revisions present → pass (a stale extra build is harmless)
 	cases := []struct {
 		name  string
+		rev   string
 		setup func(t *testing.T, root string)
 		want  bool
 	}{
 		{
 			name: "empty cache fails",
+			rev:  "1234",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 			},
@@ -118,6 +156,7 @@ func TestDockerfile_BrowserGuardBehavior(t *testing.T) {
 		},
 		{
 			name: "only .links marker fails (observed broken image)",
+			rev:  "1234",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
 				if err := os.MkdirAll(filepath.Join(root, ".links"), 0o755); err != nil {
@@ -127,22 +166,30 @@ func TestDockerfile_BrowserGuardBehavior(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "chromium build present passes",
+			name: "different revision present fails (chromium-1243 vs expected 1234)",
+			rev:  "1234",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
-				writeFakeChrome(t, root, "chromium-1228")
+				writeFakeChrome(t, root, "chromium-1243")
+			},
+			want: false,
+		},
+		{
+			name: "expected revision present passes",
+			rev:  "1234",
+			setup: func(t *testing.T, root string) {
+				t.Helper()
+				writeFakeChrome(t, root, "chromium-1234")
 			},
 			want: true,
 		},
 		{
-			name: "two chromium dirs, one complete, passes (partial-retry safe)",
+			name: "stale extra revision alongside the expected one passes",
+			rev:  "1234",
 			setup: func(t *testing.T, root string) {
 				t.Helper()
-				// Incomplete leftover from a prior retry attempt.
-				if err := os.MkdirAll(filepath.Join(root, "chromium-1234", "chrome-linux64"), 0o755); err != nil {
-					t.Fatal(err)
-				}
-				writeFakeChrome(t, root, "chromium-1228")
+				writeFakeChrome(t, root, "chromium-1243")
+				writeFakeChrome(t, root, "chromium-1234")
 			},
 			want: true,
 		},
@@ -151,7 +198,7 @@ func TestDockerfile_BrowserGuardBehavior(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			tc.setup(t, root)
-			if got := runBrowserGuard(t, root); got != tc.want {
+			if got := runBrowserGuard(t, root, tc.rev); got != tc.want {
 				t.Errorf("guard result = %v, want %v", got, tc.want)
 			}
 		})
@@ -159,7 +206,7 @@ func TestDockerfile_BrowserGuardBehavior(t *testing.T) {
 }
 
 // writeFakeChrome writes a regular file at <root>/<buildDir>/chrome-linux64/chrome
-// (the layout patchright installs, e.g. chromium-1228/chrome-linux64/chrome).
+// (the layout patchright installs, e.g. chromium-1234/chrome-linux64/chrome).
 func writeFakeChrome(t *testing.T, root, buildDir string) {
 	t.Helper()
 	binary := filepath.Join(root, buildDir, "chrome-linux64", "chrome")
@@ -168,6 +215,95 @@ func writeFakeChrome(t *testing.T, root, buildDir string) {
 	}
 	if err := os.WriteFile(binary, []byte("chrome"), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// ──────────────────────────────────────────────
+// Phase 9d: pinned Python stack (#1986)
+// ──────────────────────────────────────────────
+
+func constraintsPath() string {
+	return filepath.Join("embedded", "docker", "scrapling-constraints.txt")
+}
+
+func readConstraints(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(constraintsPath())
+	if err != nil {
+		t.Fatalf("read scrapling constraints: %v", err)
+	}
+	return string(data)
+}
+
+func TestDockerfile_PipUsesScraplingConstraints(t *testing.T) {
+	content := readDockerfile(t)
+	copyLine := "COPY scrapling-constraints.txt /opt/venvs/scrapling-constraints.txt"
+	installLine := "-c /opt/venvs/scrapling-constraints.txt"
+	copyIdx := strings.Index(content, copyLine)
+	if copyIdx == -1 {
+		t.Fatalf("Dockerfile must COPY the constraints file into the build context result (%q)", copyLine)
+	}
+	installIdx := strings.Index(content, installLine)
+	if installIdx == -1 {
+		t.Fatalf("Layer 5e pip install must run with %q", installLine)
+	}
+	if copyIdx > installIdx {
+		t.Error("the constraints COPY must precede the pip install that reads it")
+	}
+	// The scrapling requirement keeps its extras (constraints cannot carry them).
+	if !strings.Contains(content, "scrapling[fetchers]") {
+		t.Error("pip install must still request scrapling[fetchers] alongside the constraints ceiling")
+	}
+	// Runtime venv re-creation in the container must be pinned too (the venv
+	// adapter appends -c when SCRAPLING_PIP_CONSTRAINTS points at a real file).
+	if !strings.Contains(content, "ENV SCRAPLING_PIP_CONSTRAINTS=/opt/venvs/scrapling-constraints.txt") {
+		t.Error("image must export SCRAPLING_PIP_CONSTRAINTS so a runtime pip install stays pinned")
+	}
+}
+
+func TestScraplingConstraints_PinsStack(t *testing.T) {
+	content := readConstraints(t)
+	// Every package the venv installs must be pinned to an exact version: a
+	// floating patchright is what let the baked browser and the runtime disagree
+	// on the chromium revision.
+	for _, pin := range []string{
+		"scrapling==0.4.15",
+		"patchright==1.62.2",
+		"playwright==1.62.0",
+		"markdownify==1.2.3",
+		"beautifulsoup4==4.15.0",
+	} {
+		if !strings.Contains(content, pin) {
+			t.Errorf("constraints must pin %q", pin)
+		}
+	}
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if !strings.Contains(line, "==") {
+			t.Errorf("constraint line %q must be an exact pin", line)
+		}
+		if strings.Contains(line, "[") {
+			t.Errorf("constraint line %q must not carry extras (pip: 'Constraints cannot have extras')", line)
+		}
+	}
+}
+
+func TestTestsWorkflow_ScraplingUsesConstraints(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "tests.yml"))
+	if err != nil {
+		t.Fatalf("read tests workflow: %v", err)
+	}
+	workflow := string(data)
+	// CI must provision the venv from the same pins as the image, otherwise the
+	// e2e tier bakes a chromium revision the image would never ship.
+	if !strings.Contains(workflow, "-c cmd/cheasee-pi/embedded/docker/scrapling-constraints.txt") {
+		t.Error("scrapling-e2e must install with -c cmd/cheasee-pi/embedded/docker/scrapling-constraints.txt")
+	}
+	if !strings.Contains(workflow, "scrapling-constraints.txt") {
+		t.Error("scrapling-e2e cache key must include the constraints file")
 	}
 }
 

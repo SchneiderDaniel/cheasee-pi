@@ -59,10 +59,30 @@ func TestEntrypoint_MissingTargetGuard(t *testing.T) {
 	}
 }
 
+// linkOwnedBody returns the body of link_owned() (up to its closing brace at
+// column 0) — the symlink plumbing whose no-delete contract the tests below pin.
+func linkOwnedBody(t *testing.T, content string) string {
+	t.Helper()
+	start := strings.Index(content, "link_owned() {")
+	if start == -1 {
+		t.Fatal("entrypoint must define link_owned()")
+	}
+	end := strings.Index(content[start:], "\n}")
+	if end == -1 {
+		t.Fatal("link_owned() body must end with a closing brace at column 0")
+	}
+	return content[start : start+end]
+}
+
 func TestEntrypoint_NoRmRf(t *testing.T) {
 	content := readEntrypoint(t)
-	if strings.Contains(content, "rm -rf") {
-		t.Error("entrypoint must not rm -rf anything (AC: no container FS mutation)")
+	// AC (#1609): the symlink plumbing never deletes. The venv refresh is the one
+	// exception — it drops a regenerable cache copy (.pi/$v) that shadows the
+	// baked venv and cannot self-heal (#1986), never user data.
+	for _, line := range strings.Split(content, "\n") {
+		if strings.Contains(line, "rm -rf") && !strings.Contains(line, `rm -rf "$dst"`) {
+			t.Errorf("entrypoint must not rm -rf outside the venv refresh: %q", strings.TrimSpace(line))
+		}
 	}
 }
 
@@ -137,7 +157,7 @@ func TestEntrypoint_RepointFileConflictRefusal(t *testing.T) {
 	if !strings.Contains(content, "elif [ ! -e \"$link\" ]") {
 		t.Error("link_owned must create missing links only when nothing occupies the link name")
 	}
-	if strings.Contains(content, "rm -rf") {
+	if strings.Contains(linkOwnedBody(t, content), "rm -rf") {
 		t.Error("link_owned must not rm -rf anything (AC: no container FS mutation)")
 	}
 }

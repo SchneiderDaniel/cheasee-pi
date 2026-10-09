@@ -121,15 +121,28 @@ unbreak_worktrees
 
 # --- Pre-install Python venvs for web tools -------------------------
 # Copy pre-built venvs from /opt/venvs/ to .pi/ if missing (saves first-call
-# latency in web_search / web_crawl). Re-own the copy to agentuser: the baked
-# venvs are root-owned, and a root-owned tree inside the bind-mounted workspace
-# is read-only for agentuser and unremovable by the host user (breaks cleanup).
+# latency in web_search / web_crawl). Refresh a copy that drifted: its stamp no
+# longer matches the baked venv (image rebuilt with different pins) or it is not
+# agent-owned. A root-owned tree inside the bind-mounted workspace is read-only
+# for agentuser — the runtime can then never self-heal it (issue #1986) — and
+# unremovable by the host user (breaks cleanup).
 for v in web-search-venv scrapling-venv; do
-    [ -d "/opt/venvs/$v" ] && [ ! -d "/workspaces/main/.pi/$v" ] || continue
-    echo "Pre-installing $v…"
+    src="/opt/venvs/$v"
+    dst="/workspaces/main/.pi/$v"
+    [ -d "$src" ] || continue
+    if [ -d "$dst" ]; then
+        if [ "$(cat "$dst/.cheasee-venv-stamp" 2>/dev/null)" = "$(cat "$src/.cheasee-venv-stamp" 2>/dev/null)" ] \
+            && [ "$(stat -c '%U' "$dst" 2>/dev/null)" = "agentuser" ]; then
+            continue
+        fi
+        echo "Refreshing $v (stamp/ownership drift)…"
+        rm -rf "$dst"
+    else
+        echo "Pre-installing $v…"
+    fi
     mkdir -p /workspaces/main/.pi
-    cp -a "/opt/venvs/$v" "/workspaces/main/.pi/$v"
-    chown -R agentuser:agentuser "/workspaces/main/.pi/$v" 2>/dev/null \
+    cp -a "$src" "$dst"
+    chown -R agentuser:agentuser "$dst" 2>/dev/null \
         || echo "Warning: could not re-own $v to agentuser (non-fatal)"
 done
 # Symlink Playwright browser cache so agentuser finds Chromium
@@ -137,11 +150,14 @@ if [ -d /opt/playwright-browsers ]; then
     mkdir -p /home/agentuser/.cache
     ln -sf /opt/playwright-browsers /home/agentuser/.cache/ms-playwright 2>/dev/null || true
 fi
-# Chromium presence guard — web_crawl stealth tier needs patchright's build here.
-# Loud warning (not fatal) at container start; the Dockerfile build itself fails
-# fatally when the download failed (layer 5e), so this only fires on stale images.
-if ! ls /opt/playwright-browsers/chromium-*/chrome-linux64/chrome >/dev/null 2>&1; then
-    echo "WARNING: Chromium missing in /opt/playwright-browsers — web_crawl stealth tier will fail."
+# Chromium presence guard — web_crawl's stealth tier needs the revision
+# *patchright actually resolves*; any other revision in the cache is dead weight,
+# which is exactly the mismatch that broke web_crawl in #1986. Loud warning (not
+# fatal) at container start; the Dockerfile build fails fatally when the expected
+# download is missing (layer 5e), so this only fires on stale images.
+CHROMIUM_REV="$(/opt/venvs/scrapling-venv/bin/python -c "import json, pathlib, patchright; print(next(b['revision'] for b in json.loads((pathlib.Path(patchright.__file__).parent / 'driver/package/browsers.json').read_text())['browsers'] if b['name'] == 'chromium'))" 2>/dev/null)"
+if [ -z "$CHROMIUM_REV" ] || [ ! -f "/opt/playwright-browsers/chromium-$CHROMIUM_REV/chrome-linux64/chrome" ]; then
+    echo "WARNING: Chromium ${CHROMIUM_REV:-<unresolved>} missing in /opt/playwright-browsers — web_crawl stealth tier will fail."
     echo "         Fix: /opt/venvs/scrapling-venv/bin/python -m patchright install chromium"
 fi
 

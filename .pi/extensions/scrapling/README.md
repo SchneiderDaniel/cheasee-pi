@@ -98,8 +98,8 @@ flowchart TD
 ### Key Design Decisions
 
 - **Concurrency semaphore (max 2)** — Protects 8GB RAM. Polling loop with 1000ms interval.
-- **Progressive escalation** — Starts lightweight (`curl_cffi`). If Cloudflare blocks, escalates to Playwright stealth. Never runs both.
-- **Auto-installing venv** — On first call, creates `.pi/scrapling-venv/`. If Chromium errors, `rm -rf` and retry — auto-recreates.
+- **Progressive escalation** — Starts lightweight (`curl_cffi`). If Cloudflare blocks, escalates to patchright stealth. Never runs both.
+- **Auto-installing venv** — On first call, creates `.pi/scrapling-venv/` and installs the pinned stack. The browser is a separate gate: a missing `chromium-<revision>` fails in milliseconds with the expected revision (never a re-install of the venv) so the ~8 min unwritable-cache stall of #1986 cannot recur.
 - **maxPages cap at 10** — Hard upper bound prevents runaway crawling. Default 1.
 - **maxTokens truncation** — Content truncated with notice. 0 = no limit.
 - **URL validation via `new URL()`** — Rejects invalid URLs early. Only http/https schemes allowed.

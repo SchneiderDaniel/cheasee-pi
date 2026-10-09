@@ -239,7 +239,7 @@ jobs:
           path: |
             .pi/scrapling-venv
             ~/.cache/ms-playwright
-          key: scrapling-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          key: scrapling-${{ runner.os }}-${{ hashFiles('package-lock.json', 'cmd/cheasee-pi/embedded/docker/scrapling-constraints.txt') }}
           restore-keys: |
             scrapling-${{ runner.os }}-
 
@@ -249,7 +249,11 @@ jobs:
           if [ ! -x .pi/scrapling-venv/bin/python3 ]; then
             python3 -m venv .pi/scrapling-venv
             .pi/scrapling-venv/bin/pip install --upgrade pip
-            .pi/scrapling-venv/bin/pip install "scrapling[fetchers]" markdownify beautifulsoup4
+            # Same pin contract as the image (Dockerfile layer 5e): a floating
+            # scrapling[fetchers] here can resolve a patchright whose chromium
+            # revision the e2e then bakes into ~/.cache/ms-playwright, hiding
+            # the very drift #1986 shipped.
+            .pi/scrapling-venv/bin/pip install -c cmd/cheasee-pi/embedded/docker/scrapling-constraints.txt "scrapling[fetchers]" markdownify beautifulsoup4
           fi
           .pi/scrapling-venv/bin/python3 -m patchright install chromium
 

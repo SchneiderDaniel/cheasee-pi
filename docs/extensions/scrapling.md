@@ -11,14 +11,14 @@ nav_order: 3
 
 [📄 README](../../.pi/extensions/scrapling/README.md)
 
-**Why.** Crawl web pages behind Cloudflare and extract content as Markdown. Progressive fetching — starts lightweight (`curl_cffi`), escalates to Playwright stealth when blocked. Auto-installs Python venv on first call.
+**Why.** Crawl web pages behind Cloudflare and extract content as Markdown. Progressive fetching — starts lightweight (`curl_cffi`), escalates to patchright stealth when blocked. Auto-installs Python venv on first call.
 
-**How it works.** Registers `web_crawl` tool. On first call, creates `.pi/scrapling-venv/` with `scrapling[fetchers]` and `markdownify`. Validates URL, acquires concurrency semaphore (max 2 concurrent — protects 8GB RAM). Runs Python subprocess: lightweight curl_cffi fetch → Playwright stealth on Cloudflare block. Extracts Markdown via `markdownify`, truncates by `maxTokens` parameter. Returns formatted `--- URL (via method) ---\ncontent`. Configurable via `config.json`.
+**How it works.** Registers `web_crawl` tool. On first call, creates `.pi/scrapling-venv/` with `scrapling[fetchers]` and `markdownify`. Validates URL, acquires concurrency semaphore (max 2 concurrent — protects 8GB RAM). Runs Python subprocess: lightweight curl_cffi fetch → patchright stealth on Cloudflare block. Extracts Markdown via `markdownify`, truncates by `maxTokens` parameter. Returns formatted `--- URL (via method) ---\ncontent`. Configurable via `config.json`.
 
-**Troubleshooting:** If crawling fails with Chromium errors, delete the venv and retry — it auto-recreates:
+**Troubleshooting:** A `web_crawl` failure naming a missing `chromium-<revision>` means the browser cache and the installed `patchright` disagree. The venv is fine — reinstalling it does not help. Rebuild the image (the pins live in `cmd/cheasee-pi/embedded/docker/scrapling-constraints.txt`), or, where the cache is writable:
 
 ```bash
-rm -rf .pi/scrapling-venv
+.pi/scrapling-venv/bin/python -m patchright install chromium
 ```
 
 **Location:** `.pi/extensions/scrapling/`
@@ -46,7 +46,7 @@ Port-based adapter pattern for progressive web crawling:
 flowchart TD
     A[Crawl URL] --> B[curl_cffi: lightweight fetch]
     B -- success --> C[Extract content]
-    B -- Cloudflare block --> D[Playwright stealth mode]
+    B -- Cloudflare block --> D[patchright stealth mode]
     D -- success --> C
     D -- failure --> E[Fallback: report error]
     C --> F[markdownify: HTML→Markdown]
@@ -57,8 +57,8 @@ flowchart TD
 ### Key Design Decisions
 
 - **Concurrency semaphore (max 2)** — Protects 8GB RAM. `acquireCrawlLock()` uses polling loop (1000ms interval). Excessive for concurrent needs but safe for infrequent crawl calls.
-- **Progressive escalation** — Starts with `curl_cffi` (lightweight, no browser). If Cloudflare blocks, escalates to Playwright stealth. Never runs both.
-- **Auto-installing venv** — On first call, creates `.pi/scrapling-venv/`. If Chromium errors occur, user can `rm -rf .pi/scrapling-venv` and retry — auto-recreates.
+- **Progressive escalation** — Starts with `curl_cffi` (lightweight, no browser). If Cloudflare blocks, escalates to patchright stealth. Never runs both.
+- **Auto-installing venv** — On first call, creates `.pi/scrapling-venv/` and installs the pinned stack. The container entrypoint refreshes the copy when the baked venv changes or the copy is not agent-owned; a browser miss fails fast with the expected revision instead of reinstalling the venv.
 - **maxPages cap at 10** — Hard upper bound prevents runaway crawling. Default 1.
 - **maxTokens truncation** — Content truncated with notice. 0 = no limit.
 - **URL validation via `new URL()`** — Rejects invalid URLs early. No protocol restriction (http/https/ftp/etc).
@@ -98,10 +98,14 @@ Error branch (`ok: false`): the tool returns `{ ok: false, error: { url, reason 
 
 ### Troubleshooting
 
-If crawling fails with Chromium errors, delete the venv and retry — it auto-recreates:
+Crawling failures are typed. `python -m pip`/venv errors mean the Python side; a message naming a missing
+`chromium-<revision>` path means the browser cache and the installed `patchright` disagree — the venv is
+healthy, so deleting it does not help. Rebuild the image (the pins live in
+`cmd/cheasee-pi/embedded/docker/scrapling-constraints.txt`), or install the expected build where the cache
+is writable:
 
 ```bash
-rm -rf .pi/scrapling-venv
+.pi/scrapling-venv/bin/python -m patchright install chromium
 ```
 
 ### Testing
