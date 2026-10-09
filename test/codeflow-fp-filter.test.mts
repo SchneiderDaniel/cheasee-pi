@@ -29,6 +29,12 @@ const { sanitizeAnalysisData, readFileFrom } = requireCjs(FILTER) as {
 	readFileFrom: (data: unknown) => (path: unknown) => string | null;
 };
 
+// The real upstream health score (see the fixture header), so the acceptance
+// arithmetic below is upstream's, not a re-implementation.
+const { calcHealth } = (await import("./fixtures/codeflow-calc-health.mjs")) as {
+	calcHealth: (data: any) => { score: number; grade: string };
+};
+
 // The cited files of the report the issue was filed against (issue #1994).
 const SOURCES: Record<string, string> = {
 	".pi/extensions/context-info/types.ts":
@@ -375,28 +381,10 @@ describe("fp-filter — browser readFile source", () => {
 });
 
 describe("fp-filter — acceptance score (Phase 5)", () => {
-	// A mirror of the upstream CODEFLOW_METRICS `calcHealth`, whose five terms
-	// the issue documents. The authoritative check is the headless re-run in the
-	// container; this pins the arithmetic the fix is claimed to move.
-	const TOTAL_FUNCTIONS = 4890;
-
-	function calcHealth(data: any): number {
-		const score =
-			100 -
-			Math.min(20, (data.unusedFunctions.length / TOTAL_FUNCTIONS) * 100) -
-			Math.min(20, (data.circularDependencyIssues?.length ?? 0) * 5) -
-			Math.min(
-				15,
-				data.architectureIssues.filter((i: any) => String(i.title).includes("Large")).length * 3,
-			) -
-			Math.min(15, Math.max(0, data.dependencies.length / data.files.length - 3) * 2) -
-			Math.min(
-				20,
-				data.securityIssues.filter((i: any) => String(i.severity).toLowerCase() === "high").length * 5,
-			);
-		return Math.round(score);
-	}
-
+	// The score is computed by the real upstream `calcHealth` (the fixture copies
+	// it verbatim from the pinned checkout). The data below reproduces the report
+	// the issue was filed against; the authoritative check is the headless re-run
+	// in test/codeflow-fp-acceptance.test.mts against the pinned analyzer.
 	const nineHighs = [
 		sec({
 			path: ".pi/extensions/context-info/types.ts",
@@ -429,21 +417,31 @@ describe("fp-filter — acceptance score (Phase 5)", () => {
 
 	const files = Array.from({ length: 1026 }, (_, i) => ({ path: `src/f${i}.ts`, layer: "ui" }));
 
+	// The analyzer's `data` shape (not the exported report): `calcHealth` reads
+	// `stats` and `issues`, and the layer rule reads `files`/`connections`.
 	const data = {
-		files,
-		connections: CONNECTIONS,
-		dependencies: Array.from({ length: 5006 }, (_, i) => i),
-		unusedFunctions: Array.from({ length: 24 }, (_, i) => ({ name: `dead${i}` })),
-		architectureIssues: [{ title: "Large Function: render" }],
-		circularDependencyIssues: [],
+		stats: {
+			files: 1026,
+			functions: 4890,
+			connections: 5006,
+			dead: 24,
+			duplicates: 0,
+			violations: 157,
+			security: 9,
+			loc: 1,
+			languages: [],
+		},
+		issues: [{ type: "warning", title: "Large Function: render", desc: "", items: [] }],
 		securityIssues: nineHighs,
 		layerViolations: oneHundredFiftySeven,
+		files,
+		connections: CONNECTIONS,
 	};
 
 	it("reproduces the reported 73 (C) before the filter", () => {
 		assert.strictEqual(data.securityIssues.length, 9);
 		assert.strictEqual(data.layerViolations.length, 157);
-		assert.strictEqual(calcHealth(data), 73);
+		assert.deepStrictEqual(calcHealth(data), { score: 73, grade: "C" });
 	});
 
 	it("scores 93 (A) after the filter, with the security term at zero", () => {
@@ -452,7 +450,7 @@ describe("fp-filter — acceptance score (Phase 5)", () => {
 		assert.strictEqual(suppressed.layerViolations.length, 157, "the whole layer category is noise");
 		assert.strictEqual(clean.securityIssues.length, 0);
 		assert.strictEqual(clean.layerViolations.length, 0);
-		assert.ok(calcHealth(clean) >= 90, `expected an A, got ${calcHealth(clean)}`);
-		assert.strictEqual(calcHealth(clean), 93);
+		assert.ok(calcHealth(clean).score >= 90, `expected an A, got ${calcHealth(clean).score}`);
+		assert.deepStrictEqual(calcHealth(clean), { score: 93, grade: "A" });
 	});
 });

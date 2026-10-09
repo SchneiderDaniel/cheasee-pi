@@ -665,14 +665,27 @@ def _ts_rewrite(anchor, tail=b""):
 # false-positive filter the headless runner applies, so the served UI's health
 # score and exports agree with the report pi reads. The filter reads cited files
 # from `data.files[].content`; a page that omits them still gets the rules that
-# need no file. The wrapper sanitizes `data` first, then calls the original
-# (renamed) function. A page whose bundle declares `data` as a constant throws
-# inside this wrapper and falls back to the unfiltered report.
+# need no file. The wrapper filters `data` first, then calls the original
+# (renamed) function.
+#
+# It overwrites the two array *properties* of `data` instead of rebinding `data`:
+# a page that declares `data` as a constant cannot be reassigned, and the former
+# reassignment threw, was swallowed, and exported the unfiltered report. A
+# sanitizer error now propagates — the wrapper fails closed rather than emitting
+# data the filter never saw. `"use strict"` makes a silently-ignored write (a
+# frozen `data`) throw instead.
 _FP_WRAPPER_HEAD = b"function generateReport"
 _FP_WRAPPER_BODY = (
-    b"() { try { data = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data)).data; }"
-    b" catch (e) { globalThis.__codeflowFpFilterError = String((e && e.message) || e);"
-    b" console.error(\"[fp-filter] \" + e); }"
+    b'() { "use strict";'
+    b" var __piFp;"
+    b" try { __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data)); }"
+    b" catch (e) { try { globalThis.__codeflowFpFilterError = String((e && e.message) || e); } catch (_) {} throw e; }"
+    b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
+    b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
+    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length) { try {"
+    b' console.info("[fp-filter] suppressed " + __piFp.suppressed.security.length +'
+    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s)");'
+    b" } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("
 )
@@ -691,7 +704,7 @@ def _fp_rewrite():
 
 _UI_REWRITES = (
     # Browser parity for the headless false-positive filter. A silent no-op when
-    # upstream renames generateReport or the page never assigns `data`.
+    # upstream renames generateReport.
     _fp_rewrite(),
     (re.compile(re.escape(b"repoSoft:300,repoMax:750")), b"repoSoft:10000,repoMax:10000"),
     # Hard-limit dialog: "Analyze a GitHub API sample?" — reachable only when a

@@ -780,7 +780,11 @@ src = b"<script>function generateReport(format){return format;}</script>"
 out = pat.sub(lambda _: repl, src)
 assert out.count(b"function __piFpGenerateReport(format){return format;}") == 1, out
 assert out.count(b"piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data))") == 1, out
-assert b"data = piFpFilter" in out, out
+assert b'if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;' in out, out
+assert b'if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;' in out, out
+assert b"data = piFpFilter" not in out, "must not rebind data (const-safe): %r" % out
+assert b'"use strict"' in out, out
+assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
 assert b"return __piFpGenerateReport.apply(this, arguments)" in out, out
 assert pat.sub(lambda _: repl, out) == out, "not idempotent"
 
@@ -804,6 +808,89 @@ print("OK")
 	}
 	if !strings.Contains(string(out), "OK") {
 		t.Fatalf("unexpected helper output: %s", out)
+	}
+}
+
+// TestCodeFlowServer_FpFilterWrapperBehavior executes the served-page wrapper:
+// the page declares `data` as a constant, so the old rebinding threw and fell
+// back to the unfiltered report. The wrapper must filter by overwriting the
+// array properties, and a sanitizer error must fail closed (no unfiltered
+// export). The rewritten generateReport comes from the real server.py rewrite.
+func TestCodeFlowServer_FpFilterWrapperBehavior(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+	serverSrc, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
+	if err != nil {
+		t.Fatalf("read embedded server.py: %v", err)
+	}
+	filterSrc, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/fp-filter.js")
+	if err != nil {
+		t.Fatalf("read embedded fp-filter.js: %v", err)
+	}
+	dir := t.TempDir()
+	serverPath := filepath.Join(dir, "server.py")
+	filterPath := filepath.Join(dir, "fp-filter.js")
+	if err := os.WriteFile(serverPath, serverSrc, 0644); err != nil {
+		t.Fatalf("write server.py: %v", err)
+	}
+	if err := os.WriteFile(filterPath, filterSrc, 0644); err != nil {
+		t.Fatalf("write fp-filter.js: %v", err)
+	}
+
+	// Emit two CommonJS harnesses: one with a real `const data`, one whose
+	// sanitizer throws. Both inline the rewrite server.py actually serves.
+	script := `import runpy, sys
+
+m = runpy.run_path(sys.argv[1])
+pat, repl = m["_UI_REWRITES"][0]
+rewritten = pat.sub(lambda _: repl, b"function generateReport(format){ return data; }").decode()
+
+ok = """const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };
+const piFpFilter = require(process.argv[2]);
+""" + rewritten + """
+generateReport('md');
+process.stdout.write('RESULT' + JSON.stringify({ security: data.securityIssues.length, layers: data.layerViolations.length }));
+"""
+open(sys.argv[3], "w").write(ok)
+
+fail = """const data = { securityIssues: [] };
+const piFpFilter = { sanitizeAnalysisData() { throw new Error('fp-filter exploded'); }, readFileFrom() { return () => null; } };
+""" + rewritten + """
+try { generateReport('md'); process.stdout.write('RESULTNO_THROW'); }
+catch (e) { process.stdout.write('RESULTTHREW:' + e.message + ':' + globalThis.__codeflowFpFilterError); }
+"""
+open(sys.argv[4], "w").write(fail)
+`
+	scriptPath := filepath.Join(dir, "emit_harness.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write emit script: %v", err)
+	}
+	okHarness := filepath.Join(dir, "ok.cjs")
+	failHarness := filepath.Join(dir, "fail.cjs")
+	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, okHarness, failHarness).CombinedOutput(); err != nil {
+		t.Fatalf("emit harnesses: %v\n%s", err, out)
+	}
+
+	out, err := exec.Command(node, okHarness, filterPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("const-data harness failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "RESULT{\"security\":0,\"layers\":0}") {
+		t.Errorf("const `data` was not filtered in place: %s", out)
+	}
+
+	out, err = exec.Command(node, failHarness, filterPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("fail-closed harness failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "RESULTTHREW:fp-filter exploded:fp-filter exploded") {
+		t.Errorf("sanitizer error must fail closed, got: %s", out)
 	}
 }
 
@@ -837,7 +924,8 @@ func TestCodeFlowServer_FpFilterServed(t *testing.T) {
 	}
 	for _, want := range []string{
 		"<script src=\"fp-filter.js\" defer></script><script src=\"codeflow-bridge.js\" defer></script>",
-		"data = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data)).data",
+		"if (\"securityIssues\" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;",
+		"if (\"layerViolations\" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;",
 		"function __piFpGenerateReport(format){return format;}",
 	} {
 		if n := bytes.Count(body, []byte(want)); n != 1 {

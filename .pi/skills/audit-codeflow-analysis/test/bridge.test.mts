@@ -19,11 +19,15 @@
  */
 
 import assert from "node:assert";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import vm from "node:vm";
+
+const requireCjs = createRequire(import.meta.url);
 
 const SERVER_PY = resolve(
 	import.meta.dirname,
@@ -367,6 +371,69 @@ describe("codeflow bridge capture", () => {
 		vm.runInContext(readFileSync(filterPath, "utf-8"), sandbox);
 		assert.strictEqual(typeof sandbox.piFpFilter?.sanitizeAnalysisData, "function");
 		assert.strictEqual(typeof sandbox.piFpFilter?.readFileFrom, "function");
+	});
+
+	it("served generateReport wrapper filters a const `data` in place and fails closed", () => {
+		// The rewrite is produced by server.py itself (the regex lives there), so
+		// this pins the served bytes, not a JS re-implementation of them.
+		let rewritten: string;
+		try {
+			rewritten = execFileSync(
+				"python3",
+				[
+					"-c",
+					[
+						"import runpy, sys",
+						"m = runpy.run_path(sys.argv[1])",
+						"pat, repl = m['_UI_REWRITES'][0]",
+						"sys.stdout.write(pat.sub(lambda _: repl, b'function generateReport(format){ return data; }').decode())",
+					].join("\n"),
+					SERVER_PY,
+				],
+				{ encoding: "utf-8" },
+			);
+		} catch {
+			// python3 unavailable here; the Go suite pins the same contract.
+			return;
+		}
+		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
+		const piFpFilter = requireCjs(filterPath);
+
+		// A page that declares `data` as a constant: the former `data = ...`
+		// rebinding threw and exported unfiltered data.
+		const sandbox: Record<string, any> = { piFpFilter, console: { info() {}, error() {} } };
+		vm.createContext(sandbox);
+		vm.runInContext(
+			"const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };\n" +
+				rewritten +
+				"\n;globalThis.__out = generateReport('md');",
+			sandbox,
+		);
+		assert.strictEqual(sandbox.__out.securityIssues.length, 0, "const `data` must be filtered in place");
+		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
+
+		// A sanitizer error must fail closed, never fall through to unfiltered data.
+		const throwing: Record<string, any> = {
+			piFpFilter: {
+				sanitizeAnalysisData() {
+					throw new Error("boom");
+				},
+				readFileFrom() {
+					return () => null;
+				},
+			},
+			console: { info() {}, error() {} },
+		};
+		vm.createContext(throwing);
+		assert.throws(
+			() =>
+				vm.runInContext(
+					"const data = { securityIssues: [] };\n" + rewritten + "\n;generateReport('md');",
+					throwing,
+				),
+			/boom/,
+		);
+		assert.strictEqual(throwing.__codeflowFpFilterError, "boom");
 	});
 
 	it("served-UI fixture still matches the contract the bridge relies on", () => {
