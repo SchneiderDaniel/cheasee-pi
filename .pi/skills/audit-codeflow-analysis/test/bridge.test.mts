@@ -83,7 +83,8 @@ function parseUiContract(html: string): UiContract {
 	const attrs: Record<string, string> = {};
 	for (const a of btn[1].matchAll(/([\w-]+)="([^"]*)"/g)) attrs[a[1]] = a[2];
 	const options: UiContract["options"] = [];
-	const re = /<div class="([\w-]+)" data-report-format="([^"]+)">[\s\S]*?<div class="export-option-label">([^<]*)<\/div>/g;
+	const re =
+		/<div class="([\w-]+)" data-report-format="([^"]+)">[\s\S]*?<div class="export-option-label">([^<]*)<\/div>/g;
 	let m: RegExpExecArray | null;
 	while ((m = re.exec(html)) !== null) options.push({ cls: m[1], format: m[2], label: m[3] });
 	return { button: { tag: "button", attrs, text: btn[2] }, options };
@@ -116,7 +117,12 @@ class FakeNode {
 
 	constructor(
 		tag: string,
-		opts: { attrs?: Record<string, string>; text?: string; classes?: string[]; onclick?: () => void } = {},
+		opts: {
+			attrs?: Record<string, string>;
+			text?: string;
+			classes?: string[];
+			onclick?: () => void;
+		} = {},
 	) {
 		this.tagName = tag.toUpperCase();
 		this.attrs = opts.attrs ?? {};
@@ -207,7 +213,8 @@ function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Har
 			getElementById: (id: string) => byId.get(id) ?? null,
 			querySelectorAll: (selector: string) => {
 				const nodes: FakeNode[] = [];
-				if (opts.withExportButton !== false && selector.includes("button")) nodes.push(exportButton);
+				if (opts.withExportButton !== false && selector.includes("button"))
+					nodes.push(exportButton);
 				if (selector.includes(".export-option") && menuOpen) nodes.push(...menuItems);
 				return nodes.filter((n) => selector.split(",").some((s) => matches(n, s)));
 			},
@@ -339,7 +346,10 @@ describe("codeflow bridge capture", () => {
 		assert.match(buttonLabel, /export/i, "export button label must contain 'export'");
 		const labels = UI.options.map((o) => o.label);
 		for (const want of ["JSON Report", "Markdown"]) {
-			assert.ok(labels.includes(want), `export menu must contain "${want}" (got ${JSON.stringify(labels)})`);
+			assert.ok(
+				labels.includes(want),
+				`export menu must contain "${want}" (got ${JSON.stringify(labels)})`,
+			);
 		}
 	});
 
@@ -362,13 +372,40 @@ describe("codeflow bridge capture", () => {
 		assert.ok(Number(gotMd.headers.get("X-Codeflow-Analysis-At")) > 1.6e12);
 	});
 
+	it("records a capture event and the POST result per format on the bridge-status route", async () => {
+		const h = runBridge(sink.base);
+		await runAutoTrigger(h);
+		await waitForSink(sink.base);
+		await waitFor(
+			() =>
+				postsTo(h, "/api/analysis/bridge-status").some(
+					(p) => JSON.parse(p.body).event === "result",
+				),
+			"bridge-status result events",
+		);
+		const events = postsTo(h, "/api/analysis/bridge-status").map((p) => JSON.parse(p.body));
+		assert.ok(events.some((e) => e.route === "/api/analysis/report" && e.event === "capture"));
+		assert.ok(events.some((e) => e.route === "/api/analysis/report.json" && e.event === "capture"));
+		assert.ok(
+			events.some(
+				(e) => e.route === "/api/analysis/report" && e.event === "result" && e.httpStatus === 204,
+			),
+		);
+	});
+
 	it("ignores unrelated Blobs (worker source, raw JSON, plain text)", async () => {
 		const h = runBridge(sink.base);
 		h.tick();
 		await h.flushTimeouts();
 		h.posts.length = 0;
-		h.sandbox.URL.createObjectURL({ type: "text/javascript", text: async () => "self.onmessage=function(){}" });
-		h.sandbox.URL.createObjectURL({ type: "application/json", text: async () => '{"files":[],"issues":[]}' });
+		h.sandbox.URL.createObjectURL({
+			type: "text/javascript",
+			text: async () => "self.onmessage=function(){}",
+		});
+		h.sandbox.URL.createObjectURL({
+			type: "application/json",
+			text: async () => '{"files":[],"issues":[]}',
+		});
 		h.sandbox.URL.createObjectURL({ type: "text/plain", text: async () => "PLAIN TEXT REPORT" });
 		for (let i = 0; i < 4; i++) await Promise.resolve();
 		assert.deepStrictEqual(h.posts, []);
@@ -378,7 +415,10 @@ describe("codeflow bridge capture", () => {
 		const h = runBridge(sink.base, { withExportButton: false });
 		h.sandbox.URL.createObjectURL({ type: "text/markdown", text: async () => MD_FIXTURE });
 		for (let i = 0; i < 4; i++) await Promise.resolve();
-		assert.deepStrictEqual(postsTo(h, "/api/analysis/report").map((p) => p.body), [MD_FIXTURE]);
+		assert.deepStrictEqual(
+			postsTo(h, "/api/analysis/report").map((p) => p.body),
+			[MD_FIXTURE],
+		);
 	});
 
 	it("does nothing when no export control is present", async () => {

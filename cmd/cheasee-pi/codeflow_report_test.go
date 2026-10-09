@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -536,6 +537,121 @@ func TestCodeFlowServer_Bridge(t *testing.T) {
 		defer s3.stop(t)
 		if status, _, _ := s3.do(t, http.MethodGet, "/codeflow-bridge.js", nil, ""); status != http.StatusOK {
 			t.Errorf("status = %d, want 200", status)
+		}
+	})
+}
+
+// bridgeStatusEntry mirrors one route's telemetry in /api/analysis/bridge-status.
+type bridgeStatusEntry struct {
+	CapturedAt *int64 `json:"capturedAt"`
+	PostedAt   *int64 `json:"postedAt"`
+	HTTPStatus *int   `json:"httpStatus"`
+	Bytes      *int64 `json:"bytes"`
+}
+
+func (s *reportShim) bridgeStatus(t *testing.T) map[string]bridgeStatusEntry {
+	t.Helper()
+	status, _, body := s.do(t, http.MethodGet, "/api/analysis/bridge-status", nil, "")
+	if status != http.StatusOK {
+		t.Fatalf("bridge-status = %d, want 200", status)
+	}
+	var out map[string]bridgeStatusEntry
+	if err := json.Unmarshal(body, &out); err != nil {
+		t.Fatalf("bridge-status is not JSON: %v\n%s", err, body)
+	}
+	return out
+}
+
+// TestCodeFlowServer_BridgeStatus pins the diagnostic route that distinguishes
+// "the browser never POSTed the report" from "the shim received it but does not
+// serve it" (issue #1976, item 6).
+func TestCodeFlowServer_BridgeStatus(t *testing.T) {
+	s := startReportShim(t, t.TempDir(), t.TempDir())
+	defer s.stop(t)
+
+	mdPayload := []byte("# CodeFlow Analysis Report\n\n**Repository:** o/r\n")
+	jsonPayload := []byte(`{"architectureIssues":[{"title":"x","affectedFiles":["src/a.ts"]}]}`)
+
+	t.Run("empty before any post, both routes present with nulls", func(t *testing.T) {
+		st := s.bridgeStatus(t)
+		for _, route := range []string{"/api/analysis/report", "/api/analysis/report.json"} {
+			e, ok := st[route]
+			if !ok {
+				t.Fatalf("status missing route %s", route)
+			}
+			if e.CapturedAt != nil || e.PostedAt != nil || e.HTTPStatus != nil || e.Bytes != nil {
+				t.Errorf("%s = %+v, want all null", route, e)
+			}
+		}
+	})
+
+	t.Run("markdown post records postedAt, bytes and 204; json stays null", func(t *testing.T) {
+		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report", mdPayload, "text/markdown"); status != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", status)
+		}
+		st := s.bridgeStatus(t)
+		md := st["/api/analysis/report"]
+		if md.PostedAt == nil || md.HTTPStatus == nil || *md.HTTPStatus != 204 || md.Bytes == nil || *md.Bytes != int64(len(mdPayload)) {
+			t.Errorf("markdown status = %+v", md)
+		}
+		if st["/api/analysis/report.json"].PostedAt != nil {
+			t.Errorf("json postedAt must stay null: %+v", st["/api/analysis/report.json"])
+		}
+	})
+
+	t.Run("json post serves byte-identical and records 204", func(t *testing.T) {
+		if status, _, _ := s.do(t, http.MethodPost, "/api/analysis/report.json", jsonPayload, "text/plain"); status != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", status)
+		}
+		status, _, body := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		if status != http.StatusOK || !bytes.Equal(body, jsonPayload) {
+			t.Fatalf("json GET = %d %q", status, body)
+		}
+		st := s.bridgeStatus(t)
+		js := st["/api/analysis/report.json"]
+		if js.HTTPStatus == nil || *js.HTTPStatus != 204 || js.Bytes == nil || *js.Bytes != int64(len(jsonPayload)) {
+			t.Errorf("json status = %+v", js)
+		}
+	})
+
+	t.Run("oversize declared json length records 413 and keeps the store", func(t *testing.T) {
+		_, _, before := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		addr := strings.TrimPrefix(s.base, "http://")
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			t.Fatalf("dial: %v", err)
+		}
+		defer conn.Close()
+		req := "POST /api/analysis/report.json HTTP/1.0\r\nHost: shim\r\nContent-Length: " + strconv.Itoa(maxReportBytes+1) + "\r\n\r\n"
+		if _, err := io.WriteString(conn, req); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusRequestEntityTooLarge {
+			t.Fatalf("status = %d, want 413", resp.StatusCode)
+		}
+		js := s.bridgeStatus(t)["/api/analysis/report.json"]
+		if js.HTTPStatus == nil || *js.HTTPStatus != 413 || js.Bytes == nil || *js.Bytes != int64(maxReportBytes+1) {
+			t.Errorf("json status after 413 = %+v", js)
+		}
+		_, _, after := s.do(t, http.MethodGet, "/api/analysis/report.json", nil, "")
+		if !bytes.Equal(before, after) {
+			t.Errorf("store mutated after 413")
+		}
+	})
+
+	t.Run("restart loses the status history", func(t *testing.T) {
+		fresh := startReportShim(t, t.TempDir(), t.TempDir())
+		defer fresh.stop(t)
+		for route, e := range fresh.bridgeStatus(t) {
+			if e.PostedAt != nil || e.CapturedAt != nil {
+				t.Errorf("fresh %s = %+v, want no history", route, e)
+			}
 		}
 	})
 }

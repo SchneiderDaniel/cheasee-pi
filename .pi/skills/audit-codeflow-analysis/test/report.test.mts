@@ -18,6 +18,7 @@ import { resolve } from "node:path";
 import { describe, it } from "node:test";
 import {
 	dedupeIssues,
+	classifyKnownNoise,
 	groupIssues,
 	parseBestReport,
 	parseReport,
@@ -413,6 +414,57 @@ describe("dedupeIssues", () => {
 		];
 		assert.strictEqual(dedupeIssues(issues).length, 3);
 	});
+
+	it("collapses repeated security findings while preserving distinct titles (canonical count)", () => {
+		// Live shape: one LOW per matching line in the same file. Only the
+		// (kind, title, files) unit is canonical; the UI summary dedupes by rule.
+		const stop = fact("LOW: Code Comments", ["src/a.ts"], "security");
+		const debug = fact("LOW: Debug Statements", ["src/a.ts"], "security");
+		const high = fact("HIGH: Hardcoded Secret", ["src/a.ts"], "security");
+		const deduped = dedupeIssues([stop, stop, debug, high, stop]);
+		assert.deepStrictEqual(
+			deduped.map((f) => f.title),
+			["LOW: Code Comments", "LOW: Debug Statements", "HIGH: Hardcoded Secret"],
+		);
+	});
+});
+
+describe("classifyKnownNoise", () => {
+	const fact = (kind: string, title: string, files: string[] = ["src/a.ts"]): IssueFact => ({
+		id: `${kind}:0`,
+		kind,
+		title,
+		files,
+	});
+
+	it("suppresses the LOW stylistic security categories, case/whitespace tolerant", () => {
+		for (const title of [
+			"LOW: Code Comments",
+			"low:  debug statements",
+			"LOW:CODE COMMENTS",
+			"  LOW: Debug   Statements  ",
+		]) {
+			assert.strictEqual(classifyKnownNoise(fact("security", title)), "suppress", title);
+		}
+	});
+
+	it("keeps every code-read security shape for the validator", () => {
+		for (const title of [
+			"HIGH: Hardcoded Secret",
+			"HIGH: SQL Injection Risk",
+			"HIGH: Shell Command Execution",
+			"MEDIUM: Command Execution",
+			"HIGH: Function Constructor",
+		]) {
+			assert.strictEqual(classifyKnownNoise(fact("security", title)), "keep", title);
+		}
+	});
+
+	it("keeps every non-security kind, including file-less suggestions", () => {
+		assert.strictEqual(classifyKnownNoise(fact("dead-code", "LOW: Code Comments", [])), "keep");
+		assert.strictEqual(classifyKnownNoise(fact("suggestion", "LOW: Debug Statements", [])), "keep");
+		assert.strictEqual(classifyKnownNoise(fact("architecture", "LOW: Code Comments")), "keep");
+	});
 });
 
 describe("reportSectionCoverage", () => {
@@ -433,6 +485,7 @@ describe("reportSectionCoverage", () => {
 			heading: "Architecture Issues",
 			items: 1,
 			candidates: 1,
+			unparsedItems: 0,
 		});
 
 		const unreadable = reportSectionCoverage(
@@ -444,16 +497,25 @@ describe("reportSectionCoverage", () => {
 
 	it("counts every declared item and reports the path-less architecture entry", () => {
 		assert.deepStrictEqual(
-			reportSectionCoverage(FIXTURE).map((c) => [c.kind, c.items, c.candidates]),
+			reportSectionCoverage(FIXTURE).map((c) => [c.kind, c.items, c.candidates, c.unparsedItems]),
 			[
-				["security", 1, 1],
-				["dead-code", 3, 3],
-				["pattern", 1, 1],
-				["anti-pattern", 1, 1],
+				["security", 1, 1, 0],
+				["dead-code", 3, 3, 0],
+				["pattern", 1, 1, 0],
+				["anti-pattern", 1, 1, 0],
 				// `domain → ui` carries no path in the markdown format: JSON-only.
-				["architecture", 3, 2],
+				["architecture", 3, 2, 1],
 			],
 		);
+	});
+
+	it("reports every item of a whole-section drop as unparsed", () => {
+		const dropped = reportSectionCoverage(
+			"## Architecture Issues\n\n### Broken\n\n**Affected:** `x`\n",
+		);
+		assert.strictEqual(dropped[0].items, 1);
+		assert.strictEqual(dropped[0].candidates, 0);
+		assert.strictEqual(dropped[0].unparsedItems, dropped[0].items);
 	});
 
 	it("reports no issue sections for empty or unrelated input", () => {

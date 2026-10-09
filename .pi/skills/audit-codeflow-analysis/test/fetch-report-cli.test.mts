@@ -49,7 +49,13 @@ interface Shim {
 async function startShim(status: number, body: string): Promise<Shim> {
 	let md = 0;
 	const server: Server = createServer((req, res) => {
-		if ((req.url ?? "").endsWith("/report.json")) {
+		const url = req.url ?? "";
+		if (url.endsWith("/api/analysis/bridge-status")) {
+			res.statusCode = 404;
+			res.end();
+			return;
+		}
+		if (url.endsWith("/report.json")) {
 			res.statusCode = 404;
 			res.end();
 			return;

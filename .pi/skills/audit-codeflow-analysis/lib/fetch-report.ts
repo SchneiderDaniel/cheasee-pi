@@ -22,7 +22,16 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { closeSync, constants, mkdirSync, openSync, realpathSync, renameSync, rmSync, writeSync } from "node:fs";
+import {
+	closeSync,
+	constants,
+	mkdirSync,
+	openSync,
+	realpathSync,
+	renameSync,
+	rmSync,
+	writeSync,
+} from "node:fs";
 import { dirname } from "node:path";
 import { codeflowServiceUrl } from "../../../extensions/lib/codeflow-endpoint.ts";
 import { isPathWithinBase, resolveWithinRoot } from "../../../extensions/lib/path-containment.ts";
@@ -42,8 +51,7 @@ interface ReportResult {
 
 /** `status` is the HTTP status for a failed fetch, or null for a thrown failure. */
 export type ReportOutcome =
-	| { ok: true; result: ReportResult }
-	| { ok: false; message: string; status: number | null };
+	{ ok: true; result: ReportResult } | { ok: false; message: string; status: number | null };
 
 type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 type WriteFileFn = (path: string, data: Uint8Array) => void;
@@ -61,7 +69,7 @@ const EXCLUSIVE_WRITE_FLAGS =
 const defaultWriteFile: WriteFileFn = (path, data) => {
 	const fd = openSync(path, EXCLUSIVE_WRITE_FLAGS, 0o600);
 	try {
-		for (let offset = 0; offset < data.length; ) {
+		for (let offset = 0; offset < data.length;) {
 			const n = writeSync(fd, data, offset, data.length - offset);
 			if (n <= 0) throw new Error(`Short write to ${path} (${offset}/${data.length} bytes)`);
 			offset += n;
@@ -151,6 +159,54 @@ async function getReport(url: string, signal?: AbortSignal): Promise<Response> {
 	}
 }
 
+/** The shim's per-route bridge telemetry, or null when the route is absent. */
+async function fetchBridgeStatus(
+	base: string,
+	signal?: AbortSignal,
+): Promise<Record<string, Record<string, unknown>> | null> {
+	try {
+		const resp = await fetchFn(`${base}/api/analysis/bridge-status`, { method: "GET", signal });
+		if (!resp.ok) return null;
+		const data: unknown = await resp.json();
+		if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
+		return data as Record<string, Record<string, unknown>>;
+	} catch {
+		// A cancelled status probe stays in the abort channel so a caller awaiting
+		// the report sees the abort rather than a successful result.
+		signal?.throwIfAborted();
+		return null;
+	}
+}
+
+/**
+ * Explain a 404 on the JSON route: the bridge telemetry distinguishes a
+ * capture-side gap (the export never reached the shim) from a route fault
+ * (the shim received the POST but does not serve it). Without telemetry the
+ * cause is unknowable and the warning says so rather than guessing.
+ */
+async function jsonUnavailableWarning(base: string, signal?: AbortSignal): Promise<string> {
+	const tail = "duplicates, layer violations and suggestions cannot be extracted.";
+	const status = await fetchBridgeStatus(base, signal);
+	const json = status?.["/api/analysis/report.json"];
+	if (json && typeof json === "object") {
+		const postedAt = json.postedAt ?? null;
+		if (postedAt !== null) {
+			return (
+				`Structured JSON report route is down (GET HTTP 404) although the shim received the JSON export ` +
+				`(bridge-status json.postedAt set, httpStatus ${json.httpStatus ?? "unknown"}); ${tail}`
+			);
+		}
+		return (
+			`Structured JSON report was never POSTed by the browser bridge ` +
+			`(bridge-status json.capturedAt ${json.capturedAt ?? "null"}, postedAt null) — a capture-side gap; ${tail}`
+		);
+	}
+	return (
+		`Structured JSON report unavailable (HTTP 404) and bridge-status is unreachable, ` +
+		`so the capture-versus-route cause cannot be determined; ${tail}`
+	);
+}
+
 /**
  * Fetch both report artifacts and persist them. A 404 on the markdown route
  * means the browser has not bridged an analysis yet — returned as an
@@ -202,7 +258,9 @@ export async function fetchAndStoreReport(opts: {
 			const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
 			writeAtomically(opts.cwd, jsonTarget, jsonBytes);
 			jsonPath = jsonTarget;
-		} else if (jsonResp.status !== 404) {
+		} else if (jsonResp.status === 404) {
+			warnings.push(await jsonUnavailableWarning(base, opts.signal));
+		} else {
 			warnings.push(
 				`Structured JSON report unavailable (HTTP ${jsonResp.status}); duplicates, layer violations and suggestions cannot be extracted.`,
 			);
@@ -214,7 +272,13 @@ export async function fetchAndStoreReport(opts: {
 		);
 	}
 
-	const result: ReportResult = { path: target, jsonPath, bytes: bytes.length, analyzedAt, warnings };
+	const result: ReportResult = {
+		path: target,
+		jsonPath,
+		bytes: bytes.length,
+		analyzedAt,
+		warnings,
+	};
 	cache = result;
 	cacheCwd = opts.cwd;
 	return { ok: true, result };

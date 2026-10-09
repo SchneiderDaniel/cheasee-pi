@@ -291,6 +291,8 @@ export interface SectionCoverage {
 	items: number;
 	/** Facts `parseReport` extracted for this kind. */
 	candidates: number;
+	/** `items` that yielded no parsed fact (`items - candidates`). */
+	unparsedItems: number;
 }
 
 /**
@@ -329,12 +331,34 @@ export function reportSectionCoverage(markdown: string): SectionCoverage[] {
 		candidatesByKind.set(fact.kind, (candidatesByKind.get(fact.kind) ?? 0) + 1);
 	}
 
-	return [...byKind.entries()].map(([k, entry]) => ({
-		kind: k,
-		heading: entry.heading,
-		items: entry.items,
-		candidates: candidatesByKind.get(k) ?? 0,
-	}));
+	return [...byKind.entries()].map(([k, entry]) => {
+		const candidates = candidatesByKind.get(k) ?? 0;
+		return {
+			kind: k,
+			heading: entry.heading,
+			items: entry.items,
+			candidates,
+			unparsedItems: Math.max(0, entry.items - candidates),
+		};
+	});
+}
+
+/**
+ * Classify a fact as auto-suppressible noise or a candidate to validate.
+ *
+ * Only the *text-provable* LOW stylistic security categories qualify: CodeFlow
+ * emits one `LOW: Code Comments` / `LOW: Debug Statements` per matching line and
+ * both are known to fire on string literals in fixtures, ast-grep patterns and
+ * JSON (see `references/known-false-positives.md`). Every code-read shape —
+ * secrets, SQL injection, shell execution, command execution, dead code — stays
+ * `keep`: its mechanism can only be disproved by reading the code, so it goes to
+ * the validator, never to a text filter. Suppression depends on the fact alone,
+ * never the filesystem.
+ */
+export function classifyKnownNoise(fact: IssueFact): "suppress" | "keep" {
+	if (fact.kind !== "security") return "keep";
+	const title = fact.title.replace(/\s+/g, " ").trim().toLowerCase();
+	return /^low:\s*(code comments|debug statements)$/.test(title) ? "suppress" : "keep";
 }
 
 /**

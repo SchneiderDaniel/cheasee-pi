@@ -93,6 +93,92 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 	});
 });
 
+describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
+	it("distinguishes exit 2 (agent mistake), 3 (unverified) and 4 (crash, retry once)", () => {
+		// Hard Rules must not lump 2 and 3 together as unverified.
+		assert.doesNotMatch(body, /exits?[^\n]*`2`[^\n]*`3`[^\n]*unverified/i);
+		assert.match(body, /`2`[^\n]*(usage|agent mistake|fix)/i);
+		assert.match(body, /`3`[^\n]*(no `VERDICT`|ran, printed no)[^\n]*unverified/i);
+		assert.match(body, /`4`[^\n]*(crash|timeout|spawn failure)[^\n]*retry once/i);
+		assert.match(body, /retry once/i);
+		assert.match(body, /never re-run/i);
+		assert.match(body, /recovery/i);
+		assert.match(body, /not answer-shopping/i);
+	});
+
+	it("makes a 0/1 retry verdict authoritative and only a still-crashing retry unverified", () => {
+		assert.match(body, /retry that returns `0`\/`1` is authoritative/i);
+		assert.match(body, /only a retry that still exits `3`\/`4` is unverified/i);
+	});
+
+	it("names the path-less architecture entries the markdown fallback omits", () => {
+		for (const entry of [
+			"154 Architecture Violations",
+			"6 Duplicate Function Names",
+			"3 Similar Code Blocks",
+		]) {
+			assert.ok(body.includes(entry), `must name ${entry}`);
+		}
+		assert.match(body, /JSON-only/i);
+		assert.match(body, /not a parser fault/i);
+	});
+
+	it("discloses JSON-only categories and the owning component via bridge-status", () => {
+		assert.match(body, /bridge-status/);
+		assert.match(body, /capture/i);
+		assert.match(body, /`\/api\/analysis\/report\.json` route is down/i);
+		assert.match(body, /duplicates, layer violations, suggestions/);
+	});
+
+	it("states the canonical count unit and reconciles the UI security summary separately", () => {
+		assert.match(body, /post-`dedupeIssues`/);
+		assert.match(body, /\(kind, title, files\)/);
+		assert.match(body, /dedupes by rule/i);
+		assert.match(body, /UI summary is a different unit/i);
+	});
+
+	it("documents the coverage rule and the pre-filter scope", () => {
+		assert.match(body, /items > 0 && candidates === 0/);
+		assert.match(body, /unparsedItems/);
+		assert.match(body, /known-false-positives\.md/);
+		assert.match(body, /pre-filter/i);
+	});
+
+	it("documents --emit-findings", () => {
+		assert.match(body, /--emit-findings/);
+		assert.match(body, /NN-<slug>\.md/);
+	});
+
+	it("ships references/known-false-positives.md with one row per observed mechanism", () => {
+		const refPath = resolve(
+			ROOT,
+			".pi/skills/audit-codeflow-analysis/references/known-false-positives.md",
+		);
+		assert.ok(existsSync(refPath), "known-false-positives.md must exist");
+		const ref = readFileSync(refPath, "utf-8");
+		for (const token of [
+			"resolveGitHubToken",
+			"UsageColorToken",
+			"comment",
+			"Shell()",
+			"shell: true",
+			"TODO",
+			"ast-grep",
+			"wire()",
+		]) {
+			assert.ok(ref.includes(token), `reference missing mechanism token ${token}`);
+		}
+	});
+
+	it("points the validator prompt at the known false-positive reference", () => {
+		const validator = readFileSync(
+			resolve(ROOT, ".pi/skills/audit-codeflow-analysis/references/finding-validator.md"),
+			"utf-8",
+		);
+		assert.match(validator, /known-false-positives\.md/);
+	});
+});
+
 describe("package.json test wiring", () => {
 	it("npm test globs register the codeflow skill test files", () => {
 		for (const file of [
@@ -101,6 +187,7 @@ describe("package.json test wiring", () => {
 			".pi/skills/audit-codeflow-analysis/test/report.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/fetch-report-cli.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/bridge.test.mts",
+			".pi/skills/audit-codeflow-analysis/test/dry-run.test.mts",
 		]) {
 			assert.ok(isRegistered(file), `npm test globs must register ${file}`);
 		}
