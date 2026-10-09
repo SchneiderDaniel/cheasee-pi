@@ -34,6 +34,7 @@ func TestFSExtractor_WritesDockerAssets(t *testing.T) {
 		"codeflow/config.json",
 		"codeflow/Dockerfile",
 		"codeflow/server.py",
+		"codeflow/run-analysis.mjs",
 		"ui/Dockerfile",
 		"ui/Cargo.toml",
 		"ui/Cargo.lock",

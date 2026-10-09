@@ -1,5 +1,6 @@
 {
 	"port": 8470,
 	"host": "0.0.0.0",
-	"exclude_dirs": [".git", "node_modules", "ignore"]
+	"exclude_dirs": [".git", "node_modules", "ignore"],
+	"run_timeout_s": 900
 }

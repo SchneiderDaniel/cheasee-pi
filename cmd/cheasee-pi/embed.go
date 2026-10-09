@@ -13,7 +13,7 @@ import (
 
 // embeddedFS holds the embedded filesystem containing
 // embedded/docker/{docker-compose.yml,Dockerfile,entrypoint.sh,lib/worktree-fix.sh},
-// embedded/docker/codeflow/{Dockerfile,server.py,config.json}, and the embedded/pi/
+// embedded/docker/codeflow/{Dockerfile,server.py,config.json,run-analysis.mjs}, and the embedded/pi/
 // settings template. Canonical source is embedded/docker/ (checked in, required
 // by //go:embed; the build fails if the pattern matches no files). The repo-root
 // docker/ tree is gone — the CLI extracts this subtree at runtime to a

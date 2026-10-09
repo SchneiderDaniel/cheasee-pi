@@ -43,13 +43,46 @@ function capture(): Capture {
 interface Shim {
 	base: string;
 	mdCount(): number;
+	runPosts(): number;
 	close(): Promise<void>;
 }
 
-async function startShim(status: number, body: string): Promise<Shim> {
+interface ShimRun {
+	/** Status for POST /api/analysis/run (404 = run route absent). */
+	runStatus?: number;
+	runBody?: unknown;
+	/** Per-request md statuses (last repeats); overrides `status`. */
+	mdStatuses?: number[];
+	/** /api/analysis/run-status bodies (last repeats). */
+	statuses?: unknown[];
+	analyzedAt?: string;
+}
+
+async function startShim(status: number, body: string, run?: ShimRun): Promise<Shim> {
 	let md = 0;
+	let runPosts = 0;
+	let polls = 0;
 	const server: Server = createServer((req, res) => {
 		const url = req.url ?? "";
+		if (url.endsWith("/api/analysis/run-status")) {
+			const statuses = run?.statuses ?? [];
+			res.statusCode = 200;
+			res.setHeader("Content-Type", "application/json; charset=utf-8");
+			res.end(JSON.stringify(statuses[Math.min(polls++, statuses.length - 1)] ?? {}));
+			return;
+		}
+		if (url.endsWith("/api/analysis/run")) {
+			runPosts++;
+			const runStatus = run?.runStatus ?? 404;
+			res.statusCode = runStatus;
+			if (runStatus === 404) {
+				res.end("err");
+			} else {
+				res.setHeader("Content-Type", "application/json; charset=utf-8");
+				res.end(JSON.stringify(run?.runBody ?? {}));
+			}
+			return;
+		}
 		if (url.endsWith("/api/analysis/bridge-status")) {
 			res.statusCode = 404;
 			res.end();
@@ -61,10 +94,13 @@ async function startShim(status: number, body: string): Promise<Shim> {
 			return;
 		}
 		md++;
-		res.statusCode = status;
-		if (status === 200) {
+		const mdStatus = run?.mdStatuses
+			? run.mdStatuses[Math.min(md - 1, run.mdStatuses.length - 1)]
+			: status;
+		res.statusCode = mdStatus;
+		if (mdStatus === 200) {
 			res.setHeader("Content-Type", "text/markdown; charset=utf-8");
-			res.setHeader("X-Codeflow-Analysis-At", "1767225600000");
+			res.setHeader("X-Codeflow-Analysis-At", run?.analyzedAt ?? "1767225600000");
 			res.end(body);
 		} else {
 			res.end("err");
@@ -75,6 +111,7 @@ async function startShim(status: number, body: string): Promise<Shim> {
 	return {
 		base: `http://127.0.0.1:${port}`,
 		mdCount: () => md,
+		runPosts: () => runPosts,
 		close: () => new Promise<void>((r) => server.close(() => r())),
 	};
 }
@@ -99,8 +136,8 @@ afterEach(async () => {
 	shims = [];
 });
 
-async function shim(status: number, body = "MD"): Promise<Shim> {
-	const s = await startShim(status, body);
+async function shim(status: number, body = "MD", run?: ShimRun): Promise<Shim> {
+	const s = await startShim(status, body, run);
 	shims.push(s);
 	return s;
 }
@@ -142,6 +179,60 @@ describe("fetch-report CLI adapter", () => {
 		assert.match(cap.err(), /run analysis in CodeFlow/);
 		assert.strictEqual(cap.out(), "");
 		assert.ok(!existsSync(REPORT_PATH()));
+	});
+
+	it("completes the fetch (exit 0) when the headless run fills the empty slot", async () => {
+		const s = await shim(404, "# CodeFlow Analysis Report\n", {
+			mdStatuses: [404, 200],
+			runStatus: 202,
+			statuses: [
+				{ state: "running", produced: { markdown: false, json: false } },
+				{ state: "succeeded", produced: { markdown: true, json: true }, reportAt: 1767225600000 },
+			],
+		});
+		routeTo(s);
+		const cap = capture();
+
+		const code = await runFetchReportCli([], cap.io, cwd);
+
+		assert.strictEqual(code, 0, cap.err());
+		assert.ok(existsSync(REPORT_PATH()), "the headless run's artifact must be written");
+		assert.strictEqual(s.runPosts(), 1, "exactly one run trigger");
+	});
+
+	it("exits 1 naming the reason when the headless run fails", async () => {
+		const s = await shim(404, "MD", {
+			mdStatuses: [404],
+			runStatus: 202,
+			statuses: [{ state: "failed", reason: "analyzer-error", error: "boom", produced: { markdown: false, json: false } }],
+		});
+		routeTo(s);
+		const cap = capture();
+
+		const code = await runFetchReportCli([], cap.io, cwd);
+
+		assert.strictEqual(code, 1);
+		assert.match(cap.err(), /analyzer-error/);
+		assert.strictEqual(cap.out(), "");
+		assert.ok(!existsSync(REPORT_PATH()));
+	});
+
+	it("still completes (exit 0) when a run is already in flight (409)", async () => {
+		const s = await shim(404, "# CodeFlow Analysis Report\n", {
+			mdStatuses: [404, 200],
+			runStatus: 409,
+			statuses: [
+				{ state: "running", produced: { markdown: false, json: false } },
+				{ state: "succeeded", produced: { markdown: true, json: false }, reportAt: 1767225600000 },
+			],
+		});
+		routeTo(s);
+		const cap = capture();
+
+		const code = await runFetchReportCli([], cap.io, cwd);
+
+		assert.strictEqual(code, 0, cap.err());
+		assert.strictEqual(s.runPosts(), 1, "a 409 must not trigger a second POST");
 	});
 
 	it("exits 1 on a transport failure", async () => {

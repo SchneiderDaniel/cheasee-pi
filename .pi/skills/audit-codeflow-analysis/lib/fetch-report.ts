@@ -36,6 +36,7 @@ import {
 import { dirname } from "node:path";
 import { codeflowServiceUrl } from "../../../extensions/lib/codeflow-endpoint.ts";
 import { isPathWithinBase, resolveWithinRoot } from "../../../extensions/lib/path-containment.ts";
+import { ensureReport } from "./codeflow-run.ts";
 
 /** Markdown artifact path, relative to the session cwd (gitignored). */
 export const REPORT_REL_PATH = "ignore/codeflow-report.md";
@@ -293,6 +294,8 @@ export async function fetchAndStoreReport(opts: {
 	cwd: string;
 	refresh?: boolean;
 	signal?: AbortSignal;
+	/** Internal: set false on the post-run re-fetch so a run is triggered once. */
+	runOnMissing?: boolean;
 }): Promise<ReportOutcome> {
 	if (!opts.refresh && cache && cacheCwd === opts.cwd) return { ok: true, result: cache };
 
@@ -303,13 +306,25 @@ export async function fetchAndStoreReport(opts: {
 	opts.signal?.throwIfAborted();
 
 	if (resp.status === 404) {
-		return {
+		const actionable = (): ReportOutcome => ({
 			ok: false,
 			status: 404,
 			message:
 				`No CodeFlow report yet — run analysis in CodeFlow (${base}) and wait for it to finish, ` +
 				`then run the fetch script again.`,
-		};
+		});
+		// The report slot is empty. Ask the sidecar to fill it headlessly; only an
+		// old shim with no run route keeps the manual actionable 404.
+		if (opts.runOnMissing === false) return actionable();
+		const run = await ensureReport({ signal: opts.signal, fetchFn, base });
+		opts.signal?.throwIfAborted();
+		if (run.ok) {
+			return fetchAndStoreReport({ ...opts, refresh: true, runOnMissing: false });
+		}
+		if (run.kind === "run-route-absent") return actionable();
+		// A failed/timed-out/unavailable run is not "no browser run" — surface the
+		// reason with a null status so the CLI maps it to a transport failure.
+		return { ok: false, status: null, message: run.message };
 	}
 	if (!resp.ok) {
 		return {

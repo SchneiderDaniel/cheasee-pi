@@ -34,6 +34,16 @@ type reportShim struct {
 // startShim launches the embedded server.py on a free loopback port with the
 // given repo/UI dirs and waits until it accepts connections.
 func startReportShim(t *testing.T, repoRoot, uiDir string) *reportShim {
+	return startShimFull(t, repoRoot, uiDir, filepath.Join(t.TempDir(), "missing-config.json"))
+}
+
+// startReportShimEnv is startReportShim plus extra environment variables (e.g.
+// the headless-run seams ANALYZER_CMD / RUN_TIMEOUT_S).
+func startReportShimEnv(t *testing.T, repoRoot, uiDir string, extraEnv ...string) *reportShim {
+	return startShimFull(t, repoRoot, uiDir, filepath.Join(t.TempDir(), "missing-config.json"), extraEnv...)
+}
+
+func startShimFull(t *testing.T, repoRoot, uiDir, configFile string, extraEnv ...string) *reportShim {
 	t.Helper()
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -65,11 +75,12 @@ func startReportShim(t *testing.T, repoRoot, uiDir string) *reportShim {
 	s.cmd.Env = append(os.Environ(),
 		"REPO_ROOT="+repoRoot,
 		"UI_DIR="+uiDir,
-		"CONFIG_FILE="+filepath.Join(t.TempDir(), "missing-config.json"),
+		"CONFIG_FILE="+configFile,
 		fmt.Sprintf("PORT=%d", port),
 		"HOST=127.0.0.1",
 		"PYTHONUNBUFFERED=1",
 	)
+	s.cmd.Env = append(s.cmd.Env, extraEnv...)
 	s.cmd.Stdout = s.log
 	s.cmd.Stderr = s.log
 	if err := s.cmd.Start(); err != nil {
