@@ -327,26 +327,27 @@ def _parse_stored_json(body):
         return None
 
 
-def _json_report_reject(body):
-    """(http_status, reason) when a JSON-route body must not enter the slot.
+def _store_json_report(body):
+    """Validate and store a JSON-route body; return (http_status, reason).
 
     400 for a body that is not a JSON object; 409 for a well-formed but
     structurally empty export while either slot still carries findings. The
-    caller stores the body only when this returns None.
+    consistency check and the slot write share one lock hold, so a concurrent
+    rich POST cannot slip between them and leave a stub behind.
     """
     data = _parse_stored_json(body)
     if data is None or not isinstance(data, dict):
         return (400, "invalid-json")
-    if _json_has_findings(data):
-        return None
     with _REPORT_LOCK:
-        md_entry = _REPORTS.get("/api/analysis/report")
-        json_entry = _REPORTS.get("/api/analysis/report.json")
-    if md_entry is not None and _markdown_has_findings(md_entry[0]):
-        return (409, "empty-structured")
-    if json_entry is not None and _json_has_findings(_parse_stored_json(json_entry[0])):
-        return (409, "empty-structured")
-    return None
+        if not _json_has_findings(data):
+            md_entry = _REPORTS.get("/api/analysis/report")
+            json_entry = _REPORTS.get("/api/analysis/report.json")
+            if md_entry is not None and _markdown_has_findings(md_entry[0]):
+                return (409, "empty-structured")
+            if json_entry is not None and _json_has_findings(_parse_stored_json(json_entry[0])):
+                return (409, "empty-structured")
+        _REPORTS["/api/analysis/report.json"] = (body, int(time.time() * 1000))
+    return (204, None)
 
 # Bridge telemetry: what the browser actually shipped, so a 404 on the JSON
 # route can be attributed. `capturedAt` is set when the bridge sees a report
@@ -1000,18 +1001,18 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/analysis/report.json":
-            problem = _json_report_reject(body)
-            if problem is not None:
-                status, reason = problem
-                _record_post(path, status, length, reason=reason)
-                self._error(
-                    status,
-                    "Structurally empty report refused" if status == 409 else "Invalid report body",
-                )
-                return
-
-        with _REPORT_LOCK:
-            _REPORTS[path] = (body, int(time.time() * 1000))
+            status, reason = _store_json_report(body)
+        else:
+            with _REPORT_LOCK:
+                _REPORTS[path] = (body, int(time.time() * 1000))
+            status, reason = 204, None
+        if status != 204:
+            _record_post(path, status, length, reason=reason)
+            self._error(
+                status,
+                "Structurally empty report refused" if status == 409 else "Invalid report body",
+            )
+            return
         _record_post(path, 204, length)
         self.send_response(204)
         self.send_header("Content-Length", "0")
@@ -1204,5 +1205,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
+    # Test affordance: a tight GIL switch interval makes concurrent report POSTs
+    # interleave aggressively, so the store-atomicity regression tests can
+    # observe a lost update. Unset (and unused) in production.
+    _interval = float(os.environ.get("CF_SWITCH_INTERVAL") or 0)
+    if _interval > 0:
+        sys.setswitchinterval(_interval)
     print(f"CodeFlow shim: UI={UI_DIR} REPO_ROOT={REPO_ROOT} port={PORT} host={HOST} excludes={EXCLUDE_DIRS or 'none'}")
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
