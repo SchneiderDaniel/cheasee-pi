@@ -36,6 +36,12 @@ const SERVER_PY = resolve(
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 const MD_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8");
 const JSON_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.json"), "utf-8");
+// The JSON export can embed the markdown marker inside its source snippets;
+// this fixture reproduces that and is the root-cause regression payload.
+const MARKED_JSON_FIXTURE = readFileSync(
+	resolve(FIXTURE_DIR, "codeflow-report-marked.json"),
+	"utf-8",
+);
 const UI_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-ui-export.html"), "utf-8");
 
 // The served-UI revision the fixture was captured from and the revision the
@@ -419,6 +425,98 @@ describe("codeflow bridge capture", () => {
 			postsTo(h, "/api/analysis/report").map((p) => p.body),
 			[MD_FIXTURE],
 		);
+	});
+
+	it("classifies a marker-bearing JSON export as JSON, not markdown (root-cause regression)", async () => {
+		// Guard against a vacuous regression: the payload must actually carry the
+		// markdown marker inside a source snippet.
+		assert.ok(
+			MARKED_JSON_FIXTURE.includes("# CodeFlow Analysis Report"),
+			"fixture must embed the markdown marker inside a source snippet",
+		);
+		const parsed = JSON.parse(MARKED_JSON_FIXTURE);
+		assert.ok(
+			Array.isArray(parsed.architectureIssues),
+			"fixture must parse with an architectureIssues array",
+		);
+
+		const h = runBridge(sink.base, { withExportButton: false });
+		h.sandbox.URL.createObjectURL({
+			type: "application/json",
+			text: async () => MARKED_JSON_FIXTURE,
+		});
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+
+		assert.deepStrictEqual(
+			postsTo(h, "/api/analysis/report").map((p) => p.body),
+			[],
+			"the markdown route must stay empty for a marker-bearing JSON body",
+		);
+		assert.deepStrictEqual(
+			postsTo(h, "/api/analysis/report.json").map((p) => p.body),
+			[MARKED_JSON_FIXTURE],
+			"the JSON body must POST to the JSON route",
+		);
+	});
+
+	it("routes a JSON export without the markdown marker to the JSON route", async () => {
+		const h = runBridge(sink.base, { withExportButton: false });
+		h.sandbox.URL.createObjectURL({ type: "application/json", text: async () => JSON_FIXTURE });
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+		assert.deepStrictEqual(postsTo(h, "/api/analysis/report"), []);
+		assert.deepStrictEqual(
+			postsTo(h, "/api/analysis/report.json").map((p) => p.body),
+			[JSON_FIXTURE],
+		);
+	});
+
+	it("falls back to the markdown route for malformed JSON that contains the marker", async () => {
+		const body = '{"architectureIssues":[} # CodeFlow Analysis Report';
+		const h = runBridge(sink.base, { withExportButton: false });
+		h.sandbox.URL.createObjectURL({ type: "text/plain", text: async () => body });
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+		assert.deepStrictEqual(
+			postsTo(h, "/api/analysis/report").map((p) => p.body),
+			[body],
+		);
+		assert.deepStrictEqual(postsTo(h, "/api/analysis/report.json"), []);
+	});
+
+	it("requires an architectureIssues array, not just the marker substring", async () => {
+		// A JSON body whose architectureIssues is not an array falls back to the
+		// marker rule; without the marker the shape rule rejects it entirely.
+		const withMarker =
+			'{"architectureIssues":"not-array","note":"# CodeFlow Analysis Report"}';
+		const h = runBridge(sink.base, { withExportButton: false });
+		h.sandbox.URL.createObjectURL({ type: "text/plain", text: async () => withMarker });
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+		assert.deepStrictEqual(
+			postsTo(h, "/api/analysis/report").map((p) => p.body),
+			[withMarker],
+		);
+		assert.deepStrictEqual(postsTo(h, "/api/analysis/report.json"), []);
+
+		const h2 = runBridge(sink.base, { withExportButton: false });
+		h2.sandbox.URL.createObjectURL({
+			type: "application/json",
+			text: async () => '{"architectureIssues":"not-array"}',
+		});
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+		assert.deepStrictEqual(h2.posts, []);
+	});
+
+	it("reports the capture route that matches the actual POST destination", async () => {
+		const h = runBridge(sink.base, { withExportButton: false });
+		h.sandbox.URL.createObjectURL({
+			type: "application/json",
+			text: async () => MARKED_JSON_FIXTURE,
+		});
+		for (let i = 0; i < 4; i++) await Promise.resolve();
+		const capture = postsTo(h, "/api/analysis/bridge-status")
+			.map((p) => JSON.parse(p.body))
+			.find((e) => e.event === "capture");
+		assert.ok(capture, "a capture event must be recorded");
+		assert.strictEqual(capture.route, "/api/analysis/report.json");
 	});
 
 	it("does nothing when no export control is present", async () => {

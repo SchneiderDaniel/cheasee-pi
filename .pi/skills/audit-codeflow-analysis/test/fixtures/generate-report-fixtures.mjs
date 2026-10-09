@@ -115,4 +115,13 @@ const md = buildMd(data, repo, health, function () {}, { createObjectURL: () => 
 const here = dirname(new URL(import.meta.url).pathname);
 writeFileSync(join(here, "codeflow-report.md"), md);
 writeFileSync(join(here, "codeflow-report.json"), JSON.stringify(report, null, 2));
+
+// Sibling fixture: the same report with the markdown marker embedded inside a
+// source snippet (`unusedFunctions[].code`), exactly as the real export can.
+// A substring-first bridge classifier misrouted this payload to the markdown
+// route; bridge.test.mts pins the parse-first classification against it.
+const marked = JSON.parse(JSON.stringify(report));
+marked.unusedFunctions[0].code =
+	'const MD_MARKER = "# CodeFlow Analysis Report";\n' + (marked.unusedFunctions[0].code || "");
+writeFileSync(join(here, "codeflow-report-marked.json"), JSON.stringify(marked, null, 2) + "\n");
 console.log(`wrote fixtures from ${uiPath} (CodeFlow b0e82d1)`);

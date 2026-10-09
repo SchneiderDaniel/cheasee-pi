@@ -28,6 +28,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { selectCandidates, slugifyFinding, type FileResolution } from "../scripts/dry-run.mts";
 import type { IssueFact } from "../lib/report.ts";
+import { buildFullReport, FULL_REPORT_TOTALS } from "./fixtures/full-report.mts";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 const CLI = resolve(REPO_ROOT, ".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts");
@@ -243,6 +244,20 @@ describe("slugifyFinding", () => {
 		assert.strictEqual(slugifyFinding("`on_open()`"), "on-open");
 		assert.strictEqual(slugifyFinding("***"), "finding");
 	});
+
+	it("bounds an over-long slug and appends a deterministic full-title hash", () => {
+		const title = `4 Similar Code Blocks with env with unresolved exec ${"word ".repeat(40)}`;
+		const slug = slugifyFinding(title);
+		assert.ok(Buffer.byteLength(slug, "utf-8") <= 89, `slug too long: ${slug.length}`);
+		assert.match(slug, /^[a-z0-9-]+-[0-9a-f]{8}$/);
+		assert.ok(/^[a-z0-9-]+$/.test(slug), `illegal characters in ${slug}`);
+		assert.strictEqual(slugifyFinding(title), slug, "slug must be deterministic");
+	});
+
+	it("keeps two distinct long titles sharing a prefix collision-free", () => {
+		const base = "4 Similar Code Blocks with env with unresolved exec ".padEnd(120, "x");
+		assert.notStrictEqual(slugifyFinding(base + " one"), slugifyFinding(base + " two"));
+	});
 });
 
 describe("dry-run --emit-findings", () => {
@@ -317,11 +332,75 @@ describe("dry-run --emit-findings", () => {
 		assert.ok(!/UNREADABLE/.test(r.stdout), "a partial section must not be flagged unreadable");
 	});
 
+	it("emits every candidate for a long-title report with no ENAMETOOLONG", () => {
+		const report = join(dir, "long-title.md");
+		writeFileSync(
+			report,
+			[
+				"# CodeFlow Analysis Report",
+				"",
+				"## Architecture Issues",
+				"",
+				`### 4 Similar Code Blocks with env with unresolved exec ${"word ".repeat(40)}`,
+				`**Affected:** \`${REAL_FILE}\``,
+				"",
+			].join("\n"),
+			"utf-8",
+		);
+		const outDir = join(dir, "long-title-findings");
+		const r = runDryRun([
+			"--report",
+			report,
+			"--json",
+			join(dir, "absent.json"),
+			"--emit-findings",
+			outDir,
+		]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		const files = readdirSync(outDir);
+		assert.strictEqual(files.length, 1, files.join(","));
+		assert.match(files[0], /^\d{2}-[a-z0-9-]+-[0-9a-f]{8}\.md$/);
+		const content = readFileSync(join(outDir, files[0]), "utf-8");
+		assert.ok(
+			content.includes("**Title:** 4 Similar Code Blocks with env with unresolved exec"),
+			"the finding body must keep the untruncated title",
+		);
+	});
+
 	it("exits 2 and creates no directory when the report is missing", () => {
 		const outDir = join(dir, "never");
 		const r = runDryRun(["--report", join(dir, "absent.md"), "--emit-findings", outDir]);
 		assert.strictEqual(r.status, 2);
 		assert.ok(!existsSync(outDir), "must not create the target directory on a missing report");
+	});
+
+	it("lists 207 findings / 193 bug candidates and emits one file per fact (#1982 totals)", () => {
+		const json = join(dir, "full.json");
+		writeFileSync(json, JSON.stringify(buildFullReport()), "utf-8");
+		const report = join(dir, "full.md");
+		writeFileSync(report, "# CodeFlow Analysis Report\n", "utf-8");
+		const args = ["--report", report, "--json", json];
+
+		const list = runDryRun([...args, "--list"]);
+		assert.strictEqual(list.status, 0, list.stderr);
+		assert.match(list.stdout, /207 finding\(s\)/);
+		assert.strictEqual(
+			(list.stdout.match(/\[bug\]/g) ?? []).length,
+			FULL_REPORT_TOTALS.bugCandidates,
+		);
+		assert.ok(!/UNREADABLE/.test(list.stdout), "no category may be unreadable");
+
+		const outDir = join(dir, "full-findings");
+		const emit = runDryRun([...args, "--emit-findings", outDir]);
+		assert.strictEqual(emit.status, 0, emit.stderr);
+		const files = readdirSync(outDir);
+		assert.strictEqual(files.length, FULL_REPORT_TOTALS.facts, files.slice(0, 5).join(","));
+		assert.ok(
+			files.every((f) => Buffer.byteLength(f, "utf-8") <= 255),
+			"every emitted filename must fit the filesystem limit",
+		);
+		assert.match(emit.stdout, /207 candidate\(s\) written/);
+		assert.match(emit.stdout, /14 finding\(s\) routed by triage/);
 	});
 
 	it("fails closed instead of mixing a rerun with stale findings", () => {
