@@ -6,9 +6,11 @@
  * Class-only rule: interface shadows are benign (they carry no behaviour).
  *
  * Second guard (#1995): an extension test must not carry dead import bindings.
- * CodeFlow's coupling term charges one connection per imported name, so an
- * unused value import is pure score debt. Type-only, side-effect and namespace
- * imports are exempt — the analyzer skips them.
+ * Measured against the pinned analyzer (b0e82d1), a binding only becomes a
+ * coupling connection when it names a function the analyzer extracted from a
+ * file whose extension it analyzes — extension tests are `.mts`, absent from
+ * both its code and text extension lists, so this guard is hygiene, not a
+ * score lever. Type-only, side-effect and namespace imports are exempt.
  *
  * Run with:
  *   node --experimental-strip-types --test test/extension-test-imports.test.mts
