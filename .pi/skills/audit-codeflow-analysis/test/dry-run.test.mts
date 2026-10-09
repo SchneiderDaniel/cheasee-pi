@@ -243,6 +243,20 @@ describe("slugifyFinding", () => {
 		assert.strictEqual(slugifyFinding("`on_open()`"), "on-open");
 		assert.strictEqual(slugifyFinding("***"), "finding");
 	});
+
+	it("bounds an over-long slug and appends a deterministic full-title hash", () => {
+		const title = `4 Similar Code Blocks with env with unresolved exec ${"word ".repeat(40)}`;
+		const slug = slugifyFinding(title);
+		assert.ok(Buffer.byteLength(slug, "utf-8") <= 89, `slug too long: ${slug.length}`);
+		assert.match(slug, /^[a-z0-9-]+-[0-9a-f]{8}$/);
+		assert.ok(/^[a-z0-9-]+$/.test(slug), `illegal characters in ${slug}`);
+		assert.strictEqual(slugifyFinding(title), slug, "slug must be deterministic");
+	});
+
+	it("keeps two distinct long titles sharing a prefix collision-free", () => {
+		const base = "4 Similar Code Blocks with env with unresolved exec ".padEnd(120, "x");
+		assert.notStrictEqual(slugifyFinding(base + " one"), slugifyFinding(base + " two"));
+	});
 });
 
 describe("dry-run --emit-findings", () => {
@@ -315,6 +329,41 @@ describe("dry-run --emit-findings", () => {
 		assert.match(r.stdout, /JSON export unavailable/);
 		assert.match(r.stdout, /partially unauditable/);
 		assert.ok(!/UNREADABLE/.test(r.stdout), "a partial section must not be flagged unreadable");
+	});
+
+	it("emits every candidate for a long-title report with no ENAMETOOLONG", () => {
+		const report = join(dir, "long-title.md");
+		writeFileSync(
+			report,
+			[
+				"# CodeFlow Analysis Report",
+				"",
+				"## Architecture Issues",
+				"",
+				`### 4 Similar Code Blocks with env with unresolved exec ${"word ".repeat(40)}`,
+				`**Affected:** \`${REAL_FILE}\``,
+				"",
+			].join("\n"),
+			"utf-8",
+		);
+		const outDir = join(dir, "long-title-findings");
+		const r = runDryRun([
+			"--report",
+			report,
+			"--json",
+			join(dir, "absent.json"),
+			"--emit-findings",
+			outDir,
+		]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		const files = readdirSync(outDir);
+		assert.strictEqual(files.length, 1, files.join(","));
+		assert.match(files[0], /^\d{2}-[a-z0-9-]+-[0-9a-f]{8}\.md$/);
+		const content = readFileSync(join(outDir, files[0]), "utf-8");
+		assert.ok(
+			content.includes("**Title:** 4 Similar Code Blocks with env with unresolved exec"),
+			"the finding body must keep the untruncated title",
+		);
 	});
 
 	it("exits 2 and creates no directory when the report is missing", () => {

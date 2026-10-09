@@ -29,6 +29,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import {
+	classifyReportBody,
 	fetchAndStoreReport,
 	parseAnalyzedAt,
 	REPORT_JSON_REL_PATH,
@@ -147,6 +148,10 @@ const tmpFiles = () => {
 };
 
 const JSON_BODY = '{"architectureIssues":[{"title":"x","affectedFiles":["src/a.ts"]}]}';
+// A JSON export that embeds the markdown marker in a source snippet — the body
+// a pre-#1976 bridge misroutes to the markdown route.
+const MARKED_JSON_BODY =
+	'{"architectureIssues":[{"title":"x","affectedFiles":["src/a.ts"],"description":"# CodeFlow Analysis Report"}]}';
 
 describe("transport + artifact", () => {
 	it("writes both artifacts and returns path/jsonPath/bytes/analyzedAt", async () => {
@@ -215,6 +220,7 @@ describe("transport + artifact", () => {
 		const outcome = await fetchAndStoreReport({ cwd });
 		assert.strictEqual(outcome.ok, true);
 		assert.strictEqual(outcome.ok && outcome.result.jsonPath, null);
+		assert.strictEqual(outcome.ok && outcome.result.partial, true);
 		assert.match(outcome.ok ? outcome.result.warnings.join(" ") : "", /never POSTed/);
 		assert.ok(existsSync(REPORT_PATH()));
 		assert.ok(!existsSync(REPORT_JSON_PATH()));
@@ -388,6 +394,97 @@ describe("transport + artifact", () => {
 			assert.strictEqual(outcome.ok, true);
 			assert.strictEqual(outcome.ok && outcome.result.analyzedAt, null);
 		}
+	});
+});
+
+describe("classifyReportBody", () => {
+	it("classifies by structure, never by substring", () => {
+		assert.strictEqual(classifyReportBody('{"architectureIssues":[]}'), "json");
+		assert.strictEqual(classifyReportBody("# CodeFlow Analysis Report\n"), "markdown");
+		assert.strictEqual(classifyReportBody('{"files":[]}'), "other");
+		assert.strictEqual(classifyReportBody("[]"), "other");
+		assert.strictEqual(classifyReportBody("x"), "other");
+		assert.strictEqual(classifyReportBody(""), "other");
+		assert.strictEqual(classifyReportBody('{"architectureIssues":"nope"}'), "other");
+		// A JSON object without architectureIssues but carrying the marker is markdown.
+		assert.strictEqual(classifyReportBody('{"note":"# CodeFlow Analysis Report"}'), "markdown");
+	});
+});
+
+describe("partial run disclosure", () => {
+	it("re-homes a JSON body misrouted to the markdown route into the JSON artifact", async () => {
+		const s = await shim({ status: 200, body: MARKED_JSON_BODY, jsonStatus: 404, bridgeStatusStatus: 404 });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		const { jsonPath, partial, recoveredFromMarkdownRoute, warnings } = outcome.result;
+		assert.ok(jsonPath !== null, "misrouted JSON must be recovered into the JSON artifact");
+		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), MARKED_JSON_BODY);
+		assert.strictEqual(partial, false);
+		assert.strictEqual(recoveredFromMarkdownRoute, true);
+		assert.ok(warnings.join(" ").length > 0, "recovery must be loud, not silent");
+	});
+
+	it("marks a run with genuinely absent JSON partial and names the blind categories", async () => {
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 404, bridgeStatusStatus: 404 });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.jsonPath, null);
+		assert.strictEqual(outcome.result.partial, true);
+		assert.deepStrictEqual(outcome.result.unavailableCategories, [
+			"duplicate",
+			"layer-violation",
+			"suggestion",
+		]);
+		assert.ok(outcome.result.warnings.join(" ").length > 0);
+		assert.ok(existsSync(REPORT_PATH()), "the markdown artifact is still written");
+		assert.ok(!existsSync(REPORT_JSON_PATH()));
+	});
+
+	it("is complete when both routes serve their format", async () => {
+		const s = await shim({
+			status: 200,
+			body: "# CodeFlow Analysis Report\n",
+			jsonStatus: 200,
+			jsonBody: JSON_BODY,
+		});
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.partial, false);
+		assert.deepStrictEqual(outcome.result.unavailableCategories, []);
+		assert.ok(!outcome.result.recoveredFromMarkdownRoute);
+	});
+
+	it("does not store a markdown body served on the JSON route", async () => {
+		const s = await shim({
+			status: 200,
+			body: "MD",
+			jsonStatus: 200,
+			jsonBody: "# CodeFlow Analysis Report\n",
+		});
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.jsonPath, null);
+		assert.strictEqual(outcome.result.partial, true);
+		assert.ok(!existsSync(REPORT_JSON_PATH()));
+	});
+
+	it("does not store a body that is neither JSON-with-architectureIssues nor markdown", async () => {
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 200, jsonBody: '{"files":[]}' });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.jsonPath, null);
+		assert.strictEqual(outcome.result.partial, true);
+		assert.ok(!existsSync(REPORT_JSON_PATH()));
 	});
 });
 

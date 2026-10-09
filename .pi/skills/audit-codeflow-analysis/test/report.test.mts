@@ -222,6 +222,41 @@ describe("parseReportJson (captured JSON fixture)", () => {
 	});
 });
 
+describe("parseReportJson full-category coverage", () => {
+	it("yields exactly one fact per item across every JSON category", () => {
+		const report = {
+			architectureIssues: [
+				{ title: "a", affectedFiles: ["a.ts"] },
+				{ title: "b", affectedFiles: ["b.ts"] },
+			],
+			duplicates: [{ name: "d", type: "code", files: [{ file: "d.ts" }] }],
+			layerViolations: [{ from: "f.ts", to: "t.ts", fromLayer: "x", toLayer: "y" }],
+			suggestions: [{ title: "s" }],
+			unusedFunctions: [{ name: "u", file: "u.ts" }],
+			securityIssues: [{ severity: "high", title: "sec", path: "s.ts" }],
+			patterns: [
+				{ name: "p", files: ["p.ts"] },
+				{ name: "ap", isAntiPattern: true, files: ["ap.ts"] },
+			],
+		};
+		const facts = parseReportJson(JSON.stringify(report));
+		assert.strictEqual(facts.length, 9, "no item may be dropped");
+		assert.deepStrictEqual(
+			[...new Set(facts.map((f) => f.kind))].sort(),
+			[
+				"anti-pattern",
+				"architecture",
+				"dead-code",
+				"duplicate",
+				"layer-violation",
+				"pattern",
+				"security",
+				"suggestion",
+			],
+		);
+	});
+});
+
 describe("parseBestReport", () => {
 	it("prefers the structured JSON when it yields facts", () => {
 		const best = parseBestReport(FIXTURE, FIXTURE_JSON);

@@ -120,6 +120,12 @@ describe("fetch-report CLI adapter", () => {
 		assert.strictEqual(parsed.bytes, Buffer.byteLength("# CodeFlow Analysis Report\n"));
 		assert.strictEqual(parsed.analyzedAt, 1767225600000);
 		assert.strictEqual(parsed.jsonPath, null);
+		assert.strictEqual(parsed.partial, true);
+		assert.deepStrictEqual(parsed.unavailableCategories, [
+			"duplicate",
+			"layer-violation",
+			"suggestion",
+		]);
 		assert.ok(parsed.path.endsWith("ignore/codeflow-report.md"), `unexpected path ${parsed.path}`);
 		assert.ok(existsSync(REPORT_PATH()));
 		assert.strictEqual(cap.err(), "");
@@ -181,6 +187,32 @@ describe("fetch-report CLI adapter", () => {
 		const cap = capture();
 		assert.strictEqual(await runFetchReportCli(["--nope"], cap.io, cwd), 2);
 		assert.match(cap.err(), /unknown argument/);
+	});
+
+	it("recovers a JSON body misrouted to the markdown route", async () => {
+		const marked =
+			'{"architectureIssues":[{"title":"x","description":"# CodeFlow Analysis Report"}]}';
+		setFetchFactory((url) => {
+			const path = new URL(url).pathname;
+			if (path.endsWith("/api/analysis/report.json")) {
+				return Promise.resolve(new Response("", { status: 404 }));
+			}
+			return Promise.resolve(
+				new Response(marked, {
+					status: 200,
+					headers: { "X-Codeflow-Analysis-At": "1767225600000" },
+				}),
+			);
+		});
+		const cap = capture();
+
+		const code = await runFetchReportCli([], cap.io, cwd);
+
+		assert.strictEqual(code, 0);
+		const parsed = JSON.parse(cap.out());
+		assert.ok(parsed.jsonPath !== null, "misrouted JSON must be recovered");
+		assert.strictEqual(parsed.partial, false);
+		assert.strictEqual(parsed.recoveredFromMarkdownRoute, true);
 	});
 });
 

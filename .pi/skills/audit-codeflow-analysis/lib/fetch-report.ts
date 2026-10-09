@@ -47,7 +47,16 @@ interface ReportResult {
 	bytes: number;
 	analyzedAt: number | null;
 	warnings: string[];
+	/** True when no structured JSON artifact was stored; the run cannot see the JSON-only categories. */
+	partial: boolean;
+	/** Categories the markdown exporter never emits, empty when a JSON artifact was stored. */
+	unavailableCategories: string[];
+	/** True when a misrouted JSON body was recovered from the markdown route. */
+	recoveredFromMarkdownRoute?: boolean;
 }
+
+/** JSON-only categories the markdown exporter never emits. */
+const UNAVAILABLE_CATEGORIES = ["duplicate", "layer-violation", "suggestion"];
 
 /** `status` is the HTTP status for a failed fetch, or null for a thrown failure. */
 export type ReportOutcome =
@@ -105,6 +114,38 @@ export function parseAnalyzedAt(raw: string | null | undefined): number | null {
 	if (raw === null || raw === undefined || raw.trim() === "") return null;
 	const n = Number(raw);
 	return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+export type ReportFormat = "json" | "markdown" | "other";
+
+/**
+ * Classify a report body by content structure, not by the route it arrived on
+ * or a substring marker. The JSON export embeds the markdown marker inside its
+ * source snippets, and a pre-#1976 bridge can deliver it on the markdown route,
+ * so the stable contract is "a JSON object with an `architectureIssues` array".
+ * Falls back to the markdown marker, then `other`.
+ */
+export function classifyReportBody(text: string): ReportFormat {
+	const body = text ?? "";
+	try {
+		const o: unknown = JSON.parse(body);
+		if (
+			o !== null &&
+			typeof o === "object" &&
+			!Array.isArray(o) &&
+			Array.isArray((o as Record<string, unknown>).architectureIssues)
+		) {
+			return "json";
+		}
+	} catch {
+		// not JSON — fall through to the markdown marker
+	}
+	return body.includes("# CodeFlow Analysis Report") ? "markdown" : "other";
+}
+
+/** Decode report bytes as UTF-8 for content classification. */
+function decodeBody(bytes: Uint8Array): string {
+	return new TextDecoder().decode(bytes);
 }
 
 /**
@@ -250,25 +291,60 @@ export async function fetchAndStoreReport(opts: {
 	writeAtomically(opts.cwd, target, bytes);
 
 	const warnings: string[] = [];
-	let jsonPath: string | null = null;
+	// Defense-in-depth: an old bridge or a manual POST can land a JSON body on
+	// the markdown route. Re-sniff by content and recover the structured
+	// artifact instead of losing it (the shim's own routing is fixed in
+	// `_BRIDGE_JS.capture`; this bridges the gap only, and says so loudly).
+	const recoveredFromMarkdownRoute = classifyReportBody(decodeBody(bytes)) === "json";
+	let jsonBytes: Uint8Array | null = recoveredFromMarkdownRoute ? bytes : null;
+	if (recoveredFromMarkdownRoute) {
+		warnings.push(
+			"The markdown route returned a JSON export body (the browser bridge misrouted " +
+				"generateReport('json')); it was recovered as the structured artifact.",
+		);
+	}
+
 	try {
 		const jsonResp = await getReport(`${base}/api/analysis/report.json`, opts.signal);
 		if (jsonResp.ok) {
-			const jsonBytes = new Uint8Array(await jsonResp.arrayBuffer());
-			const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
-			writeAtomically(opts.cwd, jsonTarget, jsonBytes);
-			jsonPath = jsonTarget;
+			const body = new Uint8Array(await jsonResp.arrayBuffer());
+			if (classifyReportBody(decodeBody(body)) === "json") {
+				jsonBytes = body;
+			} else {
+				warnings.push(
+					"Structured JSON report route returned a body that is neither the JSON export " +
+						"nor markdown; it was not stored as the structured artifact.",
+				);
+			}
 		} else if (jsonResp.status === 404) {
-			warnings.push(await jsonUnavailableWarning(base, opts.signal));
-		} else {
+			if (jsonBytes === null) warnings.push(await jsonUnavailableWarning(base, opts.signal));
+		} else if (jsonBytes === null) {
 			warnings.push(
 				`Structured JSON report unavailable (HTTP ${jsonResp.status}); duplicates, layer violations and suggestions cannot be extracted.`,
 			);
 		}
 	} catch (err) {
 		opts.signal?.throwIfAborted();
+		if (jsonBytes === null) {
+			warnings.push(
+				`Structured JSON report fetch failed: ${err instanceof Error ? err.message : String(err)}; duplicates, layer violations and suggestions cannot be extracted.`,
+			);
+		}
+	}
+
+	let jsonPath: string | null = null;
+	if (jsonBytes !== null) {
+		const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
+		writeAtomically(opts.cwd, jsonTarget, jsonBytes);
+		jsonPath = jsonTarget;
+	}
+
+	const partial = jsonPath === null;
+	// A JSON-less run must name the categories it cannot see; a warning already
+	// carrying the list (from `jsonUnavailableWarning`) is enough.
+	if (partial && !warnings.some((w) => w.includes("duplicates, layer violations and suggestions"))) {
 		warnings.push(
-			`Structured JSON report fetch failed: ${err instanceof Error ? err.message : String(err)}; duplicates, layer violations and suggestions cannot be extracted.`,
+			`Structured JSON report unavailable, so ${UNAVAILABLE_CATEGORIES.join(", ")} categories cannot be extracted.`,
 		);
 	}
 
@@ -278,6 +354,9 @@ export async function fetchAndStoreReport(opts: {
 		bytes: bytes.length,
 		analyzedAt,
 		warnings,
+		partial,
+		unavailableCategories: partial ? [...UNAVAILABLE_CATEGORIES] : [],
+		recoveredFromMarkdownRoute,
 	};
 	cache = result;
 	cacheCwd = opts.cwd;

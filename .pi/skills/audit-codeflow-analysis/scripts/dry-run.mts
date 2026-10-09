@@ -14,6 +14,7 @@
  */
 
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -164,12 +165,17 @@ export function selectCandidates(
 
 /** Step 3 file naming slug: lowercase, non-alphanumerics to single hyphens. */
 export function slugifyFinding(title: string): string {
-	return (
+	const slug =
 		title
 			.toLowerCase()
 			.replace(/[^a-z0-9]+/g, "-")
-			.replace(/^-+|-+$/g, "") || "finding"
-	);
+			.replace(/^-+|-+$/g, "") || "finding";
+	// Bound the filename: a full title can exceed the 255-byte filesystem limit
+	// (`ENAMETOOLONG`). Truncate and append a hash of the full title so two long
+	// titles sharing a prefix stay distinct and determinism is preserved.
+	if (Buffer.byteLength(slug, "utf-8") <= 80) return slug;
+	const hash = createHash("sha256").update(title).digest("hex").slice(0, 8);
+	return `${slug.slice(0, 80).replace(/-+$/, "")}-${hash}`;
 }
 
 /** Step 3 candidate body: kind, triage issue type, targets, id and the cited files. */
