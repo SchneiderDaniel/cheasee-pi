@@ -28,8 +28,11 @@ Load this skill when the user asks to:
 
 - **Issues only.** Do not create branches, commits, or PRs. `main` is locked.
 - **Verify before filing.** Every candidate goes through Step 3. A finding whose
-  validation exits `1` is dropped, never filed or re-framed. One whose validation
-  exits `2`/`3` is unverified: not filed, and disclosed as unverified.
+  validation exits `1` is dropped, never filed or re-framed. Exit `2` is an agent
+  mistake (`usage`/repo-root error) — fix the call and rerun; it describes the
+  call, not the finding. Exit `3` (ran, printed no `VERDICT`) is unverified: never
+  filed, and disclosed as unverified. Exit `4` (crash/timeout/spawn failure)
+  reached no verdict: retry it once, then treat the retry as unverified.
 - **Reconcile every section before validating.** A section present in the report
   must yield candidates. A section that emitted `###` items but produced zero
   candidates is being dropped whole by the parser, not empty — stop and fix
@@ -132,6 +135,25 @@ Markdown fallback sections:
 The markdown exporter does **not** emit duplicates, layer violations, or
 suggestions — those come from the JSON export only. When `jsonPath` is null, say
 so and proceed with the markdown categories rather than silently omitting them.
+The fetch warning names the owning component using the shim's
+`/api/analysis/bridge-status`: `postedAt` null means the browser never POSTed the
+JSON export (a capture-side gap); `postedAt` set with a 404 on GET means the
+shim's `/api/analysis/report.json` route is down. Either way the JSON-only
+categories (duplicates, layer violations, suggestions) are disclosed unavailable,
+never silently omitted.
+
+A `## Architecture Issues` entry whose `**Affected:**` is only a derived metric
+(`154 Architecture Violations` (`utils → ui`), `6 Duplicate Function Names`
+(`execFn (3 files)`) and `3 Similar Code Blocks`) carries no path in the markdown
+format at all: those kinds are JSON-only in practice, and a zero for them is
+expected, not a parser fault. Only the derived entries that inline a real file
+(whose trailing count is stripped) carry a path.
+
+Before validating, apply the text-provable pre-filter documented in
+`references/known-false-positives.md` and implemented by `classifyKnownNoise`: it
+suppresses only the LOW stylistic security categories (Code Comments, Debug
+Statements) and facts whose every cited file is unresolved. Report the suppressed
+count. Probe that reference before re-deriving a mechanism by reading code.
 
 Then, before validating anything, run the two checks that keep the candidate set
 honest. Both are pure functions in the same module:
@@ -146,7 +168,10 @@ honest. Both are pure functions in the same module:
    section with `items > 0 && candidates === 0` is unreadable: stop, fix the
    extraction, and only then continue. Include the coverage table in the run
    report, and read a zero there as "the parser is dropping this", never as "no
-   findings in this section".
+   findings in this section". A section that parsed *some* entries
+   (`unparsedItems > 0` with `candidates > 0`) is not unreadable: path-less
+   markdown kinds are expected to drop, and the coverage table reports the
+   per-entry `unparsedItems`.
 
 The check is cheap and catches a whole class of silent loss: CodeFlow's derived
 architecture metrics arrive as `index.test.ts (46 fns)`, and a section whose every
@@ -160,7 +185,9 @@ candidates and must never abort the run.
 
 A finding is a candidate until the source confirms it. Write each candidate to
 `ignore/codeflow-findings/NN-<slug>.md` (kind, section/field, title, description,
-claimed files), then validate all of them in one batched `bash` call:
+claimed files) — `dry-run.mts --emit-findings [DIR]` writes exactly those files
+for every post-dedupe, post-suppression candidate, with no subagent and no
+deletion. Then validate all of them in one batched `bash` call:
 
 ```bash
 for f in ignore/codeflow-findings/*.md; do
@@ -179,12 +206,17 @@ codes:
 |------|---------|--------|
 | `0` | `VERDICT: VALID` | keep it for Step 4 |
 | `1` | `VERDICT: INVALID` | drop it; keep the `REASON` line for the confirmation list |
-| `2` | usage / repo-root error | fix the call and rerun |
-| `3` | subagent failed or printed no verdict | unverified — never file, disclose as unverified |
+| `2` | usage / repo-root error (agent mistake) | fix the call and rerun |
+| `3` | ran, printed no `VERDICT` | unverified — never file, disclose as unverified |
+| `4` | crash / timeout / spawn failure | retry once, then treat as unverified |
+
+The `3`/`4` split matters: `4` reached no verdict, so retrying it is recovery,
+not answer-shopping. Retry a `4` at most once and record the retry's verdict.
+Never re-run a completed validator hoping for a different answer — the verdict it
+returned is the verdict the run records.
 
 Take the verdict from code the subagent read itself. Reject any verdict whose
-`EVIDENCE` names a path that does not exist. Never re-run a validator hoping for
-a different answer. Cap parallel spawns at 4, and delete
+`EVIDENCE` names a path that does not exist. Cap parallel spawns at 4, and delete
 `ignore/codeflow-findings/` when the run ends.
 
 ### Step 4 — Group by file conflict (best-effort isolation)
@@ -244,6 +276,15 @@ Immediately before the first creation, re-fetch with `--refresh` and compare
 analysis and every verdict was reached against a superseded report: stop, tell
 the user, and restart from Step 1.
 
+### Canonical count vs the UI summary
+
+The skill's canonical unit is the post-`dedupeIssues` `(kind, title, files)`
+tuple. The CodeFlow UI summary is a different unit: it dedupes by rule, so it can
+report a smaller number (e.g. 9 security issues) than the exported report's
+per-entry count (e.g. 37 `###` entries across 7 distinct titles). Disclose the UI
+summary separately rather than comparing it directly with the canonical count, and
+never reconcile the difference by editing the vendored UI bundle.
+
 ## Dry run (creates nothing)
 
 `scripts/dry-run.mts` exercises the extract → resolve → validate path without
@@ -255,8 +296,14 @@ file — or, for a false finding, the validator's reason and evidence.
 ```bash
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --limit 5
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --list        # extraction only, no subagents
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --emit-findings [DIR]  # write Step 3 candidates, no validation, no deletion
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --self-check   # pure-function checks
 ```
+
+`--emit-findings [DIR]` writes one `NN-<slug>.md` per post-dedupe,
+post-suppression candidate (default `ignore/codeflow-findings/`), spawns no
+subagent, is not truncated by `--limit`, and leaves the directory in place. It
+prints the suppressed known-noise/unresolved count next to the written count.
 
 It never calls `gh`. Exit `0` for a completed run even when every finding is
 false, `2` for bad usage or a missing report.
@@ -265,7 +312,8 @@ false, `2` for bad usage or a missing report.
 
 - `ignore/codeflow-report.md` exists and is non-empty before parsing.
 - When `jsonPath` is null, the run discloses that the JSON-only categories
-  (duplicates, layer violations, suggestions) were unavailable.
+  (duplicates, layer violations, suggestions) were unavailable, and names the
+owning component (browser capture vs shim route) using bridge-status.
 - Every `## ` section that emitted `###` items produced at least one candidate,
   or the run stopped and named the unreadable section. A partial candidate set is
   never presented as a complete audit.

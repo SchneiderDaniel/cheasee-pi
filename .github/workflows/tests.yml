@@ -113,6 +113,7 @@ jobs:
         run: |
           bash test/no-submodules.test.sh
           bash test/uninstall-script.test.sh
+          bash test/validate-finding-exit.test.sh
 
       - name: Run Python test scripts
         run: |

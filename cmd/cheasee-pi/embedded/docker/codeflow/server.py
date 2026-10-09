@@ -98,6 +98,7 @@ _BRIDGE_JS = br"""(function () {
   window.__codeflowBridge = true;
   var MD_ENDPOINT = "/api/analysis/report";
   var JSON_ENDPOINT = "/api/analysis/report.json";
+  var STATUS_ENDPOINT = "/api/analysis/bridge-status";
   var MD_MARKER = "# CodeFlow Analysis Report";
   var JSON_MARKER = '"architectureIssues"';
 
@@ -130,6 +131,7 @@ _BRIDGE_JS = br"""(function () {
         headers: { "Content-Type": "text/plain; charset=utf-8" },
         body: text,
       }).then(function (res) {
+        reportStatus(url, "result", res.status);
         if (!res.ok) {
           reportError(
             url + " -> HTTP " + res.status +
@@ -146,10 +148,28 @@ _BRIDGE_JS = br"""(function () {
     }
   }
 
+  // Best-effort telemetry: tells the shim which route a Blob matched and how
+  // the upload ended, so a later 404 can be attributed to a capture gap (never
+  // POSTed) versus a route fault (POSTed but unreadable). Fire-and-forget.
+  function reportStatus(route, event, httpStatus) {
+    try {
+      fetch(STATUS_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ route: route, event: event, httpStatus: httpStatus }),
+      }).catch(function () {});
+    } catch (e) {}
+  }
+
   function capture(text) {
     if (typeof text !== "string" || text.length === 0) return;
-    if (text.indexOf(MD_MARKER) !== -1) post(MD_ENDPOINT, text);
-    else if (text.indexOf(JSON_MARKER) !== -1) post(JSON_ENDPOINT, text);
+    if (text.indexOf(MD_MARKER) !== -1) {
+      reportStatus(MD_ENDPOINT, "capture", null);
+      post(MD_ENDPOINT, text);
+    } else if (text.indexOf(JSON_MARKER) !== -1) {
+      reportStatus(JSON_ENDPOINT, "capture", null);
+      post(JSON_ENDPOINT, text);
+    }
   }
 
   // Capture seam: every export becomes a Blob and goes through
@@ -231,6 +251,50 @@ _REPORT_ROUTES = {
     "/api/analysis/report": "text/markdown; charset=utf-8",
     "/api/analysis/report.json": "application/json; charset=utf-8",
 }
+
+# Bridge telemetry: what the browser actually shipped, so a 404 on the JSON
+# route can be attributed. `capturedAt` is set when the bridge sees a report
+# marker in a Blob, `postedAt`/`httpStatus`/`bytes` are set when this server
+# handles a POST (accepted or rejected). A route with `postedAt: null` after a
+# run means the export was never POSTed (capture-side gap); a route that was
+# posted but still 404s on GET means the route is down. Single slot, like the
+# report store: no history across restarts.
+_BRIDGE_STATUS_ROUTE = "/api/analysis/bridge-status"
+_STATUS_LOCK = threading.Lock()
+_STATUS = {}  # route -> {capturedAt, postedAt, httpStatus, bytes}
+
+
+def _status_slot():
+    return {"capturedAt": None, "postedAt": None, "httpStatus": None, "bytes": None}
+
+
+def _status_store(route):
+    with _STATUS_LOCK:
+        return dict(_STATUS.get(route) or _status_slot())
+
+
+def _record_post(route, http_status, nbytes=None):
+    """Record that a POST reached the shim, accepted or rejected."""
+    with _STATUS_LOCK:
+        slot = _STATUS.setdefault(route, _status_slot())
+        slot["postedAt"] = int(time.time() * 1000)
+        slot["httpStatus"] = http_status
+        if nbytes is not None:
+            slot["bytes"] = nbytes
+
+
+def _record_capture(route):
+    with _STATUS_LOCK:
+        _STATUS.setdefault(route, _status_slot())["capturedAt"] = int(time.time() * 1000)
+
+
+def _record_client_status(route, http_status):
+    with _STATUS_LOCK:
+        slot = _STATUS.setdefault(route, _status_slot())
+        slot["httpStatus"] = http_status
+        if slot["postedAt"] is None:
+            slot["postedAt"] = int(time.time() * 1000)
+
 
 # Rewrites applied to the served index.html. The vendored UI only knows the
 # GitHub API; these raise its analysis size limits (upstream guards exist
@@ -495,6 +559,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/codeflow-bridge.js":
             self._serve_bytes(_BRIDGE_JS, "text/javascript; charset=utf-8")
             return
+        if path == _BRIDGE_STATUS_ROUTE:
+            self._json({route: _status_store(route) for route in _REPORT_ROUTES})
+            return
         if path in _REPORT_ROUTES:
             self._serve_report(path)
             return
@@ -512,6 +579,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):  # noqa: N802
         path = urllib.parse.urlparse(self.path).path
+        if path == _BRIDGE_STATUS_ROUTE:
+            self._bridge_status_post()
+            return
         if path not in _REPORT_ROUTES:
             # Any body on an unknown path is left unread — close so keep-alive
             # clients do not reuse a desynchronized connection.
@@ -524,29 +594,78 @@ class Handler(BaseHTTPRequestHandler):
             length = int(raw_len)
         except (TypeError, ValueError):
             self.close_connection = True
+            _record_post(path, 411)
             self._error(411, "Length Required")
             return
         if length < 0:
             self.close_connection = True
+            _record_post(path, 411)
             self._error(411, "Length Required")
             return
         if length == 0:
+            _record_post(path, 400, 0)
             self._error(400, "Empty report body")
             return
         if length > _MAX_REPORT_BYTES:
-            # Do not read the body — reject on the declared length alone.
+            # Do not read the body — reject on the declared length alone, but
+            # record it so an oversize export is visible in bridge-status.
             self.close_connection = True
+            _record_post(path, 413, length)
             self._error(413, "Report too large")
             return
 
         body = self.rfile.read(length)
         if len(body) != length:
             self.close_connection = True
+            _record_post(path, 400, len(body))
             self._error(400, "Incomplete report body")
             return
 
         with _REPORT_LOCK:
             _REPORTS[path] = (body, int(time.time() * 1000))
+        _record_post(path, 204, length)
+        self.send_response(204)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def _bridge_status_post(self):
+        """Record a bridge capture/result event ({route, event, httpStatus})."""
+        raw_len = self.headers.get("Content-Length") or ""
+        try:
+            length = int(raw_len)
+        except (TypeError, ValueError):
+            self.close_connection = True
+            self._error(411, "Length Required")
+            return
+        if length <= 0 or length > _MAX_REPORT_BYTES:
+            self.close_connection = True
+            self._error(400, "Invalid status body")
+            return
+        try:
+            payload = json.loads(self.rfile.read(length).decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            self.close_connection = True
+            self._error(400, "Invalid status JSON")
+            return
+        route = payload.get("route") if isinstance(payload, dict) else None
+        if route not in _REPORT_ROUTES:
+            self.close_connection = True
+            self._error(400, "Unknown report route")
+            return
+        event = payload.get("event")
+        if event == "capture":
+            _record_capture(route)
+        elif event == "result":
+            status = payload.get("httpStatus")
+            if isinstance(status, bool) or not isinstance(status, int):
+                self.close_connection = True
+                self._error(400, "Invalid httpStatus")
+                return
+            _record_client_status(route, status)
+        else:
+            self.close_connection = True
+            self._error(400, "Unknown event")
+            return
         self.send_response(204)
         self.send_header("Content-Length", "0")
         self.end_headers()

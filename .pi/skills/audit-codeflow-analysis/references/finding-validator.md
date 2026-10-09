@@ -23,6 +23,12 @@ maintainer who reads the cited code agree the finding is real?
 - Ambiguous or unverifiable evidence is INVALID. Never guess. Never say "cannot
   determine" — pick INVALID and state what was missing.
 
+Before reading code, check the finding against `references/known-false-positives.md`:
+it lists the mechanisms CodeFlow repeatedly mis-fires on (env-token secrets, type
+unions, comment-only SQL, phantom symbols, arg-array spawns, fixture string
+literals, pattern text, indirect/trait dead code) with the exact disproof step for
+each. Reuse the listed disproof instead of re-deriving the mechanism from scratch.
+
 ## Output
 
 End your reply with exactly one verdict block:

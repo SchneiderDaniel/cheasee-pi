@@ -14,7 +14,17 @@ import assert from "node:assert";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	lstatSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	statSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -44,12 +54,26 @@ interface ShimOpts {
 	analyzedAt?: string | null;
 	jsonStatus?: number;
 	jsonBody?: string;
+	/** Body served at /api/analysis/bridge-status (404 when omitted). */
+	bridgeStatus?: unknown;
+	bridgeStatusStatus?: number;
 }
 
 async function startShim(opts: ShimOpts): Promise<Shim> {
 	let md = 0;
 	let json = 0;
 	const server: Server = createServer((req, res) => {
+		if ((req.url ?? "").endsWith("/api/analysis/bridge-status")) {
+			const status = opts.bridgeStatusStatus ?? (opts.bridgeStatus === undefined ? 404 : 200);
+			res.statusCode = status;
+			if (status === 200) {
+				res.setHeader("Content-Type", "application/json; charset=utf-8");
+				res.end(JSON.stringify(opts.bridgeStatus ?? {}));
+			} else {
+				res.end("err");
+			}
+			return;
+		}
 		if ((req.url ?? "").endsWith("/api/analysis/report.json")) {
 			json++;
 			const status = opts.jsonStatus ?? 404;
@@ -127,7 +151,13 @@ const JSON_BODY = '{"architectureIssues":[{"title":"x","affectedFiles":["src/a.t
 describe("transport + artifact", () => {
 	it("writes both artifacts and returns path/jsonPath/bytes/analyzedAt", async () => {
 		const body = "# CodeFlow Analysis Report\n\n## Architecture Issues\n";
-		const s = await shim({ status: 200, body, analyzedAt: "1767225600000", jsonStatus: 200, jsonBody: JSON_BODY });
+		const s = await shim({
+			status: 200,
+			body,
+			analyzedAt: "1767225600000",
+			jsonStatus: 200,
+			jsonBody: JSON_BODY,
+		});
 		routeTo(s);
 
 		const outcome = await fetchAndStoreReport({ cwd });
@@ -155,19 +185,65 @@ describe("transport + artifact", () => {
 		routeTo(s);
 		const outcome = await fetchAndStoreReport({ cwd, refresh: true });
 		assert.strictEqual(outcome.ok, true);
-		assert.strictEqual(statSync(REPORT_PATH()).mode & 0o777, 0o600, "markdown artifact must be 0600");
-		assert.strictEqual(statSync(REPORT_JSON_PATH()).mode & 0o777, 0o600, "json artifact must be 0600");
+		assert.strictEqual(
+			statSync(REPORT_PATH()).mode & 0o777,
+			0o600,
+			"markdown artifact must be 0600",
+		);
+		assert.strictEqual(
+			statSync(REPORT_JSON_PATH()).mode & 0o777,
+			0o600,
+			"json artifact must be 0600",
+		);
 	});
 
-	it("still succeeds without JSON (404) and reports no jsonPath", async () => {
-		const s = await shim({ status: 200, body: "MD", jsonStatus: 404 });
+	it("still succeeds without JSON (404) and names the capture gap via bridge-status", async () => {
+		const s = await shim({
+			status: 200,
+			body: "MD",
+			jsonStatus: 404,
+			bridgeStatus: {
+				"/api/analysis/report.json": {
+					capturedAt: null,
+					postedAt: null,
+					httpStatus: null,
+					bytes: null,
+				},
+			},
+		});
 		routeTo(s);
 		const outcome = await fetchAndStoreReport({ cwd });
 		assert.strictEqual(outcome.ok, true);
 		assert.strictEqual(outcome.ok && outcome.result.jsonPath, null);
-		assert.deepStrictEqual(outcome.ok && outcome.result.warnings, []);
+		assert.match(outcome.ok ? outcome.result.warnings.join(" ") : "", /never POSTed/);
 		assert.ok(existsSync(REPORT_PATH()));
 		assert.ok(!existsSync(REPORT_JSON_PATH()));
+	});
+
+	it("names the shim route as down when the bridge posted JSON but GET 404s", async () => {
+		const s = await shim({
+			status: 200,
+			body: "MD",
+			jsonStatus: 404,
+			bridgeStatus: {
+				"/api/analysis/report.json": { capturedAt: 1, postedAt: 2, httpStatus: 200, bytes: 10 },
+			},
+		});
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		assert.match(outcome.ok ? outcome.result.warnings.join(" ") : "", /route is down/);
+	});
+
+	it("falls back to a generic warning when bridge-status is unavailable", async () => {
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 404, bridgeStatusStatus: 404 });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		assert.match(
+			outcome.ok ? outcome.result.warnings.join(" ") : "",
+			/bridge-status is unreachable/,
+		);
 	});
 
 	it("surfaces a non-404 JSON failure as a warning but keeps the markdown report", async () => {
@@ -248,10 +324,7 @@ describe("transport + artifact", () => {
 		} catch {
 			return t.skip("symlinks not supported on this platform");
 		}
-		await assert.rejects(
-			() => fetchAndStoreReport({ cwd, refresh: true }),
-			/symlink escape/,
-		);
+		await assert.rejects(() => fetchAndStoreReport({ cwd, refresh: true }), /symlink escape/);
 		assert.ok(
 			!existsSync(join(outside, "codeflow-report.md")),
 			"must not write through the symlinked ignore directory",
@@ -273,7 +346,10 @@ describe("transport + artifact", () => {
 		const outcome = await fetchAndStoreReport({ cwd, refresh: true });
 		assert.strictEqual(outcome.ok, true);
 		assert.strictEqual(readFileSync(victim, "utf-8"), "UNTOUCHED");
-		assert.ok(!lstatSync(REPORT_PATH()).isSymbolicLink(), "symlink must be replaced by a regular file");
+		assert.ok(
+			!lstatSync(REPORT_PATH()).isSymbolicLink(),
+			"symlink must be replaced by a regular file",
+		);
 		assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), "SAFE");
 	});
 
@@ -404,6 +480,15 @@ describe("e2e: real codeflow shim subprocess", () => {
 			});
 			assert.strictEqual(postedJson.status, 204);
 
+			// Bridge telemetry reflects what the browser shipped, per route.
+			const bridgeStatus = await (await fetch(base + "/api/analysis/bridge-status")).json();
+			assert.ok(bridgeStatus["/api/analysis/report"].postedAt, "markdown postedAt must be set");
+			assert.strictEqual(bridgeStatus["/api/analysis/report.json"].httpStatus, 204);
+			assert.strictEqual(
+				bridgeStatus["/api/analysis/report.json"].bytes,
+				Buffer.byteLength(jsonFixture),
+			);
+
 			const outcome = await fetchAndStoreReport({ cwd, refresh: true });
 			assert.strictEqual(outcome.ok, true);
 			assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), mdFixture);
@@ -411,7 +496,10 @@ describe("e2e: real codeflow shim subprocess", () => {
 
 			// Grouping over the richer JSON source yields the JSON-only categories.
 			const facts = parseBestReport(mdFixture, jsonFixture);
-			assert.ok(facts.some((f) => f.kind === "duplicate"), "JSON source must expose duplicates");
+			assert.ok(
+				facts.some((f) => f.kind === "duplicate"),
+				"JSON source must expose duplicates",
+			);
 			const groups = groupIssues(facts);
 			assert.ok(groups.length >= 1, "fixture must yield at least one group");
 			const groupFiles = groups.map((g) => new Set(g.issues.flatMap((i) => i.files)));

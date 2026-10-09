@@ -16,8 +16,9 @@
 import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+	classifyKnownNoise,
 	dedupeIssues,
 	parseBestReport,
 	reportSectionCoverage,
@@ -30,13 +31,13 @@ const MAX_PARALLEL = 4;
 
 // ─── Pure helpers (covered by --self-check) ───────────────────────
 
-export function parseVerdict(output: string): "VALID" | "INVALID" | "UNKNOWN" {
+function parseVerdict(output: string): "VALID" | "INVALID" | "UNKNOWN" {
 	const m = /^VERDICT:[ \t]*(VALID|INVALID)[ \t]*$/m.exec(output);
 	return m ? (m[1] as "VALID" | "INVALID") : "UNKNOWN";
 }
 
 /** Last line starting with `prefix`, value only ("" when absent). */
-export function verdictDetail(output: string, prefix: string): string {
+function verdictDetail(output: string, prefix: string): string {
 	const lines = output
 		.split("\n")
 		.map((l) => l.trim())
@@ -45,7 +46,7 @@ export function verdictDetail(output: string, prefix: string): string {
 	return last ? last.slice(prefix.length + 1).trim() : "";
 }
 
-export function draftIssue(fact: IssueFact, sourceLabel: string): { title: string; body: string } {
+function draftIssue(fact: IssueFact, sourceLabel: string): { title: string; body: string } {
 	const files = fact.files.length > 0 ? fact.files : ["(no file — derived signal)"];
 	const cited = files.map((f) => (f.startsWith("(") ? f : `\`${f}\``)).join(", ");
 	return {
@@ -72,7 +73,7 @@ function renderResolved(file: string, r: FileResolution): string {
 }
 
 /** basename → repo path, preferring the shortest (deterministic) match. */
-export function indexBasenames(paths: string[]): Map<string, string> {
+function indexBasenames(paths: string[]): Map<string, string> {
 	const index = new Map<string, string>();
 	for (const path of paths) {
 		const base = path.split("/").pop() ?? path;
@@ -95,7 +96,7 @@ export type FileResolution = { path: string; how: "exact" | "basename" | "unreso
  * basenames in its pattern/anti-pattern sections, so an exact miss is retried
  * against the repo index before the file is called missing.
  */
-export function resolveCited(
+function resolveCited(
 	exists: (path: string) => boolean,
 	index: Map<string, string>,
 	file: string,
@@ -104,6 +105,64 @@ export function resolveCited(
 	const hit = index.get(file.split("/").pop() ?? file);
 	if (hit) return { path: hit, how: "basename" };
 	return { path: file, how: "unresolved" };
+}
+
+/**
+ * Split post-dedupe facts into what a validator should read and what the run
+ * can drop without reading code. Suppressed = text-provable LOW style security
+ * noise (`classifyKnownNoise`) plus facts whose every cited file is unresolved
+ * (CodeFlow cited a path this checkout does not contain, so there is nothing to
+ * read). File-less facts are kept. The suppressed count is always returned, so
+ * the caller can report it instead of silently shrinking the set.
+ */
+export function selectCandidates(
+	facts: IssueFact[],
+	resolveFile: (file: string) => FileResolution,
+): { candidates: IssueFact[]; suppressed: number } {
+	const candidates = facts.filter(
+		(fact) =>
+			classifyKnownNoise(fact) === "keep" &&
+			(fact.files.length === 0 || fact.files.some((f) => resolveFile(f).how !== "unresolved")),
+	);
+	return { candidates, suppressed: facts.length - candidates.length };
+}
+
+/** Step 3 file naming slug: lowercase, non-alphanumerics to single hyphens. */
+export function slugifyFinding(title: string): string {
+	return (
+		title
+			.toLowerCase()
+			.replace(/[^a-z0-9]+/g, "-")
+			.replace(/^-+|-+$/g, "") || "finding"
+	);
+}
+
+/** Step 3 candidate body: kind, section/field, title, id and the cited files. */
+function findingFileContent(fact: IssueFact): string {
+	return (
+		[
+			`# CodeFlow finding (${fact.kind})`,
+			"",
+			`**Kind:** ${fact.kind}`,
+			`**Title:** ${fact.title}`,
+			`**Id:** ${fact.id}`,
+			`**Section:** ${fact.kind}`,
+			`**Files:** ${fact.files.length > 0 ? fact.files.join(", ") : "(none)"}`,
+			"",
+			"The markdown/inspection export carries no description; read the cited code and",
+			"decide whether the finding is real.",
+		].join("\n") + "\n"
+	);
+}
+
+/** Write one `NN-<slug>.md` candidate per fact; returns the written paths. */
+function writeFindingFiles(dir: string, facts: IssueFact[]): string[] {
+	mkdirSync(dir, { recursive: true });
+	return facts.map((fact, i) => {
+		const file = join(dir, `${String(i + 1).padStart(2, "0")}-${slugifyFinding(fact.title)}.md`);
+		writeFileSync(file, findingFileContent(fact), "utf-8");
+		return file;
+	});
 }
 
 // ─── Validation run ───────────────────────────────────────────────
@@ -161,6 +220,8 @@ function parseArgs(argv: string[]): {
 	json: string | null;
 	selfCheck: boolean;
 	listOnly: boolean;
+	emitFindings: boolean;
+	emitDir: string | null;
 } {
 	const out = {
 		limit: 5,
@@ -168,18 +229,28 @@ function parseArgs(argv: string[]): {
 		json: null as string | null,
 		selfCheck: false,
 		listOnly: false,
+		emitFindings: false,
+		emitDir: null as string | null,
 	};
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
 		if (arg === "--self-check") out.selfCheck = true;
 		else if (arg === "--list") out.listOnly = true;
-		else if (arg === "--limit") out.limit = Number(argv[++i]);
+		else if (arg === "--emit-findings") {
+			out.emitFindings = true;
+			const next = argv[i + 1];
+			if (next !== undefined && !next.startsWith("-")) {
+				out.emitDir = next;
+				i++;
+			}
+		} else if (arg === "--limit") out.limit = Number(argv[++i]);
 		else if (arg === "--report") out.report = argv[++i];
 		else if (arg === "--json") out.json = argv[++i];
 		else if (arg === "--help" || arg === "-h") {
 			process.stdout.write(
-				"usage: dry-run.mts [--limit N] [--report FILE] [--json FILE] [--list] [--self-check]\n" +
-					"  --list  extract findings and resolve cited files only (no subagents)\n",
+				"usage: dry-run.mts [--limit N] [--report FILE] [--json FILE] [--list] [--emit-findings [DIR]] [--self-check]\n" +
+					"  --list           extract findings and resolve cited files only (no subagents)\n" +
+					"  --emit-findings  write every candidate to NN-<slug>.md (no validation, no deletion)\n",
 			);
 			process.exit(0);
 		} else {
@@ -290,7 +361,6 @@ async function main(): Promise<void> {
 	}
 
 	const unique = dedupeIssues(facts);
-	const selected = unique.slice(0, args.limit);
 
 	const basenameIndex = indexBasenames(
 		execFileSync("git", ["ls-files"], { cwd: repoRoot, encoding: "utf-8" })
@@ -299,6 +369,26 @@ async function main(): Promise<void> {
 	);
 	const resolveFile = (file: string): FileResolution =>
 		resolveCited((p) => existsSync(resolve(repoRoot, p)), basenameIndex, file);
+
+	// Text-provable noise (LOW style security categories) and facts whose every
+	// cited file is missing are dropped before any subagent is spawned; the count
+	// is always reported so the candidate set never shrinks silently.
+	const { candidates, suppressed } = selectCandidates(unique, resolveFile);
+
+	if (args.emitFindings) {
+		// Extraction only: write the Step 3 candidate set and exit. No subagent is
+		// spawned, --limit does not truncate, and the directory is never removed.
+		const dir = resolve(repoRoot, args.emitDir ?? "ignore/codeflow-findings");
+		const files = writeFindingFiles(dir, candidates);
+		process.stdout.write(
+			`CodeFlow findings emitted — ${files.length} candidate(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
+				`${suppressed} known-noise/unresolved candidate(s) suppressed, not written.\n` +
+				`No validation run, no issues created.\n`,
+		);
+		process.exit(0);
+	}
+
+	const selected = candidates.slice(0, args.limit);
 
 	if (args.listOnly) {
 		const cited = selected.flatMap((f) => f.files).map(resolveFile);
@@ -316,11 +406,12 @@ async function main(): Promise<void> {
 		for (const c of coverage) {
 			const flag = c.items > 0 && c.candidates === 0 ? "  <-- UNREADABLE" : "";
 			process.stdout.write(
-				`  ${c.heading}: ${c.items} item(s), ${c.candidates} candidate(s)${flag}\n`,
+				`  ${c.heading}: ${c.items} item(s), ${c.candidates} candidate(s), ${c.unparsedItems} unparsed${flag}\n`,
 			);
 		}
 		process.stdout.write(
-			`\n${selected.length} finding(s), ${cited.length} cited file(s), ${cited.length - unresolved.length} found, ` +
+			`\n${selected.length} finding(s), ${suppressed} suppressed as noise/unresolved, ` +
+				`${cited.length} cited file(s), ${cited.length - unresolved.length} found, ` +
 				`${unresolved.length} unresolved. No validation run, no issues created.\n`,
 		);
 		process.exit(0);
@@ -329,31 +420,13 @@ async function main(): Promise<void> {
 	const sourceLabel = json ? "json" : "markdown";
 	process.stdout.write(
 		`CodeFlow dry run — ${reportPath.replace(`${repoRoot}/`, "")} (${sourceLabel}, ` +
-			`${facts.length} finding(s), ${unique.length} unique, ${facts.length - unique.length} duplicate(s) dropped)\n` +
-			`Validating first ${selected.length} unique finding(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
+			`${facts.length} finding(s), ${unique.length} unique, ${facts.length - unique.length} duplicate(s) dropped, ` +
+			`${suppressed} suppressed)\n` +
+			`Validating first ${selected.length} of ${candidates.length} candidate(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
 	);
 
 	const findingsDir = join(repoRoot, "ignore/codeflow-findings");
-	mkdirSync(findingsDir, { recursive: true });
-	const findingFiles = selected.map((fact, i) => {
-		const slug = `${fact.kind}-${i + 1}`;
-		const file = join(findingsDir, `${slug}.md`);
-		writeFileSync(
-			file,
-			[
-				`# CodeFlow finding (${fact.kind})`,
-				"",
-				`**Title:** ${fact.title}`,
-				`**Id:** ${fact.id}`,
-				`**Files:** ${fact.files.length > 0 ? fact.files.join(", ") : "(none)"}`,
-				"",
-				"The markdown/inspection export carries no description; read the cited code and",
-				"decide whether the finding is real.",
-			].join("\n"),
-			"utf-8",
-		);
-		return file;
-	});
+	const findingFiles = writeFindingFiles(findingsDir, selected);
 
 	let validations: Validation[];
 	try {
@@ -423,7 +496,9 @@ async function main(): Promise<void> {
 	process.exit(0);
 }
 
-main().catch((err: unknown) => {
-	process.stderr.write(`dry run failed: ${err instanceof Error ? err.message : String(err)}\n`);
-	process.exit(2);
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+	main().catch((err: unknown) => {
+		process.stderr.write(`dry run failed: ${err instanceof Error ? err.message : String(err)}\n`);
+		process.exit(2);
+	});
+}

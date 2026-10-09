@@ -1,0 +1,24 @@
+# Known CodeFlow false-positive shapes
+
+Every row here is a mechanism observed in a real run (report `workspace-bae0a78d`,
+analyzed `2026-10-08T19:34:31Z`, 72 candidates, 3 real). Each shape was re-derived
+from scratch by a read-only validator that then spent a full subagent run proving
+the finding false. Check the finding against this table **before** reading code:
+only the rows marked *text-provable* can be disproved from the finding text alone;
+every other row still requires reading the cited code, but the disproof step below
+is the one to run first.
+
+| # | Finding shape | Mechanism | Disproof step |
+|---|---------------|-----------|---------------|
+| 1 | `HIGH: Hardcoded Secret` | The token is read from the environment (`resolveGitHubToken`). | Grep the cited line for `process.env` / `env::var`; a value sourced from the environment is not a hardcoded secret. |
+| 2 | `HIGH: Hardcoded Secret` | The match is a TypeScript type union (`UsageColorToken`), not a literal value. | Read the cited type: a union of string-literal types declares allowed values, it does not embed a credential. |
+| 3 | `HIGH: SQL Injection Risk` | The match is inside a comment; the cited tree contains no SQL. | Grep the cited file for an actual query/`execute(` builder — none exists, so there is nothing to inject into. |
+| 4 | `HIGH: Shell Command Execution` | The flagged symbol (`Shell()`) does not exist in the cited files at all. | `structural_search` for the named symbol in the cited files; a phantom symbol is a textual coincidence. |
+| 5 | `MEDIUM: Command Execution` | `spawn`/`execFile` called with an argument array and no `shell: true`. | Read the call: an argv array without `shell: true` does not invoke a shell, so no shell metacharacter is interpreted. |
+| 6 | `LOW: Code Comments` | `TODO` occurs inside `grep`/`xargs` string literals in test fixtures, not in a comment. | Read the cited line: the token sits inside a quoted string (test data), not after a comment marker. |
+| 7 | `LOW: Debug Statements` | `console.log(...)` text inside ast-grep pattern strings or a JSON fixture. | Read the cited line: the call text is a pattern/fixture payload, not executable debug code. |
+| 8 | dead code | The function is reached indirectly — via a callback seam (`fetchFn`/`writeFileFn`) or a Rust trait method invoked from `wire()`. | Structural-search for the function name as a value passed by reference or through a trait object before calling it dead. |
+
+Text-provable (auto-suppressed before validation, per `classifyKnownNoise`):
+rows 6 and 7, plus any fact whose every cited file is unresolved. Everything else
+is a code-read shape: the validator gets it and proves it here, never a text filter.
