@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve as resolvePath } from "node:path";
+import { DEFAULT_TIER_SCALE, type SizeTier } from "../lib/size-tier.ts";
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -58,6 +59,13 @@ export const SupervisorConfigSchema = z.object({
 				message: `supervisor.agentTimeoutSec values must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit)`,
 			}),
 		)
+		.optional(),
+	// Per-tier multiplier for the DEFAULT timeout (issue #1987). Bare schema
+	// (no .default()) — the built-in table lives in lib/size-tier.ts so typed
+	// config fixtures stay untouched. An explicit agentTimeoutSec/agentTimeoutsMin
+	// is authoritative and never scaled.
+	agentTimeoutTierScale: z
+		.partialRecord(z.enum(["small", "medium", "large"]), z.number().finite().positive())
 		.optional(),
 	agentKillGraceSec: z.number().int().nonnegative().max(MAX_AGENT_TIMEOUT_SEC).optional(),
 	ciGatingTimeoutSec: z.number().int().nonnegative().default(300),
@@ -236,32 +244,63 @@ export interface TimeoutPolicy {
 	timeoutMs: number | null;
 	configuredSec: number | null;
 	source: TimeoutSource;
+	/** Pre-scale timeout in ms (null when a 0-second override disarms timers). */
+	baseTimeoutMs: number | null;
+	/** Declared issue size that scaled the default; null when unscaled. */
+	sizeTier: SizeTier | null;
+	/** Multiplier applied to baseTimeoutMs (1 when an override or no tier). */
+	scale: number;
 }
 
 /**
  * Resolve the per-agent timeout policy. Precedence:
  *   agentTimeoutSec[name] (explicit 0 → null = no timeout)
  *   → agentTimeoutsMin[name] (legacy alias, minutes, lower precedence)
- *   → DEFAULT_AGENT_TIMEOUT_MS (30 min)
+ *   → DEFAULT_AGENT_TIMEOUT_MS (30 min) × tier scale (issue #1987)
  *
  * Unlike the old resolveTimeoutMs, a configured 0 cannot silently collapse
  * into the default: the Record lookups distinguish "absent" from "0".
+ * Tier scaling applies ONLY to the default source — an explicit override is
+ * authoritative and stays unscaled (predictable operator control).
  */
 export function resolveTimeoutPolicy(
 	agentName: string,
-	config: Pick<SupervisorConfig, "agentTimeoutSec" | "agentTimeoutsMin">,
+	config: Pick<SupervisorConfig, "agentTimeoutSec" | "agentTimeoutsMin" | "agentTimeoutTierScale">,
+	sizeTier?: SizeTier | null,
 ): TimeoutPolicy {
 	const sec = config.agentTimeoutSec?.[agentName];
 	if (sec !== undefined) {
+		const timeoutMs = sec === 0 ? null : sec * 1000;
 		return {
-			timeoutMs: sec === 0 ? null : sec * 1000,
+			timeoutMs,
 			configuredSec: sec,
 			source: "agentTimeoutSec",
+			baseTimeoutMs: timeoutMs,
+			sizeTier: null,
+			scale: 1,
 		};
 	}
 	const min = config.agentTimeoutsMin?.[agentName];
 	if (min !== undefined && Number.isInteger(min) && min > 0) {
-		return { timeoutMs: min * 60_000, configuredSec: min * 60, source: "agentTimeoutsMin" };
+		const timeoutMs = min * 60_000;
+		return {
+			timeoutMs,
+			configuredSec: min * 60,
+			source: "agentTimeoutsMin",
+			baseTimeoutMs: timeoutMs,
+			sizeTier: null,
+			scale: 1,
+		};
 	}
-	return { timeoutMs: DEFAULT_AGENT_TIMEOUT_MS, configuredSec: null, source: "default" };
+	const scale = sizeTier
+		? (config.agentTimeoutTierScale?.[sizeTier] ?? DEFAULT_TIER_SCALE[sizeTier])
+		: 1;
+	return {
+		timeoutMs: Math.min(Math.round(DEFAULT_AGENT_TIMEOUT_MS * scale), MAX_AGENT_TIMEOUT_SEC * 1000),
+		configuredSec: null,
+		source: "default",
+		baseTimeoutMs: DEFAULT_AGENT_TIMEOUT_MS,
+		sizeTier: sizeTier ?? null,
+		scale,
+	};
 }

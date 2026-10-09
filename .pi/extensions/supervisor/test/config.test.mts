@@ -269,6 +269,9 @@ describe("resolveTimeoutPolicy", () => {
 			timeoutMs: 60_000,
 			configuredSec: 60,
 			source: "agentTimeoutSec",
+			baseTimeoutMs: 60_000,
+			sizeTier: null,
+			scale: 1,
 		});
 	});
 
@@ -278,6 +281,9 @@ describe("resolveTimeoutPolicy", () => {
 			timeoutMs: null,
 			configuredSec: 0,
 			source: "agentTimeoutSec",
+			baseTimeoutMs: null,
+			sizeTier: null,
+			scale: 1,
 		});
 	});
 
@@ -314,6 +320,86 @@ describe("resolveTimeoutPolicy", () => {
 		const policy = resolveTimeoutPolicy("developer", agentTimeoutsMin({ developer: 0 }));
 		assert.equal(policy.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
 		assert.equal(policy.source, "default");
+	});
+});
+
+// ─── resolveTimeoutPolicy — size-tier scaling (issue #1987) ────────
+
+describe("resolveTimeoutPolicy — size-tier scaling (issue #1987)", () => {
+	const MAX_MS = MAX_AGENT_TIMEOUT_SEC * 1000;
+
+	it("no tier → back-compat unscaled 30-min default", () => {
+		const policy = resolveTimeoutPolicy("developer", {});
+		assert.equal(policy.timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+		assert.equal(policy.baseTimeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
+		assert.equal(policy.sizeTier, null);
+		assert.equal(policy.scale, 1);
+		assert.equal(policy.source, "default");
+	});
+
+	it("large → ×2 = 60 min", () => {
+		const policy = resolveTimeoutPolicy("developer", {}, "large");
+		assert.equal(policy.timeoutMs, 3_600_000);
+		assert.equal(policy.baseTimeoutMs, 1_800_000);
+		assert.equal(policy.scale, 2);
+		assert.equal(policy.sizeTier, "large");
+		assert.equal(policy.source, "default");
+	});
+
+	it("medium → ×1.5 = 45 min; small → ×1 = 30 min", () => {
+		const medium = resolveTimeoutPolicy("developer", {}, "medium");
+		assert.equal(medium.timeoutMs, 2_700_000);
+		assert.equal(medium.scale, 1.5);
+		const small = resolveTimeoutPolicy("developer", {}, "small");
+		assert.equal(small.timeoutMs, 1_800_000);
+		assert.equal(small.scale, 1);
+	});
+
+	it("explicit agentTimeoutSec is authoritative and unscaled", () => {
+		const policy = resolveTimeoutPolicy("developer", { agentTimeoutSec: { developer: 3600 } }, "large");
+		assert.equal(policy.timeoutMs, 3_600_000);
+		assert.equal(policy.source, "agentTimeoutSec");
+		assert.equal(policy.scale, 1);
+	});
+
+	it("agentTimeoutSec 0 (no timeout) is never resurrected by scaling", () => {
+		const policy = resolveTimeoutPolicy("developer", { agentTimeoutSec: { developer: 0 } }, "large");
+		assert.equal(policy.timeoutMs, null);
+		assert.equal(policy.scale, 1);
+	});
+
+	it("legacy agentTimeoutsMin is unscaled", () => {
+		const policy = resolveTimeoutPolicy("developer", { agentTimeoutsMin: { developer: 45 } }, "large");
+		assert.equal(policy.timeoutMs, 2_700_000);
+		assert.equal(policy.source, "agentTimeoutsMin");
+		assert.equal(policy.scale, 1);
+	});
+
+	it("custom agentTimeoutTierScale overrides per key; partial override keeps other tiers default", () => {
+		const custom = resolveTimeoutPolicy("developer", { agentTimeoutTierScale: { large: 3 } }, "large");
+		assert.equal(custom.timeoutMs, 5_400_000);
+		assert.equal(custom.scale, 3);
+		const partial = resolveTimeoutPolicy("developer", { agentTimeoutTierScale: { large: 3 } }, "medium");
+		assert.equal(partial.timeoutMs, 2_700_000);
+		assert.equal(partial.scale, 1.5);
+	});
+
+	it("explicit null tier (merge/conflict path) stays unscaled", () => {
+		const policy = resolveTimeoutPolicy("developer", { agentTimeoutTierScale: { large: 2 } }, null);
+		assert.equal(policy.timeoutMs, 1_800_000);
+		assert.equal(policy.sizeTier, null);
+		assert.equal(policy.scale, 1);
+	});
+
+	it("clamps the scaled product to MAX_AGENT_TIMEOUT_SEC * 1000; equality is unclamped", () => {
+		const above = resolveTimeoutPolicy("developer", { agentTimeoutTierScale: { large: 1200 } }, "large");
+		assert.equal(above.timeoutMs, MAX_MS);
+		const exact = resolveTimeoutPolicy(
+			"developer",
+			{ agentTimeoutTierScale: { large: MAX_MS / DEFAULT_AGENT_TIMEOUT_MS } },
+			"large",
+		);
+		assert.equal(exact.timeoutMs, MAX_MS);
 	});
 });
 
@@ -368,6 +454,25 @@ describe("SupervisorConfigSchema — per-agent timeout fields", () => {
 	it("agentKillGraceSec is optional (bare schema — effective default in runner)", () => {
 		const result = SupervisorConfigSchema.parse(base);
 		assert.equal(result.agentKillGraceSec, undefined);
+	});
+
+	it("agentTimeoutTierScale is optional (no .default() — typed fixtures stay stable)", () => {
+		assert.equal(SupervisorConfigSchema.parse(base).agentTimeoutTierScale, undefined);
+	});
+
+	it("agentTimeoutTierScale accepts a partial tier→multiplier object", () => {
+		const result = SupervisorConfigSchema.parse({ ...base, agentTimeoutTierScale: { large: 2 } });
+		assert.deepEqual(result.agentTimeoutTierScale, { large: 2 });
+	});
+
+	it("agentTimeoutTierScale rejects non-objects, bad multipliers and unknown tier keys", () => {
+		for (const bad of ["x", [], { large: 0 }, { large: -1 }, { large: Infinity }, { huge: 2 }]) {
+			assert.throws(
+				() => SupervisorConfigSchema.parse({ ...base, agentTimeoutTierScale: bad }),
+				undefined as any,
+				`should reject ${JSON.stringify(bad)}`,
+			);
+		}
 	});
 
 	it("agentKillGraceSec accepts non-negative ints, incl. 0 (immediate SIGKILL)", () => {

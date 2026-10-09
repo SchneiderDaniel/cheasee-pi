@@ -31,12 +31,22 @@ interface ExecCall {
 	opts: Record<string, unknown>;
 }
 
-function createMockPi(calls?: ExecCall[]): ExtensionAPI {
+type GitReply = { code: number; stdout?: string; stderr?: string } | null;
+
+function createMockPi(
+	calls?: ExecCall[],
+	gitHandler?: (args: string[]) => GitReply,
+): ExtensionAPI {
 	const callLog = calls || [];
 	return {
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
 			callLog.push({ cmd, args: args || [], opts: opts || {} });
-			return Promise.resolve({ code: 0, stdout: "", stderr: "" });
+			const r = gitHandler?.(args || []) ?? null;
+			return Promise.resolve({
+				code: r?.code ?? 0,
+				stdout: r?.stdout ?? "",
+				stderr: r?.stderr ?? "",
+			});
 		}) as ExtensionAPI["exec"],
 		registerCommand: (() => {}) as ExtensionAPI["registerCommand"],
 		sendMessage: (() => {}) as ExtensionAPI["sendMessage"],
@@ -179,9 +189,11 @@ function buildRetryRunContext(opts: {
 	comments?: Array<{ author?: { login?: string }; body?: string | null }>;
 	loopStatus?: string;
 	notifyLog?: Array<{ msg: string; type: string }>;
+	config?: Partial<SupervisorConfig>;
+	gitHandler?: (args: string[]) => GitReply;
 }): RunContext {
 	const execCalls: ExecCall[] = [];
-	const pi = createMockPi(execCalls);
+	const pi = createMockPi(execCalls, opts.gitHandler);
 	const ctx = createMockCtx(opts.notifyLog);
 	const ctxWithCwd = { ...ctx, cwd: opts.tmpCwd } as unknown as ExtensionCommandContext;
 
@@ -220,7 +232,7 @@ function buildRetryRunContext(opts: {
 		}) as unknown as RunContext["exec"],
 		notify: { info: () => {}, error: () => {} },
 		collector: new ErrorCollector(),
-		config: mockConfig as any,
+		config: { ...mockConfig, ...opts.config } as any,
 		port,
 		issueTitle: "Test issue",
 		filteredData: { body: "body", comments: [] },
@@ -865,5 +877,182 @@ describe("runAgentLoop — auditFeedback scan (issue #1668)", () => {
 			task.includes("## Audit Rejected\nNEWEST rejection"),
 			"newest genuine rejection wins the reverse scan",
 		);
+	});
+});
+
+// ─── Tests: size-tier timeout scaling + reporting (issue #1987) ───
+// runAgentLoop parses the test plan's `**Tier:**` marker and scales the
+// default developer deadline; the timeout stop names the tier + base +
+// effective + actual durations, and preserves partial work.
+
+const LARGE_TEST_PLAN = "## Test Plan\n**Tier:** Large";
+
+function timedOutDevResult(overrides: Partial<AgentRunResult> = {}): AgentRunResult {
+	return makeDevResult({
+		success: false,
+		textOutput: "Timed out",
+		textOnly: "Timed out",
+		timedOut: true,
+		killReason: "timeout",
+		durationMs: 3_600_000,
+		configuredTimeoutMs: 3_600_000,
+		errorOutput: "[Timeout: developer exceeded 3600s]",
+		...overrides,
+	});
+}
+
+function runDeveloper(opts: {
+	comments?: Array<{ author?: { login?: string }; body?: string | null }>;
+	config?: Partial<SupervisorConfig>;
+	queue?: AgentRunResult[];
+	loopStatus?: string;
+	queueAgent?: string;
+	gitHandler?: (args: string[]) => GitReply;
+}): { runner: ReturnType<typeof mock.fn>; runCtx: RunContext } {
+	const runner = createQueueRunner(opts.queue ?? [makeDevResult({})], opts.queueAgent ?? "developer");
+	const runCtx = buildRetryRunContext({
+		runner,
+		portCalls: [],
+		tmpCwd: mkdtempSync(join(tmpdir(), "agent-loop-tier-cwd-")),
+		wt: mkdtempSync(join(tmpdir(), "agent-loop-tier-wt-")),
+		comments: opts.comments,
+		loopStatus: opts.loopStatus,
+		config: opts.config,
+		gitHandler: opts.gitHandler,
+	});
+	return { runner, runCtx };
+}
+
+describe("runAgentLoop — size-tier timeout scaling (issue #1987)", () => {
+	it("Large test plan → developer runner receives 3_600_000ms", async () => {
+		const { runner, runCtx } = runDeveloper({ comments: [trustedComment(LARGE_TEST_PLAN)] });
+		await runAgentLoop(runCtx);
+		assert.equal((runner.mock.calls[0]!.arguments[0] as any).timeoutMs, 3_600_000);
+	});
+
+	it("no tier comment → developer runner receives the 30-min default", async () => {
+		const { runner, runCtx } = runDeveloper({ comments: [trustedComment("just a note")] });
+		await runAgentLoop(runCtx);
+		assert.equal((runner.mock.calls[0]!.arguments[0] as any).timeoutMs, 1_800_000);
+	});
+
+	it("explicit agentTimeoutSec override stays authoritative (unscaled) on Large", async () => {
+		const { runner, runCtx } = runDeveloper({
+			comments: [trustedComment(LARGE_TEST_PLAN)],
+			config: { agentTimeoutSec: { developer: 900 } },
+		});
+		await runAgentLoop(runCtx);
+		assert.equal((runner.mock.calls[0]!.arguments[0] as any).timeoutMs, 900_000);
+	});
+
+	it("developer timeout on Large → stopReason names agent, tier, base, effective and actual", async () => {
+		const { runCtx } = runDeveloper({
+			comments: [trustedComment(LARGE_TEST_PLAN)],
+			queue: [timedOutDevResult({ durationMs: 3_600_123 })],
+		});
+		await runAgentLoop(runCtx);
+		const stop = runCtx.stopReason ?? "";
+		assert.ok(stop.includes("developer"), stop);
+		assert.ok(stop.includes("tier large"), stop);
+		assert.ok(stop.includes("base 1800000ms"), stop);
+		assert.ok(stop.includes("effective 3600000ms"), stop);
+		assert.ok(stop.includes("actual 3600123ms"), stop);
+	});
+
+	it("timeout is not retried — exactly one dispatch even on Large", async () => {
+		const { runner, runCtx } = runDeveloper({
+			comments: [trustedComment(LARGE_TEST_PLAN)],
+			queue: [timedOutDevResult()],
+		});
+		await runAgentLoop(runCtx);
+		assert.equal(runner.mock.calls.length, 1, "timeout stays a hard 1× bound");
+	});
+});
+
+// ─── Tests: resume-instead-of-restart context (issue #1987) ───────
+
+describe("runAgentLoop — resume-instead-of-restart (issue #1987)", () => {
+	const WIP_SHA = "abcdef1234567890abcdef1234567890abcdef12";
+	const wipGit = (args: string[]): GitReply =>
+		args[0] === "log"
+			? { code: 0, stdout: `${WIP_SHA} wip(#1494): partial work preserved on timeout\n` }
+			: null;
+
+	it("developer task includes a continue/do-not-restart block naming the WIP commit", async () => {
+		const { runner, runCtx } = runDeveloper({ gitHandler: wipGit });
+		await runAgentLoop(runCtx);
+		const task = (runner.mock.calls[0]!.arguments[0] as any).task as string;
+		assert.ok(task.includes("continue, do not restart"), "resume block present");
+		assert.ok(task.includes(WIP_SHA), "resume block names the WIP commit sha");
+	});
+
+	it("no WIP commit on the branch → no resume block (no false positive)", async () => {
+		const { runner, runCtx } = runDeveloper({
+			gitHandler: (args) =>
+				args[0] === "log" ? { code: 0, stdout: "deadbeef feat(#1494): work\n" } : null,
+		});
+		await runAgentLoop(runCtx);
+		const task = (runner.mock.calls[0]!.arguments[0] as any).task as string;
+		assert.ok(!task.includes("continue, do not restart"), "no resume block without a WIP commit");
+	});
+
+	it("auditor task is unchanged even when a WIP log is present", async () => {
+		const { runner, runCtx } = runDeveloper({
+			loopStatus: "Audit",
+			queueAgent: "auditor",
+			queue: [makeAuditResult({})],
+			gitHandler: wipGit,
+		});
+		await runAgentLoop(runCtx);
+		const task = (runner.mock.calls[0]!.arguments[0] as any).task as string;
+		assert.ok(!task.includes("continue, do not restart"), "resume block is developer-only");
+	});
+});
+
+describe("runAgentLoop — timeout work preservation scope (issue #1987)", () => {
+	/** Records `git status` calls — only preserveTimedOutWork issues them. */
+	function statusRecorder(): { handler: (args: string[]) => GitReply; status: string[] } {
+		const status: string[] = [];
+		return {
+			status,
+			handler: (args) => {
+				if (args[0] === "status") status.push("status");
+				return null;
+			},
+		};
+	}
+
+	it("runs ONLY for a timed-out developer — not on success", async () => {
+		const rec = statusRecorder();
+		const { runCtx } = runDeveloper({ gitHandler: rec.handler, queue: [makeDevResult({})] });
+		await runAgentLoop(runCtx);
+		assert.equal(rec.status.length, 0, "no preservation on a successful run");
+	});
+
+	it("runs ONLY for a timed-out developer — not for a timed-out auditor", async () => {
+		const rec = statusRecorder();
+		const { runCtx } = runDeveloper({
+			loopStatus: "Audit",
+			queueAgent: "auditor",
+			queue: [
+				makeAuditResult({
+					success: false,
+					timedOut: true,
+					configuredTimeoutMs: 60_000,
+					killReason: "timeout",
+					durationMs: 60_000,
+				}),
+			],
+			gitHandler: rec.handler,
+		});
+		await runAgentLoop(runCtx);
+		assert.equal(rec.status.length, 0, "preservation is developer-only");
+	});
+
+	it("runs for a timed-out developer (status probe issued)", async () => {
+		const rec = statusRecorder();
+		const { runCtx } = runDeveloper({ queue: [timedOutDevResult()], gitHandler: rec.handler });
+		await runAgentLoop(runCtx);
+		assert.equal(rec.status.length, 1, "preservation probes the worktree once");
 	});
 });

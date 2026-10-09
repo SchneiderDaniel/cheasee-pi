@@ -151,3 +151,117 @@ export async function handleDeveloperCommit(
 	}
 	return true;
 }
+
+// ─── Timed-out work preservation (issue #1987) ───────────────────
+
+/** Outcome of a timed-out-work preservation attempt. */
+export interface PreservedWork {
+	committed: boolean;
+	sha?: string;
+	files: string[];
+	error?: string;
+}
+
+/** A preserved partial-work commit found on the branch. */
+export interface WipCommit {
+	sha: string;
+	subject: string;
+}
+
+/**
+ * Parse `git log --format=%H %s` output for a preserved `wip(#N)` commit.
+ * The sha of the first matching subject is returned; otherwise null.
+ */
+export function parseWipCommit(gitLog: string, issueNum: number): WipCommit | null {
+	const marker = new RegExp(`^wip\\(#${issueNum}\\)`, "i");
+	for (const line of gitLog.split("\n")) {
+		const match = line.trim().match(/^([0-9a-f]{7,40})\s+(.+)$/i);
+		if (match?.[2] && marker.test(match[2].trim())) {
+			return { sha: match[1]!, subject: match[2].trim() };
+		}
+	}
+	return null;
+}
+
+/**
+ * Detect a preserved `wip(#N)` commit from a prior timed-out developer run on
+ * the current branch. Fail-soft: any git failure or absent marker → null, so a
+ * transient git error never fabricates a resume block.
+ */
+export async function detectPreservedWork(
+	pi: ExtensionAPI,
+	worktreePath: string,
+	issueNum: number,
+): Promise<WipCommit | null> {
+	try {
+		const result = await pi.exec("git", ["log", "--format=%H %s", "-n", "20"], {
+			cwd: worktreePath,
+			timeout: 10_000,
+		});
+		if (result.code !== 0) return null;
+		return parseWipCommit(result.stdout || "", issueNum);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Preserve a timed-out agent's uncommitted work as a marked `wip(#N)` commit
+ * pushed to the branch, so the next run resumes instead of restarting. The
+ * push is required: worktree recreation runs `git reset --hard <remote>/<branch>`
+ * and would discard a local-only commit. Fail-soft — never throws, so a git
+ * failure cannot suppress the timeout stop that the caller still reports.
+ */
+export async function preserveTimedOutWork(
+	pi: ExtensionAPI,
+	worktreePath: string,
+	remote: string,
+	branch: string,
+	issueNum: number,
+	notify?: NotifyFn,
+): Promise<PreservedWork> {
+	const pushNotify: NotifyFn = notify || { info: () => {}, error: () => {} };
+	try {
+		const status = await pi.exec("git", ["status", "--porcelain"], {
+			cwd: worktreePath,
+			timeout: 10_000,
+		});
+		if (status.code !== 0) {
+			return {
+				committed: false,
+				files: [],
+				error: `git status failed: ${status.stderr || status.stdout || ""}`,
+			};
+		}
+		const files = (status.stdout || "")
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0)
+			.map((line) => line.replace(/^\S+\s+/, ""));
+		if (files.length === 0) return { committed: false, files: [] };
+
+		const message = `wip(#${issueNum}): partial work preserved on timeout`;
+		const commitResult = await commitAndPush(
+			pi.exec.bind(pi),
+			worktreePath,
+			remote,
+			branch,
+			message,
+			pushNotify,
+		);
+		if (!commitResult.ok) return { committed: false, files, error: commitResult.error };
+
+		const head = await pi.exec("git", ["rev-parse", "HEAD"], {
+			cwd: worktreePath,
+			timeout: 10_000,
+		});
+		const sha = head.code === 0 ? (head.stdout || "").trim() : undefined;
+		return { committed: true, files, sha };
+	} catch (err: unknown) {
+		return {
+			committed: false,
+			files: [],
+			error: err instanceof Error ? err.message : String(err),
+		};
+	}
+}

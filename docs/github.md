@@ -130,7 +130,8 @@ Configure the project in `.pi/settings.json`:
 | `branchPrefix` | string | `"worktree-git-issue-"` | Prefix for worktree branch names |
 | `maxRejections` | number | `3` | Max audit rejection loops before human intervention |
 | `agentTimeoutsMin` | object | `{}` | Per-agent timeout overrides in minutes (legacy alias, lower precedence than `agentTimeoutSec`) |
-| `agentTimeoutSec` | object | `{}` | Per-agent wall-clock timeout in seconds, `0` = no timeout: `{ "developer": 600 }` |
+| `agentTimeoutSec` | object | `{}` | Per-agent wall-clock timeout in seconds, `0` = no timeout: `{ "developer": 600 }`. Authoritative and **unscaled** (ignores `agentTimeoutTierScale`) |
+| `agentTimeoutTierScale` | object | `{ "small": 1, "medium": 1.5, "large": 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker (e.g. `large` ×2 = 60 min) |
 | `agentKillGraceSec` | number | `10` | SIGTERM→SIGKILL grace for the subprocess kill ladder on timeout |
 | `agentTokenBudget` | number | `300000` | Soft token cap per agent session (0=unlimited) |
 | `maxToolCalls` | number | `0` | Hard tool call cap per agent (0=unlimited) |

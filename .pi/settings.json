@@ -42,6 +42,10 @@
       "SchneiderDaniel"
     ],
     "agentTimeoutsMin": {},
+    "agentTimeoutTierScale": {
+      "medium": 1.5,
+      "large": 2
+    },
     "agentTokenBudget": 300000,
     "bellOnComplete": false,
     "enableExperimentalFeatures": false
