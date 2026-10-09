@@ -29,6 +29,7 @@ import {
 	type IssueFact,
 	type Target,
 } from "../lib/report.ts";
+import { buildFullReport, FULL_REPORT_TOTALS } from "./fixtures/full-report.mts";
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 const FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8");
@@ -219,6 +220,82 @@ describe("parseReportJson (captured JSON fixture)", () => {
 		assert.deepStrictEqual(byKind(facts, "suggestion"), []);
 		assert.deepStrictEqual(byKind(facts, "dead-code"), []);
 		assert.deepStrictEqual(byKind(facts, "security"), []);
+	});
+});
+
+describe("parseReportJson full-category coverage", () => {
+	it("yields exactly one fact per item across every JSON category", () => {
+		const report = {
+			architectureIssues: [
+				{ title: "a", affectedFiles: ["a.ts"] },
+				{ title: "b", affectedFiles: ["b.ts"] },
+			],
+			duplicates: [{ name: "d", type: "code", files: [{ file: "d.ts" }] }],
+			layerViolations: [{ from: "f.ts", to: "t.ts", fromLayer: "x", toLayer: "y" }],
+			suggestions: [{ title: "s" }],
+			unusedFunctions: [{ name: "u", file: "u.ts" }],
+			securityIssues: [{ severity: "high", title: "sec", path: "s.ts" }],
+			patterns: [
+				{ name: "p", files: ["p.ts"] },
+				{ name: "ap", isAntiPattern: true, files: ["ap.ts"] },
+			],
+		};
+		const facts = parseReportJson(JSON.stringify(report));
+		assert.strictEqual(facts.length, 9, "no item may be dropped");
+		assert.deepStrictEqual(
+			[...new Set(facts.map((f) => f.kind))].sort(),
+			[
+				"anti-pattern",
+				"architecture",
+				"dead-code",
+				"duplicate",
+				"layer-violation",
+				"pattern",
+				"security",
+				"suggestion",
+			],
+		);
+	});
+});
+
+describe("full-report extraction (acceptance totals)", () => {
+	const facts = parseReportJson(JSON.stringify(buildFullReport()));
+
+	it("extracts one fact per item across every category", () => {
+		assert.strictEqual(facts.length, FULL_REPORT_TOTALS.facts, "no item may be dropped");
+		assert.strictEqual(
+			dedupeIssues(facts).length,
+			FULL_REPORT_TOTALS.facts,
+			"no distinct fact may collapse",
+		);
+		const counts: Record<string, number> = {};
+		for (const f of facts) counts[f.kind] = (counts[f.kind] ?? 0) + 1;
+		assert.deepStrictEqual(counts, {
+			architecture: 4,
+			security: 13,
+			"dead-code": 16,
+			duplicate: 10,
+			"layer-violation": 145,
+			suggestion: 7,
+			pattern: 8,
+			"anti-pattern": 4,
+		});
+	});
+
+	it("classifies exactly the 193 bug-kind facts as bug candidates", () => {
+		const bugs = facts.filter((f) => classifyFinding(f).issueType === "bug");
+		assert.strictEqual(bugs.length, FULL_REPORT_TOTALS.bugCandidates);
+		const routed = facts.filter((f) => classifyFinding(f).issueType !== "bug");
+		assert.strictEqual(routed.length, FULL_REPORT_TOTALS.routed);
+		assert.ok(
+			routed.every(
+				(f) =>
+					f.kind === "pattern" ||
+					f.kind === "anti-pattern" ||
+					/Large Files|Highly Coupled/.test(f.title),
+			),
+			`unexpected routed facts: ${routed.map((f) => f.title).join(", ")}`,
+		);
 	});
 });
 

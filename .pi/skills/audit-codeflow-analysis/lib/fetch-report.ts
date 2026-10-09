@@ -25,6 +25,7 @@ import { randomUUID } from "node:crypto";
 import {
 	closeSync,
 	constants,
+	existsSync,
 	mkdirSync,
 	openSync,
 	realpathSync,
@@ -47,7 +48,16 @@ interface ReportResult {
 	bytes: number;
 	analyzedAt: number | null;
 	warnings: string[];
+	/** True when no structured JSON artifact was stored; the run cannot see the JSON-only categories. */
+	partial: boolean;
+	/** Categories the markdown exporter never emits, empty when a JSON artifact was stored. */
+	unavailableCategories: string[];
+	/** True when a misrouted JSON body was recovered from the markdown route. */
+	recoveredFromMarkdownRoute?: boolean;
 }
+
+/** JSON-only categories the markdown exporter never emits. */
+const UNAVAILABLE_CATEGORIES = ["duplicate", "layer-violation", "suggestion"];
 
 /** `status` is the HTTP status for a failed fetch, or null for a thrown failure. */
 export type ReportOutcome =
@@ -107,6 +117,56 @@ export function parseAnalyzedAt(raw: string | null | undefined): number | null {
 	return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+export type ReportFormat = "json" | "markdown" | "other";
+
+/**
+ * Classify a report body by content structure, not by the route it arrived on
+ * or a substring marker. The JSON export embeds the markdown marker inside its
+ * source snippets, and a pre-#1976 bridge can deliver it on the markdown route,
+ * so the stable contract is "a JSON object with an `architectureIssues` array".
+ * Falls back to the markdown marker, then `other`.
+ */
+export function classifyReportBody(text: string): ReportFormat {
+	const body = text ?? "";
+	try {
+		const o: unknown = JSON.parse(body);
+		if (
+			o !== null &&
+			typeof o === "object" &&
+			!Array.isArray(o) &&
+			Array.isArray((o as Record<string, unknown>).architectureIssues)
+		) {
+			return "json";
+		}
+	} catch {
+		// not JSON — fall through to the markdown marker
+	}
+	return body.includes("# CodeFlow Analysis Report") ? "markdown" : "other";
+}
+
+/** Decode report bytes as UTF-8 for content classification. */
+function decodeBody(bytes: Uint8Array): string {
+	return new TextDecoder().decode(bytes);
+}
+
+/**
+ * Markdown narration for a JSON-only recovery: a pre-#1976 shim serves the
+ * structured export on the markdown route, so there is no markdown report to
+ * persist. `path` must still point at a readable markdown file (Step 1 of the
+ * skill reads it), so write a short placeholder that redirects the reader to
+ * the authoritative JSON artifact instead of leaving `path` dangling.
+ */
+function renderRecoveredMarkdown(analyzedAt: number | null): Uint8Array {
+	const when = analyzedAt === null ? "unknown" : new Date(analyzedAt).toISOString();
+	return new TextEncoder().encode(
+		"# CodeFlow Analysis Report\n\n" +
+			"> **JSON-only recovery.** This shim's markdown route served the structured JSON " +
+			"export and no markdown narration is available, so this file is narration only. " +
+			"The authoritative findings are in `" + REPORT_JSON_REL_PATH + "`.\n\n" +
+			`- Analysis timestamp: ${when}\n`,
+	);
+}
+
 /**
  * Fail closed when the on-disk parent directory resolves (through symlinks)
  * outside `cwd`. The lexical `resolveWithinRoot` check runs first, but a
@@ -144,6 +204,22 @@ function writeAtomically(cwd: string, target: string, data: Uint8Array): void {
 		}
 		throw err;
 	}
+}
+
+/**
+ * Delete an artifact a previous fetch left behind, refusing to reach outside
+ * `cwd` through a symlinked parent. Returns true when a file was removed.
+ *
+ * A refresh that finds no JSON must not leave the earlier analysis's JSON
+ * artifact on disk: `dry-run.mts` auto-loads that default path, so a stale file
+ * makes a partial run look complete.
+ */
+function removeStaleArtifact(cwd: string, target: string): boolean {
+	const dir = dirname(target);
+	if (!existsSync(dir) || !existsSync(target)) return false;
+	assertRealDirWithinRoot(cwd, dir);
+	rmSync(target, { force: true });
+	return true;
 }
 
 /** GET a report route; returns the response or throws on transport failure. */
@@ -247,37 +323,89 @@ export async function fetchAndStoreReport(opts: {
 	const analyzedAt = parseAnalyzedAt(resp.headers.get("X-Codeflow-Analysis-At"));
 
 	const target = resolveWithinRoot(opts.cwd, REPORT_REL_PATH);
-	writeAtomically(opts.cwd, target, bytes);
 
 	const warnings: string[] = [];
-	let jsonPath: string | null = null;
+	// Defense-in-depth: an old bridge or a manual POST can land a JSON body on
+	// the markdown route. Classify *before* persisting so a recovered JSON body
+	// is recovered into the structured artifact and never written as the
+	// markdown artifact (the shim's own routing is fixed in `_BRIDGE_JS.capture`;
+	// this bridges the gap only, and says so loudly).
+	const recoveredFromMarkdownRoute = classifyReportBody(decodeBody(bytes)) === "json";
+	let jsonBytes: Uint8Array | null = recoveredFromMarkdownRoute ? bytes : null;
+	// Byte count of the markdown artifact actually written to `path`.
+	let markdownBytes: Uint8Array = bytes;
+	if (recoveredFromMarkdownRoute) {
+		warnings.push(
+			"The markdown route returned a JSON export body (the browser bridge misrouted " +
+				"generateReport('json')); it was recovered as the structured artifact. This shim " +
+				"serves no markdown narration, so a placeholder markdown file was written to the " +
+				"markdown path.",
+		);
+		// The JSON body must never sit at the markdown path, but `path` must stay a
+		// readable markdown file (Step 1 reads it), so overwrite it with narration.
+		markdownBytes = renderRecoveredMarkdown(analyzedAt);
+		writeAtomically(opts.cwd, target, markdownBytes);
+	} else {
+		writeAtomically(opts.cwd, target, bytes);
+	}
+
 	try {
 		const jsonResp = await getReport(`${base}/api/analysis/report.json`, opts.signal);
 		if (jsonResp.ok) {
-			const jsonBytes = new Uint8Array(await jsonResp.arrayBuffer());
-			const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
-			writeAtomically(opts.cwd, jsonTarget, jsonBytes);
-			jsonPath = jsonTarget;
+			const body = new Uint8Array(await jsonResp.arrayBuffer());
+			if (classifyReportBody(decodeBody(body)) === "json") {
+				jsonBytes = body;
+			} else {
+				warnings.push(
+					"Structured JSON report route returned a body that is neither the JSON export " +
+						"nor markdown; it was not stored as the structured artifact.",
+				);
+			}
 		} else if (jsonResp.status === 404) {
-			warnings.push(await jsonUnavailableWarning(base, opts.signal));
-		} else {
+			if (jsonBytes === null) warnings.push(await jsonUnavailableWarning(base, opts.signal));
+		} else if (jsonBytes === null) {
 			warnings.push(
 				`Structured JSON report unavailable (HTTP ${jsonResp.status}); duplicates, layer violations and suggestions cannot be extracted.`,
 			);
 		}
 	} catch (err) {
 		opts.signal?.throwIfAborted();
+		if (jsonBytes === null) {
+			warnings.push(
+				`Structured JSON report fetch failed: ${err instanceof Error ? err.message : String(err)}; duplicates, layer violations and suggestions cannot be extracted.`,
+			);
+		}
+	}
+
+	let jsonPath: string | null = null;
+	const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
+	if (jsonBytes !== null) {
+		writeAtomically(opts.cwd, jsonTarget, jsonBytes);
+		jsonPath = jsonTarget;
+	} else if (removeStaleArtifact(opts.cwd, jsonTarget)) {
 		warnings.push(
-			`Structured JSON report fetch failed: ${err instanceof Error ? err.message : String(err)}; duplicates, layer violations and suggestions cannot be extracted.`,
+			"Removed a stale structured JSON artifact left by an earlier analysis, so it cannot be mistaken for this report's JSON.",
+		);
+	}
+
+	const partial = jsonPath === null;
+	// A JSON-less run must name the categories it cannot see; a warning already
+	// carrying the list (from `jsonUnavailableWarning`) is enough.
+	if (partial && !warnings.some((w) => w.includes("duplicates, layer violations and suggestions"))) {
+		warnings.push(
+			`Structured JSON report unavailable, so ${UNAVAILABLE_CATEGORIES.join(", ")} categories cannot be extracted.`,
 		);
 	}
 
 	const result: ReportResult = {
 		path: target,
 		jsonPath,
-		bytes: bytes.length,
+		bytes: markdownBytes.length,
 		analyzedAt,
 		warnings,
+		partial,
+		unavailableCategories: partial ? [...UNAVAILABLE_CATEGORIES] : [],
+		recoveredFromMarkdownRoute,
 	};
 	cache = result;
 	cacheCwd = opts.cwd;

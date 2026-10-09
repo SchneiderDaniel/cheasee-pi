@@ -100,7 +100,6 @@ _BRIDGE_JS = br"""(function () {
   var JSON_ENDPOINT = "/api/analysis/report.json";
   var STATUS_ENDPOINT = "/api/analysis/bridge-status";
   var MD_MARKER = "# CodeFlow Analysis Report";
-  var JSON_MARKER = '"architectureIssues"';
 
   // Surface upload failures (413 oversize, 5xx, network) instead of swallowing
   // them: a failed POST leaves the endpoint empty, and pi would then only say
@@ -161,14 +160,28 @@ _BRIDGE_JS = br"""(function () {
     } catch (e) {}
   }
 
+  // Classify a captured export by structure, not substring: the JSON export
+  // embeds the markdown marker inside the source snippets it carries, so a
+  // marker-first indexOf misroutes JSON to the markdown route (the JSON route
+  // then stays empty and the fetch reports no structured report at all).
+  function classify(text) {
+    if (typeof text !== "string" || text.length === 0) return null;
+    try {
+      var o = JSON.parse(text);
+      if (o && typeof o === "object" && !Array.isArray(o) && Array.isArray(o.architectureIssues))
+        return "json";
+    } catch (e) {}
+    return text.indexOf(MD_MARKER) !== -1 ? "md" : null;
+  }
+
   function capture(text) {
-    if (typeof text !== "string" || text.length === 0) return;
-    if (text.indexOf(MD_MARKER) !== -1) {
-      reportStatus(MD_ENDPOINT, "capture", null);
-      post(MD_ENDPOINT, text);
-    } else if (text.indexOf(JSON_MARKER) !== -1) {
+    var format = classify(text);
+    if (format === "json") {
       reportStatus(JSON_ENDPOINT, "capture", null);
       post(JSON_ENDPOINT, text);
+    } else if (format === "md") {
+      reportStatus(MD_ENDPOINT, "capture", null);
+      post(MD_ENDPOINT, text);
     }
   }
 

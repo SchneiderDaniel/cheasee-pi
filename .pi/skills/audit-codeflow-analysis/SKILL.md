@@ -76,13 +76,15 @@ browser posted it, `ignore/codeflow-report.json` (structured), then prints a
 single JSON object to stdout:
 
 ```json
-{ "path": "…", "jsonPath": "…", "bytes": 0, "analyzedAt": 0, "warnings": [] }
+{ "path": "…", "jsonPath": "…", "bytes": 0, "analyzedAt": 0, "warnings": [], "partial": false, "unavailableCategories": [] }
 ```
 
 `path` is the markdown artifact, `jsonPath` is the structured artifact (or
 `null` when unavailable), `bytes` is the markdown byte count, `analyzedAt` is
 the analysis timestamp in epoch ms (or `null`), and `warnings` lists non-fatal
-problems (e.g. the JSON route failed). Progress and errors go to stderr.
+problems (e.g. the JSON route failed). `partial` is `true` whenever no structured
+artifact was stored and `unavailableCategories` then names what the run cannot
+see. Progress and errors go to stderr.
 Exit codes:
 
 | Exit | Meaning |
@@ -96,7 +98,10 @@ stop and ask the user to run an analysis in the CodeFlow UI, then retry with
 `--refresh`.
 
 Read `ignore/codeflow-report.md` in full before proceeding, and
-`ignore/codeflow-report.json` when `jsonPath` is non-null.
+`ignore/codeflow-report.json` when `jsonPath` is non-null. When a pre-#1976 shim
+serves the JSON export on the markdown route (`recoveredFromMarkdownRoute` true),
+the markdown file is a short placeholder — read it, then work from the JSON
+export it points at.
 
 Record the returned `analyzedAt` and the `## Summary` table. Every later step
 works from that snapshot: the freshness check in Step 7 compares against it, and
@@ -134,16 +139,34 @@ Markdown fallback sections:
 | `## Design Patterns` | pattern | `**Files:**` |
 | `## Anti-Patterns` | anti-pattern | `**Affected files:**` |
 
-The markdown exporter does **not** emit duplicates, layer violations, or
-suggestions — those come from the JSON export only. When `jsonPath` is null, say
-so and proceed with the markdown categories rather than silently omitting them.
+The browser bridge classifies each captured export by **structure**, not by a
+substring marker or the route it lands on: a body that parses to a JSON object
+with an `architectureIssues` array is the structured export, and only then is the
+markdown marker considered. This matters because the JSON export embeds the
+literal `# CodeFlow Analysis Report` inside its source snippets. The transport
+re-sniffs both route bodies for the same reason, so a misrouted or old-shim body
+still lands in the correct artifact (`recoveredFromMarkdownRoute`); recovery is
+reported as a warning, never silently. A body that classifies as the JSON export
+is never written to the markdown path, so `path` never points at JSON content;
+because that shim serves no markdown narration, the transport writes a short
+markdown placeholder to `path` instead of leaving it dangling.
+
+Markdown is narration, **never the sole source of findings**. The markdown
+exporter does **not** emit duplicates, layer violations, or suggestions — those
+come from the JSON export only. When `jsonPath` is null the run is **partial**: it
+names the categories it cannot see (`duplicate`, `layer-violation`,
+`suggestion`) and states they are partially unauditable from markdown. A JSON-less
+run never presents itself as complete.
 The fetch warning names the owning component using the shim's
 `/api/analysis/bridge-status`: `postedAt` null means the browser never POSTed the
 JSON export (a capture-side gap); `postedAt` set with a 404 on GET means the
 shim's `/api/analysis/report.json` route is down. Either way the JSON-only
 categories (duplicates, layer violations, suggestions) are disclosed unavailable,
 never silently omitted, and the run states that those categories are partially
-unauditable from markdown.
+unauditable from markdown. A partial refresh also deletes any
+`ignore/codeflow-report.json` an earlier analysis left behind, so the artifact set
+on disk always matches the current fetch result and a stale file can never make a
+partial run look complete.
 
 A `## Architecture Issues` entry's `**Affected:**` line is parsed into **targets**,
 not just paths. The markdown exporter emits only `x.name || x.file`, so an item may
