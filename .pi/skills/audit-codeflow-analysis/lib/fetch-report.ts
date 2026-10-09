@@ -346,7 +346,8 @@ export async function fetchAndStoreReport(opts: {
 	// markdown artifact (the shim's own routing is fixed in `_BRIDGE_JS.capture`;
 	// this bridges the gap only, and says so loudly).
 	const recoveredFromMarkdownRoute = classifyReportBody(decodeBody(bytes)) === "json";
-	let jsonBytes: Uint8Array | null = recoveredFromMarkdownRoute ? bytes : null;
+	const recoveredBytes: Uint8Array | null = recoveredFromMarkdownRoute ? bytes : null;
+	let jsonBytes: Uint8Array | null = recoveredBytes;
 	// Byte count of the markdown artifact actually written to `path`.
 	let markdownBytes: Uint8Array = bytes;
 	if (recoveredFromMarkdownRoute) {
@@ -369,7 +370,20 @@ export async function fetchAndStoreReport(opts: {
 		if (jsonResp.ok) {
 			const body = new Uint8Array(await jsonResp.arrayBuffer());
 			if (classifyReportBody(decodeBody(body)) === "json") {
-				jsonBytes = body;
+				// The recovered body came from the markdown route (a browser misroute);
+				// a smaller JSON-route body is a stale or truncated slot, not a richer
+				// report. Keep the larger body so a full export is never silently
+				// replaced by a stub. shortcut: byte length proxies export richness,
+				// upgrade to a finding-count compare if exports can legitimately shrink.
+				if (recoveredBytes !== null && body.length < recoveredBytes.length) {
+					warnings.push(
+						`The /api/analysis/report.json route served a smaller export (${body.length} bytes) ` +
+							`than the JSON body recovered from the markdown route (${recoveredBytes.length} bytes); ` +
+							"the recovered body was kept so no findings are lost.",
+					);
+				} else {
+					jsonBytes = body;
+				}
 			} else {
 				warnings.push(
 					"Structured JSON report route returned a body that is neither the JSON export " +
