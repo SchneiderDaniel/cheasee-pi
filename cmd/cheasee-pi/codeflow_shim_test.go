@@ -58,6 +58,11 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 		"def _committed_blobs",
 		"def _list_contents",
 		"def _file_contents",
+		// issue #1983: the on-demand headless run route + its seams.
+		"/api/analysis/run",
+		"/api/analysis/run-status",
+		"ANALYZER_CMD",
+		"run_timeout_s",
 	} {
 		if !strings.Contains(code, want) {
 			t.Errorf("preserved surface missing %q", want)

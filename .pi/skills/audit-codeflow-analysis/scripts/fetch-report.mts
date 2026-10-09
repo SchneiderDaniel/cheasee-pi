@@ -12,8 +12,8 @@
  * stdout is pure JSON `{path, jsonPath, bytes, analyzedAt, warnings}`; stderr
  * carries messages. Exit codes:
  *   0  report fetched and written
- *   2  no report yet (HTTP 404) or bad usage — run an analysis in the CodeFlow UI
- *   1  transport or write failure
+ *   2  no report and no headless run route (old shim) or bad usage — run an analysis in the CodeFlow UI
+ *   1  transport, run or write failure
  */
 
 import { pathToFileURL } from "node:url";

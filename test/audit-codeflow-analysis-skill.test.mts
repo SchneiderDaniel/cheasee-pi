@@ -93,6 +93,22 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 	});
 });
 
+describe("audit-codeflow-analysis SKILL.md — issue #1983 headless run", () => {
+	it("drops the manual UI precondition and documents the on-demand run route", () => {
+		assert.doesNotMatch(body, /UI has been run at least once/i, "the manual UI precondition must be gone");
+		assert.match(body, /headless analyzer/i);
+		assert.match(body, /POST \/api\/analysis\/run/);
+		assert.match(body, /run-status/);
+		assert.match(body, /browser bridge/i, "the browser bridge stays the alternative producer");
+	});
+
+	it("keeps the 0/1/2 exit semantics", () => {
+		assert.match(body, /`0`[^\n]*report fetched/i);
+		assert.match(body, /`1`[^\n]*transport/i);
+		assert.match(body, /`2`[^\n]*no report/i);
+	});
+});
+
 describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 	it("distinguishes exit 2 (agent mistake), 3 (unverified) and 4 (crash, retry once)", () => {
 		// Hard Rules must not lump 2 and 3 together as unverified.
@@ -205,10 +221,12 @@ describe("package.json test wiring", () => {
 		for (const file of [
 			".pi/extensions/lib/test/codeflow-endpoint.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/codeflow-analysis.test.mts",
+			".pi/skills/audit-codeflow-analysis/test/codeflow-run.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/report.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/fetch-report-cli.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/bridge.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/dry-run.test.mts",
+				"test/codeflow-run-analysis.test.mts",
 		]) {
 			assert.ok(isRegistered(file), `npm test globs must register ${file}`);
 		}

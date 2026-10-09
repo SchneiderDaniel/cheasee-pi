@@ -39,6 +39,7 @@ import {
 	setWriteFileFactory,
 } from "../lib/fetch-report.ts";
 import { groupIssues, parseBestReport, parseReport } from "../lib/report.ts";
+import { runFetchReportCli } from "../scripts/fetch-report.mts";
 
 // ── Mock shim ───────────────────────────────────
 
@@ -46,11 +47,15 @@ interface Shim {
 	base: string;
 	mdCount(): number;
 	jsonCount(): number;
+	runPosts(): number;
+	statusPolls(): number;
 	close(): Promise<void>;
 }
 
 interface ShimOpts {
 	status?: number;
+	/** Per-request md statuses (last repeats); overrides `status`. */
+	mdStatuses?: number[];
 	body?: string;
 	analyzedAt?: string | null;
 	jsonStatus?: number;
@@ -58,12 +63,45 @@ interface ShimOpts {
 	/** Body served at /api/analysis/bridge-status (404 when omitted). */
 	bridgeStatus?: unknown;
 	bridgeStatusStatus?: number;
+	/** Status for POST /api/analysis/run (404 = run route absent). */
+	runStatus?: number;
+	runStatusBody?: unknown;
+	/** Sequence of /api/analysis/run-status bodies (last repeats). */
+	statuses?: unknown[];
+	statusStatus?: number;
 }
 
 async function startShim(opts: ShimOpts): Promise<Shim> {
 	let md = 0;
 	let json = 0;
+	let runPosts = 0;
+	let statusPolls = 0;
 	const server: Server = createServer((req, res) => {
+		if ((req.url ?? "").endsWith("/api/analysis/run-status")) {
+			const body = (opts.statuses ?? [])[Math.min(statusPolls, (opts.statuses ?? []).length - 1)];
+			statusPolls++;
+			const status = opts.statusStatus ?? 200;
+			res.statusCode = status;
+			if (status === 200) {
+				res.setHeader("Content-Type", "application/json; charset=utf-8");
+				res.end(JSON.stringify(body ?? {}));
+			} else {
+				res.end("err");
+			}
+			return;
+		}
+		if ((req.url ?? "").endsWith("/api/analysis/run")) {
+			runPosts++;
+			const status = opts.runStatus ?? 404;
+			res.statusCode = status;
+			if (opts.runStatusBody !== undefined && status !== 404) {
+				res.setHeader("Content-Type", "application/json; charset=utf-8");
+				res.end(JSON.stringify(opts.runStatusBody));
+			} else {
+				res.end("err");
+			}
+			return;
+		}
 		if ((req.url ?? "").endsWith("/api/analysis/bridge-status")) {
 			const status = opts.bridgeStatusStatus ?? (opts.bridgeStatus === undefined ? 404 : 200);
 			res.statusCode = status;
@@ -88,7 +126,9 @@ async function startShim(opts: ShimOpts): Promise<Shim> {
 			return;
 		}
 		md++;
-		const status = opts.status ?? 200;
+		const status = opts.mdStatuses
+			? opts.mdStatuses[Math.min(md - 1, opts.mdStatuses.length - 1)]
+			: (opts.status ?? 200);
 		res.statusCode = status;
 		if (status === 200) {
 			res.setHeader("Content-Type", "text/markdown; charset=utf-8");
@@ -106,6 +146,8 @@ async function startShim(opts: ShimOpts): Promise<Shim> {
 		base: `http://127.0.0.1:${port}`,
 		mdCount: () => md,
 		jsonCount: () => json,
+		runPosts: () => runPosts,
+		statusPolls: () => statusPolls,
 		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
 	};
 }
@@ -518,6 +560,100 @@ describe("partial run disclosure", () => {
 	});
 });
 
+describe("headless run integration", () => {
+	const SUCCEEDED = {
+		runId: "r1",
+		state: "succeeded",
+		startedAt: 1,
+		finishedAt: 2,
+		reason: null,
+		error: null,
+		reportAt: 1767225600000,
+		produced: { markdown: true, json: true },
+	};
+	const RUNNING = {
+		runId: "r1",
+		state: "running",
+		startedAt: 1,
+		finishedAt: null,
+		reason: null,
+		error: null,
+		reportAt: null,
+		produced: { markdown: false, json: false },
+	};
+
+	it("triggers a headless run on an empty slot and re-fetches both artifacts", async () => {
+		const s = await shim({
+			mdStatuses: [404, 200],
+			body: "# CodeFlow Analysis Report\n\nHEADLESS\n",
+			analyzedAt: "1767225600000",
+			jsonStatus: 200,
+			jsonBody: JSON_BODY,
+			runStatus: 202,
+			statuses: [RUNNING, SUCCEEDED],
+		});
+		routeTo(s);
+
+		const outcome = await fetchAndStoreReport({ cwd });
+
+		assert.strictEqual(outcome.ok, true);
+		assert.strictEqual(s.runPosts(), 1, "exactly one run trigger");
+		assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), "# CodeFlow Analysis Report\n\nHEADLESS\n");
+		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), JSON_BODY);
+		assert.strictEqual(outcome.ok && outcome.result.analyzedAt, 1767225600000);
+	});
+
+	it("keeps the actionable 404 when the run route is absent", async () => {
+		const s = await shim({ mdStatuses: [404] }); // runStatus defaults to 404
+		routeTo(s);
+
+		const outcome = await fetchAndStoreReport({ cwd });
+
+		assert.strictEqual(outcome.ok, false);
+		assert.strictEqual(outcome.ok === false ? outcome.status : 0, 404);
+		assert.match(outcome.ok === false ? outcome.message : "", /run analysis in CodeFlow/);
+		assert.strictEqual(s.runPosts(), 1, "the run route is probed once");
+	});
+
+	it("maps a failed run to the run-failure branch, never to the browser 404", async () => {
+		const s = await shim({
+			mdStatuses: [404],
+			runStatus: 202,
+			statuses: [{ ...RUNNING, state: "failed", reason: "analyzer-error", error: "boom" }],
+		});
+		routeTo(s);
+
+		const outcome = await fetchAndStoreReport({ cwd });
+
+		assert.strictEqual(outcome.ok, false);
+		if (outcome.ok) return;
+		assert.strictEqual(outcome.status, null);
+		assert.match(outcome.message, /analyzer-error/);
+	});
+
+	it("maps an unavailable analyzer to a null-status failure naming it", async () => {
+		const s = await shim({ mdStatuses: [404], runStatus: 503, runStatusBody: { reason: "analyzer-unavailable" } });
+		routeTo(s);
+
+		const outcome = await fetchAndStoreReport({ cwd });
+
+		assert.strictEqual(outcome.ok, false);
+		if (outcome.ok) return;
+		assert.strictEqual(outcome.status, null);
+		assert.match(outcome.message, /unavailable/);
+	});
+
+	it("never triggers a run when the report is already present", async () => {
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 200, jsonBody: JSON_BODY });
+		routeTo(s);
+
+		const outcome = await fetchAndStoreReport({ cwd });
+
+		assert.strictEqual(outcome.ok, true);
+		assert.strictEqual(s.runPosts(), 0, "a present report must not trigger a run");
+	});
+});
+
 describe("parseAnalyzedAt", () => {
 	it("parses epoch-ms and rejects absent/blank/malformed values", () => {
 		assert.strictEqual(parseAnalyzedAt("1767225600000"), 1767225600000);
@@ -595,7 +731,7 @@ describe("e2e: real codeflow shim subprocess", () => {
 		proc.stdout?.on("data", (d) => (log += d.toString()));
 		proc.stderr?.on("data", (d) => (log += d.toString()));
 		const base = `http://127.0.0.1:${port}`;
-		routeTo({ base, mdCount: () => 0, jsonCount: () => 0, close: async () => {} });
+		routeTo({ base, mdCount: () => 0, jsonCount: () => 0, runPosts: () => 0, statusPolls: () => 0, close: async () => {} });
 
 		const deadline = Date.now() + 15_000;
 		for (;;) {
@@ -615,7 +751,9 @@ describe("e2e: real codeflow shim subprocess", () => {
 
 		try {
 			// Before the browser bridge POSTs, the tool must report the actionable 404.
-			const miss = await fetchAndStoreReport({ cwd, refresh: true });
+			// `runOnMissing:false` isolates this bridge round-trip from the headless
+			// run route (whose unattended journey is covered separately below).
+			const miss = await fetchAndStoreReport({ cwd, refresh: true, runOnMissing: false });
 			assert.strictEqual(miss.ok, false);
 			assert.match(miss.ok === false ? miss.message : "", /run analysis in CodeFlow/);
 
@@ -669,6 +807,138 @@ describe("e2e: real codeflow shim subprocess", () => {
 			proc.kill("SIGKILL");
 			await waitForExit(proc);
 			assert.ok(!log.includes("Traceback"), `shim logged a traceback:\n${log}`);
+		}
+	});
+});
+
+// ── Phase 6: operator recovers from an empty slot unattended ──
+
+const STUB_ANALYZER = `import json, os, sys, time
+src, ui, out = sys.argv[1], sys.argv[2], sys.argv[3]
+open(os.path.join(out, "report.md"), "w").write(open(os.environ["STUB_MD"]).read())
+open(os.path.join(out, "report.json"), "w").write(open(os.environ["STUB_JSON"]).read())
+print(json.dumps({"markdown": "report.md", "json": "report.json", "analyzedAt": int(time.time() * 1000)}))
+`;
+
+function gitRepoWithCommit(dir: string): void {
+	const env = {
+		...process.env,
+		GIT_AUTHOR_NAME: "t",
+		GIT_AUTHOR_EMAIL: "t@t",
+		GIT_COMMITTER_NAME: "t",
+		GIT_COMMITTER_EMAIL: "t@t",
+	};
+	execFileSync("git", ["init", "-q"], { cwd: dir, env });
+	writeFileSync(join(dir, "app.ts"), "export const a = 1;\n");
+	execFileSync("git", ["add", "app.ts"], { cwd: dir, env });
+	execFileSync("git", ["commit", "-q", "-m", "init"], { cwd: dir, env });
+}
+
+async function startJourneyShim(
+	env: Record<string, string>,
+): Promise<{ base: string; proc: ChildProcess; log: () => string }> {
+	const port = await new Promise<number>((resolvePort) => {
+		const srv = createServer();
+		srv.listen(0, "127.0.0.1", () => {
+			const p = (srv.address() as AddressInfo).port;
+			srv.close(() => resolvePort(p));
+		});
+	});
+	const serverPath = resolve(
+		import.meta.dirname,
+		"..",
+		"..",
+		"..",
+		"..",
+		"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+	);
+	let log = "";
+	const proc = spawn(PYTHON as string, [serverPath], {
+		env: { ...process.env, ...env, PORT: String(port), HOST: "127.0.0.1", PYTHONUNBUFFERED: "1" },
+	});
+	proc.stdout?.on("data", (d) => (log += d.toString()));
+	proc.stderr?.on("data", (d) => (log += d.toString()));
+	const base = `http://127.0.0.1:${port}`;
+	const deadline = Date.now() + 15_000;
+	for (;;) {
+		try {
+			const r = await fetch(base + "/api/repos/o/r");
+			if (r.ok) break;
+		} catch {
+			/* not up yet */
+		}
+		if (Date.now() > deadline) throw new Error(`shim did not start:\n${log}`);
+		await new Promise((r) => setTimeout(r, 100));
+	}
+	return { base, proc, log: () => log };
+}
+
+describe("e2e: unattended recovery from an empty report slot", () => {
+	it("auto-runs the headless analyzer and the fetch CLI exits 0 with both artifacts", async (t) => {
+		if (!PYTHON) return t.skip("python3 not available");
+
+		const repo = mkdtempSync(join(tmpdir(), "codeflow-journey-repo-"));
+		gitRepoWithCommit(repo);
+		const stubDir = mkdtempSync(join(tmpdir(), "codeflow-journey-stub-"));
+		const stub = join(stubDir, "stub.py");
+		writeFileSync(stub, STUB_ANALYZER);
+		const fixtureDir = join(import.meta.dirname, "fixtures");
+
+		const journey = await startJourneyShim({
+			REPO_ROOT: repo,
+			UI_DIR: stubDir,
+			CONFIG_FILE: join(stubDir, "missing.json"),
+			ANALYZER_CMD: `python3 ${stub}`,
+			STUB_MD: join(fixtureDir, "codeflow-report.md"),
+			STUB_JSON: join(fixtureDir, "codeflow-report.json"),
+		});
+		routeTo({ base: journey.base, mdCount: () => 0, jsonCount: () => 0, runPosts: () => 0, statusPolls: () => 0, close: async () => {} });
+
+		let out = "";
+		let err = "";
+		const io = { stdout: (s: string) => (out += s), stderr: (s: string) => (err += s) };
+		try {
+			const code = await runFetchReportCli([], io, cwd);
+			assert.strictEqual(code, 0, `stderr: ${err}`);
+			assert.ok(existsSync(REPORT_PATH()), "markdown artifact must be written");
+			assert.ok(existsSync(REPORT_JSON_PATH()), "json artifact must be written");
+			const md = readFileSync(REPORT_PATH(), "utf-8");
+			const json = readFileSync(REPORT_JSON_PATH(), "utf-8");
+			assert.ok(parseBestReport(md, json).length > 0, "artifacts must parse");
+		} finally {
+			journey.proc.kill("SIGKILL");
+			await waitForExit(journey.proc);
+			assert.ok(!journey.log().includes("Traceback"), `shim logged a traceback:\n${journey.log()}`);
+		}
+	});
+
+	it("exits 1 naming the analyzer when the image carries none (503)", async (t) => {
+		if (!PYTHON) return t.skip("python3 not available");
+
+		const repo = mkdtempSync(join(tmpdir(), "codeflow-journey-repo-"));
+		gitRepoWithCommit(repo);
+		const dir = mkdtempSync(join(tmpdir(), "codeflow-journey-stub-"));
+		const journey = await startJourneyShim({
+			REPO_ROOT: repo,
+			UI_DIR: dir,
+			CONFIG_FILE: join(dir, "missing.json"),
+			ANALYZER_CMD: `python3 ${join(dir, "absent.py")}`,
+		});
+		routeTo({ base: journey.base, mdCount: () => 0, jsonCount: () => 0, runPosts: () => 0, statusPolls: () => 0, close: async () => {} });
+
+		let out = "";
+		let err = "";
+		const io = { stdout: (s: string) => (out += s), stderr: (s: string) => (err += s) };
+		try {
+			const code = await runFetchReportCli([], io, cwd);
+			assert.strictEqual(code, 1);
+			assert.match(err, /unavailable/);
+			assert.strictEqual(out, "");
+			assert.ok(!existsSync(REPORT_PATH()), "no artifact when the analyzer is unavailable");
+		} finally {
+			journey.proc.kill("SIGKILL");
+			await waitForExit(journey.proc);
+			assert.ok(!journey.log().includes("Traceback"), `shim logged a traceback:\n${journey.log()}`);
 		}
 	});
 });

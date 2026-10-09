@@ -58,8 +58,9 @@ Load this skill when the user asks to:
   is present, and Node runs with `--experimental-strip-types`.
 - `ask_user` tool available (the `ask-user` extension).
 - `.pi/settings.json` has `supervisor.repo` set to `owner/repo`.
-- The CodeFlow UI has been run at least once in this session (the browser
-  bridge POSTs the report exports to the shim).
+- The `codeflow` sidecar carries the headless analyzer (`run-analysis.mjs` + Node),
+  so an empty report slot is filled on demand. The browser bridge remains an
+  alternative producer.
 
 ## Workflow
 
@@ -71,8 +72,16 @@ Run the skill-owned fetch script:
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/fetch-report.mts
 ```
 
+If no report is stored yet, the script drives the sidecar's headless run route
+(`POST /api/analysis/run`) and polls `/api/analysis/run-status` to completion, so
+no browser run is required. The run reuses the pinned CodeFlow analyzer against
+the committed `HEAD` snapshot and is bounded by the shim's `run_timeout_s`. No
+UI step is needed; the browser bridge is only an alternative producer, and when
+the route is absent (old shim) the script keeps its actionable 404.
+
 It writes the report to `ignore/codeflow-report.md` (markdown) and, when the
-browser posted it, `ignore/codeflow-report.json` (structured), then prints a
+browser or headless run posted it, `ignore/codeflow-report.json` (structured),
+then prints a
 single JSON object to stdout:
 
 ```json
@@ -90,12 +99,14 @@ Exit codes:
 | Exit | Meaning |
 |------|---------|
 | `0` | report fetched and written |
-| `2` | no report yet (HTTP 404) or bad usage — ask the user to run an analysis in the CodeFlow UI |
-| `1` | transport or write failure |
+| `2` | no report and no headless run route (old shim) or bad usage — ask the user to run an analysis in the CodeFlow UI |
+| `1` | transport, headless-run or write failure |
 
 If it exits **`2`** with **"No CodeFlow report yet — run analysis in CodeFlow"**,
-stop and ask the user to run an analysis in the CodeFlow UI, then retry with
-`--refresh`.
+the sidecar has no on-demand run route, so stop and ask the user to run an
+analysis in the CodeFlow UI, then retry with `--refresh`. An exit **`1`** naming a
+run failure (`timeout`, `analyzer-error`, or analyzer-unavailable) means the
+headless analyzer could not produce a report — report that reason instead.
 
 Read `ignore/codeflow-report.md` in full before proceeding, and
 `ignore/codeflow-report.json` when `jsonPath` is non-null. When a pre-#1976 shim

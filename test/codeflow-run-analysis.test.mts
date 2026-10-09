@@ -1,0 +1,188 @@
+/**
+ * Tests for cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs — the
+ * headless producer the shim drives.
+ *
+ * A fixture UI dir (index.html carrying a self-contained CODEFLOW_ANALYZER
+ * block + card/lib stand-ins) and a fixture sourceDir exercise the runner
+ * without the real CodeFlow checkout. The runner is spawned as a real child
+ * process so argv handling and exit codes are covered.
+ *
+ * Run with:
+ *   node --experimental-strip-types --test test/codeflow-run-analysis.test.mts
+ */
+
+import assert from "node:assert";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { describe, it } from "node:test";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const RUNNER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs");
+
+const ANALYZER_BLOCK = `
+// ===== CODEFLOW_ANALYZER_START =====
+const Parser = { functionKey: function (fn) { return fn.name; } };
+function buildAnalysisData(opts) { return { files: [], stats: {}, marker: "FIXTURE" }; }
+// ===== CODEFLOW_ANALYZER_END =====
+// ===== CODEFLOW_METRICS_START =====
+function calcHealth(data) { return { score: 100, grade: "A" }; }
+// ===== CODEFLOW_METRICS_END =====
+`;
+
+// generateReport mirrors the UI export seam: it builds a Blob and hands it to
+// URL.createObjectURL, which the runner stubs to capture the bytes.
+function generateReportBody(emitJson = true): string {
+	return `
+function generateReport(format) {
+  if (format === "json"${emitJson ? "" : " && false"}) {
+    var blob = new Blob([JSON.stringify({ architectureIssues: [], marker: data.marker })], { type: "application/json" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url;
+    a.download = "codeflow-report.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  } else if (format === "md") {
+    var md = "# CodeFlow Analysis Report\\n\\nmarker=" + data.marker + "\\n";
+    var blob2 = new Blob([md], { type: "text/markdown" });
+    var url2 = URL.createObjectURL(blob2);
+    var a2 = document.createElement("a");
+    a2.href = url2;
+    a2.download = "codeflow-report.md";
+    a2.click();
+    URL.revokeObjectURL(url2);
+  }
+}
+`;
+}
+
+interface Fixture {
+	uiDir: string;
+	sourceDir: string;
+	outDir: string;
+}
+
+function makeFixture(opts: { emitJson?: boolean; analyzerBlock?: string; analysisJs?: string | null } = {}): Fixture {
+	const root = mkdtempSync(join(tmpdir(), "codeflow-runner-"));
+	const uiDir = join(root, "ui");
+	const sourceDir = join(root, "src");
+	const outDir = join(root, "out");
+	mkdirSync(join(uiDir, "card", "lib"), { recursive: true });
+	mkdirSync(sourceDir, { recursive: true });
+	mkdirSync(outDir, { recursive: true });
+	writeFileSync(join(sourceDir, "a.ts"), "export const a = 1;\n");
+	const block = opts.analyzerBlock ?? ANALYZER_BLOCK;
+	writeFileSync(
+		join(uiDir, "index.html"),
+		`<html><body><script type="text/babel">${block}${generateReportBody(opts.emitJson !== false)}</script></body></html>`,
+	);
+	if (opts.analysisJs !== null) {
+		writeFileSync(
+			join(uiDir, "card", "lib", "analysis.js"),
+			opts.analysisJs ??
+				`"use strict";
+module.exports = {
+  async analyze(options) {
+    return { schemaVersion: 1, data: { marker: "FIXTURE", stats: { files: 1, functions: 1, loc: 1 } }, snapshot: {} };
+  },
+};
+`,
+		);
+	}
+	return { uiDir, sourceDir, outDir };
+}
+
+function runRunner(fx: Fixture): { code: number | null; stdout: string; stderr: string } {
+	const res = spawnSync(process.execPath, [RUNNER, fx.sourceDir, fx.uiDir, fx.outDir], {
+		encoding: "utf-8",
+	});
+	return { code: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
+}
+
+function envelope(stdout: string): { markdown: string; json: string | null; analyzedAt: number } {
+	const lines = stdout.trim().split("\n");
+	return JSON.parse(lines[lines.length - 1]);
+}
+
+describe("run-analysis.mjs headless producer", () => {
+	it("writes both artifacts, exits 0 and prints the result envelope", () => {
+		const fx = makeFixture();
+		const { code, stdout, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		assert.ok(existsSync(join(fx.outDir, "report.md")), "report.md must exist");
+		assert.ok(existsSync(join(fx.outDir, "report.json")), "report.json must exist");
+		const env = envelope(stdout);
+		assert.strictEqual(env.markdown, "report.md");
+		assert.strictEqual(env.json, "report.json");
+		assert.ok(typeof env.analyzedAt === "number" && env.analyzedAt > 0, "analyzedAt must be epoch ms");
+	});
+
+	it("captures the bytes handed to URL.createObjectURL verbatim", () => {
+		const fx = makeFixture();
+		const { code } = runRunner(fx);
+		assert.strictEqual(code, 0);
+		assert.strictEqual(
+			readFileSync(join(fx.outDir, "report.md"), "utf-8"),
+			"# CodeFlow Analysis Report\n\nmarker=FIXTURE\n",
+		);
+		assert.strictEqual(
+			JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8")).marker,
+			"FIXTURE",
+		);
+	});
+
+	it("succeeds without a JSON export (envelope json:null, no report.json)", () => {
+		const fx = makeFixture({ emitJson: false });
+		const { code, stdout } = runRunner(fx);
+
+		assert.strictEqual(code, 0);
+		assert.ok(existsSync(join(fx.outDir, "report.md")));
+		assert.ok(!existsSync(join(fx.outDir, "report.json")), "no report.json must be written");
+		assert.strictEqual(envelope(stdout).json, null);
+	});
+
+	it("fails closed when the CODEFLOW_ANALYZER block is missing, leaving no artifacts", () => {
+		const fx = makeFixture({ analyzerBlock: "const unrelated = true;\n" });
+		const { code, stderr } = runRunner(fx);
+
+		assert.notStrictEqual(code, 0);
+		assert.match(stderr, /CODEFLOW_ANALYZER/);
+		assert.ok(stderr.length <= 4096, "stderr must be bounded");
+		assert.ok(!existsSync(join(fx.outDir, "report.md")));
+		assert.ok(!existsSync(join(fx.outDir, "report.json")));
+	});
+
+	it("fails closed when card/lib/analysis.js cannot be imported, with bounded stderr", () => {
+		const fx = makeFixture({ analysisJs: null });
+		const { code, stderr } = runRunner(fx);
+
+		assert.notStrictEqual(code, 0);
+		assert.ok(stderr.length <= 4096, "stderr must be bounded");
+		assert.ok(!existsSync(join(fx.outDir, "report.md")));
+		assert.ok(!existsSync(join(fx.outDir, "report.json")));
+	});
+
+	it("fails closed when the UI export emits no Blob for markdown", () => {
+		const block = `${ANALYZER_BLOCK}function generateReport() { /* emits nothing */ }\n`;
+		const fx = makeFixture({ analyzerBlock: block });
+		const { code, stderr } = runRunner(fx);
+
+		assert.notStrictEqual(code, 0);
+		assert.match(stderr, /no Blob|empty markdown/i);
+		assert.ok(!existsSync(join(fx.outDir, "report.md")));
+	});
+
+	it("imports only node: builtins (zero npm dependencies)", () => {
+		const src = readFileSync(RUNNER, "utf-8");
+		const specifiers = [...src.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+		assert.ok(specifiers.length > 0, "runner must have imports");
+		for (const spec of specifiers) {
+			assert.ok(spec.startsWith("node:"), `non-builtin import ${spec}`);
+		}
+		assert.doesNotMatch(src, /require\(\s*["'][^"']+["']\s*\)/, "no third-party require");
+	});
+});
