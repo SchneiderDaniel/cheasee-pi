@@ -140,6 +140,56 @@ describe("preserveTimedOutWork — adapter (issue #1987)", () => {
 		);
 	});
 
+	it("fresh branch never pushed (remote ref absent) → falls back to base and preserves local commits", async () => {
+		// Audit finding: `git rev-list <remote>/<branch>..HEAD` fails when the
+		// feature branch was never pushed. Preservation must still push the
+		// local-only commits or post-pipeline cleanup discards the only copy.
+		const { pi, calls } = happyGit((args) => {
+			if (args[0] === "status") return { code: 0, stdout: "" };
+			if (args[0] === "rev-list" && (args[2] || "").startsWith("origin/feature..")) {
+				return { code: 128, stderr: "unknown revision or path not in the working tree" };
+			}
+			if (args[0] === "rev-list") return { code: 0, stdout: "2\n" };
+			if (args[0] === "diff") return { code: 1, stdout: "src/a.ts\n" };
+			return null;
+		});
+		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify, "main");
+
+		assert.equal(result.committed, true);
+		assert.equal(result.sha, SHA);
+		assert.deepEqual(result.files, ["src/a.ts"]);
+		assert.ok(
+			calls.some((c) => c.args[0] === "rev-list" && c.args[2] === "origin/main..HEAD"),
+			"falls back to the base ref when the tracking ref is absent",
+		);
+		assert.ok(
+			calls.some((c) => c.args[0] === "commit" && (c.args[3] || "").includes("wip(#1987)")),
+			"marker commit created so resume context detects the work",
+		);
+		assert.ok(
+			calls.some((c) => c.args[0] === "push"),
+			"local-only commits pushed — reset --hard would discard them",
+		);
+	});
+
+	it("fresh branch at base (no local commits) → committed:false, no commit/push", async () => {
+		const { pi, calls } = happyGit((args) => {
+			if (args[0] === "status") return { code: 0, stdout: "" };
+			if (args[0] === "rev-list" && (args[2] || "").startsWith("origin/feature..")) {
+				return { code: 128, stderr: "unknown revision" };
+			}
+			if (args[0] === "rev-list") return { code: 0, stdout: "0\n" };
+			return null;
+		});
+		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify, "main");
+
+		assert.equal(result.committed, false);
+		assert.deepEqual(result.files, []);
+		assert.equal(result.error, undefined);
+		assert.ok(!calls.some((c) => c.args[0] === "commit"), "no marker commit for empty work");
+		assert.ok(!calls.some((c) => c.args[0] === "push"), "no push for empty work");
+	});
+
 	it("clean worktree, rev-list failure → fail-soft {committed:false, error}", async () => {
 		const { pi } = happyGit((args) => {
 			if (args[0] === "status") return { code: 0, stdout: "" };

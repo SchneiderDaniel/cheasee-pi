@@ -491,7 +491,15 @@ async function reportTimedOutAgent(
 	const { ctx, pi, config, issueNum, worktreePath, worktreeBranch, notify } = runCtx;
 	const preserved =
 		agentName === "developer" && worktreePath && worktreeBranch
-			? await preserveTimedOutWork(pi, worktreePath, config.remote!, worktreeBranch, issueNum, notify)
+			? await preserveTimedOutWork(
+				pi,
+				worktreePath,
+				config.remote!,
+				worktreeBranch,
+				issueNum,
+				notify,
+				config.defaultBranch,
+			)
 			: undefined;
 	const preservedNote = preserved
 		? preserved.committed

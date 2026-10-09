@@ -206,6 +206,35 @@ export async function detectPreservedWork(
 }
 
 /**
+ * Resolve the ref to compare HEAD against when preserving local-only commits.
+ * Prefers `<remote>/<branch>`; when that tracking ref is absent (fresh branch
+ * never pushed) falls back to `<remote>/<baseBranch>` then `<baseBranch>`. An
+ * unresolvable ref set is fail-soft (ok:false) so the caller reports the error
+ * rather than pushing a spurious marker commit.
+ */
+async function resolvePreservationBase(
+	pi: ExtensionAPI,
+	worktreePath: string,
+	remote: string,
+	branch: string,
+	baseBranch: string,
+): Promise<{ ok: true; ref: string; count: number } | { ok: false; error: string }> {
+	const candidates = [`${remote}/${branch}`, `${remote}/${baseBranch}`, baseBranch];
+	let lastError = "";
+	for (const ref of candidates) {
+		const ahead = await pi.exec("git", ["rev-list", "--count", `${ref}..HEAD`], {
+			cwd: worktreePath,
+			timeout: 10_000,
+		});
+		if (ahead.code === 0) {
+			return { ok: true, ref, count: parseInt(ahead.stdout?.trim() || "0", 10) || 0 };
+		}
+		lastError = ahead.stderr || ahead.stdout || "";
+	}
+	return { ok: false, error: `git rev-list failed: ${lastError}` };
+}
+
+/**
  * Preserve a timed-out agent's work as a marked `wip(#N)` commit pushed to the
  * branch, so the next run resumes instead of restarting. Covers both a dirty
  * worktree (uncommitted edits) and a clean worktree with local commits the
@@ -221,6 +250,7 @@ export async function preserveTimedOutWork(
 	branch: string,
 	issueNum: number,
 	notify?: NotifyFn,
+	baseBranch = "main",
 ): Promise<PreservedWork> {
 	const pushNotify: NotifyFn = notify || { info: () => {}, error: () => {} };
 	try {
@@ -245,24 +275,27 @@ export async function preserveTimedOutWork(
 			// timed out before pushing. Worktree recreation resets to
 			// `<remote>/<branch>`, so any ahead commits must be pushed too, or the
 			// recovery the WIP path exists for is lost.
-			const ahead = await pi.exec(
-				"git",
-				["rev-list", "--count", `${remote}/${branch}..HEAD`],
-				{ cwd: worktreePath, timeout: 10_000 },
+			//
+			// A fresh feature branch was never pushed, so its tracking ref is absent
+			// and `rev-list <remote>/<branch>..HEAD` fails. Fall back to a known base
+			// ref: otherwise preservation reports failure and post-pipeline cleanup
+			// (worktree removal + branch delete) discards the only copy of the work.
+			const ahead = await resolvePreservationBase(
+				pi,
+				worktreePath,
+				remote,
+				branch,
+				baseBranch,
 			);
-			if (ahead.code !== 0) {
-				return {
-					committed: false,
-					files: [],
-					error: `git rev-list failed: ${ahead.stderr || ahead.stdout || ""}`,
-				};
+			if (!ahead.ok) {
+				return { committed: false, files: [], error: ahead.error };
 			}
-			if ((parseInt(ahead.stdout?.trim() || "0", 10) || 0) === 0) {
+			if (ahead.count === 0) {
 				return { committed: false, files: [] };
 			}
 			const changed = await pi.exec(
 				"git",
-				["diff", "--name-only", `${remote}/${branch}..HEAD`],
+				["diff", "--name-only", `${ahead.ref}..HEAD`],
 				{ cwd: worktreePath, timeout: 10_000 },
 			);
 			const changedFiles =
