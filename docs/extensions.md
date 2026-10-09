@@ -11,7 +11,7 @@ has_children: true
 
 Pi auto-discovers extensions from `.pi/extensions/` in the project root. No config file needed. No `--extension` flag.
 
-This page lists the 18 Cheasee-Pi extensions. Extension guides describe user-visible behavior, commands, and configuration where applicable.
+This page lists the 17 Cheasee-Pi extensions. Extension guides describe user-visible behavior, commands, and configuration where applicable.
 
 ## File manifest
 
@@ -23,7 +23,6 @@ This page lists the 18 Cheasee-Pi extensions. Extension guides describe user-vis
 | `.pi/extensions/web-search/` | [Web Search](extensions/web-search) |
 | `.pi/extensions/supervisor/` | [Supervisor](extensions/supervisor) |
 | `.pi/extensions/context-info/` | [Context Info](extensions/context-info) |
-| `.pi/extensions/codeflow-analysis/` | [CodeFlow Analysis Report](extensions/codeflow-analysis) |
 | `.pi/extensions/session-logger/` | [Session Logger](extensions/session-logger) |
 | `.pi/extensions/agent-harness/` | [Agent Harness](extensions/agent-harness) |
 | `.pi/extensions/ask-user/` | [Ask User](extensions/ask-user) |

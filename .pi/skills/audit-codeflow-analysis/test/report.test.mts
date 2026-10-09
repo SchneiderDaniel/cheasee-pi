@@ -1,6 +1,6 @@
 /**
- * Tests for .pi/extensions/codeflow-analysis/report.ts — pure report parsing and
- * file-conflict grouping.
+ * Tests for .pi/skills/audit-codeflow-analysis/lib/report.ts — pure report
+ * parsing and file-conflict grouping.
  *
  * The markdown and JSON fixtures are captured from the *real* CodeFlow
  * generator (see test/fixtures/generate-report-fixtures.mjs), so the parser is
@@ -9,7 +9,7 @@
  * which is why their overlapping sections must agree.
  *
  * Run with:
- *   node --experimental-strip-types --test .pi/extensions/codeflow-analysis/test/report.test.mts
+ *   node --experimental-strip-types --test .pi/skills/audit-codeflow-analysis/test/report.test.mts
  */
 
 import assert from "node:assert";
@@ -24,7 +24,7 @@ import {
 	parseReportJson,
 	reportSectionCoverage,
 	type IssueFact,
-} from "../report.ts";
+} from "../lib/report.ts";
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 const FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8");

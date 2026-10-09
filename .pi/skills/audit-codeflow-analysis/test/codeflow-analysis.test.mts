@@ -1,24 +1,24 @@
 /**
- * Tests for .pi/extensions/codeflow-analysis/index.ts — HTTP transport and the
- * `ignore/codeflow-report.{md,json}` artifacts.
+ * Tests for .pi/skills/audit-codeflow-analysis/lib/fetch-report.ts — HTTP
+ * transport and the `ignore/codeflow-report.{md,json}` artifacts.
  *
  * A real `node:http` shim stands in for the codeflow container; the fetch
  * factory is pointed at it so request counting and status handling are
  * exercised end to end. No Docker and no live CodeFlow.
  *
  * Run with:
- *   node --experimental-strip-types --test .pi/extensions/codeflow-analysis/test/codeflow-analysis.test.mts
+ *   node --experimental-strip-types --test .pi/skills/audit-codeflow-analysis/test/codeflow-analysis.test.mts
  */
 
 import assert from "node:assert";
 import { spawn, execFileSync, type ChildProcess } from "node:child_process";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import codeflowAnalysis, {
+import {
 	fetchAndStoreReport,
 	parseAnalyzedAt,
 	REPORT_JSON_REL_PATH,
@@ -26,8 +26,8 @@ import codeflowAnalysis, {
 	resetReportCache,
 	setFetchFactory,
 	setWriteFileFactory,
-} from "../index.ts";
-import { groupIssues, parseBestReport, parseReport } from "../report.ts";
+} from "../lib/fetch-report.ts";
+import { groupIssues, parseBestReport, parseReport } from "../lib/report.ts";
 
 // ── Mock shim ───────────────────────────────────
 
@@ -90,25 +90,6 @@ function routeTo(shim: Shim): void {
 	setFetchFactory((url, init) => fetch(shim.base + new URL(url).pathname, init));
 }
 
-// ── Mock pi ─────────────────────────────────────
-
-function makePi(): any {
-	let tool: any = null;
-	const pi: any = {
-		registerTool: (t: any) => {
-			tool = t;
-		},
-		on: () => {},
-	};
-	pi.__tool = () => tool;
-	return pi;
-}
-
-async function execTool(pi: any, params: any, opts?: { cwd?: string; signal?: AbortSignal }): Promise<any> {
-	const tool = pi.__tool();
-	return tool.execute("call-1", params, opts?.signal, undefined, { cwd: opts?.cwd });
-}
-
 // ── Fixtures ────────────────────────────────────
 
 let cwd: string;
@@ -143,28 +124,16 @@ const tmpFiles = () => {
 
 const JSON_BODY = '{"architectureIssues":[{"title":"x","affectedFiles":["src/a.ts"]}]}';
 
-// ── Tool registration ───────────────────────────
-
-describe("codeflowAnalysis extension wiring", () => {
-	it("registers the codeflow_analysis_report tool with a refresh param", () => {
-		const pi = makePi();
-		codeflowAnalysis(pi);
-		const tool = pi.__tool();
-		assert.ok(tool, "tool should be registered");
-		assert.strictEqual(tool.name, "codeflow_analysis_report");
-		assert.ok(tool.parameters.properties.refresh, "refresh param should exist");
-	});
-});
-
 describe("transport + artifact", () => {
 	it("writes both artifacts and returns path/jsonPath/bytes/analyzedAt", async () => {
 		const body = "# CodeFlow Analysis Report\n\n## Architecture Issues\n";
 		const s = await shim({ status: 200, body, analyzedAt: "1767225600000", jsonStatus: 200, jsonBody: JSON_BODY });
 		routeTo(s);
 
-		const pi = makePi();
-		codeflowAnalysis(pi);
-		const res = await execTool(pi, {}, { cwd });
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		const { path, jsonPath, bytes, analyzedAt } = outcome.result;
 
 		const target = REPORT_PATH();
 		const jsonTarget = REPORT_JSON_PATH();
@@ -172,12 +141,22 @@ describe("transport + artifact", () => {
 		assert.ok(existsSync(jsonTarget), "json report file should exist");
 		assert.strictEqual(readFileSync(target, "utf-8"), body);
 		assert.strictEqual(readFileSync(jsonTarget, "utf-8"), JSON_BODY);
-		assert.strictEqual(res.details.path, target);
-		assert.strictEqual(res.details.jsonPath, jsonTarget);
-		assert.strictEqual(res.details.bytes, Buffer.byteLength(body));
-		assert.strictEqual(res.details.analyzedAt, 1767225600000);
-		assert.ok(res.details.path.startsWith(cwd), "path must resolve inside cwd");
-		assert.ok(res.details.jsonPath.startsWith(cwd), "jsonPath must resolve inside cwd");
+		assert.strictEqual(path, target);
+		assert.strictEqual(jsonPath, jsonTarget);
+		assert.strictEqual(bytes, Buffer.byteLength(body));
+		assert.strictEqual(analyzedAt, 1767225600000);
+		assert.ok(path.startsWith(cwd), "path must resolve inside cwd");
+		assert.ok(jsonPath !== null && jsonPath.startsWith(cwd), "jsonPath must resolve inside cwd");
+	});
+
+	it("writes the artifacts with mode 0600", async (t) => {
+		if (process.platform === "win32") return t.skip("POSIX file modes not available on Windows");
+		const s = await shim({ status: 200, body: "MD", jsonStatus: 200, jsonBody: JSON_BODY });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd, refresh: true });
+		assert.strictEqual(outcome.ok, true);
+		assert.strictEqual(statSync(REPORT_PATH()).mode & 0o777, 0o600, "markdown artifact must be 0600");
+		assert.strictEqual(statSync(REPORT_JSON_PATH()).mode & 0o777, 0o600, "json artifact must be 0600");
 	});
 
 	it("still succeeds without JSON (404) and reports no jsonPath", async () => {
@@ -208,23 +187,19 @@ describe("transport + artifact", () => {
 		mkdirSync(join(cwd, "ignore"), { recursive: true });
 		writeFileSync(target, "PRE-EXISTING");
 
-		const pi = makePi();
-		codeflowAnalysis(pi);
-		const res = await execTool(pi, {}, { cwd });
-
-		assert.strictEqual(res.isError, true);
-		assert.match(res.content[0].text, /run analysis in CodeFlow/);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, false);
+		assert.match(outcome.ok === false ? outcome.message : "", /run analysis in CodeFlow/);
+		assert.strictEqual(outcome.ok === false ? outcome.status : 0, 404);
 		assert.strictEqual(readFileSync(target, "utf-8"), "PRE-EXISTING");
 	});
 
 	it("surfaces a 500 and writes no file", async () => {
 		const s = await shim({ status: 500 });
 		routeTo(s);
-		const pi = makePi();
-		codeflowAnalysis(pi);
-		const res = await execTool(pi, {}, { cwd });
-		assert.strictEqual(res.isError, true);
-		assert.match(res.content[0].text, /HTTP 500/);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, false);
+		assert.match(outcome.ok === false ? outcome.message : "", /HTTP 500/);
 		assert.ok(!existsSync(REPORT_PATH()));
 	});
 

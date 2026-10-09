@@ -125,7 +125,13 @@ Create an issue on the repository configured in `.pi/settings.json`, using the i
 
 ### codeflow-analysis
 
-Interpret a CodeFlow analysis report, group findings by file, and propose internal GitHub issues after explicit confirmation.
+Interpret a CodeFlow analysis report, group findings by file, and propose internal GitHub issues after explicit confirmation. The skill owns the whole capability, including the report fetch: `scripts/fetch-report.mts` fetches the browser-run analysis from the local CodeFlow shim and writes `ignore/codeflow-report.md` and `ignore/codeflow-report.json`.
+
+```bash
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/fetch-report.mts [--refresh]
+```
+
+It prints `{path, jsonPath, bytes, analyzedAt, warnings}`. Exit `0` on success, `2` when no analysis has run yet (HTTP 404 — run an analysis in the CodeFlow UI and retry), `1` on a transport or write failure. Both artifacts are written through an exclusive temp file and atomic rename with mode `0600`, and a report directory that resolves outside the workspace through a symlink is refused. The markdown export omits duplicate-code findings, layer violations, and suggestions; the JSON export carries them and is the preferred source.
 
 - **Mode:** Auto — agent may invoke without explicit user command
 - **Dependency:** CodeFlow report artifacts and configured internal repository

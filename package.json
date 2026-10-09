@@ -4,7 +4,7 @@
 	"description": "---",
 	"main": "index.js",
 	"scripts": {
-		"test": "node --experimental-strip-types --test '.pi/extensions/**/*.test.mts' '.pi/extensions/**/*.test.ts' 'test/**/*.test.mts'",
+		"test": "node --experimental-strip-types --test '.pi/extensions/**/*.test.mts' '.pi/extensions/**/*.test.ts' '.pi/skills/**/*.test.mts' '.pi/skills/**/*.test.ts' 'test/**/*.test.mts'",
 		"tsc:extensions": "tsc --noEmit --project .pi/tsconfig.json",
 		"pi": "pi"
 	},

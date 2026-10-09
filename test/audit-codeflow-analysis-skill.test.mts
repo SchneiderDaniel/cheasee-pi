@@ -2,9 +2,10 @@
  * Tests for the audit-codeflow-analysis skill contract.
  *
  * Text-analysis tests that read SKILL.md and assert the required contract:
- * tool/report references, the ask_user confirmation gate before any
- * `gh issue create`, issues-only scope with a locked main, create-internal-issue
- * delegation, best-effort isolation disclosure, and package.json wiring.
+ * report references, the skill-owned fetch script, the ask_user confirmation
+ * gate before any `gh issue create`, issues-only scope with a locked main,
+ * create-internal-issue delegation, best-effort isolation disclosure, and
+ * package.json wiring.
  *
  * Run with:
  *   node --experimental-strip-types --test test/audit-codeflow-analysis-skill.test.mts
@@ -56,10 +57,12 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 		);
 	});
 
-	it("references the report artifact and the fetch tool", () => {
+	it("references the report artifacts and the skill-owned fetch script", () => {
 		assert.match(body, /ignore\/codeflow-report\.md/);
 		assert.match(body, /ignore\/codeflow-report\.json/);
-		assert.match(body, /codeflow_analysis_report/);
+		assert.match(body, /scripts\/fetch-report\.mts/);
+		assert.doesNotMatch(body, /codeflow_analysis_report/, "tool name must be gone");
+		assert.doesNotMatch(body, /extensions\/codeflow-analysis/, "extension path must be gone");
 	});
 
 	it("documents the JSON-only categories and their markdown fallback", () => {
@@ -91,12 +94,13 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 });
 
 describe("package.json test wiring", () => {
-	it("npm test globs register the new codeflow test files", () => {
+	it("npm test globs register the codeflow skill test files", () => {
 		for (const file of [
 			".pi/extensions/lib/test/codeflow-endpoint.test.mts",
-			".pi/extensions/codeflow-analysis/test/codeflow-analysis.test.mts",
-			".pi/extensions/codeflow-analysis/test/report.test.mts",
-			".pi/extensions/codeflow-analysis/test/bridge.test.mts",
+			".pi/skills/audit-codeflow-analysis/test/codeflow-analysis.test.mts",
+			".pi/skills/audit-codeflow-analysis/test/report.test.mts",
+			".pi/skills/audit-codeflow-analysis/test/fetch-report-cli.test.mts",
+			".pi/skills/audit-codeflow-analysis/test/bridge.test.mts",
 		]) {
 			assert.ok(isRegistered(file), `npm test globs must register ${file}`);
 		}
