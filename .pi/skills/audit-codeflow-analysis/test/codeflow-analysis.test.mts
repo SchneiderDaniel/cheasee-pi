@@ -481,6 +481,38 @@ describe("partial run disclosure", () => {
 		assert.ok(warnings.join(" ").length > 0, "recovery must be loud, not silent");
 	});
 
+	it("keeps the full export recovered from the markdown route when the JSON slot is a stale stub", async () => {
+		const fullExport = JSON.stringify({
+			summary: { totalFiles: 10 },
+			architectureIssues: [{ title: "x", affectedFiles: ["src/a.ts"] }],
+			duplicates: [{ files: [{ file: "src/a.ts" }, { file: "src/b.ts" }] }],
+		});
+		const staleStub = '{"architectureIssues":[]}';
+		const s = await shim({ status: 200, body: fullExport, jsonStatus: 200, jsonBody: staleStub });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(outcome.result.recoveredFromMarkdownRoute, true);
+		assert.strictEqual(outcome.result.partial, false);
+		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), fullExport);
+		const warnings = outcome.result.warnings.join(" ");
+		assert.match(warnings, /smaller export/i);
+		assert.match(warnings, /recovered body was kept/i);
+	});
+
+	it("prefers the JSON route body when it is at least as large as the recovered body", async () => {
+		const recovered = '{"architectureIssues":[{"title":"old"}]}';
+		const routeBody = '{"architectureIssues":[{"title":"new","affectedFiles":["src/b.ts"]}]}';
+		const s = await shim({ status: 200, body: recovered, jsonStatus: 200, jsonBody: routeBody });
+		routeTo(s);
+		const outcome = await fetchAndStoreReport({ cwd });
+		assert.strictEqual(outcome.ok, true);
+		if (!outcome.ok) return;
+		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), routeBody);
+		assert.ok(!/smaller export/i.test(outcome.result.warnings.join(" ")));
+	});
+
 	it("removes a stale JSON artifact so a partial refresh cannot look complete", async () => {
 		const s = await shim({ status: 200, body: "MD", jsonStatus: 404, bridgeStatusStatus: 404 });
 		routeTo(s);

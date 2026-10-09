@@ -57,7 +57,7 @@ Load this skill when the user asks to:
 - The skill-owned fetch script `.pi/skills/audit-codeflow-analysis/scripts/fetch-report.mts`
   is present, and Node runs with `--experimental-strip-types`.
 - `ask_user` tool available (the `ask-user` extension).
-- `.pi/settings.json` has `supervisor.repo` set to `owner/repo`.
+- The repo-root `.pi/settings.json` (not this skill's directory) has `supervisor.repo` set to `owner/repo`.
 - The `codeflow` sidecar carries the headless analyzer (`run-analysis.mjs` + Node),
   so an empty report slot is filled on demand. The browser bridge remains an
   alternative producer.
@@ -157,7 +157,10 @@ markdown marker considered. This matters because the JSON export embeds the
 literal `# CodeFlow Analysis Report` inside its source snippets. The transport
 re-sniffs both route bodies for the same reason, so a misrouted or old-shim body
 still lands in the correct artifact (`recoveredFromMarkdownRoute`); recovery is
-reported as a warning, never silently. A body that classifies as the JSON export
+reported as a warning, never silently. When the markdown route recovered an
+export, the `.json` route body replaces it only if it is at least as large: a
+smaller body is a stale or truncated slot, so the recovered export is kept and
+the discard is warned. A body that classifies as the JSON export
 is never written to the markdown path, so `path` never points at JSON content;
 because that shim serves no markdown narration, the transport writes a short
 markdown placeholder to `path` instead of leaving it dangling.
