@@ -554,10 +554,12 @@ func TestCodeFlowServer_Bridge(t *testing.T) {
 
 // bridgeStatusEntry mirrors one route's telemetry in /api/analysis/bridge-status.
 type bridgeStatusEntry struct {
-	CapturedAt *int64 `json:"capturedAt"`
-	PostedAt   *int64 `json:"postedAt"`
-	HTTPStatus *int   `json:"httpStatus"`
-	Bytes      *int64 `json:"bytes"`
+	CapturedAt   *int64  `json:"capturedAt"`
+	PostedAt     *int64  `json:"postedAt"`
+	HTTPStatus   *int   `json:"httpStatus"`
+	Bytes        *int64  `json:"bytes"`
+	RejectedAt   *int64  `json:"rejectedAt"`
+	RejectReason *string `json:"rejectReason"`
 }
 
 func (s *reportShim) bridgeStatus(t *testing.T) map[string]bridgeStatusEntry {

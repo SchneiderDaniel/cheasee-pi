@@ -38,7 +38,7 @@ function generateReportBody(emitJson = true): string {
 	return `
 function generateReport(format) {
   if (format === "json"${emitJson ? "" : " && false"}) {
-    var blob = new Blob([JSON.stringify({ architectureIssues: [], marker: data.marker })], { type: "application/json" });
+    var blob = new Blob([JSON.stringify({ architectureIssues: [], duplicates: [{ files: ["a", "b"] }], layerViolations: [{ from: "UI", to: "DB" }], suggestions: [{ text: "split" }], marker: data.marker })], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
@@ -129,10 +129,12 @@ describe("run-analysis.mjs headless producer", () => {
 			readFileSync(join(fx.outDir, "report.md"), "utf-8"),
 			"# CodeFlow Analysis Report\n\nmarker=FIXTURE\n",
 		);
-		assert.strictEqual(
-			JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8")).marker,
-			"FIXTURE",
-		);
+		const produced = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
+		assert.strictEqual(produced.marker, "FIXTURE");
+		// JSON-only categories the markdown export omits must survive verbatim.
+		assert.deepStrictEqual(produced.duplicates, [{ files: ["a", "b"] }]);
+		assert.deepStrictEqual(produced.layerViolations, [{ from: "UI", to: "DB" }]);
+		assert.deepStrictEqual(produced.suggestions, [{ text: "split" }]);
 	});
 
 	it("succeeds without a JSON export (envelope json:null, no report.json)", () => {
