@@ -13,7 +13,7 @@ import assert from "node:assert";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { resolve, join } from "node:path";
-import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 
 import {
@@ -23,7 +23,6 @@ import {
 	formatDiagnosticsJson,
 	directionLabel,
 	runTscCheckpoint,
-	diagnosticToTscDiagnostic,
 } from "../index.ts";
 
 import type { TscDiagnostic, DiagnosticTrend } from "../index.ts";

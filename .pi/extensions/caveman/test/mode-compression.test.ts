@@ -9,7 +9,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { resolveCompression, type ExtensionMode } from "../compression.ts";
-import type { Level } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // Tests

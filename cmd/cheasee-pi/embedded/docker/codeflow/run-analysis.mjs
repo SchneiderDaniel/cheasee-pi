@@ -20,8 +20,9 @@
 //   uiDir      pinned CodeFlow checkout (contains index.html + card/lib/*.js)
 //   outDir     destination for report.md / report.json
 //
-// Exit 0 and print a final-line envelope {markdown,json,analyzedAt} on success;
-// nonzero with a bounded stderr message on failure. Only node: builtins.
+// Exit 0 and print a final-line envelope {markdown,json,analyzedAt,stats,terms}
+// on success; nonzero with a bounded stderr message on failure. Only node:
+// builtins.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -37,6 +38,24 @@ const METRICS_END = "// ===== CODEFLOW_METRICS_END =====";
 function fail(message) {
 	process.stderr.write(String(message).slice(0, 4096) + "\n");
 	process.exit(1);
+}
+
+// The two live calcHealth terms, derived from the analyzer's own stats so the
+// score inputs are reproducible without the browser UI: coupling is
+// min(15, max(0, connections/files - 3) * 2), dead code min(20, dead/functions
+// * 100). Read-only measurement — report production is never gated on it, so
+// unusable stats yield `terms: null` instead of failing the run.
+function scoreTerms(stats) {
+	if (!stats || typeof stats !== "object") return null;
+	const { files: fileCount, connections: linkCount, functions: fnCount, dead: deadCount } = stats;
+	const usable = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0;
+	if (![fileCount, linkCount, fnCount, deadCount].every(usable)) return null;
+	if (fileCount === 0 || fnCount === 0) return null;
+	const round3 = (n) => Math.round(n * 1000) / 1000;
+	return {
+		coupling: round3(Math.min(15, Math.max(0, linkCount / fileCount - 3) * 2)),
+		deadCode: round3(Math.min(20, (deadCount / fnCount) * 100)),
+	};
 }
 
 // Read one analyzed path out of the snapshot the analyzer ran against, so the
@@ -243,7 +262,10 @@ async function main() {
 	});
 
 	// A throw here aborts the run: an unsanitized report is never exported.
-	const { data: filtered, suppressed } = fpFilter.sanitizeAnalysisData(data, makeReadFile(sourceDir));
+	const { data: filtered, suppressed } = fpFilter.sanitizeAnalysisData(
+		data,
+		makeReadFile(sourceDir),
+	);
 	if (suppressed.security.length || suppressed.layerViolations.length) {
 		process.stderr.write(
 			`fp-filter: suppressed ${suppressed.security.length} security issue(s), ` +
@@ -272,8 +294,17 @@ async function main() {
 		fs.writeFileSync(path.join(outDir, jsonName), json, "utf8");
 	}
 
+	// Stats are read from the sanitized data so the terms describe the same report
+	// the exports were built from.
+	const stats = filtered && filtered.stats !== undefined ? filtered.stats : null;
 	process.stdout.write(
-		JSON.stringify({ markdown: markdownName, json: jsonName, analyzedAt: Date.now() }) + "\n",
+		JSON.stringify({
+			markdown: markdownName,
+			json: jsonName,
+			analyzedAt: Date.now(),
+			stats,
+			terms: scoreTerms(stats),
+		}) + "\n",
 	);
 }
 

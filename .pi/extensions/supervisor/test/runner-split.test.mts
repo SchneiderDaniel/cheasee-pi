@@ -19,7 +19,7 @@
  *  - widget debounce/heartbeat/dispose idempotency
  */
 
-import { describe, it, mock, before } from "node:test";
+import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";

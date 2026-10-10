@@ -11,7 +11,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { Box, Container, Markdown, Text } from "@earendil-works/pi-tui";
+import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import * as messageRendererModule from "../session/message-renderer.ts";
 import {
@@ -29,7 +29,7 @@ const createSummaryRenderer = (...args: Parameters<typeof createSummaryRendererT
 import { RENDERERS, fallbackRenderer } from "../session/message-renderers/index.ts";
 import * as renderSimple from "../session/message-renderers/render-simple.ts";
 import { makeTestTheme } from "./helpers/theme.mts";
-import type { SubagentDetails, AgentToolResult } from "../subagent/types.ts";
+import type { SubagentDetails } from "../subagent/types.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RENDERERS_DIR = join(__dirname, "..", "session", "message-renderers");

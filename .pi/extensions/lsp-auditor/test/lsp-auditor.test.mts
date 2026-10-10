@@ -10,10 +10,8 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import type { LspDiagnostic, ServerMapping, AuditResult } from "../types.ts";
+import type { LspDiagnostic, ServerMapping } from "../types.ts";
 import {
-	severityValue,
-	thresholdValue,
 	formatDiagnostics,
 	truncateMessage,
 	filterBySeverity,
@@ -21,7 +19,7 @@ import {
 import { buildServerMappings } from "../server-mappings.ts";
 import { extractModifiedFiles, groupFilesByServer } from "../file-discovery.ts";
 import { fileExtension } from "../lib/file-ext.ts";
-import { countRetryAttempts, shouldRetry, MAX_RETRIES } from "../retry.ts";
+import { countRetryAttempts, shouldRetry } from "../retry.ts";
 import { mergeAuditResults, mapSessionEntriesToRetryEntries, checkProjectTrust } from "../run-pre-audit.ts";
 import { formatForMode } from "../output-adapter.ts";
 // Extension entry point — imported here to satisfy knip (loaded dynamically by pi)

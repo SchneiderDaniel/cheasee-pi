@@ -17,7 +17,7 @@ import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, mkdirSync, existsSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig, AgentRunResult, FilteredIssueData } from "../config/types.ts";
 import { ErrorCollector } from "../pipeline/error-collector.ts";
 import { handlePostAgentSuccess } from "../pipeline/stages/index.ts";

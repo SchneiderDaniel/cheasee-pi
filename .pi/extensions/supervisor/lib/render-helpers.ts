@@ -16,7 +16,6 @@ import {
 	createLsToolDefinition,
 	initTheme,
 } from "@earendil-works/pi-coding-agent";
-import { getBuiltinToolLabels } from "./tool-line.ts";
 import type { ThemeColor, ThemeStyle } from "@earendil-works/pi-coding-agent";
 
 /**

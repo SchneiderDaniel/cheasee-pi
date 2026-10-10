@@ -11,7 +11,6 @@ import assert from "node:assert/strict";
 import type { SettingItem } from "@earendil-works/pi-tui";
 import type { CavemanConfig } from "../types.ts";
 import type { ConfigStore } from "../config.ts";
-import { LEVELS } from "../types.ts";
 import { registerCavemanCommand } from "../command.ts";
 import { initTheme } from "@earendil-works/pi-coding-agent";
 import { readdirSync, readFileSync } from "node:fs";

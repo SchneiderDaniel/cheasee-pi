@@ -16,14 +16,11 @@ import { extractTestCommand, parseFailedTests, truncateOutput } from "./helper/o
 import {
 	buildPlanWithCommand,
 	buildPlanWithoutCommand,
-	buildPlanWithMultipleBlocks,
 	buildPlanWithGlob,
 } from "./helper/comment-builder.mts";
 
 import {
-	runCommand,
 	mockRunCommand,
-	mockRunCommandFactory,
 	type ExecResult,
 } from "./helper/mock-exec.mts";
 

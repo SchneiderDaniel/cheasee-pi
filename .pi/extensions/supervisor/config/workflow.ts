@@ -7,7 +7,7 @@ import {
 	isRefused as isAgentOutputRefused,
 } from "../agent/output.ts";
 import { extractStructuredAuditMarkers } from "../agent/structured-audit.ts";
-import type { AgentOutput, Finding, FilteredIssueData, ParseResult } from "./types.ts";
+import type { AgentOutput, Finding, FilteredIssueData } from "./types.ts";
 import {
 	AUDIT_APPROVED_HEADING,
 	AUDIT_REJECTED_HEADING,

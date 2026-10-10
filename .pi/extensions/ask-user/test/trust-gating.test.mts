@@ -16,7 +16,6 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import {
 	appendQnaEntry,
 	readQnaEntries,
-	migrateIfCsvExists,
 	getQnaEntry,
 	listQnaEntries,
 	queryQnaEntries,

@@ -5,7 +5,7 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, it, mock, before } from "node:test";
+import { describe, it, before } from "node:test";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

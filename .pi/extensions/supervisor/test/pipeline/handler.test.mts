@@ -11,7 +11,6 @@ import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 import { handlePostPipeline } from "../../pipeline/handler.ts";
 import {
 	writeCheckpointFile,
-	deleteCheckpointFile,
 	readCheckpointFileFromPath,
 } from "../../pipeline/state-checkpoint.ts";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";

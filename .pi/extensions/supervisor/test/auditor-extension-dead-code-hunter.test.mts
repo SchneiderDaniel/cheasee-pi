@@ -13,7 +13,7 @@ import { describe, it, mock } from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveSkillPaths, resolveSkillPathsWithFs } from "../lib/extensions.ts";
+import { resolveSkillPaths } from "../lib/extensions.ts";
 import { buildAgentTask, generateBranchName, summarizeComments } from "../agent/task.ts";
 import type { FilteredIssueData } from "../config/types.ts";
 

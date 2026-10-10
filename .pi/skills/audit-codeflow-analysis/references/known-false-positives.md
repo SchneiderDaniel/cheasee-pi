@@ -19,6 +19,8 @@ is the one to run first.
 | 7 | `LOW: Debug Statements` | `console.log(...)` text inside ast-grep pattern strings or a JSON fixture. | Read the cited line: the call text is a pattern/fixture payload, not executable debug code. |
 | 8 | dead code | The function is reached indirectly — via a callback seam (`fetchFn`/`writeFileFn`) or a Rust trait method invoked from `wire()`. | Structural-search for the function name as a value passed by reference or through a trait object before calling it dead. |
 | 9 | `layer-violation` | The edge pairs files in different language families (e.g. a `.ts` endpoint with a Rust `ui/src/*.rs` one); a language cannot import across that boundary, so the match is a bare identifier (`dir`, `root`, `state`). | Compare the endpoint extensions: an import-based violation only exists within one language family (`.ts`/`.mts`/`.tsx`/`.js`/`.mjs`/`.jsx` are one family). |
+| 10 | coupling / dead code: phantom function | The heuristic scanner reads a bare word after `def`/`class`/`function` as a definition — a comment `class/def searches` invents a `searches` function, and a Go named result `(def string, models []string)` invents a `string` function. The phantom then collects one `connection` from every mention of that word (removing it dropped #1995's pinned tree by 322 connections, 3500 → 3178, and one declared function, 3523 → 3522). It does **not** enter the dead-code list: because it has those many resolved callers, #1995 measured `dead` unchanged at 45 with and without it. | `structural_search` for the symbol's declaration: a "function" whose name is a builtin type (`string`, `int`) or whose only occurrence is inside a comment/string has no body — it is a scanner artifact, not code. Convert Go named results to unnamed ones to drop it. |
+| 11 | dead code: ambient/type declaration | The scanner extracts ambient module members (`declare module "x" { function f(): void }`) as "functions" with no runtime body, so an unused-but-declared third-party API surface looks like dead code. #1995 measured four such declarations in `.pi/extensions/lib/proper-lockfile-ambient.ts` counted as `dead`; they are kept, not deleted. | Read the declaration: a member inside `declare module`/`declare global`/a `.d.ts` with no body is type-only. It is not executable code, so removing it moves the count without deleting a function. |
 
 Text-provable (auto-suppressed before validation, per `classifyKnownNoise`):
 rows 6, 7 and 9, plus any fact whose every cited file is unresolved. Everything else
@@ -38,3 +40,10 @@ that does appear here means the filter missed it, which is the bug to fix.
 Scope (is this a bug or a chore/refactor?) is decided before validation by
 `classifyFinding` in `lib/report.ts`, never here — so no row in this table uses
 "it is only a size/count metric" as a disproof.
+
+## Verified instances
+
+Per-issue verdict lists that applied these rows, with the pinned-analyzer
+measurement behind them, live in `references/coupling-deadcode-1995.md`
+(coupling unit and before/after, plus the row-8/row-10 verdict for every dead
+candidate). Row 11 records the ambient-declaration shape #1995 reverted.

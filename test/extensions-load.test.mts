@@ -12,8 +12,8 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { readdirSync, existsSync, statSync, readFileSync } from "node:fs";
-import { join, resolve, basename } from "node:path";
+import { readdirSync, existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import {
 	extractSdkStaticImports,

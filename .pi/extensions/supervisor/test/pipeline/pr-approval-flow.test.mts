@@ -9,7 +9,6 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunResult, PipelineAgentResult, PrConflictInfo } from "../../config/types.ts";
-import type { GitHubPort } from "../../github/ports.ts";
 import { createMockGitHubPort } from "../helper/mock-github-port.ts";
 import type { PortCall } from "../helper/mock-github-port.ts";
 import { handlePrApprovalFlow } from "../../pipeline/handler/pr-gates.ts";

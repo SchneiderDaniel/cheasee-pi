@@ -13,7 +13,6 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // We import the default export and test it with a mock pi

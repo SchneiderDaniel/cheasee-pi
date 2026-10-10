@@ -14,7 +14,7 @@ import { handleNormalizedEvent } from "./runner/event-loop.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
-import { extractTextFromContent, formatDuration } from "../lib/formatting.ts";
+import { formatDuration } from "../lib/formatting.ts";
 import { resolveTools } from "../lib/extensions.ts";
 import { buildTimeoutNote, stateResultFields } from "./runner/cleanup.ts";
 

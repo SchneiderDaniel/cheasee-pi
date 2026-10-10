@@ -9,7 +9,7 @@
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
 import { Box, Container, Text, Markdown, type Component } from "@earendil-works/pi-tui";
-import { initTheme, getMarkdownTheme } from "@earendil-works/pi-coding-agent";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import {
 	createMessageRenderer as createMessageRendererTyped,
 	createSummaryRenderer as createSummaryRendererTyped,
