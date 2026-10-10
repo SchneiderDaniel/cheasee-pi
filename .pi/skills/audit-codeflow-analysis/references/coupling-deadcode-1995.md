@@ -1,10 +1,13 @@
 # Coupling / dead-code verification record (#1995)
 
-Chore #1995 reduces the two live `calcHealth` terms this repository actually
-controls: coupling and dead code. This file is the verification record: the
-pinned-analyzer calibration, the reproduced before/after numbers, and the
-per-candidate dead-code verdicts. It is the artifact the audit asked for in
-place of the previous "stub analyzer only, no measurement" claim.
+Chore #1995 targets the two live `calcHealth` terms this repository actually
+controls: coupling and dead code. Coupling is measurably reduced (below). The
+dead-code verification found no confirmed-unreachable implementation code in the
+full-workspace inputs — all 24 live `Unused Functions` candidates are reached
+indirectly — so the dead-code term is honestly unchanged and that acceptance
+criterion is revised/deferred rather than claimed (below). This file is the
+verification record: the pinned-analyzer calibration, the reproduced before/after
+numbers, and the per-candidate dead-code verdicts.
 
 ## Pinned analyzer and how to reproduce
 
@@ -37,7 +40,7 @@ git show origin/main:cmd/cheasee-pi/catalog.go > /tmp/src-Bp/cmd/cheasee-pi/cata
 node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
   /tmp/src-Bp /tmp/codeflow-ui /tmp/out-Bp
 
-# C: this branch, only the four ambient declarations restored.
+# C: control — restore the ambient file (this branch no longer changes it, so C ≡ B).
 rm -rf /tmp/src-C && mkdir -p /tmp/src-C
 git archive HEAD | tar -x -C /tmp/src-C
 git show origin/main:.pi/extensions/lib/proper-lockfile-ambient.ts > /tmp/src-C/.pi/extensions/lib/proper-lockfile-ambient.ts
@@ -45,12 +48,12 @@ node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
   /tmp/src-C /tmp/codeflow-ui /tmp/out-C
 ```
 
-`git archive` snapshots the committed tree, so all four trees are measured with
-one analyzer on the same file set. The envelope's `stats` and `terms` are the
-measurement; the report artifacts are unaffected. `B′` and `C` each revert
-*only* one edit, which is what makes the `A → B′`, `B′ → B` and `C → B` deltas
-below single-cause (real import drops / phantom artifact / ambient-declaration
-removal respectively).
+`git archive` snapshots the committed tree, so all trees are measured with one
+analyzer on the same file set. The envelope's `stats` and `terms` are the
+measurement; the report artifacts are unaffected. `B′` reverts *only* the Go
+named-result edit, isolating the `B′ → B` artifact delta. `C` restores the
+ambient file this branch no longer changes and is byte-identical to `B`; it is
+the control showing the ambient declarations contribute no `dead` change.
 
 > Note on the issue's numbers: the live report `local/workspace-f4048b9b`
 > (1026 files, 5006 dependencies, ratio 4.879, 24 unused) was produced by the
@@ -98,7 +101,7 @@ import statements; only the *referencing* side matters, and `.mts` files are not
 analyzed at all. That is why the facade exports are preserved (below), and why
 the reducible surface is narrow: a repo-wide sweep for genuinely-unused imports
 (`tsc --noUnusedLocals` over `.pi/tsconfig.json`, an AST scan of the `.js`/`.mjs`
-files, and a Python import audit) leaves exactly two unused cross-file function
+files, and a Python import audit) leaves exactly three unused cross-file function
 imports, removed below. The dominant movement in the `calcHealth` coupling term
 is consequently scanner-artifact suppression, which the attribution section below
 reports separately and does **not** count as coupling reduction.
@@ -108,25 +111,28 @@ reports separately and does **not** count as coupling reduction.
 | Ref | files | functions | connections | ratio | coupling | dead | deadCode |
 |-----|-------|-----------|-------------|-------|----------|------|----------|
 | `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 | 45 | 1.278 |
-| this branch | 725 | 3518 | 3178 | 4.3834 | 2.767 | 41 | 1.165 |
+| this branch | 725 | 3522 | 3178 | 4.3834 | 2.767 | 45 | 1.278 |
 
-- ratio `4.8384 → 4.3834` (−0.4550), coupling `3.677 → 2.767` (−0.910 points),
-  dead-code `1.278 → 1.165` (−0.113 points). (The branch file count is one
-  higher because this record ships with the change.)
-- **Attribution is split by measurement, not assertion.** Two extra trees
-  isolate the two independent edits. `B′` is this branch with only
+- ratio `4.8384 → 4.3834` (−0.4550), coupling `3.677 → 2.767` (−0.910 points).
+  The dead-code term is **unchanged** (`45/3522 = 1.278` before and after): the
+  full-workspace inputs contain no confirmed-unreachable implementation code, so
+  no dead-code candidate was removed. (The branch file count is one higher
+  because this record ships with the change.)
+- **Attribution is split by measurement, not assertion.** One extra tree
+  isolates the only metric-moving edit. `B′` is this branch with only
   `cmd/cheasee-pi/catalog.go` restored to `origin/main` (isolates the Go
-  named-result cleanup); `C` is this branch with only
-  `.pi/extensions/lib/proper-lockfile-ambient.ts` restored to `origin/main`
-  (isolates the four ambient-declaration removals). Same pinned analyzer, same
+  named-result cleanup). `C` restores
+  `.pi/extensions/lib/proper-lockfile-ambient.ts`; because this branch no longer
+  touches that file, `C` is byte-identical to `B` and is kept only as the control
+  showing the ambient declarations move nothing. Same pinned analyzer, same
   `git archive` snapshot method:
 
 | Tree | files | functions | connections | ratio | coupling | dead | deadCode |
 |------|-------|-----------|-------------|-------|----------|------|----------|
 | `A` `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 | 45 | 1.278 |
-| `B′` branch, `catalog.go` reverted | 725 | 3519 | 3500 | 4.8276 | 3.655 | 41 | 1.165 |
+| `B′` branch, `catalog.go` reverted | 725 | 3523 | 3500 | 4.8276 | 3.655 | 45 | 1.277 |
 | `C` branch, `proper-lockfile-ambient.ts` restored | 725 | 3522 | 3178 | 4.3834 | 2.767 | 45 | 1.278 |
-| `B` this branch | 725 | 3518 | 3178 | 4.3834 | 2.767 | 41 | 1.165 |
+| `B` this branch | 725 | 3522 | 3178 | 4.3834 | 2.767 | 45 | 1.278 |
 
   - **Real dependency-edge reduction — `A → B′`, −3 connections.** Dropping
     three genuinely-unused cross-file function imports from analyzed code:
@@ -144,17 +150,14 @@ reports separately and does **not** count as coupling reduction.
     cleanup whose *metric* effect is artifact removal, filed against the
     detector-false-positive track (row 10 of `known-false-positives.md`), not
     against this chore. It moves `dead` by **0**: `B′` (phantom present) and `B`
-    (phantom removed) both report `dead: 41` / `deadCode: 1.165`, so the phantom
-    is a *caller* of the invented symbol, not itself unused.
-  - **Dead-code reduction — `C → B`, −4 functions and −4 dead.** `C` differs
-    from `B` only in the four `proper-lockfile-ambient.ts` declarations:
-    `C` reports `functions: 3522` / `dead: 45`, `B` reports `functions: 3518` /
-    `dead: 41`. Restoring the declarations raises both counts by 4; removing
-    them lowers both by 4. The whole `dead` 45 → 41 drop is therefore
-    attributable to those four confirmed-unreachable declarations and to
-    nothing else — in particular not to the phantom. (The phantom's single
-    extra declared "function" is the `functions` 3519 → 3518 half of
-    `B′ → B`.)
+    (phantom removed) both report `dead: 45` / `deadCode ≈ 1.278`, so the phantom
+    is a *caller* of the invented symbol, not itself unused. Its single extra
+    declared "function" is the `functions` 3523 → 3522 half of `B′ → B`.
+  - **Dead-code term — `C → B`, no change.** `C` and `B` are identical trees
+    (this branch does not touch `proper-lockfile-ambient.ts`): both report
+    `functions: 3522` / `dead: 45` / `deadCode: 1.278`. The four ambient
+    declarations stay exactly as on `origin/main`; the branch removes no
+    dead-code entry.
   - Net connection movement `−325 = −3 real + −322 artifact`; file-count +1 is
     this record shipping with the change. No score-formula or detector
     configuration was touched, so `calcHealth` is unchanged.
@@ -173,12 +176,11 @@ This is a detector artifact: the 322 edges never represented a dependency. The
 chore therefore reports them separately from the −3 real dependency edges and
 does not rely on them to claim the coupling term moved. It also contributes no
 dead-code entry: `B′` (phantom present) and `B` (phantom removed) both report
-`dead: 41` / `deadCode: 1.165`. The phantom collected those 322 edges as a
+`dead: 45` / `deadCode ≈ 1.278`. The phantom collected those 322 edges as a
 *callee*, so it never sat in the unused set. An earlier draft of
 `known-false-positives.md` row 10 claimed the phantom "appears in the dead-code
-list"; the measurement above disproves that, and row 10 is corrected. The
-`dead` 45 → 41 drop is isolated to the four ambient declarations by the
-`C → B` pair above.
+list"; the measurement above disproves that, and row 10 is corrected. The branch
+changes no `dead` count at all: the `C → B` control is byte-identical.
 
 ## Dead-import guard hardening (audit finding)
 
@@ -210,21 +212,26 @@ real connections in the attribution above.
 
 ## Dead-code candidate verdicts
 
-The pinned analyzer reports `dead: 45` before this change and `dead: 41` after.
-Every candidate was checked for (a) the symbol used as a value passed by
-reference, (b) a trait/`impl`/`dyn` or default-export dispatch, and (c) a
-`wire()`/framework seam, per row 8 of `known-false-positives.md`.
+The pinned analyzer reports `dead: 45` on `origin/main` and `dead: 45` on this
+branch: **the branch removes no dead-code entry**. Every candidate was checked
+for (a) the symbol used as a value passed by reference, (b) a trait/`impl`/`dyn`
+or default-export dispatch, and (c) a `wire()`/framework seam, per row 8 of
+`known-false-positives.md`.
 
-**Attribution.** The four removals below are functions the *headless* analyzer
-extracts but no code references; they are not among the live report's 24 (which
-are all INVALID). The live `Unused Functions` numerator therefore stays 24 and
-the live dead-code term is effectively unchanged — the reproducible improvement
-is the headless `dead` count, 45 → 41. The `C → B` trees above isolate that
-delta to these four declarations: `C` (= `B` with the declarations restored)
-reports `dead: 45`, `B` reports `dead: 41`, and `B′` reports `dead: 41` with the
-`catalog.go` phantom still present, so the phantom contributes none of it. This
-is why the issue's own estimate for the dead-code lever is ≈ 0.5 and why no live
-candidate was force-removed.
+**Attribution — the dead-code criterion is deferred, not met.** There is no
+confirmed-unreachable implementation code in the full-workspace inputs. The live
+`local/workspace-f4048b9b` report's 24 `Unused Functions` are all INVALID (table
+below); the pinned analyzer's headless `dead: 45` decomposes into the same
+indirectly-reached implementation functions plus four ambient *type
+declarations* in `.pi/extensions/lib/proper-lockfile-ambient.ts`. The ambient
+declarations have no runtime body and are normal API-surface typing for a
+third-party module; deleting them to lower a "function" count is detector
+gaming, not dead-code removal, so they are kept exactly as on `origin/main`.
+An earlier draft removed them and claimed a `45 → 41` headless reduction; the
+audit correctly rejected that as declarations counted as executable dead code.
+This branch therefore reports the dead-code term unchanged (`1.278 → 1.278`) and
+revises the issue's "dead-code term improves" criterion to **deferred pending a
+live sidecar rerun** — no candidate is force-removed.
 
 ### The issue's live-run candidates (24), with individual verdicts
 
@@ -267,17 +274,17 @@ a `wire()` adapter call that a call-site text search misses; none was removed.
 The headless candidate list below flags the 19 Rust entries and
 `defaultIsWritable` from this same set, so no live entry is left unexamined.
 
-**VALID and removed — 4 candidates.** `.pi/extensions/lib/proper-lockfile-ambient.ts`
-declared `lockSync` / `unlockSync` / `checkSync` / `unlock` for the
-`proper-lockfile` module. `rg` over the whole worktree finds no reference for any
-of them; `ensureVenv.ts` imports the module but uses only `lockfile.lock` (the
-async `lock`), never the standalone `unlock`. The only textual hits for `unlock`
-are a test-title string and an unrelated local variable, neither a reference
-under the AST rule the repo uses for its own dead-import guard
-(`test/extension-test-imports.test.mts`), so `unlock` is genuinely dead like the
-three sync declarations. Removing the four unreferenced ambient declarations is
-a type-only change (no runtime body) and `npm run tsc:extensions` stays green
-with them gone.
+**Kept, not removed — 4 ambient declarations.** `.pi/extensions/lib/proper-lockfile-ambient.ts`
+declares `lockSync` / `unlockSync` / `checkSync` / `unlock` for the
+`proper-lockfile` module. `rg` finds no direct reference for any of them, but
+they are ambient *type* declarations with no runtime body — the declared API
+surface of the third-party module — and the analyzer's `heuristic-regex` mode
+counts them as "functions" (row 11 of `known-false-positives.md`). Removing them
+to lower `dead` moves the metric
+without removing executable code, which is exactly the false attribution the
+audit flagged, so the file is left byte-identical to `origin/main`. The
+measurement above (`C` ≡ `B`) confirms the branch's `dead` count is unchanged by
+them.
 
 **INVALID — 41 candidates.** Every remaining entry is reached indirectly; the
 lowercase `refs` count is the number of occurrences outside the declaration.
