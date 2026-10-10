@@ -67,6 +67,12 @@ Upstream advisories on transitive leptos-stack crates (tracked, not directly fix
   reachable direct replacement through the leptos macro stack. Accepted
   maintenance risk: unmaintained, no exploitable CVE established.
 
+No safe update applies: `paste` 1.0.15 and `proc-macro-error2` 2.0.1 are the
+newest published releases of their crates, and neither RUSTSEC advisory has a
+patched version — both are unmaintained-only and carry no assigned severity.
+`osv-scanner scan source -L cmd/cheasee-pi/embedded/docker/ui/Cargo.lock`
+reports exactly these two, so the inventory above is the current, rerun result.
+
 ## System dependencies
 
 | Tool | Version | License | Purpose |
