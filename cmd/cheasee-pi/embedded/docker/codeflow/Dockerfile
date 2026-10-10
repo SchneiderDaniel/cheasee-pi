@@ -13,6 +13,9 @@ ARG CODEFLOW_REF=b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 COPY server.py /opt/codeflow/server.py
 COPY config.json /opt/codeflow/config.json
 COPY run-analysis.mjs /opt/codeflow/run-analysis.mjs
+# False-positive policy, shared by the headless runner and the served page
+# (server.py requires it from this same directory).
+COPY fp-filter.js /opt/codeflow/fp-filter.js
 
 # Fail the build loudly if server.py is corrupt. A SyntaxError here would
 # otherwise build fine and crash the container silently at startup.

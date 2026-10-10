@@ -11,6 +11,10 @@
 //      stub Blob/URL/document objects, capturing the bytes it hands to
 //      URL.createObjectURL — the same seam the browser bridge hooks.
 //
+// The analyzed `data` is passed through fp-filter.js first, which drops the
+// analyzer's known false positives (see that file) so the health score, the
+// markdown and the structured export all agree.
+//
 // Usage: run-analysis.mjs <sourceDir> <uiDir> <outDir>
 //   sourceDir  committed HEAD snapshot (the shim runs `git archive HEAD` first)
 //   uiDir      pinned CodeFlow checkout (contains index.html + card/lib/*.js)
@@ -23,6 +27,7 @@ import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 const ANALYZER_START = "// ===== CODEFLOW_ANALYZER_START =====";
 const ANALYZER_END = "// ===== CODEFLOW_ANALYZER_END =====";
@@ -32,6 +37,34 @@ const METRICS_END = "// ===== CODEFLOW_METRICS_END =====";
 function fail(message) {
 	process.stderr.write(String(message).slice(0, 4096) + "\n");
 	process.exit(1);
+}
+
+// Read one analyzed path out of the snapshot the analyzer ran against, so the
+// false-positive rules can see the cited code. An unreadable path returns null:
+// the filter keeps a finding it cannot disprove.
+function makeReadFile(sourceDir) {
+	let root;
+	try {
+		root = fs.realpathSync(path.resolve(sourceDir));
+	} catch {
+		return () => null;
+	}
+	return (rel) => {
+		if (typeof rel !== "string" || rel === "" || path.isAbsolute(rel) || rel.includes("..")) {
+			return null;
+		}
+		try {
+			const abs = path.resolve(root, rel);
+			if (!abs.startsWith(root + path.sep)) return null;
+			// A tracked symlink may point outside the snapshot: a lexical check
+			// cannot see that, so resolve the real file and re-check containment.
+			const real = fs.realpathSync(abs);
+			if (!real.startsWith(root + path.sep)) return null;
+			return fs.readFileSync(real, "utf8");
+		} catch {
+			return null;
+		}
+	};
 }
 
 function sliceBlock(html, start, end, label) {
@@ -202,17 +235,27 @@ async function main() {
 	// Build `data` with the checkout's own headless pipeline (card/lib/analysis.js).
 	const require = createRequire(import.meta.url);
 	const analysis = require(path.join(uiDir, "card", "lib", "analysis.js"));
+	const fpFilter = require(path.join(path.dirname(fileURLToPath(import.meta.url)), "fp-filter.js"));
 	const { data } = await analysis.analyze({
 		repoRoot: sourceDir,
 		indexHtmlPath,
 		actionDir: path.join(uiDir, "card"),
 	});
 
+	// A throw here aborts the run: an unsanitized report is never exported.
+	const { data: filtered, suppressed } = fpFilter.sanitizeAnalysisData(data, makeReadFile(sourceDir));
+	if (suppressed.security.length || suppressed.layerViolations.length) {
+		process.stderr.write(
+			`fp-filter: suppressed ${suppressed.security.length} security issue(s), ` +
+				`${suppressed.layerViolations.length} layer violation(s)\n`,
+		);
+	}
+
 	const reportSrc = extractFunction(indexHtml, "generateReport");
 	if (!reportSrc) {
 		throw new Error("index.html does not define generateReport");
 	}
-	const { markdown, json } = captureExports(reportSrc, helpers, data, {
+	const { markdown, json } = captureExports(reportSrc, helpers, filtered, {
 		sourceLabel: "local/workspace",
 		repoInfo: { name: "workspace" },
 		localSourceKind: "folder",

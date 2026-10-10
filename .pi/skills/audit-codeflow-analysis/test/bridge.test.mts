@@ -19,11 +19,15 @@
  */
 
 import assert from "node:assert";
-import { readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import vm from "node:vm";
+
+const requireCjs = createRequire(import.meta.url);
 
 const SERVER_PY = resolve(
 	import.meta.dirname,
@@ -343,6 +347,102 @@ describe("codeflow bridge capture", () => {
 			FIXTURE_REVISION,
 			"the served revision (Dockerfile ARG CODEFLOW_REF) must equal the revision codeflow-ui-export.html was captured from; regenerate the fixture when moving the pin",
 		);
+	});
+
+	it("serves the false-positive filter the headless runner applies", () => {
+		const py = readFileSync(SERVER_PY, "utf-8");
+		const tag = /_BRIDGE_SCRIPT = b(['"])([\s\S]*?)\1/.exec(py)?.[2];
+		assert.ok(tag, "_BRIDGE_SCRIPT not found in server.py");
+		assert.strictEqual((tag.match(/fp-filter\.js/g) ?? []).length, 1, "one fp-filter tag");
+		assert.strictEqual((tag.match(/codeflow-bridge\.js/g) ?? []).length, 1, "one bridge tag");
+		assert.match(py, /_FP_FILTER_ROUTE = "\/fp-filter\.js"/);
+		assert.match(py, /_fp_rewrite\(\)/);
+		// The wrapper reports a sanitizer failure through the bridge's visible banner.
+		assert.match(py, /window\.__codeflowBridgeReportError = reportError/);
+		assert.match(py, /__codeflowBridgeReportError\('false-positive filter failed/);
+
+		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
+		assert.ok(existsSync(filterPath), "fp-filter.js must sit next to server.py");
+		assert.match(
+			readFileSync(DOCKERFILE, "utf-8"),
+			/COPY fp-filter\.js \/opt\/codeflow\/fp-filter\.js/,
+		);
+
+		// Browser contract: loaded as a plain script it must publish piFpFilter.
+		const sandbox: Record<string, any> = {};
+		vm.createContext(sandbox);
+		vm.runInContext(readFileSync(filterPath, "utf-8"), sandbox);
+		assert.strictEqual(typeof sandbox.piFpFilter?.sanitizeAnalysisData, "function");
+		assert.strictEqual(typeof sandbox.piFpFilter?.readFileFrom, "function");
+	});
+
+	it("served generateReport wrapper filters a const `data` in place and fails closed", () => {
+		// The rewrite is produced by server.py itself (the regex lives there), so
+		// this pins the served bytes, not a JS re-implementation of them.
+		let rewritten: string;
+		try {
+			rewritten = execFileSync(
+				"python3",
+				[
+					"-c",
+					[
+						"import runpy, sys",
+						"m = runpy.run_path(sys.argv[1])",
+						"pat, repl = m['_UI_REWRITES'][0]",
+						"sys.stdout.write(pat.sub(lambda _: repl, b'function generateReport(format){ return data; }').decode())",
+					].join("\n"),
+					SERVER_PY,
+				],
+				{ encoding: "utf-8" },
+			);
+		} catch {
+			// python3 unavailable here; the Go suite pins the same contract.
+			return;
+		}
+		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
+		const piFpFilter = requireCjs(filterPath);
+
+		// A page that declares `data` as a constant: the former `data = ...`
+		// rebinding threw and exported unfiltered data.
+		const sandbox: Record<string, any> = { piFpFilter, console: { info() {}, error() {} } };
+		vm.createContext(sandbox);
+		vm.runInContext(
+			"const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };\n" +
+				rewritten +
+				"\n;globalThis.__out = generateReport('md');",
+			sandbox,
+		);
+		assert.strictEqual(sandbox.__out.securityIssues.length, 0, "const `data` must be filtered in place");
+		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
+
+		// A sanitizer error must fail closed, never fall through to unfiltered data,
+		// and must reach the visible bridge error UI (not just the console).
+		let reported: string | null = null;
+		const throwing: Record<string, any> = {
+			piFpFilter: {
+				sanitizeAnalysisData() {
+					throw new Error("boom");
+				},
+				readFileFrom() {
+					return () => null;
+				},
+			},
+			__codeflowBridgeReportError: (m: string) => {
+				reported = m;
+			},
+			console: { info() {}, error() {} },
+		};
+		vm.createContext(throwing);
+		assert.throws(
+			() =>
+				vm.runInContext(
+					"const data = { securityIssues: [] };\n" + rewritten + "\n;generateReport('md');",
+					throwing,
+				),
+			/boom/,
+		);
+		assert.strictEqual(throwing.__codeflowFpFilterError, "boom");
+		assert.match(reported ?? "", /false-positive filter failed.*boom/);
 	});
 
 	it("served-UI fixture still matches the contract the bridge relies on", () => {
