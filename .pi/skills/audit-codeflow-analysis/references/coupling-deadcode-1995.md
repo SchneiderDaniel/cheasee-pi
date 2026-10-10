@@ -22,17 +22,35 @@ git clone --depth 1 https://github.com/braedonsaunders/codeflow /tmp/codeflow-ui
 git -C /tmp/codeflow-ui fetch --depth 1 origin b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 git -C /tmp/codeflow-ui checkout --detach FETCH_HEAD
 
+# A and B: the two refs.
 for ref in origin/main HEAD; do
   rm -rf /tmp/src && mkdir -p /tmp/src
   git archive "$ref" | tar -x -C /tmp/src
   node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
     /tmp/src /tmp/codeflow-ui /tmp/out
 done
+
+# B′: this branch, only the Go named-result cleanup reverted.
+rm -rf /tmp/src-Bp && mkdir -p /tmp/src-Bp
+git archive HEAD | tar -x -C /tmp/src-Bp
+git show origin/main:cmd/cheasee-pi/catalog.go > /tmp/src-Bp/cmd/cheasee-pi/catalog.go
+node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
+  /tmp/src-Bp /tmp/codeflow-ui /tmp/out-Bp
+
+# C: this branch, only the four ambient declarations restored.
+rm -rf /tmp/src-C && mkdir -p /tmp/src-C
+git archive HEAD | tar -x -C /tmp/src-C
+git show origin/main:.pi/extensions/lib/proper-lockfile-ambient.ts > /tmp/src-C/.pi/extensions/lib/proper-lockfile-ambient.ts
+node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
+  /tmp/src-C /tmp/codeflow-ui /tmp/out-C
 ```
 
-`git archive` snapshots the committed tree, so the two refs are measured with
+`git archive` snapshots the committed tree, so all four trees are measured with
 one analyzer on the same file set. The envelope's `stats` and `terms` are the
-measurement; the report artifacts are unaffected.
+measurement; the report artifacts are unaffected. `B′` and `C` each revert
+*only* one edit, which is what makes the `A → B′`, `B′ → B` and `C → B` deltas
+below single-cause (real import drops / phantom artifact / ambient-declaration
+removal respectively).
 
 > Note on the issue's numbers: the live report `local/workspace-f4048b9b`
 > (1026 files, 5006 dependencies, ratio 4.879, 24 unused) was produced by the
@@ -95,16 +113,20 @@ reports separately and does **not** count as coupling reduction.
 - ratio `4.8384 → 4.3834` (−0.4550), coupling `3.677 → 2.767` (−0.910 points),
   dead-code `1.278 → 1.165` (−0.113 points). (The branch file count is one
   higher because this record ships with the change.)
-- **Attribution is split by measurement, not assertion.** A third tree `B′` —
-  this branch with only `cmd/cheasee-pi/catalog.go` restored to `origin/main` —
-  isolates every change except the Go named-result cleanup. Same pinned
-  analyzer, same `git archive` snapshot method:
+- **Attribution is split by measurement, not assertion.** Two extra trees
+  isolate the two independent edits. `B′` is this branch with only
+  `cmd/cheasee-pi/catalog.go` restored to `origin/main` (isolates the Go
+  named-result cleanup); `C` is this branch with only
+  `.pi/extensions/lib/proper-lockfile-ambient.ts` restored to `origin/main`
+  (isolates the four ambient-declaration removals). Same pinned analyzer, same
+  `git archive` snapshot method:
 
-| Tree | files | functions | connections | ratio | coupling |
-|------|-------|-----------|-------------|-------|----------|
-| `A` `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 |
-| `B′` branch, `catalog.go` reverted | 725 | 3519 | 3500 | 4.8276 | 3.655 |
-| `B` this branch | 725 | 3518 | 3178 | 4.3834 | 2.767 |
+| Tree | files | functions | connections | ratio | coupling | dead | deadCode |
+|------|-------|-----------|-------------|-------|----------|------|----------|
+| `A` `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 | 45 | 1.278 |
+| `B′` branch, `catalog.go` reverted | 725 | 3519 | 3500 | 4.8276 | 3.655 | 41 | 1.165 |
+| `C` branch, `proper-lockfile-ambient.ts` restored | 725 | 3522 | 3178 | 4.3834 | 2.767 | 45 | 1.278 |
+| `B` this branch | 725 | 3518 | 3178 | 4.3834 | 2.767 | 41 | 1.165 |
 
   - **Real dependency-edge reduction — `A → B′`, −3 connections.** Dropping
     three genuinely-unused cross-file function imports from analyzed code:
@@ -121,7 +143,18 @@ reports separately and does **not** count as coupling reduction.
     is listed only to keep the total reconcilable. It is a legitimate Go
     cleanup whose *metric* effect is artifact removal, filed against the
     detector-false-positive track (row 10 of `known-false-positives.md`), not
-    against this chore.
+    against this chore. It moves `dead` by **0**: `B′` (phantom present) and `B`
+    (phantom removed) both report `dead: 41` / `deadCode: 1.165`, so the phantom
+    is a *caller* of the invented symbol, not itself unused.
+  - **Dead-code reduction — `C → B`, −4 functions and −4 dead.** `C` differs
+    from `B` only in the four `proper-lockfile-ambient.ts` declarations:
+    `C` reports `functions: 3522` / `dead: 45`, `B` reports `functions: 3518` /
+    `dead: 41`. Restoring the declarations raises both counts by 4; removing
+    them lowers both by 4. The whole `dead` 45 → 41 drop is therefore
+    attributable to those four confirmed-unreachable declarations and to
+    nothing else — in particular not to the phantom. (The phantom's single
+    extra declared "function" is the `functions` 3519 → 3518 half of
+    `B′ → B`.)
   - Net connection movement `−325 = −3 real + −322 artifact`; file-count +1 is
     this record shipping with the change. No score-formula or detector
     configuration was touched, so `calcHealth` is unchanged.
@@ -138,7 +171,14 @@ false edges. Mechanism recorded as row 10 of `known-false-positives.md`.
 
 This is a detector artifact: the 322 edges never represented a dependency. The
 chore therefore reports them separately from the −3 real dependency edges and
-does not rely on them to claim the coupling term moved.
+does not rely on them to claim the coupling term moved. It also contributes no
+dead-code entry: `B′` (phantom present) and `B` (phantom removed) both report
+`dead: 41` / `deadCode: 1.165`. The phantom collected those 322 edges as a
+*callee*, so it never sat in the unused set. An earlier draft of
+`known-false-positives.md` row 10 claimed the phantom "appears in the dead-code
+list"; the measurement above disproves that, and row 10 is corrected. The
+`dead` 45 → 41 drop is isolated to the four ambient declarations by the
+`C → B` pair above.
 
 ## Dead-import guard hardening (audit finding)
 
@@ -179,8 +219,12 @@ reference, (b) a trait/`impl`/`dyn` or default-export dispatch, and (c) a
 extracts but no code references; they are not among the live report's 24 (which
 are all INVALID). The live `Unused Functions` numerator therefore stays 24 and
 the live dead-code term is effectively unchanged — the reproducible improvement
-is the headless `dead` count, 45 → 41. This is why the issue's own estimate for
-the dead-code lever is ≈ 0.5 and why no live candidate was force-removed.
+is the headless `dead` count, 45 → 41. The `C → B` trees above isolate that
+delta to these four declarations: `C` (= `B` with the declarations restored)
+reports `dead: 45`, `B` reports `dead: 41`, and `B′` reports `dead: 41` with the
+`catalog.go` phantom still present, so the phantom contributes none of it. This
+is why the issue's own estimate for the dead-code lever is ≈ 0.5 and why no live
+candidate was force-removed.
 
 ### The issue's live-run candidates (24), with individual verdicts
 
