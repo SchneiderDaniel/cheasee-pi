@@ -788,6 +788,7 @@ assert out.count(b"function __piFpGenerateReport(format){return format;}") == 1,
 assert out.count(b"piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data))") == 1, out
 assert b'if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;' in out, out
 assert b'if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;' in out, out
+assert b'if ("stats" in __piFp.data) data.stats = __piFp.data.stats;' in out, out
 assert b"data = piFpFilter" not in out, "must not rebind data (const-safe): %r" % out
 assert b'"use strict"' in out, out
 assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
@@ -822,8 +823,10 @@ print("OK")
 // TestCodeFlowServer_FpFilterWrapperBehavior executes the served-page wrapper:
 // the page declares `data` as a constant, so the old rebinding threw and fell
 // back to the unfiltered report. The wrapper must filter by overwriting the
-// array properties, and a sanitizer error must fail closed (no unfiltered
-// export). The rewritten generateReport comes from the real server.py rewrite.
+// array properties, a sanitizer error must fail closed (no unfiltered export),
+// and a write a frozen `data` rejects must surface on the same visible error
+// banner instead of aborting the export silently. The rewritten generateReport
+// comes from the real server.py rewrite.
 func TestCodeFlowServer_FpFilterWrapperBehavior(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -851,19 +854,20 @@ func TestCodeFlowServer_FpFilterWrapperBehavior(t *testing.T) {
 		t.Fatalf("write fp-filter.js: %v", err)
 	}
 
-	// Emit two CommonJS harnesses: one with a real `const data`, one whose
-	// sanitizer throws. Both inline the rewrite server.py actually serves.
+	// Emit three CommonJS harnesses: one with a real `const data`, one whose
+	// sanitizer throws, and one whose `data` is frozen so the in-place write
+	// throws. All inline the rewrite server.py actually serves.
 	script := `import runpy, sys
 
 m = runpy.run_path(sys.argv[1])
 pat, repl = m["_UI_REWRITES"][0]
 rewritten = pat.sub(lambda _: repl, b"function generateReport(format){ return data; }").decode()
 
-ok = """const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };
+ok = """const data = { stats: { security: 1, violations: 0 }, securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };
 const piFpFilter = require(process.argv[2]);
 """ + rewritten + """
 generateReport('md');
-process.stdout.write('RESULT' + JSON.stringify({ security: data.securityIssues.length, layers: data.layerViolations.length }));
+process.stdout.write('RESULT' + JSON.stringify({ security: data.securityIssues.length, layers: data.layerViolations.length, stats: data.stats }));
 """
 open(sys.argv[3], "w").write(ok)
 
@@ -876,6 +880,16 @@ try { generateReport('md'); process.stdout.write('RESULTNO_THROW'); }
 catch (e) { process.stdout.write('RESULTTHREW:' + e.message + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw); }
 """
 open(sys.argv[4], "w").write(fail)
+
+frozen = """const data = Object.freeze({ securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] });
+globalThis.__bridgeSaw = null;
+globalThis.__codeflowBridgeReportError = function (m) { globalThis.__bridgeSaw = m; };
+const piFpFilter = require(process.argv[2]);
+""" + rewritten + """
+try { generateReport('md'); process.stdout.write('FROZENNO_THROW'); }
+catch (e) { process.stdout.write('FROZEN:' + e.constructor.name + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw); }
+"""
+open(sys.argv[5], "w").write(frozen)
 `
 	scriptPath := filepath.Join(dir, "emit_harness.py")
 	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
@@ -883,7 +897,8 @@ open(sys.argv[4], "w").write(fail)
 	}
 	okHarness := filepath.Join(dir, "ok.cjs")
 	failHarness := filepath.Join(dir, "fail.cjs")
-	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, okHarness, failHarness).CombinedOutput(); err != nil {
+	frozenHarness := filepath.Join(dir, "frozen.cjs")
+	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, okHarness, failHarness, frozenHarness).CombinedOutput(); err != nil {
 		t.Fatalf("emit harnesses: %v\n%s", err, out)
 	}
 
@@ -891,8 +906,8 @@ open(sys.argv[4], "w").write(fail)
 	if err != nil {
 		t.Fatalf("const-data harness failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "RESULT{\"security\":0,\"layers\":0}") {
-		t.Errorf("const `data` was not filtered in place: %s", out)
+	if !strings.Contains(string(out), "RESULT{\"security\":0,\"layers\":0,\"stats\":{\"security\":0,\"violations\":0}}") {
+		t.Errorf("const `data` was not filtered in place (arrays and stats must both move): %s", out)
 	}
 
 	out, err = exec.Command(node, failHarness, filterPath).CombinedOutput()
@@ -901,6 +916,17 @@ open(sys.argv[4], "w").write(fail)
 	}
 	if !strings.Contains(string(out), "RESULTTHREW:fp-filter exploded:fp-filter exploded:false-positive filter failed; report not exported: fp-filter exploded") {
 		t.Errorf("sanitizer error must fail closed and surface the failure, got: %s", out)
+	}
+
+	out, err = exec.Command(node, frozenHarness, filterPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("frozen-data harness failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "FROZEN:TypeError:") {
+		t.Errorf("a frozen data binding must fail closed, got: %s", out)
+	}
+	if !strings.Contains(string(out), "false-positive filter failed; report not exported:") {
+		t.Errorf("a frozen-data write failure must surface on the visible error handler, got: %s", out)
 	}
 }
 
@@ -936,6 +962,7 @@ func TestCodeFlowServer_FpFilterServed(t *testing.T) {
 		"<script src=\"fp-filter.js\" defer></script><script src=\"codeflow-bridge.js\" defer></script>",
 		"if (\"securityIssues\" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;",
 		"if (\"layerViolations\" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;",
+		"if (\"stats\" in __piFp.data) data.stats = __piFp.data.stats;",
 		"function __piFpGenerateReport(format){return format;}",
 	} {
 		if n := bytes.Count(body, []byte(want)); n != 1 {

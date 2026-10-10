@@ -296,6 +296,28 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 		assert.deepStrictEqual(Object.keys(data), Object.keys(input));
 		assert.deepStrictEqual(suppressed, { security: [], layerViolations: [] });
 	});
+
+	it("moves stats.security/violations with the filtered arrays, without mutating the input stats", () => {
+		// The report summary and the UI tab badge read these counts; a stale pair
+		// would leave an A report advertising the findings the filter just dropped.
+		const input = {
+			stats: { files: 3, security: 2, violations: 2 },
+			securityIssues: [sec({ code: "" }), sec()],
+			layerViolations: [violation(), violation({ to: "ui/src/retry.rs" })],
+			files: LAYER_FILES,
+			connections: CONNECTIONS,
+		};
+		const before = structuredClone(input);
+
+		const { data } = sanitizeAnalysisData(input, readFile);
+
+		assert.deepStrictEqual(input.stats, before.stats, "input stats must not be touched");
+		assert.notStrictEqual(data.stats, input.stats, "output stats must be a new object");
+		assert.deepStrictEqual(data.stats, { files: 3, security: 1, violations: 1 });
+
+		const second = sanitizeAnalysisData(data, readFile);
+		assert.deepStrictEqual(second.data.stats, data.stats, "the corrected counts are stable");
+	});
 });
 
 describe("fp-filter — layer violations (Phase 2)", () => {

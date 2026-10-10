@@ -48,6 +48,12 @@
 		return typeof issue.severity === "string" && issue.severity.toLowerCase() === "high";
 	}
 
+	function countHigh(issues) {
+		var n = 0;
+		for (var i = 0; i < issues.length; i++) if (isHigh(issues[i])) n++;
+		return n;
+	}
+
 	function codeOf(issue) {
 		return typeof issue.code === "string" ? issue.code : "";
 	}
@@ -261,6 +267,19 @@
 				var violation = data.layerViolations[j];
 				if (isFalsePositiveLayerViolation(violation, index)) suppressed.layerViolations.push(violation);
 				else out.layerViolations.push(violation);
+			}
+		}
+
+		// `data.stats.security` / `data.stats.violations` are the same counts the
+		// report summary and the UI tab badge read, so they must move with the
+		// arrays or the report contradicts its own score ("9 high" under an A).
+		if (data.stats && typeof data.stats === "object") {
+			var stats = out.stats = Object.assign({}, data.stats);
+			if (typeof stats.security === "number" && Array.isArray(out.securityIssues)) {
+				stats.security = countHigh(out.securityIssues);
+			}
+			if (typeof stats.violations === "number" && Array.isArray(out.layerViolations)) {
+				stats.violations = out.layerViolations.length;
 			}
 		}
 

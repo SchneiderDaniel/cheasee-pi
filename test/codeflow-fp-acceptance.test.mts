@@ -33,6 +33,18 @@ const FIXTURE = join(HERE, "fixtures", "codeflow-real-analysis-fp.json");
 const PINNED_REF = "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1";
 const CHECKOUT_URL = "https://github.com/braedonsaunders/codeflow";
 
+// The revision this issue reports on. Pinning the live acceptance run to it
+// (not HEAD) means the assertions reproduce the affected report rather than
+// whatever the branch happens to be.
+const ISSUE_SNAPSHOT = "17c991c033073dccdd549c335abe6c594643b009";
+// Measured on that snapshot with the pinned analyzer: every HIGH security hit
+// (the reported nine) and the entire layer category (357 edges) is a false
+// positive. Deterministic for a fixed revision plus fixed analyzer pin.
+const EXPECTED_SECURITY_SUPPRESSED = 9;
+const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
+// The filtered report these expectations imply.
+const EXPECTED_HEALTH_SCORE = 92;
+
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData } = requireCjs(FILTER) as {
 	sanitizeAnalysisData: (
@@ -121,6 +133,23 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 });
 
 describe("fp-filter — live acceptance against the pinned analyzer", () => {
+	/** The issue revision, fetched when this checkout does not already carry it. */
+	function ensureIssueSnapshot(): string {
+		try {
+			execFileSync("git", ["cat-file", "-e", `${ISSUE_SNAPSHOT}^{commit}`], {
+				cwd: REPO_ROOT,
+				stdio: "ignore",
+			});
+		} catch {
+			execFileSync("git", ["fetch", "--depth", "1", "origin", ISSUE_SNAPSHOT], {
+				cwd: REPO_ROOT,
+				stdio: "ignore",
+				timeout: 180_000,
+			});
+		}
+		return ISSUE_SNAPSHOT;
+	}
+
 	/** A usable pinned checkout, or null when none is present and none was fetched. */
 	function resolveCheckout(): string | null {
 		const explicit = process.env.CODEFLOW_UI_DIR || "/opt/codeflow-ui";
@@ -152,13 +181,14 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 	const SKIP =
 		"pinned CodeFlow checkout unavailable (set CODEFLOW_UI_DIR, or CODEFLOW_FP_E2E=0 to skip)";
 
-	it("headless report scores an A and carries none of the false positives", { skip: UI_DIR ? false : SKIP }, () => {
+	it("headless report on the issue snapshot scores an A and drops every false positive", { skip: UI_DIR ? false : SKIP }, () => {
 		const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
 		const outDir = mkdtempSync(join(tmpdir(), "fp-accept-out-"));
 		cleanups.push(snapshotDir, outDir);
 
-		// Deterministic snapshot: exactly what the shim feeds the producer.
-		const archive = execFileSync("git", ["archive", "HEAD"], {
+		// Deterministic snapshot: the exact revision the issue reports on, fed to
+		// the producer the way the shim feeds it.
+		const archive = execFileSync("git", ["archive", ensureIssueSnapshot()], {
 			cwd: REPO_ROOT,
 			maxBuffer: 1 << 30,
 		});
@@ -170,25 +200,38 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		});
 		assert.strictEqual(run.status, 0, `producer failed:\n${run.stderr}`);
 
-		// The producer reports suppression instead of dropping silently.
-		assert.match(
+		// The producer reports suppression instead of dropping silently, and the
+		// counts must reproduce the affected report's false positives exactly.
+		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\)/.exec(
 			run.stderr,
-			/fp-filter: suppressed \d+ security issue\(s\), \d+ layer violation\(s\)/,
-			"the producer must run the filter and report what it dropped",
+		);
+		assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
+		assert.strictEqual(
+			Number(suppressed![1]),
+			EXPECTED_SECURITY_SUPPRESSED,
+			"all nine HIGH security hits must be suppressed on the issue snapshot",
+		);
+		assert.strictEqual(
+			Number(suppressed![2]),
+			EXPECTED_LAYER_VIOLATIONS_SUPPRESSED,
+			"the whole layer-violation category must be suppressed on the issue snapshot",
 		);
 
 		const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
-		assert.ok(
-			report.summary.healthScore >= 90,
-			`expected an A (>= 90), got ${report.summary.healthScore} (${report.summary.healthGrade})`,
+		assert.strictEqual(
+			report.summary.healthScore,
+			EXPECTED_HEALTH_SCORE,
+			`expected the corrected score, got ${report.summary.healthScore} (${report.summary.healthGrade})`,
 		);
+		assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
 		assert.strictEqual(report.summary.healthGrade, "A");
 		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
 		assert.deepStrictEqual(crossLanguageOf(report), [], "cross-language layer edges must not be emitted");
 		assert.deepStrictEqual(inventedLayerOf(report), [], "unsupported layer labels must not survive");
 
-		// Guard: the live run is only meaningful if the analyzer produced the
-		// false positives on this snapshot.
-		assert.match(run.stderr, /suppressed [1-9]\d* security issue\(s\)/);
+		// The report must not contradict its own score: the summary counts move
+		// with the filtered arrays, or an A still advertises nine HIGH findings.
+		assert.strictEqual(report.summary.highSecurityIssues, 0, "summary must not still count the dropped highs");
+		assert.strictEqual(report.summary.layerViolations, 0, "summary must not still count the dropped edges");
 	});
 });
