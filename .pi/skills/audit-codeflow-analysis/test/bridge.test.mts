@@ -357,6 +357,9 @@ describe("codeflow bridge capture", () => {
 		assert.strictEqual((tag.match(/codeflow-bridge\.js/g) ?? []).length, 1, "one bridge tag");
 		assert.match(py, /_FP_FILTER_ROUTE = "\/fp-filter\.js"/);
 		assert.match(py, /_fp_rewrite\(\)/);
+		// The wrapper reports a sanitizer failure through the bridge's visible banner.
+		assert.match(py, /window\.__codeflowBridgeReportError = reportError/);
+		assert.match(py, /__codeflowBridgeReportError\('false-positive filter failed/);
 
 		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
 		assert.ok(existsSync(filterPath), "fp-filter.js must sit next to server.py");
@@ -412,7 +415,9 @@ describe("codeflow bridge capture", () => {
 		assert.strictEqual(sandbox.__out.securityIssues.length, 0, "const `data` must be filtered in place");
 		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
 
-		// A sanitizer error must fail closed, never fall through to unfiltered data.
+		// A sanitizer error must fail closed, never fall through to unfiltered data,
+		// and must reach the visible bridge error UI (not just the console).
+		let reported: string | null = null;
 		const throwing: Record<string, any> = {
 			piFpFilter: {
 				sanitizeAnalysisData() {
@@ -421,6 +426,9 @@ describe("codeflow bridge capture", () => {
 				readFileFrom() {
 					return () => null;
 				},
+			},
+			__codeflowBridgeReportError: (m: string) => {
+				reported = m;
 			},
 			console: { info() {}, error() {} },
 		};
@@ -434,6 +442,7 @@ describe("codeflow bridge capture", () => {
 			/boom/,
 		);
 		assert.strictEqual(throwing.__codeflowFpFilterError, "boom");
+		assert.match(reported ?? "", /false-positive filter failed.*boom/);
 	});
 
 	it("served-UI fixture still matches the contract the bridge relies on", () => {

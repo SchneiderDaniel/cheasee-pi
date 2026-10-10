@@ -163,9 +163,13 @@ _BRIDGE_JS = br"""(function () {
           "color:#fff;font:12px/1.5 monospace;padding:8px 12px;white-space:pre-wrap";
         document.body.appendChild(el);
       }
-      el.textContent = "CodeFlow report upload failed: " + message;
+      el.textContent = "CodeFlow report error: " + message;
     } catch (e) {}
   }
+
+  // The served false-positive filter wrapper (see _FP_WRAPPER_BODY) calls this
+  // so a sanitizer failure is shown in the banner, not only logged to console.
+  try { window.__codeflowBridgeReportError = reportError; } catch (e) {}
 
   function post(url, text) {
     try {
@@ -672,14 +676,17 @@ def _ts_rewrite(anchor, tail=b""):
 # a page that declares `data` as a constant cannot be reassigned, and the former
 # reassignment threw, was swallowed, and exported the unfiltered report. A
 # sanitizer error now propagates — the wrapper fails closed rather than emitting
-# data the filter never saw. `"use strict"` makes a silently-ignored write (a
-# frozen `data`) throw instead.
+# data the filter never saw, and reports the failure through the bridge's visible
+# error banner (`window.__codeflowBridgeReportError`) instead of console only.
+# `"use strict"` makes a silently-ignored write (a frozen `data`) throw instead.
 _FP_WRAPPER_HEAD = b"function generateReport"
 _FP_WRAPPER_BODY = (
     b'() { "use strict";'
     b" var __piFp;"
     b" try { __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data)); }"
-    b" catch (e) { try { globalThis.__codeflowFpFilterError = String((e && e.message) || e); } catch (_) {} throw e; }"
+    b" catch (e) { var m = String((e && e.message) || e);"
+    b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
+    b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
     b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
     b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
     b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length) { try {"

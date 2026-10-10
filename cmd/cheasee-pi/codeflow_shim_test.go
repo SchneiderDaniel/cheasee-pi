@@ -785,6 +785,8 @@ assert b'if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.dat
 assert b"data = piFpFilter" not in out, "must not rebind data (const-safe): %r" % out
 assert b'"use strict"' in out, out
 assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
+assert b"__codeflowBridgeReportError" in out, "sanitizer failure must be visible: %r" % out
+assert b"window.__codeflowBridgeReportError = reportError" in m["_BRIDGE_JS"], m["_BRIDGE_JS"]
 assert b"return __piFpGenerateReport.apply(this, arguments)" in out, out
 assert pat.sub(lambda _: repl, out) == out, "not idempotent"
 
@@ -860,10 +862,12 @@ process.stdout.write('RESULT' + JSON.stringify({ security: data.securityIssues.l
 open(sys.argv[3], "w").write(ok)
 
 fail = """const data = { securityIssues: [] };
+globalThis.__bridgeSaw = null;
+globalThis.__codeflowBridgeReportError = function (m) { globalThis.__bridgeSaw = m; };
 const piFpFilter = { sanitizeAnalysisData() { throw new Error('fp-filter exploded'); }, readFileFrom() { return () => null; } };
 """ + rewritten + """
 try { generateReport('md'); process.stdout.write('RESULTNO_THROW'); }
-catch (e) { process.stdout.write('RESULTTHREW:' + e.message + ':' + globalThis.__codeflowFpFilterError); }
+catch (e) { process.stdout.write('RESULTTHREW:' + e.message + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw); }
 """
 open(sys.argv[4], "w").write(fail)
 `
@@ -889,8 +893,8 @@ open(sys.argv[4], "w").write(fail)
 	if err != nil {
 		t.Fatalf("fail-closed harness failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "RESULTTHREW:fp-filter exploded:fp-filter exploded") {
-		t.Errorf("sanitizer error must fail closed, got: %s", out)
+	if !strings.Contains(string(out), "RESULTTHREW:fp-filter exploded:fp-filter exploded:false-positive filter failed; report not exported: fp-filter exploded") {
+		t.Errorf("sanitizer error must fail closed and surface the failure, got: %s", out)
 	}
 }
 

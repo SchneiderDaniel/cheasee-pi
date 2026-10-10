@@ -1,26 +1,19 @@
 /**
  * Authoritative acceptance check for the CodeFlow false-positive filter.
  *
- * Check 1 (always runs) replays `sanitizeAnalysisData` on a *recording* of the
- * pinned analyzer's own output for this repository (see
- * fixtures/generate-real-analysis-fp-fixture.mjs and the fixture header). The
- * recording carries the false positives the issue filed against — 11 HIGH
- * security hits and 360 layer edges, including the three invented-layer pairs a
- * previous audit found surviving — so the check pins the real field shapes and
- * the layer guard without a network fetch or the checkout. It is the
- * non-skipped replacement for the env-gated live run the audit could not
- * perform.
+ * Check 1 replays `sanitizeAnalysisData` on a *recording* of the pinned
+ * analyzer's own output for this repository (see
+ * fixtures/generate-real-analysis-fp-fixture.mjs and the fixture header). It is
+ * a fast offline regression that pins the real field shapes and the layer
+ * guard without a checkout.
  *
- * Check 2 (opt-in) drives the *live* pinned analyzer against a `git archive
- * HEAD` snapshot. Point it at a checkout:
- *
- *   CODEFLOW_UI_DIR=/path/to/codeflow node --experimental-strip-types --test \
- *     test/codeflow-fp-acceptance.test.mts
- *
- * Or let it fetch the pinned revision itself (needs network):
- *
- *   CODEFLOW_FP_E2E=1 node --experimental-strip-types --test \
- *     test/codeflow-fp-acceptance.test.mts
+ * Check 2 is the authoritative acceptance check and runs by default: it drives
+ * the *live* pinned analyzer through the headless producer against a
+ * `git archive HEAD` snapshot, then asserts the generated report.json scores an
+ * A and carries none of the false positives. When no checkout is present it
+ * fetches the pinned revision itself. Point it at a local checkout instead with
+ * `CODEFLOW_UI_DIR=/path/to/codeflow`; opt out of the network fetch with
+ * `CODEFLOW_FP_E2E=0` (the test then skips if no checkout is present).
  */
 
 import assert from "node:assert";
@@ -134,7 +127,9 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		if (existsSync(join(explicit, "index.html")) && existsSync(join(explicit, "card", "lib", "analysis.js"))) {
 			return explicit;
 		}
-		if (process.env.CODEFLOW_FP_E2E !== "1") return null;
+		// Fetch the pin by default so the authoritative check actually runs; an
+		// offline environment skips below, and CODEFLOW_FP_E2E=0 opts out.
+		if (process.env.CODEFLOW_FP_E2E === "0") return null;
 		const dir = mkdtempSync(join(tmpdir(), "fp-accept-ui-"));
 		cleanups.push(dir);
 		try {
@@ -154,7 +149,8 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 	}
 
 	const UI_DIR = resolveCheckout();
-	const SKIP = "pinned CodeFlow checkout unavailable (set CODEFLOW_UI_DIR or CODEFLOW_FP_E2E=1)";
+	const SKIP =
+		"pinned CodeFlow checkout unavailable (set CODEFLOW_UI_DIR, or CODEFLOW_FP_E2E=0 to skip)";
 
 	it("headless report scores an A and carries none of the false positives", { skip: UI_DIR ? false : SKIP }, () => {
 		const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
