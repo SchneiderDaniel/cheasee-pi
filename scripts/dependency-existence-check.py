@@ -31,9 +31,7 @@ __path__ = [str(_HERE / "dependency_existence_check")]  # type: ignore[attr-defi
 
 # Imports from submodules, never `from dependency_existence_check import ...`:
 # under the test harness that lookup resolves to this shim mid-execution and
-# would raise AttributeError. __init__.py re-exports the same surface. Only the
-# names a caller actually reaches through this module are re-exported: the rest
-# were over-exposed and are now imported by their own submodule directly.
+# would raise AttributeError. __init__.py re-exports the same surface.
 from dependency_existence_check.adapters import (  # noqa: E402,F401
     ADAPTERS,
     Adapter,
@@ -50,15 +48,38 @@ from dependency_existence_check.adapters import (  # noqa: E402,F401
     SwiftAdapter,
 )
 from dependency_existence_check.cli import SAFETY_THRESHOLD_DAYS, main  # noqa: E402,F401
-from dependency_existence_check.core import run_check  # noqa: E402,F401
+from dependency_existence_check.core import ALWAYS_SKIP_DIRS, run_check  # noqa: E402,F401
 from dependency_existence_check.helpers import days_since  # noqa: E402,F401
 from dependency_existence_check.matcher import GitignoreMatcher, IgnoreFilter  # noqa: E402,F401
+from dependency_existence_check.models import (  # noqa: E402,F401
+    Dependency,
+    PackageRecord,
+    RegistryError,
+)
 from dependency_existence_check.registries import (  # noqa: E402,F401
     REGISTRIES,
+    CargoRegistry,
+    ConanRegistry,
     GoRegistry,
+    MavenRegistry,
+    NpmRegistry,
+    NugetRegistry,
+    PackagistRegistry,
+    PubRegistry,
     PypiRegistry,
+    Registry,
+    RubygemsRegistry,
+    SwiftRegistry,
+    VcpkgRegistry,
 )
-from dependency_existence_check.transport import RealFetcher  # noqa: E402,F401
+from dependency_existence_check.transport import (  # noqa: E402,F401
+    CacheStats,
+    DiskCache,
+    NoCache,
+    RateLimiter,
+    RealFetcher,
+    USER_AGENT,
+)
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

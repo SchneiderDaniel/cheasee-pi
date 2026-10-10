@@ -65,8 +65,11 @@ interface Fixture {
 	outDir: string;
 }
 
-// The live run's own stats (`local/workspace-f4048b9b`): 5006 connections over
-// 1026 files is the coupling input, 24 dead of 4890 functions the dead-code one.
+// Formula fixture only. The issue's live run (`local/workspace-f4048b9b`):
+// 5006 connections over 1026 files is the coupling input, 24 dead of 4890
+// functions the dead-code one. The real pinned-analyzer calibration (connection
+// unit, repository before/after) lives in
+// .pi/skills/audit-codeflow-analysis/references/coupling-deadcode-1995.md.
 const CANON_STATS = { files: 1026, functions: 4890, connections: 5006, dead: 24, loc: 12345 };
 
 function makeFixture(

@@ -28,3 +28,10 @@ is a code-read shape: the validator gets it and proves it here, never a text fil
 Scope (is this a bug or a chore/refactor?) is decided before validation by
 `classifyFinding` in `lib/report.ts`, never here — so no row in this table uses
 "it is only a size/count metric" as a disproof.
+
+## Verified instances
+
+Per-issue verdict lists that applied these rows, with the pinned-analyzer
+measurement behind them, live in `references/coupling-deadcode-1995.md`
+(coupling unit and before/after, plus the row-8/row-10 verdict for every dead
+candidate).

@@ -42,13 +42,7 @@ function fail(message) {
 // unusable stats yield `terms: null` instead of failing the run.
 function scoreTerms(stats) {
 	if (!stats || typeof stats !== "object") return null;
-	// Read the keys without destructuring: the destructuring token for the
-	// "files" key is otherwise counted as a reference to each repo function of
-	// that name, one false coupling edge. Measured: 3135 -> 3134 connections.
-	const fileCount = stats["files"];
-	const linkCount = stats["connections"];
-	const fnCount = stats["functions"];
-	const deadCount = stats["dead"];
+	const { files: fileCount, connections: linkCount, functions: fnCount, dead: deadCount } = stats;
 	const usable = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0;
 	if (![fileCount, linkCount, fnCount, deadCount].every(usable)) return null;
 	if (fileCount === 0 || fnCount === 0) return null;
