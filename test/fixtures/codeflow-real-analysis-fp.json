@@ -1,0 +1,5462 @@
+{
+	"provenance": {
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"snapshot": "git archive HEAD"
+	},
+	"stats": {
+		"files": 726,
+		"functions": 3540,
+		"connections": 3617,
+		"dead": 45,
+		"patterns": 10,
+		"security": 11,
+		"duplicates": 7,
+		"violations": 360,
+		"skipped": 0,
+		"loc": 145180,
+		"languages": [
+			{
+				"ext": "ts",
+				"lines": 60216,
+				"pct": 41
+			},
+			{
+				"ext": "go",
+				"lines": 34928,
+				"pct": 24
+			},
+			{
+				"ext": "rs",
+				"lines": 17410,
+				"pct": 12
+			},
+			{
+				"ext": "md",
+				"lines": 13086,
+				"pct": 9
+			},
+			{
+				"ext": "json",
+				"lines": 5950,
+				"pct": 4
+			},
+			{
+				"ext": "py",
+				"lines": 5262,
+				"pct": 4
+			},
+			{
+				"ext": "lock",
+				"lines": 2651,
+				"pct": 2
+			},
+			{
+				"ext": "sh",
+				"lines": 2403,
+				"pct": 2
+			},
+			{
+				"ext": "mjs",
+				"lines": 579,
+				"pct": 0
+			},
+			{
+				"ext": "js",
+				"lines": 567,
+				"pct": 0
+			},
+			{
+				"ext": "dockerfile",
+				"lines": 532,
+				"pct": 0
+			},
+			{
+				"ext": "css",
+				"lines": 463,
+				"pct": 0
+			},
+			{
+				"ext": "txt",
+				"lines": 443,
+				"pct": 0
+			},
+			{
+				"ext": "yml",
+				"lines": 228,
+				"pct": 0
+			},
+			{
+				"ext": "toml",
+				"lines": 116,
+				"pct": 0
+			},
+			{
+				"ext": "sum",
+				"lines": 85,
+				"pct": 0
+			},
+			{
+				"ext": "jsonl",
+				"lines": 69,
+				"pct": 0
+			},
+			{
+				"ext": "scss",
+				"lines": 58,
+				"pct": 0
+			},
+			{
+				"ext": "mod",
+				"lines": 42,
+				"pct": 0
+			},
+			{
+				"ext": "makefile",
+				"lines": 32,
+				"pct": 0
+			},
+			{
+				"ext": "license",
+				"lines": 22,
+				"pct": 0
+			},
+			{
+				"ext": "html",
+				"lines": 21,
+				"pct": 0
+			},
+			{
+				"ext": "prettierrc",
+				"lines": 12,
+				"pct": 0
+			},
+			{
+				"ext": "gemfile",
+				"lines": 5,
+				"pct": 0
+			}
+		],
+		"parserModes": [
+			{
+				"mode": "heuristic-regex",
+				"files": 506
+			},
+			{
+				"mode": "text",
+				"files": 117
+			},
+			{
+				"mode": "markdown-link-parser",
+				"files": 103
+			}
+		]
+	},
+	"issues": [
+		{
+			"title": "45 Unused Functions"
+		},
+		{
+			"title": "63 Large Files"
+		},
+		{
+			"title": "152 Highly Coupled"
+		},
+		{
+			"title": "3 Duplicate Function Names"
+		},
+		{
+			"title": "4 Similar Code Blocks"
+		},
+		{
+			"title": "360 Architecture Violations"
+		},
+		{
+			"title": "200 High Complexity Files"
+		}
+	],
+	"securityIssues": [
+		{
+			"title": "Hardcoded Secret",
+			"severity": "high",
+			"path": ".pi/extensions/context-info/types.ts",
+			"code": "export type UsageColorToken = \"success\" | \"warning\" | \"error\";"
+		},
+		{
+			"title": "Hardcoded Secret",
+			"severity": "high",
+			"path": ".pi/extensions/supervisor/github/gh-client.ts",
+			"code": "? [\"-c\", `GH_TOKEN='${ghToken.replace(/'/g, \"'\\\\''\")}' gh \"$@\"`, \"_\", ...args]"
+		},
+		{
+			"title": "Hardcoded Secret",
+			"severity": "high",
+			"path": ".pi/extensions/supervisor/github/gh-client.ts",
+			"code": "? [\"-c\", `GH_TOKEN='${ghToken.replace(/'/g, \"'\\\\''\")}' gh \"$@\"`, \"_\", ...args]"
+		},
+		{
+			"title": "SQL Injection Risk",
+			"severity": "high",
+			"path": ".pi/extensions/web-search/test/index.test.ts",
+			"code": "// First execute: verify 1 (quick check) + verify 2 (double-check) fail"
+		},
+		{
+			"title": "Hardcoded Secret",
+			"severity": "high",
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"code": "// `export type UsageColorToken = \"success\" | \"warning\" | \"error\";` declares"
+		},
+		{
+			"title": "Shell Command Execution",
+			"severity": "high",
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"code": ""
+		},
+		{
+			"title": "Shell Command Execution",
+			"severity": "high",
+			"path": "cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+			"code": ""
+		},
+		{
+			"title": "Shell Command Execution",
+			"severity": "high",
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/lib.rs",
+			"code": ""
+		},
+		{
+			"title": "Shell Command Execution",
+			"severity": "high",
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"code": ""
+		},
+		{
+			"title": "Shell Command Execution",
+			"severity": "high",
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"code": ""
+		},
+		{
+			"title": "Shell Command Execution",
+			"severity": "high",
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"code": ""
+		},
+		{
+			"title": "Command Execution",
+			"severity": "medium",
+			"path": ".pi/extensions/context-info/codeflow.ts",
+			"code": ""
+		},
+		{
+			"title": "Command Execution",
+			"severity": "medium",
+			"path": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"code": ""
+		},
+		{
+			"title": "Command Execution",
+			"severity": "medium",
+			"path": ".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+			"code": ""
+		},
+		{
+			"title": "Command Execution",
+			"severity": "medium",
+			"path": ".pi/extensions/supervisor/agent/runner/spawn.ts",
+			"code": ""
+		},
+		{
+			"title": "Function Constructor",
+			"severity": "medium",
+			"path": ".pi/skills/audit-codeflow-analysis/test/fixtures/generate-report-fixtures.mjs",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/agent-harness/test/index.test.ts",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/ask-user/jsonl-logger.ts",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/ripgrep-search/index.ts",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/ripgrep-search/README.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/scrapling/README.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/structural-analyzer/index.ts",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/structural-analyzer/README.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/structural-analyzer/validate.ts",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/extensions/supervisor/agents/auditor.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/skills/audit-clean-code/SKILL.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/skills/audit-code-simplification/SKILL.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": ".pi/skills/audit-codeflow-analysis/references/known-false-positives.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": "APPEND_SYSTEM.md",
+			"code": ""
+		},
+		{
+			"title": "Code Comments",
+			"severity": "low",
+			"path": "docs/_config.yml",
+			"code": ""
+		}
+	],
+	"layerViolations": [
+		{
+			"from": ".pi/extensions/agent-harness/agent-harness.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/agent-harness/agent-harness.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/agent-harness/agent-harness.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/agent-harness/lib/harness-state.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/app.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/agent-harness/lib/load-config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/agent-harness/lib/load-config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/agent-harness/lib/timed-map.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/index.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/ask-user/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/jsonl-logger.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/jsonl-logger.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/jsonl-logger.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/types.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/types.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ask-user/types.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/caveman/command.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/caveman/command.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/caveman/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/caveman/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/caveman/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/codeflow.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/codeflow.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/codeflow.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/codeflow.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/extensions.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/footer.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/footer.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/markdown-resources.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/prompts.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/skills.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/types.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/ui.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/context-info/ui.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/format-on-save/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/bash-query.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/diagnostics-format.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/extension-state.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/extension-state.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/extension-state.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/path-containment.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/port-types.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/file-discovery.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/audit-one.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/output-adapter.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/output-adapter.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/output-adapter.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/run-pre-audit.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/run-pre-audit.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/run-pre-audit.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/run-pre-audit.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/settings.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lsp-auditor/settings.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ponytail/index.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/backends.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/ripgrep-search/internal.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/scrapling/browser-setup.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/scrapling/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/scrapling/index.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/scrapling/python-adapter.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/scrapling/python-adapter.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/scrapling/python-adapter.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/scrapling/python-script.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/scrapling/structured-output.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/session-logger/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/pipeline.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/pipeline.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/pipeline.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/renderer.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/renderer.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/renderer/parse.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/renderer/parse.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/session-logger/renderer/session-stats.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/structural-analyzer/parser.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/structural-analyzer/parser.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/structural-analyzer/renderer.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/agent-session-runner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/agent-session-runner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/agent-session-runner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/agent-session-runner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/agent-session-runner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/agent-session-runner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/last-json-scanner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/last-json-scanner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/last-json-scanner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/last-json-scanner.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/loader.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/output.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/budget.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/budget.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/budget.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/cleanup.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/deadline.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/spawn.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/spawn.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/spawn.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/runner/stream.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/state-helpers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/structured-audit.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/task.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/agent/task.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/audit-gate-decision.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/ci-gating.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/ci-gating.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/ci-gating.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/ci-gating.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/dead-code.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/duplicate-code.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/duplicate-code.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/osv-scanner.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/osv-scanner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/osv-scanner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/osv-scanner.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/package-safety.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/package-safety.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/requirements/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/requirements/parity.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/requirements/parse.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/checks/requirements/parse.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/config/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/config/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/config/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/config/config.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/config/types.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/config/workflow.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/config/workflow.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/forward.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/forward.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/autocomplete.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/autocomplete.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/event/autocomplete.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/comment.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/gh-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/gh-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/git.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/octokit-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/octokit-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/octokit-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/octokit-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/octokit-client.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/parsers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/parsers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/github/ports.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/lib/audit-headings.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/lib/audit-headings.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/lib/debug.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/lib/extensions.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/lib/extensions.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/lib/issue-filter.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/lib/size-tier.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/audit/index.ts",
+			"to": ".pi/extensions/supervisor/agent/task.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/audit/lsp-gate.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/audit/pre-gates.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/crash-cleanup.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/error-collector.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/execute-agent.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/agent-loop-steps.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/agent-loop-steps.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/post-pipeline.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/pr-gates.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/preflight.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/handler/shared.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "services",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/helpers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/helpers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/helpers.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/index.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/index.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/merge.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/merge.ts",
+			"to": ".pi/extensions/supervisor/agent/task.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/merge.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/merge.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/notifications.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/output.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/output.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/output.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/pr-creation.ts",
+			"to": ".pi/extensions/supervisor/agent/task.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/pr-creation.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/pr-creation.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/pr-creation.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/pr-creation.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/rebase.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/rebase.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/rebase.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/rebase.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/replay-session.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/stages/agent-comment.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/stages/auditor-output.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/stages/post-agent-success.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/state-checkpoint.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/state-checkpoint.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/state-checkpoint.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/state-checkpoint.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/worktree.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/pipeline/worktree.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/session/message-renderer.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/session/message-renderers/render-subagent.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/session/message-renderers/render-tool-complete.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/session/message-renderers/render-tool-complete.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/session/widget.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/session/widget.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/supervisor/subagent/types.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/tsc-checkpoint/adapter.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/tsc-checkpoint/checkpoint.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/tsc-checkpoint/checkpoint.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/tsc-checkpoint/checkpoint.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/extensions/tsc-checkpoint/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/executor.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/executor.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/protocol.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/python-script.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/python-script.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/search.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/search.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/web-search/types.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/worktree-sandbox/meaningful-token.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/worktree-sandbox/meaningful-token.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/worktree-sandbox/unsafe-cd.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/worktree-sandbox/unsafe-write.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/zzz-dump-context/index.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/build.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/build.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/cache.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/cache.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/catalog.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/clean.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/clean.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/codeflow_drift.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/codeflow_drift.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/codeflow_drift.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/config_jsonfile.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "config",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/docker_check.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/down.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/down.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embed.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/lib/patch-pi-session-warning.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/lib/patch-pi-session-warning.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/identity.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/init_auth.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/init_auth.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/init_clone.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/init_scaffold.go",
+			"to": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"fromLayer": "utils",
+			"toLayer": "services"
+		},
+		{
+			"from": "cmd/cheasee-pi/init.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/orphan.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/orphan.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/pi_skeleton.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/prune.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/rebuild.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/repo.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/uninstall.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/up_health.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/up_run.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/up_run.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/up_run.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/up_run.go",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/cpp.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/dart.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/java.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/java.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/js.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/python_metadata.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/python_requirements.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/python_requirements.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/adapters/ruby.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/cli.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/core.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/registries.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/registries.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/registries.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/registries.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/registries.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/transport.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/transport.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency_existence_check/transport.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/dependency-existence-check.py",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/verify-pi-layer-cache.sh",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "scripts/verify-pi-layer-cache.sh",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		}
+	],
+	"connections": [
+		{
+			"source": ".pi/extensions/supervisor/pipeline/execute-agent.ts",
+			"target": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+		},
+		{
+			"source": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"target": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+		},
+		{
+			"source": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"target": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+		},
+		{
+			"source": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"target": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+		},
+		{
+			"source": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"target": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+		},
+		{
+			"source": ".pi/extensions/supervisor/pipeline/stages/post-agent-success.ts",
+			"target": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+		},
+		{
+			"source": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"target": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+		},
+		{
+			"source": ".pi/extensions/supervisor/lib/debug.ts",
+			"target": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs"
+		}
+	],
+	"files": [
+		{
+			"path": ".goreleaser.yml",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/agent/models.json",
+			"layer": "data"
+		},
+		{
+			"path": ".pi/agent/settings.json",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/agent-harness.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/harness-rules.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/harness-rules.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/harness-state.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/harness-state.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/load-config.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/load-config.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/timed-map.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/timed-map.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/tool-annotations.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/lib/tool-annotations.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/test/dead-code-removal.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/agent-harness/test/index.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/ask-user/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ask-user/jsonl-logger.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ask-user/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ask-user/question-handler.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ask-user/question-ui.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ask-user/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/ask-user/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/caveman/command.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/caveman/compression.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/caveman/config-ui.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/caveman/config.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/caveman/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/caveman/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/caveman/prompts.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/caveman/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/caveman/session-level.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/config-ui.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/config.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/dead-code-removal.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/lifecycle.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/mode-compression.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/prompt-options.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/session-level.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/test/status-clear.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/caveman/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/codeflow.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/config.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/context-info/explain.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/extensions.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/footer-state.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/footer.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/formatting.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/markdown-resources.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/prompts.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/context-info/skills.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/context-info/ui.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/format-on-save/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/format-on-save/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/lib/bash-query.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/bash-query.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/codeflow-endpoint.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/diagnostics-format.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/ensureVenv.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/ensureVenv.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/extension-state.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/format-tokens.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/path-containment.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/port-types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/proper-lockfile-ambient.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/test/diagnostics-format.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/extension-state-integration.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/extension-state.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/format-tokens.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/path-containment.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/source-graph.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/source-graph.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/thinking-level.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/test/tool-mutation.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/lib/thinking-level.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/tool-mutation.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/tsc-types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/branch-retries.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/file-discovery.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/formatting.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/lib/file-ext.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/lib/lsp-types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/lsp-client.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/lsp-client/audit-one.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/output-adapter.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/retry.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/run-pre-audit.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/server-mappings.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/settings.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/lsp-auditor/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ponytail/index.js",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/backends.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/config.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/internal.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/PRD.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/test/fixtures/ripgrep-sample/config/settings.py",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/test/fixtures/ripgrep-sample/src/app.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/ripgrep-search/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/rtk/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/rtk/test/version-gate.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/browser-setup.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/scrapling/config.json",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/scrapling/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/scrapling/python-adapter.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/scrapling/python-script.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/scrapling/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/scrapling/structured-output.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/browser-setup.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/index-handler.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/index.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/python-adapter.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/readme-contract.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/scrapling-script.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/stealth-e2e.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/structured-output.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/tool-annotations.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/types.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/test/venv-setup-scrapling.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/scrapling/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/scrapling/venv-setup.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/files.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/nested.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/per-turn.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/pipeline.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/renderer.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/renderer/details.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/renderer/format.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/renderer/parse.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/renderer/session-stats.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/report.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/session-utils.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/stats.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/assistant-before-user.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/assistant-before-user.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/compaction.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/compaction.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/consecutive-users.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/consecutive-users.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-non-supervisor-data.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-non-supervisor-data.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-non-supervisor-no-data.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-non-supervisor-no-data.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-failed.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-failed.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-full.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-full.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-minimal.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-minimal.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-no-details.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/custom-supervisor-no-details.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/escaping-in-tables.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/escaping-in-tables.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/file-access-dedup.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/file-access-dedup.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/fmt-cost-thresholds.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/fmt-cost-thresholds.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/fmt-duration-thresholds.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/fmt-duration-thresholds.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/fmt-token-thresholds.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/fmt-token-thresholds.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/full-multi-turn.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/full-multi-turn.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/header-only.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/header-only.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/model-change.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/model-change.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-arguments-omitted.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-arguments-omitted.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-complete.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-complete.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-dropped.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-dropped.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-unfinished.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/nested-unfinished.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/overrides-both.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/overrides-both.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/overrides-mode.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/overrides-mode.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/overrides-session-name.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/overrides-session-name.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/subagent-tool-complete.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/subagent-tool-complete.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/thinking-change.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/thinking-change.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/thinking-preview-long.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/thinking-preview-long.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/truncation-boundaries.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/truncation-boundaries.stats.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/session-logger/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/cache.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/invalidation.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/language.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/parser.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/renderer.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/test/fixtures/structural-sample/api/auth.py",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/test/fixtures/structural-sample/src/app.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/test/fixtures/structural-sample/utils/helpers.py",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/structural-analyzer/validate.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/agent-session-runner.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/last-json-scanner.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/loader.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/output.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/args.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/budget.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/cleanup.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/deadline.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/event-loop.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/spawn.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/stream.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/runner/ui.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/state-helpers.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/structured-audit.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/task.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/validation.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agents/architect.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agents/auditor.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agents/developer.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agents/researcher.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/supervisor/agents/test-designer.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/audit-gate-decision.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/ci-gating.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/dead-code.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/duplicate-code.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/file-classification.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/osv-scanner.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/package-safety.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements-traceability.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/cleanup.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/coverage.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/diff.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/parity.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/parse.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/title.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/requirements/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/shared.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/config/config.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/supervisor/config/merge.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/supervisor/config/types.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/supervisor/config/workflow.ts",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/supervisor/event/adapter.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/event/adapter/forward.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/event/adapter/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/event/adapter/normalize.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/event/autocomplete.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/github/comment.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/github/gh-client.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/github/git.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/github/octokit-client.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/github/parsers.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/github/ports.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/audit-headings.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/debug.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/extensions.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/formatting.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/issue-filter.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/render-helpers.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/shared-prompts.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/size-tier.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/lib/tool-line.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/audit/aggregate.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/audit/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/audit/lsp-gate.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/audit/pre-gates.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/audit/tsc-gate.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/crash-cleanup.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/empty-worktree-policy.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/error-collector.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/execute-agent.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler/agent-loop-steps.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler/index.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler/post-pipeline.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler/pr-gates.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler/preflight.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/handler/shared.ts",
+			"layer": "services"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/helpers.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/merge.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/notifications.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/output.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/pr-creation.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/rebase.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/replay-session.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/result.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/agent-comment.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/auditor-output.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/core.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/empty-worktree.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/git-ops.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/post-agent-success.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/state-checkpoint.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/thinking-mismatch.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/worktree.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderer.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderers/constants.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderers/fallback-renderer.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderers/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderers/render-simple.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderers/render-subagent.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderers/render-tool-complete.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/message-renderers/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/nested-stats.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/result.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/session/widget.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/subagent/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/audit-decision-golden.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/malformed-agent-output-corpus.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/budget-exceeded-counts.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/budget-exceeded-missing.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/compaction.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/error-no-reason.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/error-no-toolname.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/error-reason-toolname.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/no-details-empty.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/no-details-string.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/phase-change-equal-text.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/phase-change-newline-split.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/phase-change-no-content.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/phase-change-single-line-extra.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-collapsed-full.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-collapsed-no-details.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-error-no-nested.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-expanded-full.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-expanded-no-output.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-output-500.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-output-501.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-task-50.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-task-51.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-toolcalls-30.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/subagent-result-toolcalls-31.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/thinking-content.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/thinking-empty.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-compacted.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-error-count.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-error.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-keyword-highlight.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-no-duration.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-success-full.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-success-minimal.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-complete-thinking-only.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-start-no-args.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/tool-start-with-args.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/unknown-nonstring.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/message-renderer-goldens/unknown-string.txt",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/fixtures/requirements-golden.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/helper/mock-github-port.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/supervisor/test/helpers/capture.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/adapter.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/checkpoint.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/format.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/adapter.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/checkpoint.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/format.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/index.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/trend-tracker.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/tsc-watch-options-removed.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/verify-ondiagnosticschange-removal.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/verify-parseargs-removal.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/verify-removal.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/verify-unused-import-declarations.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/test/watcher.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/trend.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/tsc-checkpoint/watcher.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/config.json",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/extensions/web-search/executor.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/protocol.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/python-script.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/web-search/requirements.txt",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/search.py",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/test/executor.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/web-search/test/index.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/web-search/test/protocol.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/web-search/test/python-script.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/web-search/test/tool-annotations.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/web-search/test/types.test.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/web-search/types.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/web-search/venv-setup.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/worktree-sandbox/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/worktree-sandbox/meaningful-token.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/worktree-sandbox/README.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/extensions/worktree-sandbox/test/helpers.ts",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/extensions/worktree-sandbox/unsafe-cd.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/worktree-sandbox/unsafe-write.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/zzz-dump-context/index.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/package.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/settings.json",
+			"layer": "config"
+		},
+		{
+			"path": ".pi/skills/audit-architecture-review/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/audit-clean-code/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/audit-code-simplification/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/references/finding-validator.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/references/known-false-positives.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/test/fixtures/codeflow-report-marked.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/test/fixtures/codeflow-report.json",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/test/fixtures/codeflow-report.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/test/fixtures/codeflow-ui-export.html",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/test/fixtures/generate-report-fixtures.mjs",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/test/fixtures/generate-ui-fixture.mjs",
+			"layer": "test"
+		},
+		{
+			"path": ".pi/skills/create-external-issue/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/create-internal-issue/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/handover/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/issue-cutter/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/issue-refinement/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/model-select/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/quiz-master/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/resolve-worktree-merge-conflict/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/voice-trainer/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/writing-voice/references/voice-de.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/writing-voice/references/voice-en.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/skills/writing-voice/SKILL.md",
+			"layer": "note"
+		},
+		{
+			"path": ".pi/themes/cheasee-pi.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/tsconfig.json",
+			"layer": "utils"
+		},
+		{
+			"path": ".prettierrc",
+			"layer": "utils"
+		},
+		{
+			"path": ".zed/tasks.json",
+			"layer": "services"
+		},
+		{
+			"path": "AGENTS.md",
+			"layer": "note"
+		},
+		{
+			"path": "APPEND_SYSTEM.md",
+			"layer": "note"
+		},
+		{
+			"path": "cmd/cheasee-pi/about_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/about.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/auth_envvars_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/auth.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/blast_radius_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/build_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/build.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/cache_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/cache.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/catalog_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/catalog.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/clean_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/clean.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/cli_doc_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_drift_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_drift.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_hint_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_hint.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_report_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_run_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_shim_ownership_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_shim_smoke_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/codeflow_shim_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/config_jsonfile_test.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/config_jsonfile.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/config_test.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/config.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/containers_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/containers.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/docker_check_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/docker_check.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/dockerfile_browser_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/dockerfile_compose_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/dockerfile_layers_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/dockerfile_symlink_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/down_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/down.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embed_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embed.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/cheasee-settings.json",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/config.json",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/Dockerfile",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/docker-compose.yml",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/Dockerfile",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/lib/auth-env.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/lib/patch-pi-session-warning.js",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/lib/worktree-fix.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/scrapling-constraints.txt",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/Cargo.lock",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/Dockerfile",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/provider_env_map.json",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/app.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/bridge.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/banners.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/bash.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/controls.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/dialog.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/message.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/mod.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/queue.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/session_list.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/status.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/components/tool_card.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/extension_ui.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/lib.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/mod.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/style/main.css",
+			"layer": "ui"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/fixtures/commands.jsonl",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/fixtures/events.jsonl",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/fixtures/extension_ui.jsonl",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/fixtures/responses.jsonl",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/session_coexistence.rs",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/pi/settings.json",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/entrypoint_detection_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/entrypoint_hardening_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/entrypoint_helpers_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/entrypoint_misc_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/entrypoint_settings_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/entrypoint_skillrepos_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/entrypoint_symlink_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/fresh_clone_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/github.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/helpers_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/identity_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/identity.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/image_exists_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/images.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_auth_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_auth.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_clone_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_clone.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_dockercheck_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_helpers_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_prompt_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_prompt.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_scaffold_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_scaffold.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_skillrepos_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_skillrepos_usecase_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_skillrepos.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_split_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_usecase_probe_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_usecase_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/init.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/installation_doc_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/main.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/name_flag_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/orphan.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/package_filter_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/package_filter.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/parallel_flow_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/pi_skeleton_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/pi_skeleton.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/provider_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/provider.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/prune_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/prune.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/rebuild.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/release_config_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/repo_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/repo.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/root_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/root.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/runner_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/runner.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/settings_cheasee_test.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/settings_composeenv_test.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/settings_memory_test.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/settings_misc_test.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/settings_roundtrip_test.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/settings.go",
+			"layer": "config"
+		},
+		{
+			"path": "cmd/cheasee-pi/template_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/template.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/testfixtures_test.go",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/testutil/testutil_test.go",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/testutil/testutil.go",
+			"layer": "test"
+		},
+		{
+			"path": "cmd/cheasee-pi/ui_asset_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/ui_e2e_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/ui_hint_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/ui_hint.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/ui_provider_env_map_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/ui_resolve_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/uninstall_script_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/uninstall.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_codeflow_env_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_compose.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_ensure_container_ready_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_env_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_env.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_flow_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_health.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_help_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_helpers_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_orphans_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_run.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_seam_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up_workspace_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/up.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/workspace_test.go",
+			"layer": "utils"
+		},
+		{
+			"path": "cmd/cheasee-pi/workspace.go",
+			"layer": "utils"
+		},
+		{
+			"path": "CODE_OF_CONDUCT.md",
+			"layer": "note"
+		},
+		{
+			"path": "CONTRIBUTING.md",
+			"layer": "note"
+		},
+		{
+			"path": "docker/docker-compose.legacy.yml",
+			"layer": "utils"
+		},
+		{
+			"path": "docs/_config.yml",
+			"layer": "utils"
+		},
+		{
+			"path": "docs/_sass/color_schemes/cheasee.scss",
+			"layer": "utils"
+		},
+		{
+			"path": "docs/acknowledgements.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/architecture.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/cli.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/configuration.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/daily-usage.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/development.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/agent-harness.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/ask-user.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/caveman.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/context-info.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/dump-context.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/format-on-save.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/lsp-auditor.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/ponytail.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/ripgrep-search.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/rtk.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/scrapling.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/session-logger.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/structural-analyzer.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/supervisor.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/tsc-checkpoint.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/web-search.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/extensions/worktree-sandbox.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/Gemfile",
+			"layer": "utils"
+		},
+		{
+			"path": "docs/github.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/index.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/installation.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/prompts.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/README.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/sbom.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/security.md",
+			"layer": "note"
+		},
+		{
+			"path": "docs/skills.md",
+			"layer": "note"
+		},
+		{
+			"path": "go.mod",
+			"layer": "utils"
+		},
+		{
+			"path": "go.sum",
+			"layer": "utils"
+		},
+		{
+			"path": "LICENSE",
+			"layer": "utils"
+		},
+		{
+			"path": "Makefile",
+			"layer": "utils"
+		},
+		{
+			"path": "package-lock.json",
+			"layer": "utils"
+		},
+		{
+			"path": "package.json",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/check-no-submodules.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/clean-branches.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/__init__.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/__init__.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/base.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/cpp.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/dart.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/dotnet.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/go.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/java.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/js.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/php.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/python_metadata.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/python_requirements.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/python.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/ruby.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/rust.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/adapters/swift.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/cli.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/core.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/helpers.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/matcher.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/models.py",
+			"layer": "data"
+		},
+		{
+			"path": "scripts/dependency_existence_check/registries.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency_existence_check/transport.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/dependency-existence-check.py",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/install.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/uninstall.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "scripts/verify-pi-layer-cache.sh",
+			"layer": "utils"
+		},
+		{
+			"path": "test/dependency-existence-check-refactor.test.py",
+			"layer": "test"
+		},
+		{
+			"path": "test/dependency-existence-check.test.py",
+			"layer": "test"
+		},
+		{
+			"path": "test/dogfooding-dedup.test.sh",
+			"layer": "test"
+		},
+		{
+			"path": "test/fixtures/codeflow-calc-health.mjs",
+			"layer": "test"
+		},
+		{
+			"path": "test/fixtures/dependency-existence-worktree-baseline.json",
+			"layer": "test"
+		},
+		{
+			"path": "test/fixtures/dogfooding-append-marker/index.ts",
+			"layer": "test"
+		},
+		{
+			"path": "test/fixtures/dogfooding-marker/index.ts",
+			"layer": "test"
+		},
+		{
+			"path": "test/fixtures/generate-calc-health-fixture.mjs",
+			"layer": "test"
+		},
+		{
+			"path": "test/no-submodules.test.sh",
+			"layer": "test"
+		},
+		{
+			"path": "test/repo-hygiene-dead-artifacts.test.sh",
+			"layer": "test"
+		},
+		{
+			"path": "test/uninstall-script.test.sh",
+			"layer": "test"
+		},
+		{
+			"path": "test/validate-finding-exit.test.sh",
+			"layer": "test"
+		},
+		{
+			"path": "tsconfig.json",
+			"layer": "utils"
+		}
+	]
+}
