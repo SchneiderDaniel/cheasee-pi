@@ -4,7 +4,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { createMockGitHubPort, type PortCall } from "../helper/mock-github-port.ts";
 import type {

@@ -90,9 +90,9 @@ reports separately and does **not** count as coupling reduction.
 | Ref | files | functions | connections | ratio | coupling | dead | deadCode |
 |-----|-------|-----------|-------------|-------|----------|------|----------|
 | `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 | 45 | 1.278 |
-| this branch | 725 | 3518 | 3179 | 4.3848 | 2.770 | 41 | 1.165 |
+| this branch | 725 | 3518 | 3178 | 4.3834 | 2.767 | 41 | 1.165 |
 
-- ratio `4.8384 → 4.3848` (−0.4536), coupling `3.677 → 2.770` (−0.907 points),
+- ratio `4.8384 → 4.3834` (−0.4550), coupling `3.677 → 2.767` (−0.910 points),
   dead-code `1.278 → 1.165` (−0.113 points). (The branch file count is one
   higher because this record ships with the change.)
 - **Attribution is split by measurement, not assertion.** A third tree `B′` —
@@ -103,24 +103,26 @@ reports separately and does **not** count as coupling reduction.
 | Tree | files | functions | connections | ratio | coupling |
 |------|-------|-----------|-------------|-------|----------|
 | `A` `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 |
-| `B′` branch, `catalog.go` reverted | 725 | 3519 | 3501 | 4.8290 | 3.658 |
-| `B` this branch | 725 | 3518 | 3179 | 4.3848 | 2.770 |
+| `B′` branch, `catalog.go` reverted | 725 | 3519 | 3500 | 4.8276 | 3.655 |
+| `B` this branch | 725 | 3518 | 3178 | 4.3834 | 2.767 |
 
-  - **Real dependency-edge reduction — `A → B′`, −2 connections.** Dropping two
-    genuinely-unused cross-file function imports from analyzed code:
-    `extractTextFromContent` from `agent-session-runner.ts` and
-    `getBuiltinToolLabels` from `render-helpers.ts`. (`workflow.ts`'s dropped
-    `ParseResult` and `state-checkpoint.ts`'s dropped `dirname` remove no
-    connection: a type name and a `node:` builtin are not repo functions. The
-    `.mts` test-import drops are hygiene only — `.mts` is absent from the
-    pinned analyzer's code extensions, so it contributes no edge.)
+  - **Real dependency-edge reduction — `A → B′`, −3 connections.** Dropping
+    three genuinely-unused cross-file function imports from analyzed code:
+    `extractTextFromContent` from `agent-session-runner.ts`,
+    `getBuiltinToolLabels` from `render-helpers.ts`, and — found by the
+    strengthened dead-import guard below — `diagnosticToTscDiagnostic` from
+    `tsc-checkpoint/test/index.test.ts`. (`workflow.ts`'s dropped `ParseResult`
+    and `state-checkpoint.ts`'s dropped `dirname` remove no connection: a type
+    name and a `node:` builtin are not repo functions. The `.mts` test-import
+    drops are hygiene only — `.mts` is absent from the pinned analyzer's code
+    extensions, so it contributes no edge.)
   - **Scanner-artifact suppression — `B′ → B`, −322 connections.** This is the
     `catalog.go` phantom below. It is **not counted as coupling reduction** and
     is listed only to keep the total reconcilable. It is a legitimate Go
     cleanup whose *metric* effect is artifact removal, filed against the
     detector-false-positive track (row 10 of `known-false-positives.md`), not
     against this chore.
-  - Net connection movement `−324 = −2 real + −322 artifact`; file-count +1 is
+  - Net connection movement `−325 = −3 real + −322 artifact`; file-count +1 is
     this record shipping with the change. No score-formula or detector
     configuration was touched, so `calcHealth` is unchanged.
 
@@ -135,8 +137,36 @@ the results are unnamed in the return statements) deletes the phantom and its 32
 false edges. Mechanism recorded as row 10 of `known-false-positives.md`.
 
 This is a detector artifact: the 322 edges never represented a dependency. The
-chore therefore reports them separately from the −2 real dependency edges and
+chore therefore reports them separately from the −3 real dependency edges and
 does not rely on them to claim the coupling term moved.
+
+## Dead-import guard hardening (audit finding)
+
+The extension dead-import guard (`test/extension-test-imports.test.mts`) resolved
+uses by raw identifier text, so a binding that appeared only as a property name
+(`{ existsSync: true }`, `x.existsSync`) or that was shadowed by a local counted
+as used and hid a dead import. It now resolves each identifier through the
+TypeScript checker (`getSymbolAtLocation` / `getShorthandAssignmentValueSymbol`)
+and counts a use only when it binds to the import alias. Property names and
+shadowed locals no longer mask an unused import; shorthand properties still
+count as uses. Regression cases for both were added and the guard's own fixture
+tests stay green.
+
+Running the strengthened guard over `.pi/extensions/**/test` found five
+genuinely dead static imports, removed in this change:
+
+| File | Binding | Why dead |
+|------|---------|----------|
+| `format-on-save/test/format-on-save.test.mts` | `resolve` (`node:path`) | only a shadowing callback parameter and `Promise.resolve` |
+| `supervisor/test/github/comment.test.mts` | `stripTrailingMetadata` | re-imported dynamically in each test |
+| `supervisor/test/pipeline/stages.test.mts` | `join` (`node:path`) | only `Array.prototype.join` |
+| `supervisor/test/pipeline/state-checkpoint.test.mts` | `resolve` (`node:path`) | only `Promise.resolve` |
+| `tsc-checkpoint/test/index.test.ts` | `diagnosticToTscDiagnostic` | reached only through a dynamic `mod.diagnosticToTscDiagnostic` |
+
+Four are `.mts` (absent from the pinned analyzer's extension lists, so no
+connection); `tsc-checkpoint/test/index.test.ts` is analyzed and its import was a
+genuine cross-file function edge, which is the −1 that moves `B′` from −2 to −3
+real connections in the attribution above.
 
 ## Dead-code candidate verdicts
 

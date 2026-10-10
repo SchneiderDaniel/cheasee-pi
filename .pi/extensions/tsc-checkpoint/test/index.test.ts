@@ -23,7 +23,6 @@ import {
 	formatDiagnosticsJson,
 	directionLabel,
 	runTscCheckpoint,
-	diagnosticToTscDiagnostic,
 } from "../index.ts";
 
 import type { TscDiagnostic, DiagnosticTrend } from "../index.ts";

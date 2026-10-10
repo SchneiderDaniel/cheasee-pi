@@ -10,7 +10,6 @@ import { postIssueComment } from "../../github/comment.ts";
 import {
 	extractStructuredAuditOutput,
 	extractAgentCommentBody,
-	stripTrailingMetadata,
 } from "../../agent/output.ts";
 import { filterIssueData } from "../../lib/issue-filter.ts";
 

@@ -16,7 +16,7 @@ import {
 	readFileSync,
 	realpathSync,
 } from "node:fs";
-import { resolve, join, basename } from "node:path";
+import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";

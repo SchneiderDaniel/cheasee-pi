@@ -96,19 +96,44 @@ interface ExtensionScan {
 }
 
 /**
- * Imported value bindings never referenced outside their import statement.
+ * Imported value bindings never referenced within the file.
  *
- * Parsed with the TypeScript AST (not a text search): identifiers inside the
- * import clause are skipped, and only identifier nodes count as uses — a name
- * that appears solely in a comment, string literal or regular expression is
- * therefore reported unused. Type-only imports, side-effect imports and
- * namespace imports are exempt because they bind nothing to reference.
+ * Resolution goes through the TypeScript checker, not a raw identifier scan:
+ * an identifier counts as a use only when it resolves to the import alias, so
+ * a property name (`{ existsSync: true }`, `x.existsSync`) or a local that
+ * shadows the binding no longer hides a dead import. Shorthand properties are
+ * resolved through their value symbol, comments/strings are never identifiers,
+ * and type-only, side-effect and namespace imports are exempt because they bind
+ * no value to reference.
  */
 function unusedImports(source: string, fileName = "fixture.mts"): string[] {
-	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-	const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind);
+	const virtual = `/virtual/${fileName}`;
+	const options: ts.CompilerOptions = {
+		noResolve: true,
+		noLib: true,
+		skipLibCheck: true,
+		target: ts.ScriptTarget.Latest,
+	};
+	const host = ts.createCompilerHost(options, true);
+	const baseGetSourceFile = host.getSourceFile.bind(host);
+	const baseFileExists = host.fileExists.bind(host);
+	const baseReadFile = host.readFile.bind(host);
+	host.fileExists = (file) => file === virtual || baseFileExists(file);
+	host.readFile = (file) => (file === virtual ? source : baseReadFile(file));
+	host.getSourceFile = (file, languageVersion, onError) =>
+		file === virtual
+			? ts.createSourceFile(file, source, languageVersion, true)
+			: baseGetSourceFile(file, languageVersion, onError);
+
+	const program = ts.createProgram([virtual], options, host);
+	const checker = program.getTypeChecker();
+	const file = program.getSourceFile(virtual);
+	if (!file) return [];
+
 	const bindings = new Set<string>();
 	const used = new Set<string>();
+	const referencesAlias = (symbol: ts.Symbol | undefined): boolean =>
+		!!symbol && (symbol.flags & ts.SymbolFlags.Alias) !== 0;
 
 	const visit = (node: ts.Node): void => {
 		if (ts.isImportDeclaration(node)) {
@@ -117,13 +142,20 @@ function unusedImports(source: string, fileName = "fixture.mts"): string[] {
 			if (clause.name) bindings.add(clause.name.text);
 			if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
 				for (const spec of clause.namedBindings.elements) {
-					if (spec.isTypeOnly) continue;
-					bindings.add((spec.name ?? spec.propertyName)!.text);
+					if (!spec.isTypeOnly) bindings.add(spec.name.text);
 				}
 			}
 			return;
 		}
-		if (ts.isIdentifier(node)) used.add(node.text);
+		if (ts.isShorthandPropertyAssignment(node)) {
+			if (referencesAlias(checker.getShorthandAssignmentValueSymbol(node))) {
+				used.add(node.name.text);
+			}
+			return;
+		}
+		if (ts.isIdentifier(node) && referencesAlias(checker.getSymbolAtLocation(node))) {
+			used.add(node.text);
+		}
 		ts.forEachChild(node, visit);
 	};
 	file.forEachChild(visit);
@@ -206,6 +238,41 @@ describe("extension tests — no dead import bindings", () => {
 			'const label = "ghost";',
 		].join("\n");
 		assert.deepStrictEqual(unusedImports(source), ["ghost"]);
+	});
+
+	it("detector reports a binding used only as a property name (AST)", () => {
+		assert.deepStrictEqual(
+			unusedImports(
+				[
+					'import { existsSync } from "node:fs";',
+					"const options = { existsSync: true };",
+				].join("\n"),
+			),
+			["existsSync"],
+		);
+		assert.deepStrictEqual(
+			unusedImports('import { prop } from "../x.ts";\nconsole.log(holder.prop);'),
+			["prop"],
+		);
+	});
+
+	it("detector still counts a shorthand property and a member base as uses", () => {
+		assert.deepStrictEqual(
+			unusedImports('import { used } from "../x.ts";\nconst o = { used };'),
+			[],
+		);
+		assert.deepStrictEqual(
+			unusedImports('import { holder } from "../x.ts";\nconsole.log(holder.prop);'),
+			[],
+		);
+	});
+
+	it("detector reports a binding shadowed by a local declaration (AST)", () => {
+		const source = [
+			'import { existsSync } from "node:fs";',
+			"function f() { const existsSync = 1; return existsSync; }",
+		].join("\n");
+		assert.deepStrictEqual(unusedImports(source), ["existsSync"]);
 	});
 
 	it("detector ignores a binding used only in a type position", () => {
