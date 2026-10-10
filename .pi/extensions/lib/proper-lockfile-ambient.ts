@@ -25,12 +25,6 @@ declare module "proper-lockfile" {
 		lockfilePath?: string;
 	}
 
-	interface UnlockOptions {
-		realpath?: boolean;
-		fs?: typeof import("node:fs");
-		lockfilePath?: string;
-	}
-
 	interface CheckOptions {
 		stale?: number;
 		realpath?: boolean;
@@ -39,6 +33,5 @@ declare module "proper-lockfile" {
 	}
 
 	function lock(file: string, options?: LockOptions): Promise<() => Promise<void>>;
-	function unlock(file: string, options?: UnlockOptions): Promise<void>;
 	function check(file: string, options?: CheckOptions): Promise<boolean>;
 }

@@ -89,11 +89,11 @@ reports separately and does **not** count as coupling reduction.
 
 | Ref | files | functions | connections | ratio | coupling | dead | deadCode |
 |-----|-------|-----------|-------------|-------|----------|------|----------|
-| `origin/main` | 723 | 3508 | 3493 | 4.8313 | 3.663 | 45 | 1.283 |
-| this branch | 724 | 3505 | 3170 | 4.3785 | 2.757 | 42 | 1.198 |
+| `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 | 45 | 1.278 |
+| this branch | 725 | 3518 | 3179 | 4.3848 | 2.770 | 41 | 1.165 |
 
-- ratio `4.8313 → 4.3785` (−0.4528), coupling `3.663 → 2.757` (−0.906 points),
-  dead-code `1.283 → 1.198` (−0.085 points). (The branch file count is one
+- ratio `4.8384 → 4.3848` (−0.4536), coupling `3.677 → 2.770` (−0.907 points),
+  dead-code `1.278 → 1.165` (−0.113 points). (The branch file count is one
   higher because this record ships with the change.)
 - **Attribution is split by measurement, not assertion.** A third tree `B′` —
   this branch with only `cmd/cheasee-pi/catalog.go` restored to `origin/main` —
@@ -102,9 +102,9 @@ reports separately and does **not** count as coupling reduction.
 
 | Tree | files | functions | connections | ratio | coupling |
 |------|-------|-----------|-------------|-------|----------|
-| `A` `origin/main` | 723 | 3508 | 3493 | 4.8313 | 3.663 |
-| `B′` branch, `catalog.go` reverted | 724 | 3506 | 3491 | 4.8218 | 3.644 |
-| `B` this branch | 724 | 3505 | 3170 | 4.3785 | 2.757 |
+| `A` `origin/main` | 724 | 3522 | 3503 | 4.8384 | 3.677 |
+| `B′` branch, `catalog.go` reverted | 725 | 3519 | 3501 | 4.8290 | 3.658 |
+| `B` this branch | 725 | 3518 | 3179 | 4.3848 | 2.770 |
 
   - **Real dependency-edge reduction — `A → B′`, −2 connections.** Dropping two
     genuinely-unused cross-file function imports from analyzed code:
@@ -114,70 +114,98 @@ reports separately and does **not** count as coupling reduction.
     connection: a type name and a `node:` builtin are not repo functions. The
     `.mts` test-import drops are hygiene only — `.mts` is absent from the
     pinned analyzer's code extensions, so it contributes no edge.)
-  - **Scanner-artifact suppression — `B′ → B`, −321 connections.** This is the
+  - **Scanner-artifact suppression — `B′ → B`, −322 connections.** This is the
     `catalog.go` phantom below. It is **not counted as coupling reduction** and
     is listed only to keep the total reconcilable. It is a legitimate Go
     cleanup whose *metric* effect is artifact removal, filed against the
     detector-false-positive track (row 10 of `known-false-positives.md`), not
     against this chore.
-  - Net connection movement `−323 = −2 real + −321 artifact`; file-count +1 is
+  - Net connection movement `−324 = −2 real + −322 artifact`; file-count +1 is
     this record shipping with the change. No score-formula or detector
     configuration was touched, so `calcHealth` is unchanged.
 
-### The `catalog.go` phantom (321 connections, not coupling work)
+### The `catalog.go` phantom (322 connections, not coupling work)
 
 `func modelChoice(...) (def string, models []string)` named its results `def` and
 `models`, which no statement in the body ever assigns or reads. The heuristic
 scanner reads a bare word after `def` as a definition, so it invented a function
 named `string` in `catalog.go`; every repository file that mentions the word
 `string` then became a caller. Removing the unused named results (idiomatic Go —
-the results are unnamed in the return statements) deletes the phantom and its 321
+the results are unnamed in the return statements) deletes the phantom and its 322
 false edges. Mechanism recorded as row 10 of `known-false-positives.md`.
 
-This is a detector artifact: the 321 edges never represented a dependency. The
+This is a detector artifact: the 322 edges never represented a dependency. The
 chore therefore reports them separately from the −2 real dependency edges and
 does not rely on them to claim the coupling term moved.
 
 ## Dead-code candidate verdicts
 
-The pinned analyzer reports `dead: 45` before this change and `dead: 42` after.
+The pinned analyzer reports `dead: 45` before this change and `dead: 41` after.
 Every candidate was checked for (a) the symbol used as a value passed by
 reference, (b) a trait/`impl`/`dyn` or default-export dispatch, and (c) a
 `wire()`/framework seam, per row 8 of `known-false-positives.md`.
 
+**Attribution.** The four removals below are functions the *headless* analyzer
+extracts but no code references; they are not among the live report's 24 (which
+are all INVALID). The live `Unused Functions` numerator therefore stays 24 and
+the live dead-code term is effectively unchanged — the reproducible improvement
+is the headless `dead` count, 45 → 41. This is why the issue's own estimate for
+the dead-code lever is ≈ 0.5 and why no live candidate was force-removed.
+
 ### The issue's live-run candidates (24), with individual verdicts
 
-The `local/workspace-f4048b9b` report the issue cites was produced by the shipped
-sidecar over its live workspace file set (1026 files including untracked trees,
-5006 connections) and neither the report nor its JSON ships in the repository or
-this container, so its 24-entry list cannot be re-derived offline. The entries
-named in the issue body and the architecture note are therefore given an
-explicit row-8 verdict below; the remaining live entries are the same shape and
-are covered by the full headless superset (45 candidates) that follows.
+The `local/workspace-f4048b9b` report is captured verbatim at
+`ignore/codeflow-report.md` (repo label `local/workspace-f4048b9b`, analyzed
+`2026-10-09T19:52:19`, 1026 files / 4890 functions / 5006 connections — the same
+numbers the issue cites). Its `## Unused Functions (24)` section names all 24
+candidates; each is given an individual row-8 verdict below. Every one is
+reached indirectly, so none qualifies for removal and none was removed.
 
-| Symbol | Location | Verdict | Row-8 disproof |
-|--------|----------|---------|----------------|
-| `defaultIsWritable` | `.pi/extensions/scrapling/browser-setup.ts:81` | INVALID | value passed by reference (`opts.isWritable ?? defaultIsWritable`), called at `:115` |
-| `defaultFetch` | `.pi/skills/audit-codeflow-analysis/lib/fetch-report.ts:67` | INVALID | value passed by reference (`fetchFn = fn ?? defaultFetch`, initial `let fetchFn = defaultFetch`), called at `:93`,`:100` |
-| `defaultWriteFile` | `.pi/skills/audit-codeflow-analysis/lib/fetch-report.ts:80` | INVALID | value passed by reference (`writeFileFn = fn ?? defaultWriteFile`, initial `let writeFileFn = defaultWriteFile`) |
-| `defaultFetch` | `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts:64` | INVALID | callback seam (`opts.fetchFn ?? defaultFetch`), used at `:145` |
-| `defaultSleep` | `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts:66` | INVALID | callback seam (`opts.sleepFn ?? defaultSleep`), used at `:146` |
-| `opened` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:199` | INVALID | Rust trait method reached through `wire()` (`ws.rs`) |
-| `stable_elapsed` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:211` | INVALID | Rust trait method reached through `wire()`; pinned live by `TestUI_WSClientLifecycleWiring` |
-| `transport_closed` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:218` | INVALID | Rust trait method reached through `wire()` (`ws.rs`) |
+| # | Symbol | Location | Verdict | Row-8 disproof (evidence) |
+|---|--------|----------|---------|---------------------------|
+| 1 | `defaultIsWritable` | `.pi/extensions/scrapling/browser-setup.ts:81` | INVALID | value passed by reference (`opts.isWritable ?? defaultIsWritable`, `:115`), invoked `:140` |
+| 2 | `defaultFetch` | `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts:64` | INVALID | callback seam (`opts.fetchFn ?? defaultFetch`, `:145`) |
+| 3 | `defaultSleep` | `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts:66` | INVALID | callback seam (`opts.sleepFn ?? defaultSleep`, `:146`) |
+| 4 | `defaultFetch` | `.pi/skills/audit-codeflow-analysis/lib/fetch-report.ts:68` (live report `:70`) | INVALID | value passed by reference (`let fetchFn = defaultFetch`, `:91`; `fetchFn = fn ?? defaultFetch`, `:98`) |
+| 5 | `defaultWriteFile` | `.pi/skills/audit-codeflow-analysis/lib/fetch-report.ts:78` (live report `:80`) | INVALID | value passed by reference (`let writeFileFn = defaultWriteFile`, `:92`; `writeFileFn = fn ?? defaultWriteFile`, `:103`) |
+| 6 | `opened` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:199` | INVALID | adapter method invoked by `wire()` (`retry.rs:274`) |
+| 7 | `stable_elapsed` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:211` | INVALID | adapter method invoked by `wire()` (`retry.rs:278`); pinned live by `TestUI_WSClientLifecycleWiring` |
+| 8 | `transport_closed` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:218` | INVALID | adapter method invoked by `wire()` (`retry.rs:285`) |
+| 9 | `on_close` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:236` | INVALID | `Socket` trait method (declared `:236`), impls `ws.rs:71` / `retry.rs:502`, driven by `wire()` |
+| 10 | `is_open` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:396` | INVALID | `Transport` impl (declared `:306`) used by the send policy |
+| 11 | `send_text` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:399` | INVALID | `Transport` impl (declared `:307`); live impl `main.rs:309` |
+| 12 | `on_message` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:499` | INVALID | test `Socket` impl (declared `:235`), exercised by the retry suite |
+| 13 | `on_close` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:502` | INVALID | test `Socket` impl (declared `:236`) |
+| 14 | `reconnect_delay` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:596` | INVALID | test method calling the free fn defined `retry.rs:430` |
+| 15 | `read_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs:468` | INVALID | trait method (declared `subscribe.rs:109`), impl for `SessionStore` |
+| 16 | `write_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs:472` | INVALID | trait method (declared `subscribe.rs:110`) |
+| 17 | `read_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs:482` | INVALID | trait method (declared `subscribe.rs:109`) |
+| 18 | `write_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs:486` | INVALID | trait method (declared `subscribe.rs:110`) |
+| 19 | `read_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs:122` | INVALID | trait method; concrete impl `sessions_store.rs:370` |
+| 20 | `write_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs:126` | INVALID | trait method; concrete impl `sessions_store.rs:378` |
+| 21 | `read_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs:397` | INVALID | trait method; concrete impl `sessions_store.rs:370` |
+| 22 | `write_cursor` | `cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs:401` | INVALID | trait method; concrete impl `sessions_store.rs:378` |
+| 23 | `on_message` | `cmd/cheasee-pi/embedded/docker/ui/src/ws.rs:60` | INVALID | `impl Socket for BrowserSocket`; callback installed by `wire()` |
+| 24 | `on_close` | `cmd/cheasee-pi/embedded/docker/ui/src/ws.rs:71` | INVALID | `impl Socket for BrowserSocket`; callback installed by `wire()` |
 
-Zero of the named live candidates qualify for removal; each is reached by a
-reference or dispatch seam that a text search for a call site would miss. No
-production function was removed on the strength of the live list.
+24 of 24 INVALID. Each is reached by a callback seam, a trait/`impl` dispatch, or
+a `wire()` adapter call that a call-site text search misses; none was removed.
+The headless candidate list below flags the 19 Rust entries and
+`defaultIsWritable` from this same set, so no live entry is left unexamined.
 
-**VALID and removed — 3 candidates.** `.pi/extensions/lib/proper-lockfile-ambient.ts`
-declared `lockSync` / `unlockSync` / `checkSync` for the `proper-lockfile`
-module. `rg` over the whole worktree finds no reference; `ensureVenv.ts` imports
-the module but uses only the async API. Removing the three unreferenced ambient
-declarations is a type-only change (no runtime body) and `npm run tsc:extensions`
-stays green with them gone.
+**VALID and removed — 4 candidates.** `.pi/extensions/lib/proper-lockfile-ambient.ts`
+declared `lockSync` / `unlockSync` / `checkSync` / `unlock` for the
+`proper-lockfile` module. `rg` over the whole worktree finds no reference for any
+of them; `ensureVenv.ts` imports the module but uses only `lockfile.lock` (the
+async `lock`), never the standalone `unlock`. The only textual hits for `unlock`
+are a test-title string and an unrelated local variable, neither a reference
+under the AST rule the repo uses for its own dead-import guard
+(`test/extension-test-imports.test.mts`), so `unlock` is genuinely dead like the
+three sync declarations. Removing the four unreferenced ambient declarations is
+a type-only change (no runtime body) and `npm run tsc:extensions` stays green
+with them gone.
 
-**INVALID — 42 candidates.** Every remaining entry is reached indirectly; the
+**INVALID — 41 candidates.** Every remaining entry is reached indirectly; the
 lowercase `refs` count is the number of occurrences outside the declaration.
 
 | Symbol | Location | Verdict | Row-8 disproof | First reference |
@@ -185,7 +213,6 @@ lowercase `refs` count is the number of occurrences outside the declaration.
 | `askUser` | .pi/extensions/ask-user/index.ts:135 | INVALID | referenced from 18 site(s) outside the declaration (row 8) | `.pi/extensions/ask-user/test/ask-user.test.mts:34 — import askUser, { successResult } from "../index.ts";` |
 | `setSupervisorIssueData` | .pi/extensions/context-info/index.ts:87 | INVALID | referenced from 24 site(s) outside the declaration (row 8) | `.pi/extensions/context-info/README.md:133 — Exported setSupervisorIssueData/clearSupervisorIssueData` |
 | `clearSupervisorIssueData` | .pi/extensions/context-info/index.ts:106 | INVALID | referenced from 20 site(s) outside the declaration (row 8) | `.pi/extensions/context-info/README.md:133 — Exported setSupervisorIssueData/clearSupervisorIssueData` |
-| `unlock` | .pi/extensions/lib/proper-lockfile-ambient.ts:42 | INVALID | referenced from 6 site(s) outside the declaration (row 8) | `.pi/extensions/context-info/test/footer-config.test.mts:897 — unlock icon when trustStatus="untrusted"` |
 | `lspAuditor` | .pi/extensions/lsp-auditor/index.ts:20 | INVALID | referenced from 42 site(s) outside the declaration (row 8) | `.pi/extensions/lsp-auditor/README.md:62 — "lspAuditor": {` |
 | `ponytailExtension` | .pi/extensions/ponytail/index.js:76 | INVALID | `export default` extension activation — dispatched by the pi runtime, not by name | `.pi/extensions/ponytail/index.js:76 — export default function` |
 | `ripgrepSearch` | .pi/extensions/ripgrep-search/index.ts:230 | INVALID | referenced from 13 site(s) outside the declaration (row 8) | `.pi/extensions/ripgrep-search/README.md:55 — "ripgrepSearch": {` |
