@@ -43,8 +43,8 @@ describe("getSystemPromptOptions — contract", () => {
 
 	it("returns BuildSystemPromptOptions with contextFiles, skills, selectedTools", () => {
 		const options = {
-			contextFiles: [".pi/agents.md", ".pi/skills/writing-voice/SKILL.md"],
-			skills: ["writing-voice"],
+			contextFiles: [".pi/agents.md", ".pi/skills/voice-for-writing/SKILL.md"],
+			skills: ["voice-for-writing"],
 			selectedTools: ["read", "bash", "edit"],
 		};
 		assert.ok(Array.isArray(options.contextFiles));
@@ -153,7 +153,7 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined, // vulnContext
 
 			undefined, // gateFailureContext
-			{ contextFiles: [".pi/agents.md", ".pi/skills/writing-voice/SKILL.md"] },
+			{ contextFiles: [".pi/agents.md", ".pi/skills/voice-for-writing/SKILL.md"] },
 		);
 		assert.ok(task.includes("## Available Tools"), "should inject Available Tools section");
 		assert.ok(task.includes("Context Files"), "should reference context files");
@@ -181,10 +181,10 @@ describe("buildAgentTask — systemPromptOptions parameter", () => {
 			undefined, // vulnContext
 
 			undefined, // gateFailureContext
-			{ skills: ["writing-voice", "extension-spec"] },
+			{ skills: ["voice-for-writing", "extension-spec"] },
 		);
 		assert.ok(task.includes("## Available Tools"), "should inject Available Tools section");
-		assert.ok(task.includes("writing-voice"), "should list loaded skills");
+		assert.ok(task.includes("voice-for-writing"), "should list loaded skills");
 	});
 
 	it("when systemPromptOptions not provided (undefined), no extra section emitted", () => {

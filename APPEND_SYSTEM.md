@@ -39,7 +39,7 @@ The following commands are strictly blacklisted and will cause system failure:
 </execution_protocols>
 
 <system_directives>
-- WRITING VOICE: IF you are drafting summaries, docs, READMEs, guides, or any user-facing prose -> You MUST first load and apply the `writing-voice` skill (`SKILL.md` and `references/voice-en.md`).
+- WRITING VOICE: IF you are drafting summaries, docs, READMEs, guides, or any user-facing prose -> You MUST first load and apply the `voice-for-writing` skill (`SKILL.md` and `references/voice-en.md`).
 </system_directives>
 
 <package_safety_audit>

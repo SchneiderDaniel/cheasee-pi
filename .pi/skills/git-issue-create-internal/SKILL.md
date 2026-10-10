@@ -1,5 +1,5 @@
 ---
-name: create-internal-issue
+name: git-issue-create-internal
 description: "Creates GitHub issues on the internal repo. Reads repo + project config from .pi/settings.json, loads proper template, checks duplicates, files via gh CLI, adds to project board with status. Use for any internal issue."
 metadata:
   steps: read-config-read-template-check-duplicates-compose-file-add-project
@@ -21,7 +21,7 @@ Load this skill when the user asks to:
 - "Create a GitHub issue about [X]"
 - Any task involving creating an issue on **this project's repo**
 
-Do **NOT** load for external repos (use `create-external-issue` skill).
+Do **NOT** load for external repos (use `git-issue-create-external` skill).
 
 ## Preconditions
 
@@ -35,7 +35,7 @@ Exit non-zero → stop: "`gh` CLI not authenticated. Run `gh auth login`."
 
 ### Scope Gate
 
-This skill works on the repo defined in `.pi/settings.json` → `supervisor.repo`. For repos outside this project → use `create-external-issue` skill.
+This skill works on the repo defined in `.pi/settings.json` → `supervisor.repo`. For repos outside this project → use `git-issue-create-external` skill.
 
 ---
 

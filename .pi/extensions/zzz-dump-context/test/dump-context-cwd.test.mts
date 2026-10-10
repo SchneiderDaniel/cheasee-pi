@@ -44,7 +44,7 @@ function fixture(opts: { cwd: string; injections?: boolean }): string {
 	].join("\n");
 	const skills = [
 		"<available_skills>",
-		"<skill><name>writing-voice</name></skill>",
+		"<skill><name>voice-for-writing</name></skill>",
 		"</available_skills>",
 	].join("\n");
 	const injections = [
