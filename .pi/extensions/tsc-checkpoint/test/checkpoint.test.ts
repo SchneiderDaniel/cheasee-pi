@@ -10,7 +10,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 import ts from "typescript";

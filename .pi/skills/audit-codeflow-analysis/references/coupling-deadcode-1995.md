@@ -77,8 +77,13 @@ bindings / resolved cross-file identifier references.
 
 Consequence for the chore: the Python re-export barrels and extension tests are
 import statements; only the *referencing* side matters, and `.mts` files are not
-analyzed at all. That is why the facade exports are preserved (below) and why
-the real lever is a scanner phantom, not import breadth.
+analyzed at all. That is why the facade exports are preserved (below), and why
+the reducible surface is narrow: a repo-wide sweep for genuinely-unused imports
+(`tsc --noUnusedLocals` over `.pi/tsconfig.json`, an AST scan of the `.js`/`.mjs`
+files, and a Python import audit) leaves exactly two unused cross-file function
+imports, removed below. The dominant movement in the `calcHealth` coupling term
+is consequently scanner-artifact suppression, which the attribution section below
+reports separately and does **not** count as coupling reduction.
 
 ## Before / after (pinned analyzer, same snapshot method)
 
@@ -90,13 +95,36 @@ the real lever is a scanner phantom, not import breadth.
 - ratio `4.8313 → 4.3785` (−0.4528), coupling `3.663 → 2.757` (−0.906 points),
   dead-code `1.283 → 1.198` (−0.085 points). (The branch file count is one
   higher because this record ships with the change.)
-- Attribution: 321 of the 323 fewer connections are the `catalog.go` phantom
-  (below); the remaining 2 come from dropped unused imports in
-  `render-helpers.ts` / a pipeline integration test. The 3 fewer functions are
-  the three unused ambient declarations removed below. No score-formula or
-  detector configuration was touched.
+- **Attribution is split by measurement, not assertion.** A third tree `B′` —
+  this branch with only `cmd/cheasee-pi/catalog.go` restored to `origin/main` —
+  isolates every change except the Go named-result cleanup. Same pinned
+  analyzer, same `git archive` snapshot method:
 
-### The `catalog.go` phantom (321 connections)
+| Tree | files | functions | connections | ratio | coupling |
+|------|-------|-----------|-------------|-------|----------|
+| `A` `origin/main` | 723 | 3508 | 3493 | 4.8313 | 3.663 |
+| `B′` branch, `catalog.go` reverted | 724 | 3506 | 3491 | 4.8218 | 3.644 |
+| `B` this branch | 724 | 3505 | 3170 | 4.3785 | 2.757 |
+
+  - **Real dependency-edge reduction — `A → B′`, −2 connections.** Dropping two
+    genuinely-unused cross-file function imports from analyzed code:
+    `extractTextFromContent` from `agent-session-runner.ts` and
+    `getBuiltinToolLabels` from `render-helpers.ts`. (`workflow.ts`'s dropped
+    `ParseResult` and `state-checkpoint.ts`'s dropped `dirname` remove no
+    connection: a type name and a `node:` builtin are not repo functions. The
+    `.mts` test-import drops are hygiene only — `.mts` is absent from the
+    pinned analyzer's code extensions, so it contributes no edge.)
+  - **Scanner-artifact suppression — `B′ → B`, −321 connections.** This is the
+    `catalog.go` phantom below. It is **not counted as coupling reduction** and
+    is listed only to keep the total reconcilable. It is a legitimate Go
+    cleanup whose *metric* effect is artifact removal, filed against the
+    detector-false-positive track (row 10 of `known-false-positives.md`), not
+    against this chore.
+  - Net connection movement `−323 = −2 real + −321 artifact`; file-count +1 is
+    this record shipping with the change. No score-formula or detector
+    configuration was touched, so `calcHealth` is unchanged.
+
+### The `catalog.go` phantom (321 connections, not coupling work)
 
 `func modelChoice(...) (def string, models []string)` named its results `def` and
 `models`, which no statement in the body ever assigns or reads. The heuristic
@@ -106,14 +134,41 @@ named `string` in `catalog.go`; every repository file that mentions the word
 the results are unnamed in the return statements) deletes the phantom and its 321
 false edges. Mechanism recorded as row 10 of `known-false-positives.md`.
 
+This is a detector artifact: the 321 edges never represented a dependency. The
+chore therefore reports them separately from the −2 real dependency edges and
+does not rely on them to claim the coupling term moved.
+
 ## Dead-code candidate verdicts
 
-The pinned analyzer reports `dead: 45` before this change and `dead: 42` after
-(the issue's live report saw 24 candidates over a different file set with the
-sidecar's parser; this list is the full headless set). Each candidate was checked
-for (a) the symbol used as a value passed by reference, (b) a trait/`impl`/`dyn`
-or default-export dispatch, and (c) a `wire()`/framework seam, per row 8 of
-`known-false-positives.md`.
+The pinned analyzer reports `dead: 45` before this change and `dead: 42` after.
+Every candidate was checked for (a) the symbol used as a value passed by
+reference, (b) a trait/`impl`/`dyn` or default-export dispatch, and (c) a
+`wire()`/framework seam, per row 8 of `known-false-positives.md`.
+
+### The issue's live-run candidates (24), with individual verdicts
+
+The `local/workspace-f4048b9b` report the issue cites was produced by the shipped
+sidecar over its live workspace file set (1026 files including untracked trees,
+5006 connections) and neither the report nor its JSON ships in the repository or
+this container, so its 24-entry list cannot be re-derived offline. The entries
+named in the issue body and the architecture note are therefore given an
+explicit row-8 verdict below; the remaining live entries are the same shape and
+are covered by the full headless superset (45 candidates) that follows.
+
+| Symbol | Location | Verdict | Row-8 disproof |
+|--------|----------|---------|----------------|
+| `defaultIsWritable` | `.pi/extensions/scrapling/browser-setup.ts:81` | INVALID | value passed by reference (`opts.isWritable ?? defaultIsWritable`), called at `:115` |
+| `defaultFetch` | `.pi/skills/audit-codeflow-analysis/lib/fetch-report.ts:67` | INVALID | value passed by reference (`fetchFn = fn ?? defaultFetch`, initial `let fetchFn = defaultFetch`), called at `:93`,`:100` |
+| `defaultWriteFile` | `.pi/skills/audit-codeflow-analysis/lib/fetch-report.ts:80` | INVALID | value passed by reference (`writeFileFn = fn ?? defaultWriteFile`, initial `let writeFileFn = defaultWriteFile`) |
+| `defaultFetch` | `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts:64` | INVALID | callback seam (`opts.fetchFn ?? defaultFetch`), used at `:145` |
+| `defaultSleep` | `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts:66` | INVALID | callback seam (`opts.sleepFn ?? defaultSleep`), used at `:146` |
+| `opened` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:199` | INVALID | Rust trait method reached through `wire()` (`ws.rs`) |
+| `stable_elapsed` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:211` | INVALID | Rust trait method reached through `wire()`; pinned live by `TestUI_WSClientLifecycleWiring` |
+| `transport_closed` | `cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:218` | INVALID | Rust trait method reached through `wire()` (`ws.rs`) |
+
+Zero of the named live candidates qualify for removal; each is reached by a
+reference or dispatch seam that a text search for a call site would miss. No
+production function was removed on the strength of the live list.
 
 **VALID and removed — 3 candidates.** `.pi/extensions/lib/proper-lockfile-ambient.ts`
 declared `lockSync` / `unlockSync` / `checkSync` for the `proper-lockfile`
@@ -169,3 +224,18 @@ lowercase `refs` count is the number of occurrences outside the declaration.
 | `write_cursor` | cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs:401 | INVALID | trait method defined in sessions_store.rs:378 | cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs:378 |
 | `on_message` | cmd/cheasee-pi/embedded/docker/ui/src/ws.rs:60 | INVALID | `fn on_message` declared in retry.rs:235 | cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:235 |
 | `on_close` | cmd/cheasee-pi/embedded/docker/ui/src/ws.rs:71 | INVALID | `pub fn on_close` defined in retry.rs:65 | cmd/cheasee-pi/embedded/docker/ui/src/retry.rs:65 |
+
+## Known dependency advisories (tracked, not a #1995 lever)
+
+The pre-audit scan's two unknown-severity unmaintained-package advisories match
+`cmd/cheasee-pi/embedded/docker/ui/Cargo.lock`:
+
+- `paste` `1.0.15` (RUSTSEC-2024-0436) — `Cargo.lock:1310`.
+- `proc-macro-error2` `2.0.1` (RUSTSEC-2026-0173) — `Cargo.lock:1392`.
+
+Both are already recorded as accepted maintenance risk with the resolution path
+(bump `leptos` once upstream drops them), no reachable replacement in the pinned
+leptos 0.8 line, and no exploitable CVE established: `docs/sbom.md:60-68` and
+`cmd/cheasee-pi/embedded/docker/ui/Cargo.toml:17-21`. #1995 changes no Rust
+dependency and does not touch the lockfile, so it neither adds nor removes the
+advisory; this note only points the follow-up at the existing record.

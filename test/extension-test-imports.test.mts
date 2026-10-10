@@ -12,12 +12,16 @@
  * both its code and text extension lists, so this guard is hygiene, not a
  * score lever. Type-only, side-effect and namespace imports are exempt.
  *
+ * Detection uses the TypeScript AST, so a name mentioned only in a comment or
+ * string literal does not count as a use (a raw-source search would be fooled).
+ *
  * Run with:
  *   node --experimental-strip-types --test test/extension-test-imports.test.mts
  */
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
+import ts from "typescript";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
@@ -91,37 +95,40 @@ interface ExtensionScan {
 	productionClasses: Set<string>;
 }
 
-/** Named value bindings of `import { ... } from "..."` — type-only entries dropped. */
-function importedValueBindings(source: string): string[] {
-	const names: string[] = [];
-	for (const m of source.matchAll(/^[ \t]*import\s+(?!type\b)\{([^}]*)\}\s*from\s*["']/gm)) {
-		for (const part of m[1]!.split(",")) {
-			const raw = part.trim();
-			if (!raw || /^type\s/.test(raw)) continue;
-			const alias = raw.split(/\s+as\s+/);
-			names.push((alias[1] ?? alias[0])!.trim());
+/**
+ * Imported value bindings never referenced outside their import statement.
+ *
+ * Parsed with the TypeScript AST (not a text search): identifiers inside the
+ * import clause are skipped, and only identifier nodes count as uses — a name
+ * that appears solely in a comment, string literal or regular expression is
+ * therefore reported unused. Type-only imports, side-effect imports and
+ * namespace imports are exempt because they bind nothing to reference.
+ */
+function unusedImports(source: string, fileName = "fixture.mts"): string[] {
+	const kind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
+	const file = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true, kind);
+	const bindings = new Set<string>();
+	const used = new Set<string>();
+
+	const visit = (node: ts.Node): void => {
+		if (ts.isImportDeclaration(node)) {
+			const clause = node.importClause;
+			if (!clause || clause.isTypeOnly) return;
+			if (clause.name) bindings.add(clause.name.text);
+			if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+				for (const spec of clause.namedBindings.elements) {
+					if (spec.isTypeOnly) continue;
+					bindings.add((spec.name ?? spec.propertyName)!.text);
+				}
+			}
+			return;
 		}
-	}
-	return names;
-}
+		if (ts.isIdentifier(node)) used.add(node.text);
+		ts.forEachChild(node, visit);
+	};
+	file.forEachChild(visit);
 
-/** The source with every import statement removed, so a binding's own
- * declaration cannot count as a use of itself. Anchored at line start so the
- * word "import" inside a comment or string cannot swallow real code. */
-function withoutImports(source: string): string {
-	return source.replace(
-		/^[ \t]*import\s+(?:type\s+)?[\s\S]*?\s+from\s*["'][^"']+["']\s*;?|^[ \t]*import\s*["'][^"']+["']\s*;?/gm,
-		"",
-	);
-}
-
-/** Imported value bindings never referenced outside their import statement. */
-function unusedImports(source: string): string[] {
-	const body = withoutImports(source);
-	return importedValueBindings(source).filter((name) => {
-		const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-		return !new RegExp(`(?<![\\w$])${esc}(?![\\w$])`).test(body);
-	});
+	return [...bindings].filter((name) => !used.has(name));
 }
 
 function scanExtension(name: string): ExtensionScan {
@@ -190,6 +197,15 @@ describe("extension tests — no dead import bindings", () => {
 			unusedImports('import { used, dead } from "../x.ts";\nconsole.log(used);'),
 			["dead"],
 		);
+	});
+
+	it("detector ignores a name that only appears in a comment or string (AST)", () => {
+		const source = [
+			'import { ghost } from "../x.ts";',
+			"// ghost is only mentioned in this comment",
+			'const label = "ghost";',
+		].join("\n");
+		assert.deepStrictEqual(unusedImports(source), ["ghost"]);
 	});
 
 	it("detector ignores a binding used only in a type position", () => {

@@ -14,7 +14,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 
 // ═══════════════════════════════════════════════════════════════════════
