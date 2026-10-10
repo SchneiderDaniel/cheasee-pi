@@ -2,7 +2,7 @@
 // Tests that the pino adapter preserves the DebugLogger facade contract
 // and the sessionId invariant.
 
-import { describe, it, mock, beforeEach, afterEach } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, mkdtempSync, rmSync, existsSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";

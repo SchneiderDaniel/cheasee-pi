@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 
 // ---------------------------------------------------------------------------
 // Duplicated helpers from .pi/extensions/context-info.ts (TPS feature)

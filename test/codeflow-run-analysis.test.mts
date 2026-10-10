@@ -13,7 +13,14 @@
 
 import assert from "node:assert";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	symlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,7 +83,21 @@ module.exports = {
 `;
 }
 
-function makeFixture(opts: { emitJson?: boolean; analyzerBlock?: string; analysisJs?: string | null } = {}): Fixture {
+// Formula fixture only. The issue's live run (`local/workspace-f4048b9b`):
+// 5006 connections over 1026 files is the coupling input, 24 dead of 4890
+// functions the dead-code one. The real pinned-analyzer calibration (connection
+// unit, repository before/after) lives in
+// .pi/skills/audit-codeflow-analysis/references/coupling-deadcode-1995.md.
+const CANON_STATS = { files: 1026, functions: 4890, connections: 5006, dead: 24, loc: 12345 };
+
+function makeFixture(
+	opts: {
+		emitJson?: boolean;
+		analyzerBlock?: string;
+		analysisJs?: string | null;
+		stats?: unknown;
+	} = {},
+): Fixture {
 	const root = mkdtempSync(join(tmpdir(), "codeflow-runner-"));
 	const uiDir = join(root, "ui");
 	const sourceDir = join(root, "src");
@@ -95,9 +116,10 @@ function makeFixture(opts: { emitJson?: boolean; analyzerBlock?: string; analysi
 			join(uiDir, "card", "lib", "analysis.js"),
 			opts.analysisJs ??
 				`"use strict";
+const stats = ${"stats" in opts ? JSON.stringify(opts.stats) : JSON.stringify(CANON_STATS)};
 module.exports = {
   async analyze(options) {
-    return { schemaVersion: 1, data: { marker: "FIXTURE", stats: { files: 1, functions: 1, loc: 1 } }, snapshot: {} };
+    return { schemaVersion: 1, data: { marker: "FIXTURE", stats }, snapshot: {} };
   },
 };
 `,
@@ -113,10 +135,22 @@ function runRunner(fx: Fixture): { code: number | null; stdout: string; stderr: 
 	return { code: res.status, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
 }
 
-function envelope(stdout: string): { markdown: string; json: string | null; analyzedAt: number } {
+function envelope(stdout: string): {
+	markdown: string;
+	json: string | null;
+	analyzedAt: number;
+	stats: Record<string, number> | null;
+	terms: { coupling: number; deadCode: number } | null;
+} {
 	const lines = stdout.trim().split("\n");
 	return JSON.parse(lines[lines.length - 1]);
 }
+
+const runWithStats = (stats: unknown, emitJson = true) => {
+	const fx = makeFixture({ stats, emitJson });
+	const { code, stdout, stderr } = runRunner(fx);
+	return { code, stderr, env: envelope(stdout), fx };
+};
 
 describe("run-analysis.mjs headless producer", () => {
 	it("writes both artifacts, exits 0 and prints the result envelope", () => {
@@ -129,7 +163,10 @@ describe("run-analysis.mjs headless producer", () => {
 		const env = envelope(stdout);
 		assert.strictEqual(env.markdown, "report.md");
 		assert.strictEqual(env.json, "report.json");
-		assert.ok(typeof env.analyzedAt === "number" && env.analyzedAt > 0, "analyzedAt must be epoch ms");
+		assert.ok(
+			typeof env.analyzedAt === "number" && env.analyzedAt > 0,
+			"analyzedAt must be epoch ms",
+		);
 	});
 
 	it("captures the bytes handed to URL.createObjectURL verbatim", () => {
@@ -280,8 +317,9 @@ describe("run-analysis.mjs headless producer", () => {
 		const { code, stderr } = runRunner(fx);
 
 		assert.strictEqual(code, 0, `stderr: ${stderr}`);
-		const kept = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"))
-			.securityIssues.map((s: { path: string }) => s.path);
+		const kept = JSON.parse(
+			readFileSync(join(fx.outDir, "report.json"), "utf-8"),
+		).securityIssues.map((s: { path: string }) => s.path);
 		assert.deepStrictEqual(kept, ["real.ts", "absent.ts"]);
 	});
 
@@ -310,9 +348,14 @@ describe("run-analysis.mjs headless producer", () => {
 		const { code, stderr } = runRunner(fx);
 
 		assert.strictEqual(code, 0, `stderr: ${stderr}`);
-		const kept = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"))
-			.securityIssues.map((s: { path: string }) => s.path);
-		assert.deepStrictEqual(kept, ["escape.ts"], "a symlink target outside the snapshot must not be read");
+		const kept = JSON.parse(
+			readFileSync(join(fx.outDir, "report.json"), "utf-8"),
+		).securityIssues.map((s: { path: string }) => s.path);
+		assert.deepStrictEqual(
+			kept,
+			["escape.ts"],
+			"a symlink target outside the snapshot must not be read",
+		);
 	});
 
 	it("leaves data without securityIssues/layerViolations alone and stays quiet", () => {
@@ -325,7 +368,10 @@ describe("run-analysis.mjs headless producer", () => {
 			readFileSync(join(fx.outDir, "report.md"), "utf-8"),
 			"# CodeFlow Analysis Report\n\nmarker=FIXTURE\n",
 		);
-		assert.strictEqual(JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8")).securityIssues, null);
+		assert.strictEqual(
+			JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8")).securityIssues,
+			null,
+		);
 	});
 
 	it("fails closed when the sanitizer throws, exporting no artifact", () => {
@@ -345,5 +391,78 @@ module.exports = {
 		assert.ok(stderr.length <= 4096, "stderr must be bounded");
 		assert.ok(!existsSync(join(fx.outDir, "report.md")), "no unsanitized markdown may be written");
 		assert.ok(!existsSync(join(fx.outDir, "report.json")), "no unsanitized JSON may be written");
+	});
+});
+
+describe("run-analysis.mjs score-term measurement", () => {
+	it("prints the analyzer stats verbatim and derives both live score terms", () => {
+		const { code, stderr, env } = runWithStats(CANON_STATS);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		assert.deepStrictEqual(env.stats, CANON_STATS, "stats must pass through un-remapped");
+		assert.strictEqual(env.stats?.files, 1026);
+		assert.strictEqual(env.stats?.connections, 5006);
+		assert.strictEqual(env.stats?.dead, 24);
+		assert.deepStrictEqual(env.terms, { coupling: 3.758, deadCode: 0.491 });
+	});
+
+	it("coupling term is 0 at ratio <= 3 and caps at 15", () => {
+		const zero = runWithStats({ ...CANON_STATS, files: 1000, connections: 3000 });
+		assert.strictEqual(zero.code, 0, `stderr: ${zero.stderr}`);
+		assert.strictEqual(zero.env.terms?.coupling, 0);
+
+		const below = runWithStats({ ...CANON_STATS, files: 1000, connections: 2500 });
+		assert.strictEqual(below.env.terms?.coupling, 0);
+
+		const capped = runWithStats({ ...CANON_STATS, files: 1000, connections: 10500 });
+		assert.strictEqual(capped.env.terms?.coupling, 15);
+
+		const wayOver = runWithStats({ ...CANON_STATS, files: 1000, connections: 99000 });
+		assert.strictEqual(wayOver.env.terms?.coupling, 15);
+	});
+
+	it("dead-code term is 0 with no dead functions and caps at 20 at 20% dead", () => {
+		const none = runWithStats({ ...CANON_STATS, dead: 0 });
+		assert.strictEqual(none.code, 0, `stderr: ${none.stderr}`);
+		assert.strictEqual(none.env.terms?.deadCode, 0);
+
+		const capped = runWithStats({ ...CANON_STATS, files: 1000, functions: 1000, dead: 200 });
+		assert.strictEqual(capped.env.terms?.deadCode, 20);
+
+		const wayOver = runWithStats({ ...CANON_STATS, files: 1000, functions: 1000, dead: 900 });
+		assert.strictEqual(wayOver.env.terms?.deadCode, 20);
+	});
+
+	it("yields terms:null for unusable stats without failing the run", () => {
+		const cases: Array<[string, unknown]> = [
+			["missing files", { ...CANON_STATS, files: undefined }],
+			["missing connections", { ...CANON_STATS, connections: undefined }],
+			["zero files", { ...CANON_STATS, files: 0 }],
+			["zero functions", { ...CANON_STATS, functions: 0 }],
+			["negative connections", { ...CANON_STATS, connections: -1 }],
+			["non-finite files", { ...CANON_STATS, files: Number.POSITIVE_INFINITY }],
+			["non-numeric dead", { ...CANON_STATS, dead: "24" }],
+			["stats absent", undefined],
+		];
+		for (const [label, stats] of cases) {
+			const { code, stderr, env, fx } = runWithStats(stats);
+			assert.strictEqual(code, 0, `${label}: stderr: ${stderr}`);
+			assert.strictEqual(env.terms, null, `${label}: terms must be null`);
+			assert.ok(existsSync(join(fx.outDir, "report.md")), `${label}: report.md must exist`);
+			assert.ok(existsSync(join(fx.outDir, "report.json")), `${label}: report.json must exist`);
+			assert.ok(typeof env.analyzedAt === "number", `${label}: analyzedAt must survive`);
+		}
+	});
+
+	it("regression: existing envelope keys and the all-json path are unchanged", () => {
+		const { code, env } = runWithStats({ ...CANON_STATS, connections: 1000, files: 1000 });
+		assert.strictEqual(code, 0);
+		assert.strictEqual(env.markdown, "report.md");
+		assert.strictEqual(env.json, "report.json");
+		assert.strictEqual(env.terms?.coupling, 0);
+
+		const noJson = runWithStats(CANON_STATS, false);
+		assert.strictEqual(noJson.env.json, null);
+		assert.notStrictEqual(noJson.env.terms, null, "measurement is independent of the json export");
 	});
 });

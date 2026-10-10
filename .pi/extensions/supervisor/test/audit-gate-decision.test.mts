@@ -12,7 +12,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import { determineAuditGate } from "../checks/audit-gate-decision.ts";
-import type { AuditGateDecision, PolicyContext } from "../checks/audit-gate-decision.ts";
+import type { PolicyContext } from "../checks/audit-gate-decision.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 1: Shared frame — passthrough and null-result routing

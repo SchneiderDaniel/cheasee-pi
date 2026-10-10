@@ -8,7 +8,7 @@
  * displaying system prompt options info.
  */
 
-import { describe, it, beforeEach } from "node:test";
+import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { shouldLightenCompression } from "../compression.ts";
 import type { BuildSystemPromptOptions } from "@earendil-works/pi-coding-agent";

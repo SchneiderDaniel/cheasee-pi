@@ -25,9 +25,9 @@ import { Value } from "typebox/value";
 // Imports from extension modules (replaces inline copies)
 // ═══════════════════════════════════════════════════════════════════════
 
-import type { RgMatch, RgResult, SearchConfig } from "../types.ts";
+import type { RgResult } from "../types.ts";
 import { RipgrepSearchOutputSchema } from "../types.ts";
-import { loadSearchConfig, resolveBackend, ripgrepAvailable } from "../config.ts";
+import { loadSearchConfig, resolveBackend } from "../config.ts";
 import { buildRgArgs, buildGrepArgs, parseVimgrepOutput, parseGrepOutput } from "../backends.ts";
 import {
 	buildStructuredSummary,

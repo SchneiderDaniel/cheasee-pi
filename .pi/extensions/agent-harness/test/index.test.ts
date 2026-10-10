@@ -23,7 +23,6 @@ import {
 } from "../lib/harness-rules.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hasBypassAnnotation } from "../../lib/bash-query.ts";
-import { BYPASS_ANNOTATION } from "../lib/harness-rules.ts";
 
 // ── Helpers ──
 

@@ -23,8 +23,8 @@ import type {
 	FileMutationQueue,
 } from "../ports.mts";
 
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import type {

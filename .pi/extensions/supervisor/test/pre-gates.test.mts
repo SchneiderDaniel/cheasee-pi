@@ -28,8 +28,6 @@ import type { CiPollResult } from "../checks/ci-gating.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
 import type { OsvScanResult } from "../checks/osv-scanner.ts";
-import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
-import type { TraceabilityGap } from "../checks/requirements-traceability.ts";
 
 // ── Fixtures / helpers ─────────────────────────────────────────────
 

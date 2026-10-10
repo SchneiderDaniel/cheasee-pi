@@ -14,7 +14,7 @@ import { describe, it, mock } from "node:test";
 import { existsSync, readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveSkillPaths, resolveSkillPathsWithFs } from "../lib/extensions.ts";
+import { resolveSkillPaths } from "../lib/extensions.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);

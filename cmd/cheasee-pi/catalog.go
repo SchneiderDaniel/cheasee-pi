@@ -288,7 +288,7 @@ func modelsFor(ctx context.Context, catalog ModelCatalog, provider string) []str
 // short-circuits the default before any fetch; needList is false exactly when
 // the caller will not run the interactive picker (auth add --no-input), so an
 // override provider stays fully offline without the list.
-func modelChoice(ctx context.Context, catalog ModelCatalog, provider string, needList bool) (def string, models []string) {
+func modelChoice(ctx context.Context, catalog ModelCatalog, provider string, needList bool) (string, []string) {
 	if m, ok := staticDefaultModel[provider]; ok {
 		if !needList {
 			return m, nil

@@ -15,7 +15,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeToolCallEvent, makeCtx, makeMockPi } from "./helpers.ts";
-import type { ToolCallEvent, MockCtx, ToolCallResult } from "./helpers.ts";
+import type { ToolCallResult } from "./helpers.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Module under test
