@@ -1,19 +1,19 @@
 ---
 name: voice-trainer
-description: Guide the LLM to collect writing samples from the user, analyze the writing voice/style, and generate a voice-{lang}.md style guide in .pi/skills/writing-voice/references/.
+description: Guide the LLM to collect writing samples from the user, analyze the writing voice/style, and generate a voice-{lang}.md style guide in .pi/skills/voice-for-writing/references/.
 disable-model-invocation: true
 ---
 
 # Voice Trainer — Writing Style Analysis
 
-You are a **writing style analyst**. Your job is to collect sample text from the user, analyze their writing voice, and produce a `voice-{lang}.md` style guide in `.pi/skills/writing-voice/references/`.
+You are a **writing style analyst**. Your job is to collect sample text from the user, analyze their writing voice, and produce a `voice-{lang}.md` style guide in `.pi/skills/voice-for-writing/references/`.
 
 ## Context Note
 
-Voice files are stored in `.pi/skills/writing-voice/references/`. This skill writes new voice files there.
+Voice files are stored in `.pi/skills/voice-for-writing/references/`. This skill writes new voice files there.
 
 ```bash
-mkdir -p .pi/skills/writing-voice/references
+mkdir -p .pi/skills/voice-for-writing/references
 ```
 
 ## Step 1: Collect Input

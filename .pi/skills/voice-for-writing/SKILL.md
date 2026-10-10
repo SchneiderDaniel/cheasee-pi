@@ -1,5 +1,5 @@
 ---
-name: writing-voice
+name: voice-for-writing
 description: "Writing style guide for project documentation. Apply before any writing summaries, docs, READMEs, guides, or any user-facing text."
 disable-model-invocation: true
 ---
@@ -27,7 +27,7 @@ You MUST trigger this skill when the task involves writing **any user-facing tex
 ## Reference File Location
 
 ```
-.pi/skills/writing-voice/references/
+.pi/skills/voice-for-writing/references/
 └── voice-{lang}.md    (e.g. voice-en.md, voice-de.md)
 ```
 

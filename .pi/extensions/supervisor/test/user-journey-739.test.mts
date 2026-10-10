@@ -13,7 +13,7 @@ describe("User journey — TUI mode, trusted, experimental off", () => {
 			isProjectTrusted: () => true,
 			getSystemPromptOptions: () => ({
 				contextFiles: [".pi/agents.md"],
-				skills: ["writing-voice"],
+				skills: ["voice-for-writing"],
 				selectedTools: ["read", "bash", "edit"],
 			}),
 			mode: "tui",

@@ -43,7 +43,7 @@ function fixture(): string {
 	].join("\n");
 	const skills = [
 		"<available_skills>",
-		"<skill><name>writing-voice</name></skill>",
+		"<skill><name>voice-for-writing</name></skill>",
 		"</available_skills>",
 	].join("\n");
 	const cwd = "Current working directory: /workspaces/main";

@@ -5,7 +5,7 @@ disable-model-invocation: true
 metadata:
   steps: fetch-report-parse-validate-group-confirm-file
   scope: issues-only-no-commits
-  dependencies: scripts/fetch-report.mts, create-internal-issue, ask_user, validate-finding.sh
+  dependencies: scripts/fetch-report.mts, git-issue-create-internal, ask_user, validate-finding.sh
 ---
 
 # CodeFlow Analysis
@@ -48,7 +48,7 @@ Load this skill when the user asks to:
   refactor issues and `informational` facts are offered as optional filings — both
   after the Step 6 gate, never through the bug validator and never the bug template.
 - **Confirm before filing.** No `gh issue create` (directly or via
-  `create-internal-issue`) until the user has explicitly confirmed via
+  `git-issue-create-internal`) until the user has explicitly confirmed via
   `ask_user`. Drafting is free; creating is not.
 - **One subject per issue** with the best-effort file isolation described below,
   and any remaining overlap disclosed in the issue body.
@@ -290,7 +290,7 @@ fully split: list the files, and say which are shared (disclose the overlap).
 
 ### Step 5 — Draft the issues
 
-For each group, draft an issue using the `create-internal-issue` skill (load it
+For each group, draft an issue using the `git-issue-create-internal` skill (load it
 for the repo's issue template, duplicate check, and project-board wiring). Use
 the group's affected files as the scope and include:
 
@@ -307,7 +307,7 @@ re-derive a kind → issue-type mapping here:
 
 - `bug` (`file-bug`) — a Step 3-validated candidate; draft it with the bug template.
 - `chore` (`file-refactor`) — refactor/cleanup scope: draft a refactor issue via
-  `create-internal-issue` (freeform "Other" path). It is part of the proposed set
+  `git-issue-create-internal` (freeform "Other" path). It is part of the proposed set
   by default, so the run offers work that improves the CodeFlow score; the Step 6
   gate keeps it opt-out, never silently rerouted. Never send it to the bug
   validator.
@@ -336,7 +336,7 @@ opt-in; the gate is where they are accepted or excluded, never a silent drop.
 
 ### Step 7 — File the confirmed issues
 
-Only now file the confirmed drafts via `create-internal-issue` (template,
+Only now file the confirmed drafts via `git-issue-create-internal` (template,
 duplicate check already done, add to the project board). Issues only — no
 commits, no branches, no PRs. Report the created issue URLs back to the user.
 

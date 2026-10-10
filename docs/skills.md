@@ -61,23 +61,23 @@ Write a handover document summarizing the current conversation so a fresh agent 
 - **Skills:** Conversation summarization, structured handoffs
 - **Invocation:** `/skill:handover`
 
-### issue-cutter
+### git-issue-cutter
 
 Split a GitHub epic into ordered, independently testable sub-issues and create them as children via GraphQL.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:issue-cutter <number>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:git-issue-cutter <number>`
 - **Skills:** Issue decomposition, vertical slicing, GraphQL API
 - **Requires:** `gh` CLI, `supervisor.repo` in settings
-- **Invocation:** `/skill:issue-cutter <number>`
+- **Invocation:** `/skill:git-issue-cutter <number>`
 
-### issue-refinement
+### git-issue-refinement
 
 Socratic interview via `ask_user` — one question at a time — to sharpen vague requirements into concrete acceptance criteria.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:issue-refinement <number>`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:git-issue-refinement <number>`
 - **Skills:** Requirements analysis, codebase validation, Socratic questioning
 - **Requires:** `gh` CLI, `ask_user` extension
-- **Invocation:** `/skill:issue-refinement <number>`
+- **Invocation:** `/skill:git-issue-refinement <number>`
 
 ### model-select
 
@@ -88,14 +88,14 @@ Research and recommend coding models per agent role (architect, developer, test-
 - **Output:** Per-agent recommendation table with cost projections
 - **Invocation:** `/skill:model-select`
 
-### quiz-master
+### git-pr-quiz-master
 
 Quiz reviewer on PR diff with 3-5 multiple-choice questions. Auto-merges if score ≥ 80%.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:quiz-master`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:git-pr-quiz-master`
 - **Skills:** Diff comprehension testing, PR review automation
 - **Requires:** `gh` CLI, `ask_user` extension
-- **Invocation:** `/skill:quiz-master`
+- **Invocation:** `/skill:git-pr-quiz-master`
 
 ### voice-trainer
 
@@ -103,10 +103,10 @@ Collect writing samples from user (paste, URL, or file), analyze 7 style dimensi
 
 - **Mode:** Manual — agent cannot auto-invoke; use `/skill:voice-trainer`
 - **Skills:** Style analysis, pattern abstraction, guide generation
-- **Output:** New voice file in `.pi/skills/writing-voice/references/`
+- **Output:** New voice file in `.pi/skills/voice-for-writing/references/`
 - **Invocation:** `/skill:voice-trainer`
 
-### create-external-issue
+### git-issue-create-external
 
 File high-quality issues on external public GitHub repositories. Enforces a strict 5-step checklist: read repo guidelines, read issue templates, check for duplicates, write professional issue body with neutral reproducible examples, and file via `gh issue create`.
 
@@ -115,7 +115,7 @@ File high-quality issues on external public GitHub repositories. Enforces a stri
 - **Scope:** External public repos only
 - **Dependency:** `gh` CLI authenticated
 
-### create-internal-issue
+### git-issue-create-internal
 
 Create an issue on the repository configured in `.pi/settings.json`, using the internal issue template and project-board workflow.
 
@@ -136,7 +136,7 @@ It prints `{path, jsonPath, bytes, analyzedAt, warnings}`. Exit `0` on success, 
 - **Mode:** Auto — agent may invoke without explicit user command
 - **Dependency:** CodeFlow report artifacts and configured internal repository
 
-### resolve-worktree-merge-conflict
+### git-pr-resolve-conflict
 
 Resolve conflicts on pull-request branches in Git worktrees while preserving combined behavior and validating the merged result.
 
@@ -171,11 +171,11 @@ Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automat
 
 **Mode:** Auto — `ponytail` is agent-invocable (description injected every turn); the five auxiliary skills need `pi config --local` to register.
 
-### writing-voice
+### voice-for-writing
 
 Apply the repository's stored writing voice before drafting user-facing prose. The skill reads language-specific rules and does not modify them.
 
-- **Mode:** Manual — agent cannot auto-invoke; use `/skill:writing-voice`
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:voice-for-writing`
 - **Skills:** Voice analysis, style guide generation
 - **Input:** Sample text (URL, file path, or paste)
 - **Output:** Structured voice style guide

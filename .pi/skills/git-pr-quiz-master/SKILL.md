@@ -1,5 +1,5 @@
 ---
-name: quiz-master
+name: git-pr-quiz-master
 description: List open PRs in the main repo, quiz the reviewer on diff content with multiple-choice questions, and auto-merge if they score at least 80%.
 disable-model-invocation: true
 ---

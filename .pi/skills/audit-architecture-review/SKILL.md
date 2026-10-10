@@ -147,7 +147,7 @@ Sub-issue fields:
 1. Add umbrella and all sub-issues to project board with status `Research` (use `gh project item-edit` or GraphQL). The parent-child hierarchy is already rendered in the GitHub UI via `--parent`; **do not** also post a comment table — that duplicates the native sub-issue list.
 2. Print all issue URLs
 
-> Architecture review filed. Umbrella: **#N**. Sub-issues: **#A**, **#B**. Use `/skill:issue-refinement <number>` on any candidate, then `/supervisor <number>` to implement.
+> Architecture review filed. Umbrella: **#N**. Sub-issues: **#A**, **#B**. Use `/skill:git-issue-refinement <number>` on any candidate, then `/supervisor <number>` to implement.
 
 ## Dependency categories
 

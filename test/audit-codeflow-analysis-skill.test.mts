@@ -4,7 +4,7 @@
  * Text-analysis tests that read SKILL.md and assert the required contract:
  * report references, the skill-owned fetch script, the ask_user confirmation
  * gate before any `gh issue create`, issues-only scope with a locked main,
- * create-internal-issue delegation, best-effort isolation disclosure, and
+ * git-issue-create-internal delegation, best-effort isolation disclosure, and
  * package.json wiring.
  *
  * Run with:
@@ -80,10 +80,10 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 		assert.match(body, /before/i, "must state the gate ordering");
 	});
 
-	it("states issues only, main locked, and delegates filing to create-internal-issue", () => {
+	it("states issues only, main locked, and delegates filing to git-issue-create-internal", () => {
 		assert.match(body, /issues only/i);
 		assert.match(body, /main.*locked|locked.*main/i);
-		assert.match(body, /create-internal-issue/);
+		assert.match(body, /git-issue-create-internal/);
 	});
 
 	it("requires best-effort file isolation and overlap disclosure", () => {
@@ -95,7 +95,11 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 
 describe("audit-codeflow-analysis SKILL.md — issue #1983 headless run", () => {
 	it("drops the manual UI precondition and documents the on-demand run route", () => {
-		assert.doesNotMatch(body, /UI has been run at least once/i, "the manual UI precondition must be gone");
+		assert.doesNotMatch(
+			body,
+			/UI has been run at least once/i,
+			"the manual UI precondition must be gone",
+		);
 		assert.match(body, /headless analyzer/i);
 		assert.match(body, /POST \/api\/analysis\/run/);
 		assert.match(body, /run-status/);
@@ -246,7 +250,7 @@ describe("package.json test wiring", () => {
 			".pi/skills/audit-codeflow-analysis/test/fetch-report-cli.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/bridge.test.mts",
 			".pi/skills/audit-codeflow-analysis/test/dry-run.test.mts",
-				"test/codeflow-run-analysis.test.mts",
+			"test/codeflow-run-analysis.test.mts",
 		]) {
 			assert.ok(isRegistered(file), `npm test globs must register ${file}`);
 		}
