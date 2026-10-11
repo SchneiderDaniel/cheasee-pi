@@ -119,14 +119,14 @@ describe("readGraph — declarations", () => {
 			[
 				"export interface DebugLogger { child(): void; }",
 				"type Alias = string;",
-				"export function build(): void {}",
+				"export function buildThing(): void {}",
 				"export const VALUE = 1;",
 				"class Thing {}",
 				"const { destructured } = obj;",
 			].join("\n"),
 		);
 		const declarations = readGraph(file).declarations;
-		for (const name of ["DebugLogger", "Alias", "build", "VALUE", "Thing"]) {
+		for (const name of ["DebugLogger", "Alias", "buildThing", "VALUE", "Thing"]) {
 			assert.ok(declarations.includes(name), `declarations includes ${name}`);
 		}
 		assert.ok(!declarations.includes("destructured"), "destructuring is not a declaration");

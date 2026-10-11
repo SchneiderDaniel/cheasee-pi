@@ -823,7 +823,7 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 
 		// Comment posting failed — but the pipeline must still stop as a refusal
 		// (no unhandled rejection, no bogus status transition).
-		const warns = runCtx.collector.flush("handler");
+		const warns = runCtx.collector.drain("handler");
 		assert.ok(
 			warns.some((w) => w.severity === "warn" && w.message.includes("Failed to post refusal comment")),
 			`collector must carry the posting failure, got: ${JSON.stringify(warns)}`,

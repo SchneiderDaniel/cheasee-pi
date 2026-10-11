@@ -440,7 +440,7 @@ var wantUpDecls = map[string]string{
 	"type:upFlowImageState":    "up_helpers_test.go",
 	"const:upImageMissing,upImagePresent,upImageDaemonError": "up_helpers_test.go",
 
-	"func:indexOf":              "up_env_test.go",
+	"func:indexOfArg":           "up_env_test.go",
 	"func:buildEnvFlagsOrFatal": "up_env_test.go",
 
 	"func:workspaceParentFixture": "up_workspace_test.go",
@@ -583,12 +583,12 @@ func TestDeclKey(t *testing.T) {
 func TestTopLevelDecls(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "sample.go")
-	src := "package main\n\nimport \"fmt\"\n\nfunc A() {}\ntype B struct{}\nvar c int\nconst d = 1\n"
+	src := "package main\n\nimport \"fmt\"\n\nfunc AThing() {}\ntype B struct{}\nvar c int\nconst d = 1\n"
 	if err := os.WriteFile(file, []byte(src), 0644); err != nil {
 		t.Fatalf("write sample: %v", err)
 	}
 	got := topLevelDecls(t, file)
-	want := []string{"func:A", "type:B", "var:c", "const:d"}
+	want := []string{"func:AThing", "type:B", "var:c", "const:d"}
 	if len(got) != len(want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -670,7 +670,7 @@ func TestCountNBNC(t *testing.T) {
 		{"empty", "", 0},
 		{"comment only", "// a\n// b\n", 0},
 		{"blank and comments", "\n\n// c\n   \n", 0},
-		{"mixed", "package main\n\nfunc a() {}\n// comment\n", 2},
+		{"mixed", "package main\n\nfunc alpha() {}\n// comment\n", 2},
 	}
 	for _, tc := range cases {
 		if got := countNBNC([]byte(tc.in)); got != tc.want {

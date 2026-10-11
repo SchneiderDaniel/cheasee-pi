@@ -43,7 +43,7 @@ describe("ErrorCollector — push", () => {
 	it("adds an ErrorRecord with correct source, severity, message, timestamp", () => {
 		const collector = new ErrorCollector();
 		collector.push("test-source", "warn", "test message");
-		const records = collector.all;
+		const records = collector.allRecords;
 		assert.equal(records.length, 1);
 		assertErrorRecord(records[0]!, "test-source", "warn", "test message");
 	});
@@ -55,14 +55,14 @@ describe("ErrorCollector — push", () => {
 
 		assert.ok(collector.hasErrors(), "hasErrors should return true after pushes");
 
-		const flushed = collector.flush("source1");
+		const flushed = collector.drain("source1");
 		assert.equal(flushed.length, 1);
 		assert.equal(flushed[0]!.source, "source1");
 		assert.equal(flushed[0]!.message, "msg1");
 
 		// source2 records should remain
-		assert.equal(collector.size, 1, "source2 record should remain");
-		assert.equal(collector.all[0]!.source, "source2");
+		assert.equal(collector.recordCount, 1, "source2 record should remain");
+		assert.equal(collector.allRecords[0]!.source, "source2");
 	});
 
 	it("flush returns shifted records, subsequent flush returns empty array", () => {
@@ -70,13 +70,13 @@ describe("ErrorCollector — push", () => {
 		collector.push("src", "warn", "a");
 		collector.push("src", "warn", "b");
 
-		const first = collector.flush("src");
+		const first = collector.drain("src");
 		assert.equal(first.length, 2);
 		assert.equal(first[0]!.message, "a");
 		assert.equal(first[1]!.message, "b");
 
 		// Second flush should return empty
-		const second = collector.flush("src");
+		const second = collector.drain("src");
 		assert.equal(second.length, 0);
 	});
 
@@ -253,7 +253,7 @@ describe("ErrorCollector — toNotificationBlock", () => {
 		collector.push("src", "warn", "duplicate message");
 		collector.push("src", "warn", "duplicate message");
 
-		assert.equal(collector.size, 2);
+		assert.equal(collector.recordCount, 2);
 		const block = collector.toNotificationBlock();
 		// Both should appear in the block
 		const matches = block.match(/duplicate message/g);
@@ -278,9 +278,9 @@ describe("ErrorCollector — singleton", () => {
 		// Should be a no-op that does nothing but doesn't throw
 		collector.push("src", "warn", "test");
 		assert.equal(collector.hasErrors(), false);
-		assert.equal(collector.size, 0);
+		assert.equal(collector.recordCount, 0);
 		assert.equal(collector.toNotificationBlock(), "");
-		assert.equal(collector.flush("src").length, 0);
+		assert.equal(collector.drain("src").length, 0);
 	});
 
 	it("setErrorCollector replaces the singleton", () => {
@@ -292,7 +292,7 @@ describe("ErrorCollector — singleton", () => {
 		// Pushing to the singleton should work
 		retrieved.push("src", "warn", "hello from singleton");
 		assert.ok(retrieved.hasErrors());
-		assert.equal(retrieved.size, 1);
+		assert.equal(retrieved.recordCount, 1);
 	});
 
 	it("resetErrorCollector clears to a fresh no-op instance", () => {
@@ -304,6 +304,6 @@ describe("ErrorCollector — singleton", () => {
 		const after = getErrorCollector();
 		assert.notEqual(after, real);
 		assert.equal(after.hasErrors(), false);
-		assert.equal(after.size, 0);
+		assert.equal(after.recordCount, 0);
 	});
 });

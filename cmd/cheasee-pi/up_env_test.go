@@ -64,9 +64,9 @@ func TestExecArgs_envFlagsInCorrectPosition(t *testing.T) {
 	env := map[string]string{"FOO": "bar", "BAZ": "qux"}
 	args := execArgs(env, "cheasee-pi", "/workspaces/main")
 
-	execIdx := indexOf(args, "exec")
-	nameIdx := indexOf(args, "cheasee-pi")
-	envEIdx := indexOf(args, "-e")
+	execIdx := indexOfArg(args, "exec")
+	nameIdx := indexOfArg(args, "cheasee-pi")
+	envEIdx := indexOfArg(args, "-e")
 
 	if envEIdx < execIdx {
 		t.Errorf("-e flag at %d before exec at %d", envEIdx, execIdx)
@@ -158,7 +158,7 @@ func TestExecArgs_valuesSurviveUnescaped(t *testing.T) {
 func TestExecArgs_pinsSessionIDPair(t *testing.T) {
 	env := map[string]string{"CHEASEE_SESSION_ID": "deadbeef"}
 	args := execArgs(env, "cheasee-pi", "/workspaces/main")
-	i := indexOf(args, "--session-id")
+	i := indexOfArg(args, "--session-id")
 	if i < 0 || i+1 >= len(args) {
 		t.Fatalf("execArgs must pin --session-id <marker>, got %v", args)
 	}
@@ -181,7 +181,7 @@ func TestExecArgs_pinsSessionIDPair(t *testing.T) {
 // Helpers
 // ──────────────────────────────────────────────
 
-func indexOf(slice []string, val string) int {
+func indexOfArg(slice []string, val string) int {
 	for i, s := range slice {
 		if s == val {
 			return i

@@ -145,7 +145,7 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 	)
 	// CodeFlow spec stamp: the codeflow container carries the CLI-owned config
 	// hash as a compose label at creation, so a later plain `start` can detect
-	// sidecar drift without re-deriving Compose's internal hash (unstable
+	// sidecar drift without re-deriving Compose's own hash (unstable
 	// across Compose versions). Missing extracted files → no stamp (the
 	// compose `:-` default leaves the label unset); read errors are loud,
 	// never silent — a silently changing stamp would read as drift on every

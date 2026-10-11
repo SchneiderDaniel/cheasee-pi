@@ -297,11 +297,11 @@ describe("ensureVenv — lock behavior", () => {
 		const config = makeConfig(ctx);
 
 		const lockPath = lockDirPath(ctx.cwd, config.venvName);
-		assert.ok(!exists(lockPath), "lock should not exist before setup");
+		assert.ok(!pathExists(lockPath), "lock should not exist before setup");
 
 		await ensureVenv(config);
 
-		assert.ok(!exists(lockPath), "lock should be removed after setup");
+		assert.ok(!pathExists(lockPath), "lock should be removed after setup");
 	});
 
 	it("(entity) lock released in finally when pip install throws", async () => {
@@ -314,7 +314,7 @@ describe("ensureVenv — lock behavior", () => {
 
 		await assert.rejects(() => ensureVenv(config));
 
-		assert.ok(!exists(lockPath), "lock should be removed after error");
+		assert.ok(!pathExists(lockPath), "lock should be removed after error");
 	});
 
 	it("(entity) lock released in finally when postInstall throws", async () => {
@@ -329,7 +329,7 @@ describe("ensureVenv — lock behavior", () => {
 
 		await assert.rejects(() => ensureVenv(config));
 
-		assert.ok(!exists(lockPath), "lock should be removed after postInstall error");
+		assert.ok(!pathExists(lockPath), "lock should be removed after postInstall error");
 	});
 
 	it("(entity) orphaned lock (mtime > lockStaleMs): cleaned up then proceeds", async () => {
@@ -345,7 +345,7 @@ describe("ensureVenv — lock behavior", () => {
 
 		const result = await ensureVenv(config);
 		assert.ok(result.created, "should succeed after cleaning stale lock");
-		assert.ok(!exists(lockPath), "stale lock should be removed");
+		assert.ok(!pathExists(lockPath), "stale lock should be removed");
 	});
 
 	it("(entity) lock exhaustion: all retries fail → EnsureVenvError with step='lock'", async () => {
@@ -397,7 +397,7 @@ describe("ensureVenv — lock behavior", () => {
 		// should succeed because proper-lockfile detects stale lock and cleans it
 		const result = await ensureVenv(config);
 		assert.ok(result.created, "should clean up old-format stale lock dir");
-		assert.ok(!exists(lockPath), "old lock dir should be removed");
+		assert.ok(!pathExists(lockPath), "old lock dir should be removed");
 	});
 
 	it("(entity) proper-lockfile errors surface as EnsureVenvError with step='lock'", async () => {
@@ -766,7 +766,7 @@ describe("ensureVenv — lock held during pip install", () => {
 		const ctx = setupTest({
 			callbacks: {
 				onInstall: () => {
-					lockDuringInstall = exists(lockDirPath(ctx.cwd, "test-venv"));
+					lockDuringInstall = pathExists(lockDirPath(ctx.cwd, "test-venv"));
 				},
 			},
 		});
@@ -782,7 +782,7 @@ describe("ensureVenv — lock held during pip install", () => {
 		const ctx = setupTest({
 			callbacks: {
 				onCreate: () => {
-					lockDuringCreate = exists(lockDirPath(ctx.cwd, "test-venv"));
+					lockDuringCreate = pathExists(lockDirPath(ctx.cwd, "test-venv"));
 				},
 			},
 		});
@@ -798,7 +798,7 @@ describe("ensureVenv — lock held during pip install", () => {
 		const ctx = setupTest();
 		const config = makeConfig(ctx, {
 			postInstall: async () => {
-				lockDuringPostInstall = exists(lockDirPath(ctx.cwd, config.venvName));
+				lockDuringPostInstall = pathExists(lockDirPath(ctx.cwd, config.venvName));
 			},
 		});
 
@@ -820,7 +820,7 @@ describe("ensureVenv — lock held during pip install", () => {
 				if (verifyCalls <= 2) {
 					return { code: 1, stdout: "", stderr: "not found" };
 				}
-				lockDuringFinalVerify = exists(lockPath);
+				lockDuringFinalVerify = pathExists(lockPath);
 				return { code: 0, stdout: "ok", stderr: "" };
 			}
 			// rm
@@ -857,10 +857,10 @@ describe("ensureVenv — lock held during pip install", () => {
 		const ctx = setupTest({
 			callbacks: {
 				onCreate: () => {
-					events.push({ phase: "create", lockHeld: exists(lockDirPath(ctx.cwd, "test-venv")) });
+					events.push({ phase: "create", lockHeld: pathExists(lockDirPath(ctx.cwd, "test-venv")) });
 				},
 				onInstall: () => {
-					events.push({ phase: "install", lockHeld: exists(lockDirPath(ctx.cwd, "test-venv")) });
+					events.push({ phase: "install", lockHeld: pathExists(lockDirPath(ctx.cwd, "test-venv")) });
 				},
 			},
 		});
@@ -868,7 +868,7 @@ describe("ensureVenv — lock held during pip install", () => {
 			postInstall: async () => {
 				events.push({
 					phase: "postInstall",
-					lockHeld: exists(lockDirPath(ctx.cwd, config.venvName)),
+					lockHeld: pathExists(lockDirPath(ctx.cwd, config.venvName)),
 				});
 			},
 		});
@@ -892,7 +892,7 @@ describe("ensureVenv — lock held during pip install", () => {
 
 		// After completion, lock should be released
 		assert.equal(
-			exists(lockDirPath(ctx.cwd, "test-venv")),
+			pathExists(lockDirPath(ctx.cwd, "test-venv")),
 			false,
 			"lock should be released after completion",
 		);
@@ -1215,7 +1215,7 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 			}
 			// pip install — lock is held, other process can NOT acquire it
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
-				lockDirHeldDuringInstall = exists(lockPath);
+				lockDirHeldDuringInstall = pathExists(lockPath);
 				// Trying to acquire the lock should fail (held by us)
 				assert.throws(
 					() => {
@@ -1259,11 +1259,11 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 				}
 				if (verifyCallCount === 2) {
 					// Double-check verify (step 4) — under lock
-					lockHeldDuringCreate = exists(lockPath);
+					lockHeldDuringCreate = pathExists(lockPath);
 					return { code: 1, stdout: "", stderr: "" };
 				}
 				// Final verify (step 9) — check lock is re-acquired
-				verifyCompletedUnderLock = exists(lockPath);
+				verifyCompletedUnderLock = pathExists(lockPath);
 				return { code: 0, stdout: "ok", stderr: "" };
 			}
 			// rm
@@ -1279,7 +1279,7 @@ describe("ensureVenv — concurrent agent scenarios", () => {
 			}
 			// pip install — lock is held throughout
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
-				lockHeldDuringInstall = exists(lockPath);
+				lockHeldDuringInstall = pathExists(lockPath);
 				return { code: 0, stdout: "", stderr: "" };
 			}
 			return { code: 0, stdout: "ok", stderr: "" };
@@ -1356,7 +1356,7 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 			// pip install — slow, deferred, lock held throughout
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
 				installStarted = true;
-				lockDuringInstall = exists(lockPath);
+				lockDuringInstall = pathExists(lockPath);
 				return deferred.promise;
 			}
 			return { code: 0, stdout: "ok", stderr: "" };
@@ -1401,7 +1401,7 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 					return { code: 1, stdout: "", stderr: "" };
 				}
 				// Final verify (3rd): succeed, lock should be re-acquired
-				verifyPassed = exists(lockPath);
+				verifyPassed = pathExists(lockPath);
 				return { code: 0, stdout: "ok", stderr: "" };
 			}
 			// rm
@@ -1419,7 +1419,7 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 			if (cmd.includes("bin/python3") && args.includes("-m") && args.includes("pip")) {
 				pipInstallStarted = true;
 				// Verify concurrent agent CANNOT acquire lock (we hold it)
-				assert.ok(exists(lockPath), "lock should be held during pip install");
+				assert.ok(pathExists(lockPath), "lock should be held during pip install");
 				return deferred.promise;
 			}
 			return { code: 0, stdout: "ok", stderr: "" };
@@ -1439,7 +1439,7 @@ describe("ensureVenv — user-journey lock concurrency", () => {
 		assert.equal(pipInstallStarted, true, "pip install should have started");
 
 		// Verify lock is held by original process during install
-		assert.ok(exists(lockPath), "lock held by original process during install");
+		assert.ok(pathExists(lockPath), "lock held by original process during install");
 
 		// Resolve pip install — original releases lock
 		deferred.resolve({ code: 0, stdout: "", stderr: "" });
@@ -1468,7 +1468,7 @@ function makeDeferred<T>(): Deferred<T> {
 	return { promise, resolve, reject };
 }
 
-function exists(p: string): boolean {
+function pathExists(p: string): boolean {
 	try {
 		fs.statSync(p);
 		return true;

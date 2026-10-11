@@ -437,7 +437,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(body.includes("Design Notes"), "body preserves original content");
 
 		// Collector has warn about missing heading
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes('"## Architecture"')),
 			"warn message mentions missing ## Architecture heading",
@@ -501,7 +501,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(body.includes("Test Strategy"), "body preserves original content");
 
 		// Collector has warn about missing heading
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes('"## Test Plan"')),
 			"warn message mentions missing ## Test Plan heading",
@@ -636,7 +636,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		);
 
 		// Collector has error record
-		const errors = collector.flush("stages");
+		const errors = collector.drain("stages");
 		assert.ok(
 			errors.some((e) => e.severity === "error" && e.message.includes("commitAndPush failed")),
 			"collector receives error for commitAndPush failure",
@@ -751,7 +751,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"body content comes from textOutput",
 		);
 
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes("result.textOutput (fallback after textOnly)")),
 			"collector receives warn about extraction from textOutput fallback",
@@ -806,7 +806,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"body content comes from thinkingOutput",
 		);
 
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes("result.thinkingOutput (fallback)")),
 			"collector receives warn about extraction from thinkingOutput fallback",
@@ -855,7 +855,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(body.includes("## Architecture"), "body has injected ## Architecture heading");
 		assert.ok(body.includes("Architecture overview"), "body preserves original content");
 
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes("bare text fallback")),
 			"collector receives warn about bare text fallback",
@@ -904,7 +904,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(body.includes("## Test Plan"), "body has injected ## Test Plan heading");
 		assert.ok(body.includes("- Scenario A"), "body preserves original content");
 
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes("bare text fallback")),
 			"collector receives warn about bare text fallback",
@@ -956,7 +956,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		);
 		assert.ok(body.includes("Research indicates"), "body preserves original content");
 
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes("bare text fallback")),
 			"collector receives warn about bare text fallback",
@@ -1012,7 +1012,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		);
 		assert.equal(capturedBodies.length, 0, "no comment body captured");
 
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes("produced no output")),
 			"collector receives warn about the empty run",
@@ -1072,7 +1072,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 			"protocol-echoed task text NOT posted to GitHub",
 		);
 
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some(
 				(w) =>
@@ -1135,7 +1135,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(!body.includes("Research Notes"), "original missing-heading content NOT posted");
 
 		// Collector has warn about missing heading with Skipping post
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		assert.ok(
 			warns.some((w) => w.message.includes("Skipping post")),
 			"warn message says Skipping post",
@@ -1193,7 +1193,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(body.includes("Component diagram"), "body preserves original content");
 
 		// No heading-related warn
-		const headingWarns = collector.flush("stages").filter((w) => w.message.includes("heading"));
+		const headingWarns = collector.drain("stages").filter((w) => w.message.includes("heading"));
 		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
 
 		// Info notification for posted comment
@@ -1251,7 +1251,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(body.includes("Test case 1"), "body preserves original content");
 
 		// No heading-related warn
-		const headingWarns = collector.flush("stages").filter((w) => w.message.includes("heading"));
+		const headingWarns = collector.drain("stages").filter((w) => w.message.includes("heading"));
 		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
 
 		// Info notification for posted comment
@@ -1309,7 +1309,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.ok(body.includes("Finding 1"), "body preserves original content");
 
 		// No heading-related warn
-		const headingWarns = collector.flush("stages").filter((w) => w.message.includes("heading"));
+		const headingWarns = collector.drain("stages").filter((w) => w.message.includes("heading"));
 		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
 
 		// Info notification for posted comment
@@ -1362,7 +1362,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.equal(ghCalls.length, 0, "no gh issue comment call (commentBody null)");
 
 		// No heading-related warn
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		const headingWarns = warns.filter((w) => w.message.includes("heading"));
 		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
 
@@ -1414,7 +1414,7 @@ describe("handlePostAgentSuccess — comment posting", () => {
 		assert.equal(success, true, "commitAndPush succeeded — pipeline continues");
 
 		// No heading-related warns (heading code never ran)
-		const warns = collector.flush("stages");
+		const warns = collector.drain("stages");
 		const headingWarns = warns.filter((w) => w.message.includes("heading"));
 		assert.equal(headingWarns.length, 0, "no heading-related warn messages");
 

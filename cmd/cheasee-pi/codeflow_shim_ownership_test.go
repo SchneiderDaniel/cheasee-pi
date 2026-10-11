@@ -35,9 +35,9 @@ func TestCodeFlowServer_TrackedSetSurvivesForeignOwnership(t *testing.T) {
 	}
 
 	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, ".gitignore", "ignored/\n")
-	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "x\n")
-	writeFile(t, repoRoot, "tracked.txt", "t\n")
+	writeShimFile(t, repoRoot, ".gitignore", "ignored/\n")
+	writeShimFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "x\n")
+	writeShimFile(t, repoRoot, "tracked.txt", "t\n")
 	if out, err := exec.Command("git", "-C", repoRoot, "init", "-q").CombinedOutput(); err != nil {
 		t.Skipf("git init failed: %v\n%s", err, out)
 	}

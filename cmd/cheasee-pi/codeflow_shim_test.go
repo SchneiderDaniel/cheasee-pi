@@ -93,7 +93,7 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 
 var fpRepoRE = regexp.MustCompile(`^local/workspace-([0-9a-f]{8})$`)
 
-func writeFile(t *testing.T, root, rel, content string) {
+func writeShimFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, rel)
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -137,8 +137,8 @@ func gitCommit(t *testing.T, root string) {
 func writeUIDir(t *testing.T) string {
 	t.Helper()
 	uiDir := t.TempDir()
-	writeFile(t, uiDir, "index.html", "<script>'https://api.github.com/'</script>")
-	writeFile(t, uiDir, filepath.Join("assets", "app.js"), "console.log(1)\n")
+	writeShimFile(t, uiDir, "index.html", "<script>'https://api.github.com/'</script>")
+	writeShimFile(t, uiDir, filepath.Join("assets", "app.js"), "console.log(1)\n")
 	return uiDir
 }
 
@@ -315,7 +315,7 @@ assert d == fp(list(reversed(base))), "order-dependent"
 assert re.fullmatch(r"[0-9a-f]{%d}" % n, d), "bad shape/len: %r" % d
 
 
-def variant(fn):
+def permute_blobs(fn):
     e = [dict(x) for x in base]
     fn(e)
     return e
@@ -327,7 +327,7 @@ for label, fn in [
     ("add", lambda e: e.append({"path": "c.txt", "type": "blob", "size": 1, "oid": "c" * 40})),
     ("drop", lambda e: e.pop(0)),
 ]:
-    assert fp(variant(fn)) != d, "digest unchanged for %s" % label
+    assert fp(permute_blobs(fn)) != d, "digest unchanged for %s" % label
 
 assert fp([]) == fp([]), "empty digest unstable"
 assert re.fullmatch(r"[0-9a-f]{%d}" % n, fp([])), "empty digest shape"
@@ -365,7 +365,7 @@ func TestCodeFlowServer_ScanCacheSlowWorkspace(t *testing.T) {
 		t.Fatalf("write server.py: %v", err)
 	}
 	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, "a.txt", "hello\n")
+	writeShimFile(t, repoRoot, "a.txt", "hello\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
 
@@ -416,8 +416,8 @@ print("OK")
 // entrypoint with a repo param redirects, and every other param survives.
 func TestCodeFlowServer_EntrypointRedirect(t *testing.T) {
 	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, "a.txt", "hello\n")
-	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
+	writeShimFile(t, repoRoot, "a.txt", "hello\n")
+	writeShimFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
 	gitCommit(t, repoRoot)
@@ -508,7 +508,7 @@ func TestCodeFlowServer_EntrypointRedirect(t *testing.T) {
 // fingerprint without double-suffixing.
 func TestCodeFlowServer_EntrypointRedirectIdempotent(t *testing.T) {
 	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, "a.txt", "hello\n")
+	writeShimFile(t, repoRoot, "a.txt", "hello\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
 	gitCommit(t, repoRoot)
@@ -547,7 +547,7 @@ func TestCodeFlowServer_EntrypointRedirectIdempotent(t *testing.T) {
 // the captured log stays traceback-free.
 func TestCodeFlowServer_ConcurrentEntrypoints(t *testing.T) {
 	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, "a.txt", "hello\n")
+	writeShimFile(t, repoRoot, "a.txt", "hello\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
 	gitCommit(t, repoRoot)
@@ -708,12 +708,12 @@ print("OK")
 func TestCodeFlowServer_TypeScriptExtensionsServed(t *testing.T) {
 	anchorish := "codeExts:['.js','.jsx','.ts','.tsx','.mjs','.cjs','.vue','.svelte']"
 	uiDir := t.TempDir()
-	writeFile(t, uiDir, "index.html",
+	writeShimFile(t, uiDir, "index.html",
 		"<script>'https://api.github.com/'</script>\n"+
 			"codeExts:['.js','.jsx','.ts','.tsx','.mjs','.cjs','.json'],x:1\n"+
 			"typescript:{grammar:'typescript',exts:['.ts'],coverage:'available'}\n"+
 			"provenance:['.js','.jsx','.ts','.tsx','.mjs','.cjs','.vue','.svelte']\n")
-	writeFile(t, uiDir, filepath.Join("assets", "app.js"), anchorish+"\n")
+	writeShimFile(t, uiDir, filepath.Join("assets", "app.js"), anchorish+"\n")
 	base := startShim(t, t.TempDir(), uiDir)
 
 	resp, body := getStatus(t, newNoRedirectClient(), base+"/")
@@ -746,7 +746,7 @@ func TestCodeFlowServer_TypeScriptExtensionsServed(t *testing.T) {
 func TestCodeFlowServer_TypeScriptExtensionsAbsent(t *testing.T) {
 	uiDir := t.TempDir()
 	orig := "<script>'https://api.github.com/'</script>\nno classification lists here\n"
-	writeFile(t, uiDir, "index.html", orig)
+	writeShimFile(t, uiDir, "index.html", orig)
 	base := startShim(t, t.TempDir(), uiDir)
 
 	resp, body := getStatus(t, newNoRedirectClient(), base+"/")

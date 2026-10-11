@@ -184,7 +184,7 @@ describe("dispatchEmptyWorktreeAction — 3-way dispatch (issue #1533)", () => {
 			"main",
 		);
 		assert.ok(outcome.stop, "stop even when closing fails");
-		const records = collector.flush("handler");
+		const records = collector.drain("handler");
 		assert.ok(
 			records.some((r) => r.message.includes("Failed to close issue")),
 			"port failure surfaced via collector",
@@ -235,7 +235,7 @@ describe("dispatchEmptyWorktreeAction — 3-way dispatch (issue #1533)", () => {
 			"main",
 		);
 		assert.ok(outcome.stop, "stop even when comment posting fails");
-		const records = collector.flush("handler");
+		const records = collector.drain("handler");
 		assert.ok(
 			records.some((r) => r.message.includes("Failed to post PR link comment")),
 			"comment failure surfaced via collector",

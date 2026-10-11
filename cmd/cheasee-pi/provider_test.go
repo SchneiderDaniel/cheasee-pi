@@ -13,7 +13,7 @@ import (
 )
 
 // ──────────────────────────────────────────────
-// DefaultModel / static seed semantics (provider.go + catalog.go)
+// DefaultModel / static seed semantics — provider.go + catalog.go
 // ──────────────────────────────────────────────
 
 // TestKnownModels_opencodeGoPruned pins the cross-catalog copy-error guard:

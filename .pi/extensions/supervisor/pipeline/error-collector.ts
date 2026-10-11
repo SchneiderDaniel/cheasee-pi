@@ -78,7 +78,7 @@ export class ErrorCollector {
 	 * Flush (return and remove) all records for a given source.
 	 * Returns empty array if no records match.
 	 */
-	flush(source: string): ErrorRecord[] {
+	drain(source: string): ErrorRecord[] {
 		const matched: ErrorRecord[] = [];
 		const remaining: ErrorRecord[] = [];
 		for (const record of this.records) {
@@ -167,14 +167,14 @@ export class ErrorCollector {
 	/**
 	 * Return total record count.
 	 */
-	get size(): number {
+	get recordCount(): number {
 		return this.records.length;
 	}
 
 	/**
 	 * Return a copy of all records.
 	 */
-	get all(): ErrorRecord[] {
+	get allRecords(): ErrorRecord[] {
 		return [...this.records];
 	}
 }
@@ -187,7 +187,7 @@ class NoopErrorCollector extends ErrorCollector {
 		// no-op
 	}
 
-	override flush(_source: string): ErrorRecord[] {
+	override drain(_source: string): ErrorRecord[] {
 		return [];
 	}
 
@@ -199,11 +199,11 @@ class NoopErrorCollector extends ErrorCollector {
 		return "";
 	}
 
-	override get size(): number {
+	override get recordCount(): number {
 		return 0;
 	}
 
-	override get all(): ErrorRecord[] {
+	override get allRecords(): ErrorRecord[] {
 		return [];
 	}
 }

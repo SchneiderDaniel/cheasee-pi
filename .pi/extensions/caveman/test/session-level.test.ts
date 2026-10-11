@@ -24,11 +24,11 @@ import type { CavemanConfig } from "../types.ts";
 // Helpers
 // ---------------------------------------------------------------------------
 
-function entry(level: Level): SessionEntry {
+function makeEntry(level: Level): SessionEntry {
 	return { type: "custom", customType: "caveman-level", data: { level } };
 }
 
-function config(overrides: Partial<CavemanConfig> = {}): CavemanConfig {
+function makeConfig(overrides: Partial<CavemanConfig> = {}): CavemanConfig {
 	return { defaultLevel: "lite", showStatus: true, ...overrides };
 }
 
@@ -38,49 +38,49 @@ function config(overrides: Partial<CavemanConfig> = {}): CavemanConfig {
 
 describe("resolveSessionLevel (pure function)", () => {
 	it("new session, defaultLevel=off, empty entries → off, shouldAppendEntry=false", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "off" }), []);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "off" }), []);
 		assert.equal(result.level, "off");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("new session, defaultLevel=lite, empty entries → lite, shouldAppendEntry=true", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "lite" }), []);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "lite" }), []);
 		assert.equal(result.level, "lite");
 		assert.equal(result.shouldAppendEntry, true);
 	});
 
 	it("new session, defaultLevel=full, empty entries → full, shouldAppendEntry=true", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "full" }), []);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "full" }), []);
 		assert.equal(result.level, "full");
 		assert.equal(result.shouldAppendEntry, true);
 	});
 
 	it("resume session, defaultLevel=off, session entry full → full, shouldAppendEntry=false", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "off" }), [entry("full")]);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "off" }), [makeEntry("full")]);
 		assert.equal(result.level, "full");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("resume session, defaultLevel=lite, session entry ultra → ultra, shouldAppendEntry=false", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "lite" }), [entry("ultra")]);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "lite" }), [makeEntry("ultra")]);
 		assert.equal(result.level, "ultra");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("resume session, defaultLevel=full, session entry off → off, shouldAppendEntry=false", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "full" }), [entry("off")]);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "full" }), [makeEntry("off")]);
 		assert.equal(result.level, "off");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("new session, defaultLevel=off, empty entries → shouldAppendEntry=false (no off entry logged)", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "off" }), []);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "off" }), []);
 		assert.equal(result.level, "off");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("session entries contain non-caveman entries only → treats as new session, applies defaultLevel", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "full" }), [
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "full" }), [
 			{ type: "custom", customType: "other-type", data: { foo: "bar" } },
 		]);
 		assert.equal(result.level, "full");
@@ -88,49 +88,49 @@ describe("resolveSessionLevel (pure function)", () => {
 	});
 
 	it("Bug #475 regression: multiple level changes lite→full→ultra → returns ultra (last)", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "lite" }), [
-			entry("lite"),
-			entry("full"),
-			entry("ultra"),
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "lite" }), [
+			makeEntry("lite"),
+			makeEntry("full"),
+			makeEntry("ultra"),
 		]);
 		assert.equal(result.level, "ultra");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("Bug #475: multiple level changes lite→full → returns full (last)", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "lite" }), [
-			entry("lite"),
-			entry("full"),
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "lite" }), [
+			makeEntry("lite"),
+			makeEntry("full"),
 		]);
 		assert.equal(result.level, "full");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("Bug #475: multiple level changes full→ultra→off → returns off (last)", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "full" }), [
-			entry("full"),
-			entry("ultra"),
-			entry("off"),
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "full" }), [
+			makeEntry("full"),
+			makeEntry("ultra"),
+			makeEntry("off"),
 		]);
 		assert.equal(result.level, "off");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("interleaved: non-caveman entries between level changes → returns last caveman-level", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "lite" }), [
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "lite" }), [
 			{ type: "custom", customType: "other-type", data: { foo: "bar" } },
-			entry("lite"),
+			makeEntry("lite"),
 			{ type: "custom", customType: "other-type", data: { baz: "qux" } },
-			entry("full"),
+			makeEntry("full"),
 			{ type: "custom", customType: "text-message", data: { text: "some message" } },
-			entry("ultra"),
+			makeEntry("ultra"),
 		]);
 		assert.equal(result.level, "ultra");
 		assert.equal(result.shouldAppendEntry, false);
 	});
 
 	it("single entry: resume with one caveman-level entry → returns that level", () => {
-		const result = resolveSessionLevel(config({ defaultLevel: "lite" }), [entry("full")]);
+		const result = resolveSessionLevel(makeConfig({ defaultLevel: "lite" }), [makeEntry("full")]);
 		assert.equal(result.level, "full");
 		assert.equal(result.shouldAppendEntry, false);
 	});

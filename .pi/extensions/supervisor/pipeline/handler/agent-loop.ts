@@ -618,7 +618,7 @@ async function refreshWorktreeBeforeImplementation(
  * refusal branch owns the stop). Pushes the final row; the skeleton does
  * audit-score tracking and the post-push tracing log.
  *
- * @returns final result (post-retry) + whether a retry was used.
+ * @returns the dispatch result after any retry, plus whether a retry ran.
  */
 async function dispatchAgentWithRetry(
 	agent: ParsedAgent,

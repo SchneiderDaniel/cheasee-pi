@@ -153,7 +153,7 @@ The init command will:
 Existing non-empty folders are intentionally NOT supported — run init in a
 fresh empty folder. On an already-initialized workspace (cheasee-settings.json
 present), run 'cheasee-pi init --reauth' to redo the authentications: the
-GitHub OAuth device flow (updates github_token/github_user) and the pi
+GitHub OAuth device flow — it updates github_token/github_user — and the pi
 provider API-key setup. After init, manage API keys with:
   cheasee-pi auth add <provider>
   cheasee-pi auth list

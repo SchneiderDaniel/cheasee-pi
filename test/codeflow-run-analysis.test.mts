@@ -45,7 +45,7 @@ function generateReportBody(emitJson = true): string {
 	return `
 function generateReport(format) {
   if (format === "json"${emitJson ? "" : " && false"}) {
-    var blob = new Blob([JSON.stringify({ architectureIssues: [], duplicates: [{ files: ["a", "b"] }], layerViolations: data.layerViolations || [{ from: "UI", to: "DB" }], suggestions: [{ text: "split" }], marker: data.marker, securityIssues: data.securityIssues || null })], { type: "application/json" });
+    var blob = new Blob([JSON.stringify({ architectureIssues: data.architectureIssues || [], duplicates: [{ files: ["a", "b"] }], layerViolations: data.layerViolations || [{ from: "UI", to: "DB" }], suggestions: [{ text: "split" }], marker: data.marker, securityIssues: data.securityIssues || null })], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
@@ -464,5 +464,65 @@ describe("run-analysis.mjs score-term measurement", () => {
 		const noJson = runWithStats(CANON_STATS, false);
 		assert.strictEqual(noJson.env.json, null);
 		assert.notStrictEqual(noJson.env.terms, null, "measurement is independent of the json export");
+	});
+});
+
+// Issue #2002: the `N Highly Coupled` count is the acceptance metric, so the
+// oracle plumbing and the recorded before/after are pinned here. The record was
+// produced by the pinned analyzer over `git archive` snapshots (see the
+// fixture's `provenance.method`); this block only replays the envelope and
+// report seams it depends on, plus the guard that keeps the claim honest.
+const COUPLING_BASELINE = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "coupling-baseline.json"), "utf-8"),
+) as {
+	before: { connections: number; coupled: number };
+	after: { connections: number; coupled: number };
+	reducedBy: string[];
+	callSiteOnly: string[];
+};
+
+describe("coupling metric oracle (issue #2002)", () => {
+	it("records a real drop against the pinned analyzer over git archive snapshots", () => {
+		assert.strictEqual(COUPLING_BASELINE.before.coupled, 134, "the issue's baseline count");
+		assert.ok(
+			COUPLING_BASELINE.after.connections < COUPLING_BASELINE.before.connections,
+			"the coupling term must fall, not just the flagged-file count",
+		);
+		assert.ok(
+			COUPLING_BASELINE.after.coupled < COUPLING_BASELINE.before.coupled,
+			"fewer files must exceed the 8-reference threshold",
+		);
+	});
+
+	it("cites no test-only .mts file as a reduction source", () => {
+		for (const rel of COUPLING_BASELINE.reducedBy) {
+			assert.ok(!rel.endsWith(".mts"), `${rel} is test-only: the pinned analyzer never counts it`);
+		}
+		for (const rel of COUPLING_BASELINE.callSiteOnly) {
+			assert.ok(rel.endsWith(".mts"), `${rel} is not test-only, so it belongs in reducedBy`);
+		}
+	});
+
+	it("passes stats.connections un-remapped and keeps the coupled title verbatim", () => {
+		const stats = { files: 731, functions: 3542, connections: 2668, dead: 45, loc: 1 };
+		const title = `${COUPLING_BASELINE.after.coupled} Highly Coupled`;
+		const fx = makeFixture({
+			analysisJs: analysisJs({
+				marker: "COUPLING",
+				stats,
+				architectureIssues: [{ type: "warning", title }],
+			}),
+		});
+		const { code, stdout, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		const env = envelope(stdout);
+		assert.strictEqual(env.stats?.connections, stats.connections, "connections pass through");
+		assert.deepStrictEqual(env.stats, stats);
+		assert.ok(typeof env.analyzedAt === "number" && env.analyzedAt > 0, "analyzedAt survives");
+		assert.ok((env.terms?.coupling ?? 0) > 0, "the derived term is computed from the same stats");
+
+		const produced = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
+		assert.strictEqual(produced.architectureIssues[0].title, title);
 	});
 });

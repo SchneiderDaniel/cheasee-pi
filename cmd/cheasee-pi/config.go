@@ -15,7 +15,7 @@ import (
 // clobbered all but one provider is gone.
 type fileRepository struct{}
 
-func (r *fileRepository) configPath() (string, error) {
+func (r *fileRepository) repositoryConfigPath() (string, error) {
 	userConfigDir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
@@ -25,7 +25,7 @@ func (r *fileRepository) configPath() (string, error) {
 
 // Path returns the full path to the auth config file.
 func (r *fileRepository) Path() (string, error) {
-	return r.configPath()
+	return r.repositoryConfigPath()
 }
 
 // updateAuth is the single read-merge-write chokepoint for auth.json: every

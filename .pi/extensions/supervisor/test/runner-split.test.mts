@@ -526,7 +526,7 @@ if (hasMockModule) {
 				result.textOutput.includes("After malformed line"),
 				"stream continues after malformed line",
 			);
-			const streamWarns = getErrorCollector().flush("stream");
+			const streamWarns = getErrorCollector().drain("stream");
 			assert.ok(
 				streamWarns.some((r) => r.message.includes("JSON parse error: Error: sendMessage boom")),
 				"errorCollector received the parse-error warn",

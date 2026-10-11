@@ -27,7 +27,7 @@ if (!uiPath) {
 }
 const html = readFileSync(uiPath, "utf8");
 
-function slice(startMarker, endMarker) {
+function sliceFixtureSection(startMarker, endMarker) {
 	const s = html.indexOf(startMarker);
 	const e = html.indexOf(endMarker, s + startMarker.length);
 	if (s < 0 || e < 0 || e <= s) throw new Error(`markers not found: ${startMarker}`);
@@ -39,7 +39,7 @@ const reportSrc = html.slice(html.indexOf("var report={"), html.indexOf("if(form
 const calcHealthSrc = html.slice(html.indexOf("function calcHealth(data){"), html.indexOf("// ===== CODEFLOW_METRICS_END ====="));
 const calcHealth = new Function(calcHealthSrc + "\nreturn calcHealth;")();
 // --- the markdown builder (format === 'md') ---------------------------------
-const mdSrc = slice("}else if(format==='md'){", "}else if(format==='txt'){").body;
+const mdSrc = sliceFixtureSection("}else if(format==='md'){", "}else if(format==='txt'){").body;
 const buildMd = new Function("data", "repo", "h", "Blob", "URL", "document", mdSrc + "\nreturn md;");
 
 // A representative analysis exercising every generator branch that carries

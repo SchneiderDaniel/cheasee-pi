@@ -232,7 +232,7 @@ function globMatch(input: string, pattern: string): boolean {
  * color capture by replacing `ctx.ui.theme` with a custom mock.
  */
 function createMockTheme(): Theme {
-	function identity(text: string): string {
+	function identityPassThrough(text: string): string {
 		return text;
 	}
 	return {
@@ -241,11 +241,11 @@ function createMockTheme(): Theme {
 		fg: (_color: ThemeColor, text: string) => text,
 		bg: (_color: any, text: string) => text,
 		style: (text: string, _options: any) => text,
-		bold: identity,
-		italic: identity,
-		underline: identity,
-		inverse: identity,
-		strikethrough: identity,
+		bold: identityPassThrough,
+		italic: identityPassThrough,
+		underline: identityPassThrough,
+		inverse: identityPassThrough,
+		strikethrough: identityPassThrough,
 		getFgAnsi: () => "",
 		getBgAnsi: () => "",
 		getColorMode: () => "truecolor" as const,

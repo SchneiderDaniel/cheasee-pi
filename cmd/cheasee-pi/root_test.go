@@ -11,7 +11,7 @@ import (
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
-// builtInCmds are Cobra-internal commands (help, completion) that are exempt
+// builtInCmds holds Cobra's built-in commands (help, completion); they are exempt
 // from the RunE requirement since they are registered by Cobra itself.
 var builtInCmds = map[string]bool{
 	"help":       true,
