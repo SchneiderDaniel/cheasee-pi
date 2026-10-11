@@ -23,7 +23,7 @@ The uninstall command removes:
   3. cheasee-pi binaries (the running executable plus every canonical
      install location: ~/.local/bin and /usr/local/bin)
 
-Workspace files (.pi/, .git/, source checkouts) are never touched.
+Nothing under the workspace — not .pi/, .git/, or source checkouts — is ever touched.
 Use --force to skip the confirmation prompt.`,
 	DisableAutoGenTag: true,
 	RunE:              runUninstallE,

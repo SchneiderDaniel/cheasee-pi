@@ -187,7 +187,7 @@ open(sys.argv[5], "w").write(frozen)
 // once next to the bridge and wraps generateReport in it.
 func TestCodeFlowServer_FpFilterServed(t *testing.T) {
 	uiDir := t.TempDir()
-	writeFile(t, uiDir, "index.html",
+	writeShimFile(t, uiDir, "index.html",
 		"<script>function generateReport(format){return format;}</script>\n</body>")
 	base := startShim(t, t.TempDir(), uiDir)
 

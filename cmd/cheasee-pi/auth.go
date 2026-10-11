@@ -39,7 +39,7 @@ prompt from a list of known providers.
 
 The key is saved to ~/.config/cheasee-pi/auth.json and also written
 to the workspace cheasee-settings.json and .pi/agent/settings.json as
-the default provider (last added becomes default).
+the default provider — the last one added wins.
 
 Examples:
   cheasee-pi auth add                    # interactive provider picker
@@ -149,7 +149,7 @@ func runAuthAddE(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "  ✓ Saved %q to auth.json\n", provider)
 
 	// Pick default model: the live pi.dev catalog when reachable, else the
-	// static seed (catalog errors degrade, never fail the command). One lookup
+	// static seed — catalog errors degrade, never fail the command. One lookup
 	// feeds both the default and the picker list — the previous pair consulted
 	// the catalog twice, doubling the fetch/retry loop on a failing pi.dev
 	// request. The static override short-circuits before any fetch, and

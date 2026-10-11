@@ -81,7 +81,7 @@ describe("TimedMap — turn-based TTL", () => {
 		const map2 = new TimedMap<string, string>({ ttlTurns: 3 });
 		map2.set("key1", "value1", 0);
 		map2.turn = 10;
-		// Explicit currentTurn (2) overrides internal turn (10)
+		// Passing currentTurn=2 overrides the stored turn of 10
 		assert.equal(map2.get("key1", 2), "value1", "explicit recent turn bypasses internal old turn");
 	});
 

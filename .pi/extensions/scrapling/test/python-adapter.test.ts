@@ -512,13 +512,13 @@ describe("PythonAdapter — separation of concerns", () => {
 describe("PythonAdapter — truncation flag + attempt counts", () => {
 	const LONG = "a".repeat(400); // ~100 tokens at 4 chars/token
 
-	function stdout(results: unknown[]): string {
+	function renderStdout(results: unknown[]): string {
 		return JSON.stringify({ ok: true, results });
 	}
 
 	it("(entity) maxTokens undefined → truncated false", async () => {
 		const { adapter } = setupTest(
-			stdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+			renderStdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1 });
 		assert.ok(result.success);
@@ -527,7 +527,7 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) maxTokens: 0 → truncated false (passthrough)", async () => {
 		const { adapter } = setupTest(
-			stdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+			renderStdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 0 });
 		assert.ok(result.success);
@@ -536,7 +536,7 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) small maxTokens + long markdown → truncated true with suffix and preserved rawLength", async () => {
 		const { adapter } = setupTest(
-			stdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+			renderStdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 5 });
 		assert.ok(result.success);
@@ -549,7 +549,7 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) maxTokens ≥ content estimate → truncated false", async () => {
 		const { adapter } = setupTest(
-			stdout([{ url: "https://a.com", markdown: "short", method: "lightweight", success: true }]),
+			renderStdout([{ url: "https://a.com", markdown: "short", method: "lightweight", success: true }]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 1000 });
 		assert.ok(result.success);
@@ -558,7 +558,7 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) attempted counts successes + failures; failed carries per-URL errors", async () => {
 		const { adapter } = setupTest(
-			stdout([
+			renderStdout([
 				{ url: "https://a.com", markdown: "A", method: "lightweight", success: true },
 				{ url: "https://b.com", error: "Timeout", success: false },
 			]),
@@ -573,7 +573,7 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 	});
 
 	it("(entity) absent per-result fields → truncated defaults false, no throw", async () => {
-		const { adapter } = setupTest(stdout([{ url: "https://a.com", markdown: "x" }]));
+		const { adapter } = setupTest(renderStdout([{ url: "https://a.com", markdown: "x" }]));
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1 });
 		assert.ok(result.success);
 		if (result.success) {

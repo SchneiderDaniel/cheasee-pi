@@ -75,7 +75,7 @@ export function createDebugLogger(basePath?: string, sessionId?: string): DebugL
 		}
 	}
 
-	function write(
+	function writeLogRecord(
 		level: LogLevel,
 		component: string,
 		message: string,
@@ -132,25 +132,25 @@ export function createDebugLogger(basePath?: string, sessionId?: string): DebugL
 		return result;
 	}
 
-	function child(name: string): DebugLogger {
+	function childLogger(name: string): DebugLogger {
 		const prefix = name;
 		return {
-			debug: (cmp, msg, data) => write("DEBUG", `${prefix}.${cmp}`, msg, data),
-			info: (cmp, msg, data) => write("INFO", `${prefix}.${cmp}`, msg, data),
-			warn: (cmp, msg, data) => write("WARN", `${prefix}.${cmp}`, msg, data),
-			error: (cmp, msg, data) => write("ERROR", `${prefix}.${cmp}`, msg, data),
-			child: (n: string) => child(`${prefix}.${n}`),
+			debug: (cmp, msg, data) => writeLogRecord("DEBUG", `${prefix}.${cmp}`, msg, data),
+			info: (cmp, msg, data) => writeLogRecord("INFO", `${prefix}.${cmp}`, msg, data),
+			warn: (cmp, msg, data) => writeLogRecord("WARN", `${prefix}.${cmp}`, msg, data),
+			error: (cmp, msg, data) => writeLogRecord("ERROR", `${prefix}.${cmp}`, msg, data),
+			child: (n: string) => childLogger(`${prefix}.${n}`),
 			getSessionId: () => sid,
 			getLogPath: () => logPath,
 		};
 	}
 
 	return {
-		debug: (cmp, msg, data) => write("DEBUG", cmp, msg, data),
-		info: (cmp, msg, data) => write("INFO", cmp, msg, data),
-		warn: (cmp, msg, data) => write("WARN", cmp, msg, data),
-		error: (cmp, msg, data) => write("ERROR", cmp, msg, data),
-		child,
+		debug: (cmp, msg, data) => writeLogRecord("DEBUG", cmp, msg, data),
+		info: (cmp, msg, data) => writeLogRecord("INFO", cmp, msg, data),
+		warn: (cmp, msg, data) => writeLogRecord("WARN", cmp, msg, data),
+		error: (cmp, msg, data) => writeLogRecord("ERROR", cmp, msg, data),
+		child: childLogger,
 		getSessionId: () => sid,
 		getLogPath: () => logPath,
 	};

@@ -235,15 +235,15 @@ func TestCodeFlowServer_Smoke(t *testing.T) {
 
 func TestCodeFlowServer_ServesCommittedSnapshot(t *testing.T) {
 	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, "tracked.txt", "committed version\n")
+	writeShimFile(t, repoRoot, "tracked.txt", "committed version\n")
 	initGitRepo(t, repoRoot)
 	gitAddAll(t, repoRoot)
 	gitCommit(t, repoRoot)
 
-	writeFile(t, repoRoot, "tracked.txt", "local edit\n")
-	writeFile(t, repoRoot, "staged.txt", "staged but uncommitted\n")
+	writeShimFile(t, repoRoot, "tracked.txt", "local edit\n")
+	writeShimFile(t, repoRoot, "staged.txt", "staged but uncommitted\n")
 	gitAddAll(t, repoRoot)
-	writeFile(t, repoRoot, "untracked.txt", "untracked\n")
+	writeShimFile(t, repoRoot, "untracked.txt", "untracked\n")
 	base := startShim(t, repoRoot, writeUIDir(t))
 	client := newNoRedirectClient()
 
@@ -293,19 +293,19 @@ func TestCodeFlowServer_ServesCommittedSnapshot(t *testing.T) {
 // working-tree and index edits do not matter until they are committed.
 func TestCodeFlowServer_FingerprintChange(t *testing.T) {
 	repoRoot := t.TempDir()
-	writeFile(t, repoRoot, "a.txt", "hello\n")
-	writeFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
+	writeShimFile(t, repoRoot, "a.txt", "hello\n")
+	writeShimFile(t, repoRoot, filepath.Join("sub", "b.txt"), "world\n")
 	initGitRepo(t, repoRoot)
-	writeFile(t, repoRoot, ".gitignore", "ignored/\n")
+	writeShimFile(t, repoRoot, ".gitignore", "ignored/\n")
 	gitAddAll(t, repoRoot)
 	gitCommit(t, repoRoot)
-	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "one\n")
-	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "one\n")
+	writeShimFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "one\n")
+	writeShimFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "one\n")
 	base := startShim(t, repoRoot, writeUIDir(t), "FP_TTL=0.05")
 
 	before := freshFingerprint(t, base)
-	writeFile(t, repoRoot, "a.txt", "hello world\n")
-	writeFile(t, repoRoot, "a.txt", "HELLO WORLD\n")
+	writeShimFile(t, repoRoot, "a.txt", "hello world\n")
+	writeShimFile(t, repoRoot, "a.txt", "HELLO WORLD\n")
 	future := time.Now().Add(2 * time.Second)
 	if err := os.Chtimes(filepath.Join(repoRoot, "a.txt"), future, future); err != nil {
 		t.Fatalf("chtimes: %v", err)
@@ -326,7 +326,7 @@ func TestCodeFlowServer_FingerprintChange(t *testing.T) {
 		t.Error("fingerprint unchanged after committing tracked-file edits")
 	}
 
-	writeFile(t, repoRoot, filepath.Join("sub", "c.txt"), "new\n")
+	writeShimFile(t, repoRoot, filepath.Join("sub", "c.txt"), "new\n")
 	waitPastTTL()
 	if after := freshFingerprint(t, base); after != changed {
 		t.Error("fingerprint changed for an untracked new file")
@@ -362,8 +362,8 @@ func TestCodeFlowServer_FingerprintChange(t *testing.T) {
 	}
 
 	before = freshFingerprint(t, base)
-	writeFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "two\n")
-	writeFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "two\n")
+	writeShimFile(t, repoRoot, filepath.Join("ignored", "x.txt"), "two\n")
+	writeShimFile(t, repoRoot, filepath.Join("node_modules", "y.txt"), "two\n")
 	waitPastTTL()
 	if after := freshFingerprint(t, base); after != before {
 		t.Error("fingerprint changed after editing excluded paths")

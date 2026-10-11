@@ -81,7 +81,7 @@ func isReservedAuthKey(key string) bool {
 // where a write could clobber it). v is populated, not merged — callers must
 // pass a fresh value.
 func (r *fileRepository) readJSONFile(v any) (found bool, err error) {
-	path, err := r.configPath()
+	path, err := r.repositoryConfigPath()
 	if err != nil {
 		return false, err
 	}
@@ -97,10 +97,10 @@ func (r *fileRepository) readJSONFile(v any) (found bool, err error) {
 
 // writeJSONFile marshals v and writes it atomically with the auth.json
 // perms: 0700 parent dir, 0600 file, no .tmp residue. The MkdirAll(dir, 0700)
-// is load-bearing — atomicWrite's internal MkdirAll(dir, 0755) is a no-op
+// is load-bearing — atomicWrite's own MkdirAll(dir, 0755) is a no-op
 // behind it and the config dir must stay private.
 func (r *fileRepository) writeJSONFile(v any) error {
-	path, err := r.configPath()
+	path, err := r.repositoryConfigPath()
 	if err != nil {
 		return err
 	}

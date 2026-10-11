@@ -1,0 +1,79 @@
+{
+	"provenance": {
+		"issue": 2002,
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"method": "git archive <commit> | tar -x -C /tmp/src && node run-analysis.mjs /tmp/src <codeflow-ui> /tmp/out",
+		"metric": "architectureIssues[\"N Highly Coupled\"] — files with more than 8 resolved cross-file identifier references (index.html: coupling[conn.target] > 8)",
+		"filedAnalyzedAt": 1791738325602,
+		"filedCoupled": 134,
+		"baseCommitNote": "the issue was filed with 134 on the then-main at analyzedAt 1791738325602; re-running the pinned analyzer on the immutable base commit below reports 138 because main advanced (#2001 splits). Both runs are recorded; acceptance is the drop on the delivered branch.",
+		"afterTipNote": "the after snapshot was taken with git archive on the measured commit below; the commits after it touch only this record and its test, and re-measure identically (connections 2789, coupled 101)."
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "051d0c37cab7b3de0c100f891715111c7199d64e",
+		"files": 752,
+		"functions": 3552,
+		"connections": 3408,
+		"coupled": 138,
+		"couplingTerm": 3.064
+	},
+	"after": {
+		"ref": "issue-2002 branch",
+		"commit": "214369196a2e6594f10ed4775f1032b571f1c5dd",
+		"files": 754,
+		"functions": 3539,
+		"connections": 2789,
+		"coupled": 101,
+		"couplingTerm": 1.398
+	},
+	"reducedBy": [
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+		"cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+		"cmd/cheasee-pi/auth.go",
+		"cmd/cheasee-pi/config.go",
+		"cmd/cheasee-pi/config_jsonfile.go",
+		"cmd/cheasee-pi/init.go",
+		"cmd/cheasee-pi/init_split_test.go",
+		"cmd/cheasee-pi/provider_test.go",
+		"cmd/cheasee-pi/root_test.go",
+		"cmd/cheasee-pi/uninstall.go",
+		"cmd/cheasee-pi/up_compose.go",
+		"cmd/cheasee-pi/up_env_test.go",
+		"cmd/cheasee-pi/codeflow_shim_test.go",
+		"cmd/cheasee-pi/codeflow_shim_fp_filter_test.go",
+		"cmd/cheasee-pi/codeflow_shim_ownership_test.go",
+		"cmd/cheasee-pi/codeflow_shim_smoke_test.go",
+		".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
+		".pi/extensions/supervisor/lib/debug.ts",
+		".pi/extensions/supervisor/test/helpers/mock-pi.ts",
+		".pi/extensions/caveman/test/session-level.test.ts",
+		".pi/extensions/lib/ensureVenv.test.ts",
+		".pi/extensions/lib/test/source-graph.test.ts",
+		".pi/extensions/scrapling/test/python-adapter.test.ts",
+		".pi/extensions/agent-harness/lib/timed-map.test.ts",
+		".pi/extensions/agent-harness/test/index.test.ts",
+		".pi/skills/audit-codeflow-analysis/test/fixtures/generate-report-fixtures.mjs"
+	],
+	"callSiteOnly": [],
+	"deferred": [
+		{
+			"reason": "detector limitation — trait/interface impls cannot be renamed without breaking the port",
+			"examples": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs `fn clone` (Clone trait)",
+				"cmd/cheasee-pi/config.go `Path()` (configRepository port)",
+				"cmd/cheasee-pi/helpers_test.go `Run`/`Output`/`CombinedOutput` (runner port)"
+			]
+		},
+		{
+			"reason": "no Rust toolchain in the pipeline image — renames under embedded/docker/ui cannot be verified in-gate",
+			"examples": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs `dir`/`resolve`/`list`",
+				"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs `body`",
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs `parse`"
+			]
+		}
+	]
+}

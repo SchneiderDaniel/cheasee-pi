@@ -1288,7 +1288,7 @@ describe("AgentHarness — session_start config loading", () => {
 	});
 });
 
-// ── Preserved public exports (issue #1725 regression) ──
+// ── Preserved public exports — issue #1725 regression ──
 
 describe("AgentHarness — preserved public exports", () => {
 	it("entry point re-exports loadProjectConfig and ResolvedHarnessRules; loader re-exports ToolMeta", async () => {

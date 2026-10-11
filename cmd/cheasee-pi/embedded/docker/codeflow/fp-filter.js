@@ -93,7 +93,7 @@
 		return /[=:(,]\s*["'][^"'\n]{4,}["']/.test(stripped);
 	}
 
-	// `function name(...)` / `const name = (...) =>` — the definition head.
+	// The definition head of a helper binding: a declaration or a const arrow.
 	function helperReadsEnv(name, content) {
 		var head = new RegExp(
 			"(?:function\\s+" + escapeRe(name) + "\\b|\\b" + escapeRe(name) +

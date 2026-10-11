@@ -44,7 +44,7 @@ apply_cpu_limit() {
     fi
     local PERIOD=100000
     local QUOTA
-    # awk failing is an internal error only (e.g. float overflow on a
+    # an awk failure is an internal error only — e.g. a float overflow on a
     # huge valid number) — input is regex-validated above, so never hostile.
     # Silent success would hide losing CPU enforcement: warn, don't abort.
     if ! QUOTA=$(awk -v cpus="$cpus" -v period="$PERIOD" 'BEGIN {printf "%d", cpus * period}' 2>/dev/null); then
