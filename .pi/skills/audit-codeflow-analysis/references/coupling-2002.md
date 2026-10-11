@@ -119,9 +119,9 @@ files that exercise them. `up_env_test.go` and `codeflow_shim_*_test.go` are
 `drain` / `recordCount` / `allRecords` in an earlier revision of this change,
 but the rename changed the class's exported surface. It was reverted: the
 public members keep their original names, and the coupling drop is carried by
-the edits above. (`drain` took the count from 98 to 101 — still far below the
-`138` base — so the API preservation costs a few phantom edges and nothing
-else.)
+the edits above. (Removing the rename lifts the count from 98 to 101 — the
+restored names attract a few phantom edges — still far below the `138` base, so
+the API preservation costs nothing that matters.)
 
 The exact set, the measured before/after envelope, and the guards are pinned in
 `test/fixtures/coupling-baseline.json` and replayed by
