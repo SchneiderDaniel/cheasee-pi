@@ -10,15 +10,31 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { QnaEntry, QnaListedEntry } from "./types.ts";
+import {
+	QNA_DIR,
+	QNA_CONTEXT,
+	contextDir,
+	jsonlPath,
+	parseJsonlLine,
+	toJsonlLine,
+	validateQnaEntry,
+} from "./jsonl-codec.ts";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const QNA_DIR = ".pi";
-const QNA_CONTEXT = "context";
-const QNA_JSONL = "qna.jsonl";
-const QNA_CSV = "qna.csv";
+// ─── Split-out modules (issue #2001) ─────────────────────────────
+// Codec + paths live in jsonl-codec.ts, the legacy CSV adapter in
+// csv-migration.ts; re-exported here so importers keep this path.
+export {
+	validateQnaEntry,
+	isValidISODatetime,
+	toJsonlLine,
+	parseJsonlLine,
+} from "./jsonl-codec.ts";
+export {
+	parseCsvLine,
+	splitCsvRows,
+	migrateQnaFromCsv,
+	migrateIfCsvExists,
+} from "./csv-migration.ts";
 
 // ---------------------------------------------------------------------------
 // Rotation constants
@@ -32,107 +48,6 @@ const ARCHIVE_DIGITS = 4;
 
 /** Prefix for archive files: qna_0001.jsonl, qna_0002.jsonl, … */
 const ARCHIVE_PREFIX = "qna_";
-
-// ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate a Q&A entry before writing to JSONL.
- * Returns an error message string if invalid, or null if valid.
- */
-export function validateQnaEntry(entry: QnaEntry): string | null {
-	if (!entry.question || entry.question.trim() === "") {
-		return "Question must be non-empty";
-	}
-	if (!entry.answer || entry.answer.trim() === "") {
-		return "Answer must be non-empty";
-	}
-	if (!isValidISODatetime(entry.datetime)) {
-		return "Datetime must be a valid ISO 8601 string";
-	}
-	return null;
-}
-
-/**
- * Check if a string is a valid ISO 8601 datetime.
- * Accepts formats like: 2026-05-15T19:00:00.000Z or 2026-05-15T19:00:00+00:00
- */
-export function isValidISODatetime(s: string): boolean {
-	if (typeof s !== "string" || s.length < 10) return false;
-	const d = new Date(s);
-	if (isNaN(d.getTime())) return false;
-	// Extract date components from the input string directly (first 10 chars)
-	// and compare against a local-date constructor to detect overflow dates
-	// (e.g. Feb 30 → Mar 2) WITHOUT rejecting valid timestamps where the UTC
-	// date differs from the input date due to timezone offset.
-	const datePart = s.slice(0, 10);
-	const parts = datePart.split("-");
-	if (parts.length !== 3) return false;
-	const year = parseInt(parts[0]!, 10);
-	const month = parseInt(parts[1]!, 10);
-	const day = parseInt(parts[2]!, 10);
-	// Construct a local date from the components to detect overflow rollover
-	const constructed = new Date(year, month - 1, day);
-	if (
-		constructed.getFullYear() !== year ||
-		constructed.getMonth() !== month - 1 ||
-		constructed.getDate() !== day
-	) {
-		return false;
-	}
-	return true;
-}
-
-// ---------------------------------------------------------------------------
-// JSONL serialization
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a QnaEntry to a JSONL line (single JSON object + newline).
- */
-export function toJsonlLine(entry: QnaEntry): string {
-	return JSON.stringify(entry) + "\n";
-}
-
-/**
- * Parse a single JSONL line back to a QnaEntry.
- * Returns null for empty lines or parse errors.
- */
-export function parseJsonlLine(line: string): QnaEntry | null {
-	const trimmed = line.trim();
-	if (trimmed === "") return null;
-	try {
-		const parsed = JSON.parse(trimmed);
-		if (typeof parsed !== "object" || parsed === null) return null;
-		if (
-			typeof parsed.datetime !== "string" ||
-			typeof parsed.question !== "string" ||
-			typeof parsed.answer !== "string"
-		) {
-			return null;
-		}
-		return parsed as QnaEntry;
-	} catch {
-		return null;
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Path helpers
-// ---------------------------------------------------------------------------
-
-function jsonlPath(projectDir: string): string {
-	return path.join(projectDir, QNA_DIR, QNA_CONTEXT, QNA_JSONL);
-}
-
-function csvPath(projectDir: string): string {
-	return path.join(projectDir, QNA_DIR, QNA_CONTEXT, QNA_CSV);
-}
-
-function contextDir(projectDir: string): string {
-	return path.join(projectDir, QNA_DIR, QNA_CONTEXT);
-}
 
 /** Path for a rotated archive file (e.g. qna_0001.jsonl, qna_0002.jsonl). */
 function rotatedJsonlPath(projectDir: string, index: number): string {
@@ -385,196 +300,4 @@ export async function queryQnaEntries(
 			(e) =>
 				e.question.toLowerCase().includes(lowerText) || e.answer.toLowerCase().includes(lowerText),
 		);
-}
-
-// ---------------------------------------------------------------------------
-// Migration
-// ---------------------------------------------------------------------------
-
-/**
- * Parse a single CSV line (semicolon-separated) into a QnaEntry.
- * Handles RFC 4180 quoted fields (fields containing ;, ", \n, \r).
- * Returns null if the line cannot be parsed.
- */
-export function parseCsvLine(line: string): QnaEntry | null {
-	const trimmed = line.trim();
-	if (trimmed === "") return null;
-
-	// Parse fields with RFC 4180 awareness (quoted fields may contain semicolons)
-	const fields: string[] = [];
-	let current = "";
-	let inQuotes = false;
-
-	for (let i = 0; i < trimmed.length; i++) {
-		const ch = trimmed[i]!;
-
-		if (ch === '"') {
-			// Check for escaped quote ("")
-			if (inQuotes && i + 1 < trimmed.length && trimmed[i + 1] === '"') {
-				current += '"';
-				i++; // skip next quote
-			} else {
-				inQuotes = !inQuotes;
-			}
-		} else if (ch === ";" && !inQuotes) {
-			fields.push(current);
-			current = "";
-		} else {
-			current += ch;
-		}
-	}
-	fields.push(current);
-
-	if (fields.length < 3) return null;
-
-	const [datetime, question, answer] = fields;
-	if (!datetime || !question || answer === undefined) return null;
-
-	return {
-		datetime,
-		question,
-		answer,
-	};
-}
-
-/**
- * Split CSV content into rows, handling RFC 4180 quoted fields that
- * may contain newlines. Returns an array of row strings.
- */
-export function splitCsvRows(content: string): string[] {
-	const rows: string[] = [];
-	let current = "";
-	let inQuotes = false;
-
-	for (let i = 0; i < content.length; i++) {
-		const ch = content[i]!;
-
-		if (ch === '"') {
-			// Check for escaped quote
-			if (inQuotes && i + 1 < content.length && content[i + 1] === '"') {
-				current += '""';
-				i++;
-			} else {
-				inQuotes = !inQuotes;
-				current += ch;
-			}
-		} else if (ch === "\n" && !inQuotes) {
-			rows.push(current);
-			current = "";
-		} else if (ch === "\r" && !inQuotes) {
-			// Skip CR, newline will come next
-			continue;
-		} else {
-			current += ch;
-		}
-	}
-
-	if (current.trim() !== "") {
-		rows.push(current);
-	}
-
-	return rows;
-}
-
-/**
- * Migrate existing CSV entries to JSONL.
- *
- * Atomically renames CSV to a temp path first (making the original CSV
- * unavailable), reads entries from the temp file, appends them to qna.jsonl,
- * then deletes the temp file. This prevents duplicate entries if the
- * migration is interrupted: the source CSV content is moved away atomically,
- * so even on failure, no re-migration of the same entries can occur.
- *
- * If temp file deletion fails (permissions, file lock), entries have already
- * been written to JSONL — the migration is considered complete and a warning
- * is logged. Unparseable rows are skipped with a warning logged to stderr.
- */
-export async function migrateQnaFromCsv(
-	projectDir: string,
-): Promise<{ migrated: number; skipped: number }> {
-	const csvFile = csvPath(projectDir);
-	const jsonlFile = jsonlPath(projectDir);
-
-	// Check if CSV exists
-	if (!fs.existsSync(csvFile)) {
-		return { migrated: 0, skipped: 0 };
-	}
-
-	// Atomically rename CSV to temp path. If rename fails (permissions, disk
-	// error), no entries have been written yet — throw for safe retry.
-	const tmpFile = csvFile + ".tmp." + Date.now();
-	fs.renameSync(csvFile, tmpFile);
-
-	let migrated = 0;
-	let skipped = 0;
-
-	try {
-		// Read content from the temp file (former CSV)
-		const content = fs.readFileSync(tmpFile, "utf-8");
-		const lines = splitCsvRows(content);
-
-		for (const line of lines) {
-			const entry = parseCsvLine(line);
-			if (entry === null) {
-				if (line.trim() !== "") {
-					console.warn(`Warning: Skipping unparseable CSV row: ${line.slice(0, 80)}...`);
-					skipped++;
-				}
-				continue;
-			}
-
-			// Validate the entry (skip invalid ones)
-			const validationError = validateQnaEntry(entry);
-			if (validationError !== null) {
-				console.warn(`Warning: Skipping invalid CSV entry: ${validationError}`);
-				skipped++;
-				continue;
-			}
-
-			// Append to JSONL
-			await fs.promises.appendFile(jsonlFile, toJsonlLine(entry), "utf-8");
-			migrated++;
-		}
-
-		// All entries written. Delete temp file.
-		try {
-			fs.unlinkSync(tmpFile);
-		} catch {
-			// Temp file unlink failure is non-fatal. Entries already committed.
-			console.warn(`Warning: Could not remove temp file ${tmpFile}`);
-		}
-
-		return { migrated, skipped };
-	} catch (err) {
-		// Temp file (former CSV) remains on disk for potential manual recovery.
-		// Migration runs once per session (called from session_start handler), so
-		// even on failure no duplicate writes occur within the same session.
-		throw err;
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Session start
-// ---------------------------------------------------------------------------
-
-/**
- * Migrate Q&A from CSV to JSONL if a CSV file exists.
- * Called at session start to migrate legacy CSV data.
- * No-op if CSV doesn't exist.
- * Errors are caught and logged as warnings — never throws.
- */
-export async function migrateIfCsvExists(projectDir: string): Promise<void> {
-	const csvFilePath = path.join(projectDir, QNA_DIR, QNA_CONTEXT, QNA_CSV);
-	if (fs.existsSync(csvFilePath)) {
-		try {
-			const result = await migrateQnaFromCsv(projectDir);
-			if (result.migrated > 0 || result.skipped > 0) {
-				console.warn(
-					`Migration: ${result.migrated} entries migrated to qna.jsonl, ${result.skipped} skipped`,
-				);
-			}
-		} catch (err) {
-			console.warn(`Migration warning: ${(err as Error).message}`);
-		}
-	}
 }

@@ -2,7 +2,12 @@
 // Pure domain parsers for GitHub GraphQL response nodes.
 // No I/O, no error throwing — operate on extracted node arrays only.
 
-import type { DepsResult, GhTimelineNode, ProjectFieldValueNode } from "../config/types.ts";
+import type {
+	DepsResult,
+	GhTimelineNode,
+	PrConflictInfo,
+	ProjectFieldValueNode,
+} from "../config/types.ts";
 
 // ─── Parse Dependency Timeline ────────────────────────────────────
 
@@ -76,4 +81,43 @@ export function extractProjectItemFields(
 		status,
 		fieldValues: fv.length > 0 ? fv : undefined,
 	};
+}
+
+// ─── REST → Domain PR Conflict Mapping ──────────────────────────
+// Pure translation of a REST `pulls.list` item into the domain
+// PrConflictInfo shape. REST fields (issue #1472):
+//   - mergeable: boolean | null  (null = background computation in progress)
+//   - mergeable_state: "clean|dirty|unknown|blocked|unstable|behind|has_hooks|draft"
+// Only `dirty` counts as a conflict; the other non-clean states mean the PR
+// exists and is mergeable (blocked/unstable/behind/has_hooks/draft) or is
+// still being computed (unknown) — the gate polls UNKNOWN instead of failing.
+
+export function mapRestPrToConflictInfo(
+	pr: Record<string, unknown>,
+	fallbackHeadRef: string,
+	fallbackBaseRef: string,
+): PrConflictInfo {
+	const mergeableRaw = pr.mergeable as boolean | null | undefined;
+	const mergeable =
+		mergeableRaw === null || mergeableRaw === undefined
+			? "UNKNOWN"
+			: mergeableRaw
+				? "MERGEABLE"
+				: "NOT_MERGEABLE";
+	const mergeableState = (pr.mergeable_state as string | undefined) || "unknown";
+	return {
+		number: pr.number as number,
+		hasConflict: mergeableState.toLowerCase() === "dirty",
+		mergeable,
+		mergeStateStatus: mergeableState.toUpperCase(),
+		headRefName: (pr.head as { ref?: string })?.ref || fallbackHeadRef,
+		baseRefName: (pr.base as { ref?: string })?.ref || fallbackBaseRef,
+	};
+}
+
+// Octokit throws RequestError ({ status: 404 }) for a missing issue or a
+// missing sub-resource. Adapter-local: this shape knowledge never leaves the
+// GitHub client. Duck-typed because @octokit/request-error is a transitive dep.
+export function isNotFound(err: unknown): boolean {
+	return err instanceof Object && "status" in err && (err as { status: number }).status === 404;
 }

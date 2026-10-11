@@ -65,13 +65,18 @@ describe("core.ts — live bindings preserved (over-deletion guard)", () => {
 		}
 	});
 
-	it("surviving agent/output specifiers remain", () => {
+	it("surviving agent/output specifiers remain (core.ts or its status-resolution sibling)", () => {
+		// issue #2001 split: calculateNextStatus moved to status-resolution.ts and
+		// took these bindings with it. The guard keeps the binding from being
+		// dropped entirely — the module that owns it may be either side.
+		const splitSource = readSource("pipeline/stages/status-resolution.ts");
+		const combined = `${source}\n${splitSource}`;
 		for (const spec of [
 			"parseAgentOutput",
 			"isSuccess as isAgentOutputSuccess",
 			"isRefused as isAgentOutputRefused",
 		]) {
-			assert.equal(source.includes(spec), true, `${spec} must be kept`);
+			assert.equal(combined.includes(spec), true, `${spec} must be kept`);
 		}
 	});
 
