@@ -13,27 +13,10 @@ import type {
 	AgentRunResult,
 } from "../../config/types.ts";
 import { combineErrorCount } from "../../session/nested-stats.ts";
-import {
-	resolveNextStatus,
-	resolveNextStatusFromAgentOutput,
-	extractAuditScore,
-	computeAuditScoreFromFindings,
-	getActiveAuditDimensions,
-	evaluateAuditScoreGate,
-	type AuditScore,
-	type WorkflowStep,
-	WORKFLOW,
-} from "../../config/workflow.ts";
+import { type AuditScore, WORKFLOW } from "../../config/workflow.ts";
 import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
-import { extractStructuredAuditMarkers } from "../../agent/structured-audit.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { hasResearchFindings } from "../../config/workflow.ts";
-import {
-	parseAgentOutput,
-	isSuccess as isAgentOutputSuccess,
-	isRefused as isAgentOutputRefused,
-} from "../../agent/output.ts";
-import type { AgentOutput, RefusedOutput } from "../../config/types.ts";
 import type { DuplicateCodeResult } from "../../checks/duplicate-code.ts";
 import type { DeadCodeResult } from "../../checks/dead-code.ts";
 import type { OsvScanResult } from "../../checks/osv-scanner.ts";
@@ -202,57 +185,6 @@ export function buildDuplicateCodeContext(result: DuplicateCodeResult | null): s
 	return lines.join("\n");
 }
 
-// ─── Gate Failure Context ────────────────────────────────────────────
-
-/**
- * Apply gate failure context to stage state based on next status.
- * When effectiveNextStatus is "Implementation", the gate failure note
- * is stored for injection into the developer task on the next iteration,
- * AND a concise run-numbered entry is pushed to gateFailureHistory for
- * PR body rendering.
- * When effectiveNextStatus is "Audit", stale context is cleared.
- * Non-Implementation/Audit statuses leave state unchanged.
- * Empty notes are treated as no-ops.
- *
- * The runNumber parameter (1-indexed loop iteration) is embedded in the
- * gateFailureHistory entry for PR body context (R2 requirement).
- * When note is non-empty and effectiveNextStatus is "Implementation",
- * the first gate name is extracted from the note (content between ---
- * markers) and a formatted entry is pushed.
- */
-export function applyGateFailureContext(
-	state: StageState,
-	effectiveNextStatus: string,
-	note: string,
-	runNumber?: number,
-): void {
-	if (effectiveNextStatus === "Implementation" && note && note.trim().length > 0) {
-		state.gateFailureContext = note;
-		// Extract first gate name from note for concise PR body entry.
-		// The note from audit.ts has sections with "--- Gate Name ---" headers.
-		const gateName = extractFirstGateName(note);
-		const runLabel = runNumber !== undefined ? `run ${runNumber}` : `?`;
-		state.gateFailureHistory.push(`${gateName} gate failed on ${runLabel} — developer restarted`);
-	} else if (effectiveNextStatus === "Audit") {
-		state.gateFailureContext = undefined;
-	}
-	// Other statuses (e.g., "Done") — leave state unchanged
-}
-
-/**
- * Extract the first gate name from a combined gate failure note.
- * The note from audit.ts contains sections delimited by "--- Gate Name ---"
- * headers (e.g., "--- CI Gate ---", "--- TypeScript Checkpoint ---").
- * Returns the gate name if found, or "Pre-transition" as fallback.
- */
-function extractFirstGateName(note: string): string {
-	const gatePattern = /---\s*(.+?)\s*---/;
-	const match = note.match(gatePattern);
-	if (match && match[1]) {
-		return match[1].trim();
-	}
-	return "Pre-transition";
-}
 
 // ─── Check Rejection Limit ────────────────────────────────────────
 
@@ -278,235 +210,6 @@ export function isRejectionLimitReached(
 	return { reached: rejectionCount >= stepMaxRejections, count: rejectionCount };
 }
 
-// ─── Audit Gate Types ─────────────────────────────────────────────
-
-/** Context for evaluating the audit score gate in calculateNextStatus */
-export interface AuditGateContext {
-	/** Whether the researcher agent was skipped */
-	researcherSkipped: boolean;
-	/** Score threshold ratio (0.0–1.0), from config */
-	scoreThreshold: number;
-}
-
-/** Result of a rejected audit gate */
-export interface GateRejected {
-	score: AuditScore;
-	required: number;
-	total: number;
-}
-
-// ─── Determine Next Status ────────────────────────────────────────
-
-export interface NextStatusResult {
-	status: string | null;
-	stopReason?: string;
-	/**
-	 * True when status came from structured JSON parsing or text marker matching.
-	 * False when status is null (no status determined) or from inferForwardStatus
-	 * (pipeline inference, not agent output).
-	 * Used by handler.ts to determine if a failed agent's transition was driven
-	 * by explicit agent output vs. pipeline inference.
-	 */
-	hadExplicitMarker: boolean;
-	/**
-	 * When the audit score gate rejects an auditor's APPROVED, this contains
-	 * the computed score, required minimum, and total dimensions.
-	 */
-	gateRejected?: GateRejected;
-	/**
-	 * When the agent declined the task via the documented `refusal` field,
-	 * this carries the structured refusal so the handler can post the note
-	 * before stopping. A refusal is never a status transition.
-	 */
-	refusal?: RefusedOutput;
-}
-
-/**
- * Resolve next status from agent output.
- * Uses structured JSON parsing (parseAgentOutput) when possible,
- * falls back to text marker matching for backward compatibility.
- * Returns null if no status can be determined (pipeline should stop).
- *
- * @param agentName - Name of the agent that just ran
- * @param agentOutput - Raw agent output (for JSON parsing)
- * @param textOnly - Text-only output (for marker matching)
- * @param success - Whether the agent completed successfully. When false,
- *                  inferForwardStatus is skipped to prevent a failed
- *                  agent from advancing the pipeline (Bug #643 fix).
- * @param auditContext - Optional audit gate context. When provided and
- *                       agentName is "auditor" with action "APPROVED",
- *                       the score gate is evaluated. If below threshold,
- *                       status overridden to "Implementation".
- */
-export function calculateNextStatus(
-	agentName: string,
-	agentOutput: string,
-	textOnly: string,
-	success: boolean = true,
-	auditContext?: AuditGateContext,
-	toolNames?: Set<string>,
-): NextStatusResult {
-	const step = WORKFLOW.find((s) => s.agentName === agentName);
-	if (!step)
-		return {
-			status: null,
-			stopReason: `No workflow step for agent '${agentName}'`,
-			hadExplicitMarker: false,
-		};
-
-	// Phase 2: Try structured AgentOutput parsing first
-	// Use agentOutput (raw text) for JSON parsing since textOnly strips JSON
-	const structuredStatus = resolveNextStatusFromAgentOutput(step, agentOutput, toolNames);
-	if (structuredStatus) {
-		// Audit score gate: when auditor APPROVED but score below threshold,
-		// override to Implementation and attach gate rejection details
-		if (agentName === "auditor" && structuredStatus === "Done" && auditContext) {
-			const parseResult = parseAgentOutput(agentOutput, toolNames);
-			if (isAgentOutputSuccess(parseResult)) {
-				const output = parseResult as AgentOutput;
-				if (output.action === "APPROVED" && output.findings && output.findings.length > 0) {
-					const dimensions = getActiveAuditDimensions(auditContext.researcherSkipped);
-					const score = computeAuditScoreFromFindings(output.findings, dimensions);
-					const gateResult = evaluateAuditScoreGate(score, auditContext.scoreThreshold);
-					if (!gateResult.passes) {
-						return {
-							status: "Implementation",
-							hadExplicitMarker: true,
-							gateRejected: {
-								score,
-								required: gateResult.required,
-								total: dimensions.length,
-							},
-						};
-					}
-				}
-			}
-		}
-
-		return { status: structuredStatus, hadExplicitMarker: true };
-	}
-
-	// Refusal: the agent declined the task (documented `refusal` field).
-	// A refusal is a deliberate stop — never a status transition, never a
-	// loop-back. hadExplicitMarker: true keeps the Bug #711 failed-agent
-	// guard from double-firing on the unnatural success=false + refusal case.
-	// The extra parse runs only on the null-status path (resolveNextStatusFromAgentOutput
-	// already parsed for success); refusal prose is not schema-validatable.
-	const refusalParse = parseAgentOutput(agentOutput, toolNames);
-	if (isAgentOutputRefused(refusalParse)) {
-		return {
-			status: null,
-			stopReason: `Agent refused: ${refusalParse.refusal}`,
-			hadExplicitMarker: true,
-			refusal: refusalParse,
-		};
-	}
-
-	// Fallback: old marker-based detection (for backward compatibility)
-	const nextStatus = resolveNextStatus(step, textOnly) ?? resolveNextStatus(step, agentOutput);
-	if (!nextStatus) {
-		// Bug #643: Only infer forward status when agent succeeded.
-		// A failed agent (0 tools, 0 tokens) should NOT advance the pipeline
-		// via inferForwardStatus — that would bypass failure detection and
-		// send the pipeline to the next stage (e.g., auditor) with empty work.
-		if (!success) {
-			return {
-				status: null,
-				stopReason: `Agent ${agentName} failed — no completion marker found and forward inference skipped`,
-				hadExplicitMarker: false,
-			};
-		}
-		// No marker found — try to infer forward status from step's markerMap
-		// This handles cases where agent completed work but output lacks marker
-		const inferredStatus = inferForwardStatus(step);
-		if (inferredStatus) {
-			return { status: inferredStatus, hadExplicitMarker: false };
-		}
-		// ponytail: auditor fallback — if auditor succeeded but output format
-		// didn't match expected markers, default to APPROVED instead of
-		// deadlocking the pipeline. The model likely approved but used wrong format.
-		// Guard (bug #1698): NEVER default to Done when the output carries a
-		// rejection. The comment side (extractStructuredAuditMarkers) uses pan-text
-		// lastIndexOf and posts "## Audit Rejected" even for unparseable output;
-		// the status side must use the SAME grammar, or a REJECTED audit loops over
-		// to PR creation + issue close. A rejection is a rejection whether or not
-		// the JSON parsed — rejection evidence beats the approval-by-default.
-		if (agentName === "auditor") {
-			const markerDecision = extractStructuredAuditMarkers(agentOutput);
-			if (markerDecision?.decision === "REJECTED") {
-				return { status: "Implementation", hadExplicitMarker: true };
-			}
-			if (markerDecision?.decision === "APPROVED") {
-				return { status: "Done", hadExplicitMarker: true };
-			}
-			return { status: "Done", hadExplicitMarker: false };
-		}
-		return {
-			status: null,
-			stopReason: `No completion marker found in ${agentName} output`,
-			hadExplicitMarker: false,
-		};
-	}
-	return { status: nextStatus, hadExplicitMarker: true };
-}
-
-/**
- * Infer the forward status from a workflow step's markerMap.
- * Returns the first marker value whose key is a forward marker
- * (doesn't start with AUDIT or FEEDBACK). Returns null if
- * no forward marker exists (all markers are AUDIT/FEEDBACK)
- * or markerMap is empty.
- */
-export function inferForwardStatus(step: WorkflowStep): string | null {
-	if (!step.markerMap) return null;
-	const entries = Object.entries(step.markerMap);
-	// Prefer forward markers (keys without AUDIT_/FEEDBACK_ prefix)
-	for (const [key, val] of entries) {
-		if (!key.startsWith("AUDIT") && !key.startsWith("FEEDBACK")) {
-			return val;
-		}
-	}
-	// All markers are AUDIT/FEEDBACK — none matched, can't infer forward direction
-	return null;
-}
-
-// ─── Branch Commit Check ────────────────────────────────────────────
-export interface AuditScoreInfo {
-	cycleCount: number;
-	score: AuditScore;
-	trend?: "improving" | "declining" | "stable";
-}
-
-/**
- * Track audit scores across pipeline iterations.
- * Returns the audit score info if a score marker is found, null otherwise.
- */
-export function trackAuditScore(
-	agentOutput: string,
-	state: StageState,
-	toolNames?: Set<string>,
-): AuditScoreInfo | null {
-	const currentAuditScore = extractAuditScore(agentOutput, toolNames);
-	if (!currentAuditScore) return null;
-
-	state.auditCycleCount++;
-
-	let trend: "improving" | "declining" | "stable" | undefined;
-	if (state.lastAuditScore && state.auditCycleCount > 1) {
-		const diff = currentAuditScore.passing - state.lastAuditScore.passing;
-		if (diff > 0) trend = "improving";
-		else if (diff < 0) trend = "declining";
-		else trend = "stable";
-	}
-
-	state.lastAuditScore = currentAuditScore;
-
-	return {
-		cycleCount: state.auditCycleCount,
-		score: currentAuditScore,
-		trend,
-	};
-}
 
 // ─── Status Transition ────────────────────────────────────────────
 
@@ -618,3 +321,14 @@ export function validateResearcherFindings(commentBody: string): string {
 
 	return commentBody;
 }
+
+// ─── Split-out modules (issue #2001) ─────────────────────────────
+// Gate-context and status-resolution live in sibling modules; re-exported
+// here so existing importers (and the stages/index.ts barrel) keep working.
+export { applyGateFailureContext } from "./gate-context.ts";
+export {
+	calculateNextStatus,
+	inferForwardStatus,
+	trackAuditScore,
+} from "./status-resolution.ts";
+export type { AuditGateContext, GateRejected } from "./status-resolution.ts";

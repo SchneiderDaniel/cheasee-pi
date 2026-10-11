@@ -11,202 +11,36 @@ import type {
 	ProjectItem,
 	DepsResult,
 	PrConflictInfo,
-	GhTimelineNode,
 	ProjectFieldValueNode,
 } from "../config/types.ts";
 import type { RawIssueData, GitHubPort, ClosingPrRef } from "./ports.ts";
-import { parseDepsTimeline, extractProjectItemFields } from "./parsers.ts";
+import {
+	parseDepsTimeline,
+	extractProjectItemFields,
+	isNotFound,
+	mapRestPrToConflictInfo,
+} from "./parsers.ts";
+import {
+	PROJECT_FIELDS_QUERY,
+	PROJECT_ITEMS_QUERY,
+	PROJECT_ID_QUERY,
+	DEPENDENCY_TIMELINE_QUERY,
+	SET_STATUS_MUTATION,
+	type ProjectFieldsResponse,
+	type ProjectItemsResponse,
+	type ProjectIdResponse,
+	type DepsTimelineResponse,
+} from "./octokit-queries.ts";
 
 // ─── Hard safety limit (migrated from comment.ts) ────────────────
 
 const MAX_COMMENT_CHARS = 50_000;
 
-// ─── GraphQL Query Strings ──────────────────────────────────────
+// ─── Public re-exports (issue #2001 split) ──────────────────────
+// mapRestPrToConflictInfo and its response-reading helper live in parsers.ts;
+// re-exported here so existing importers keep their path.
+export { mapRestPrToConflictInfo } from "./parsers.ts";
 
-const PROJECT_FIELDS_QUERY = (projectNumber: number) => `{
-	viewer {
-		projectV2(number: ${projectNumber}) {
-			fields(first: 10) {
-				nodes {
-					... on ProjectV2Field { id name dataType }
-					... on ProjectV2SingleSelectField { id name dataType options { id name } }
-					... on ProjectV2IterationField { id name dataType }
-				}
-			}
-		}
-	}
-}`;
-
-const PROJECT_ITEMS_QUERY = (projectNumber: number, after: string | null) => {
-	const afterArg = after ? `, after: "${after}"` : "";
-	return `{
-	viewer {
-		projectV2(number: ${projectNumber}) {
-			items(first: 100${afterArg}) {
-				pageInfo { hasNextPage endCursor }
-				nodes {
-					id
-					content {
-						... on Issue { number url }
-						... on PullRequest { number url }
-					}
-					fieldValues(first: 20) {
-						nodes {
-							... on ProjectV2ItemFieldSingleSelectValue {
-								name
-								field { ... on ProjectV2FieldCommon { id name } }
-							}
-							... on ProjectV2ItemFieldTextValue {
-								text
-								field { ... on ProjectV2FieldCommon { id name } }
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-}`;
-};
-
-const PROJECT_ID_QUERY = (projectNumber: number) => `{
-	viewer {
-		projectV2(number: ${projectNumber}) {
-			id
-		}
-	}
-}`;
-
-const DEPENDENCY_TIMELINE_QUERY = (owner: string, name: string, issueNumber: number) => `
-	query {
-		repository(owner: "${owner}", name: "${name}") {
-			issue(number: ${issueNumber}) {
-				timelineItems(itemTypes: [BLOCKED_BY_ADDED_EVENT, BLOCKED_BY_REMOVED_EVENT], first: 100) {
-					nodes {
-						__typename
-						... on BlockedByAddedEvent {
-							blockingIssue { id number title state }
-						}
-						... on BlockedByRemovedEvent {
-							blockingIssue { id number title state }
-						}
-					}
-				}
-			}
-		}
-	}`;
-
-const SET_STATUS_MUTATION = (
-	itemId: string,
-	projectId: string,
-	fieldId: string,
-	optionId: string,
-) => `
-	mutation {
-		updateProjectV2ItemFieldValue(
-			input: {
-				projectId: "${projectId}"
-				itemId: "${itemId}"
-				fieldId: "${fieldId}"
-				value: { singleSelectOptionId: "${optionId}" }
-			}
-		) { clientMutationId }
-	}`;
-
-// ─── GraphQL Response Types ──────────────────────────────────────
-
-interface ProjectFieldsResponse {
-	viewer?: {
-		projectV2?: {
-			fields?: {
-				nodes?: Array<{
-					id: string;
-					name: string;
-					dataType?: string;
-					options?: Array<{ id: string; name: string }>;
-				}>;
-			};
-		};
-	};
-	errors?: Array<{ message: string }>;
-}
-
-interface ProjectItemsResponse {
-	viewer?: {
-		projectV2?: {
-			items?: {
-				pageInfo: { hasNextPage: boolean; endCursor: string | null };
-				nodes?: Array<{
-					id: string;
-					content?: { url?: string; number?: number };
-					fieldValues?: {
-						nodes?: ProjectFieldValueNode[];
-					};
-				}>;
-			};
-		};
-	};
-	errors?: Array<{ message: string }>;
-}
-
-interface ProjectIdResponse {
-	viewer?: {
-		projectV2?: {
-			id: string;
-		};
-	};
-	errors?: Array<{ message: string }>;
-}
-
-interface DepsTimelineResponse {
-	repository?: {
-		issue?: {
-			timelineItems?: {
-				nodes?: GhTimelineNode[];
-			};
-		};
-	};
-	errors?: Array<{ message: string }>;
-}
-
-// ─── REST → Domain PR Conflict Mapping ──────────────────────────
-// Pure translation of a REST `pulls.list` item into the domain
-// PrConflictInfo shape. REST fields (issue #1472):
-//   - mergeable: boolean | null  (null = background computation in progress)
-//   - mergeable_state: "clean|dirty|unknown|blocked|unstable|behind|has_hooks|draft"
-// Only `dirty` counts as a conflict; the other non-clean states mean the PR
-// exists and is mergeable (blocked/unstable/behind/has_hooks/draft) or is
-// still being computed (unknown) — the gate polls UNKNOWN instead of failing.
-
-export function mapRestPrToConflictInfo(
-	pr: Record<string, unknown>,
-	fallbackHeadRef: string,
-	fallbackBaseRef: string,
-): PrConflictInfo {
-	const mergeableRaw = pr.mergeable as boolean | null | undefined;
-	const mergeable =
-		mergeableRaw === null || mergeableRaw === undefined
-			? "UNKNOWN"
-			: mergeableRaw
-				? "MERGEABLE"
-				: "NOT_MERGEABLE";
-	const mergeableState = (pr.mergeable_state as string | undefined) || "unknown";
-	return {
-		number: pr.number as number,
-		hasConflict: mergeableState.toLowerCase() === "dirty",
-		mergeable,
-		mergeStateStatus: mergeableState.toUpperCase(),
-		headRefName: (pr.head as { ref?: string })?.ref || fallbackHeadRef,
-		baseRefName: (pr.base as { ref?: string })?.ref || fallbackBaseRef,
-	};
-}
-
-// Octokit throws RequestError ({ status: 404 }) for a missing issue or a
-// missing sub-resource. Adapter-local: this shape knowledge never leaves the
-// GitHub client. Duck-typed because @octokit/request-error is a transitive dep.
-function isNotFound(err: unknown): boolean {
-	return err instanceof Object && "status" in err && (err as { status: number }).status === 404;
-}
 
 // ─── OctokitClient ──────────────────────────────────────────────
 
