@@ -1,0 +1,233 @@
+{
+	"name": "snapshot-a",
+	"provenance": "Recorded candidate set + repo evidence from the cheasee-pi-layout run of 2026-10-11, replayed through a faked RepoPort. Paths and symbols are recorded evidence, not rule input: the rules match the mechanism only.",
+	"manualAcceptance": "Not CI: an LLM re-check of a sample of these INVALID verdicts confirms none of them is a real bug. Residual risk: a rule that is too broad would wrongly drop a real finding, and only that sample check catches it.",
+	"sharedWith": "snapshot-b shares no path and no symbol with this snapshot",
+	"candidates": [
+		{
+			"finding": {
+				"id": "security:0",
+				"kind": "security",
+				"title": "MEDIUM: Command Execution",
+				"targets": [{ "kind": "file", "path": "src/services/runner.ts" }],
+				"files": ["src/services/runner.ts"]
+			},
+			"port": { "files": { "src/services/runner.ts": "spawn(\"git\", [\"status\"]);\n" } },
+			"expected": { "verdict": "INVALID", "row": 5, "ruleId": "argv-array-no-shell" }
+		},
+		{
+			"finding": {
+				"id": "security:1",
+				"kind": "security",
+				"title": "MEDIUM: Command Execution",
+				"targets": [{ "kind": "file", "path": "src/services/shell.ts" }],
+				"files": ["src/services/shell.ts"]
+			},
+			"port": { "files": { "src/services/shell.ts": "spawn(\"git status\", { stdio: \"inherit\" });\n" } },
+			"expected": { "verdict": "defer" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:0",
+				"kind": "dead-code",
+				"title": "ambient_member()",
+				"targets": [{ "kind": "file", "path": "src/types/settings.d.ts" }],
+				"files": ["src/types/settings.d.ts"]
+			},
+			"port": {
+				"declarations": {
+					"ambient_member": [
+						{
+							"file": "src/types/settings.d.ts",
+							"line": 12,
+							"owner": null,
+							"hasBody": false,
+							"ambient": true
+						}
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 11, "ruleId": "ambient-type-only-member" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:1",
+				"kind": "dead-code",
+				"title": "local_helper()",
+				"targets": [{ "kind": "file", "path": "src/util/local.ts" }],
+				"files": ["src/util/local.ts"]
+			},
+			"port": {
+				"declarations": {
+					"local_helper": [
+						{
+							"file": "src/util/local.ts",
+							"line": 4,
+							"owner": null,
+							"hasBody": true,
+							"ambient": false
+						}
+					]
+				}
+			},
+			"expected": { "verdict": "defer" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:2",
+				"kind": "dead-code",
+				"title": "number()",
+				"targets": [{ "kind": "file", "path": "src/models/order.ts" }],
+				"files": ["src/models/order.ts"]
+			},
+			"port": {},
+			"expected": { "verdict": "INVALID", "row": 10, "ruleId": "phantom-symbol" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:3",
+				"kind": "dead-code",
+				"title": "unused_helper()",
+				"targets": [{ "kind": "file", "path": "src/util/legacy.ts" }],
+				"files": ["src/util/legacy.ts"]
+			},
+			"port": {
+				"grep": {
+					"unused_helper": [
+						{ "file": "src/util/legacy.ts", "line": 3, "text": "// unused_helper moved out" },
+						{ "file": "src/util/legacy.ts", "line": 11, "text": "const note = \"unused_helper\";" }
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 10, "ruleId": "phantom-symbol" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:4",
+				"kind": "dead-code",
+				"title": "orphan_helper()",
+				"targets": [{ "kind": "file", "path": "src/util/orphan.ts" }],
+				"files": ["src/util/orphan.ts"]
+			},
+			"port": {
+				"declarations": {
+					"orphan_helper": [
+						{
+							"file": "src/util/orphan.ts",
+							"line": 7,
+							"owner": null,
+							"hasBody": true,
+							"ambient": false
+						}
+					]
+				},
+				"grep": {
+					"orphan_helper": [
+						{
+							"file": "src/util/orphan.ts",
+							"line": 7,
+							"text": "export function orphan_helper() {"
+						}
+					]
+				}
+			},
+			"expected": { "verdict": "defer", "note": "planted real bug: genuinely dead code" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:5",
+				"kind": "dead-code",
+				"title": "resolveSettings()",
+				"targets": [{ "kind": "file", "path": "src/config/resolve.ts" }],
+				"files": ["src/config/resolve.ts"]
+			},
+			"port": {
+				"declarations": {
+					"resolveSettings": [
+						{
+							"file": "src/config/resolve.ts",
+							"line": 20,
+							"owner": null,
+							"hasBody": true,
+							"ambient": false
+						}
+					]
+				},
+				"grep": {
+					"resolveSettings": [
+						{
+							"file": "src/config/resolve.ts",
+							"line": 20,
+							"text": "export function resolveSettings(cwd) {"
+						},
+						{ "file": "src/app/bootstrap.ts", "line": 14, "text": "const opts = { resolveSettings };" }
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 8, "ruleId": "indirect-dispatch" }
+		},
+		{
+			"finding": {
+				"id": "duplicate:0",
+				"kind": "duplicate",
+				"title": "Same Name: render",
+				"targets": [{ "kind": "file", "path": "src/ui/text.ts" }],
+				"files": ["src/ui/text.ts", "src/ui/canvas.ts"]
+			},
+			"port": {
+				"declarations": {
+					"render": [
+						{
+							"file": "src/ui/text.ts",
+							"line": 9,
+							"owner": "TextRenderer",
+							"hasBody": true,
+							"ambient": false
+						},
+						{
+							"file": "src/ui/canvas.ts",
+							"line": 22,
+							"owner": "CanvasRenderer",
+							"hasBody": true,
+							"ambient": false
+						}
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 14, "ruleId": "duplicate-same-name" }
+		},
+		{
+			"finding": {
+				"id": "suggestion:0",
+				"kind": "suggestion",
+				"title": "Extract a shared option parser",
+				"targets": [],
+				"files": []
+			},
+			"port": {},
+			"expected": { "verdict": "INVALID", "row": 12, "ruleId": "suggestion-derived-fact" }
+		},
+		{
+			"finding": {
+				"id": "duplicate:1",
+				"kind": "duplicate",
+				"title": "Similar Code: parse_row",
+				"targets": [{ "kind": "file", "path": "src/parse/row.ts" }],
+				"files": ["src/parse/row.ts", "py/report_gen.py"]
+			},
+			"port": {},
+			"expected": { "verdict": "INVALID", "row": 15, "ruleId": "similar-code-cross-family" }
+		},
+		{
+			"finding": {
+				"id": "architecture:0",
+				"kind": "architecture",
+				"title": "152 Highly Coupled",
+				"targets": [],
+				"files": []
+			},
+			"port": {},
+			"expected": { "verdict": "INVALID", "row": 13, "ruleId": "zero-file-derived-fact" }
+		}
+	]
+}

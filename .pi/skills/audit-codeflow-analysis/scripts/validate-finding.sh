@@ -4,9 +4,16 @@
 # Usage: validate-finding.sh <finding.md> [repo-root]
 #        validate-finding.sh --self-test
 #
-# Prints the subagent's verdict block. Exit codes:
-#   0  VERDICT: VALID
-#   1  VERDICT: INVALID
+# Two stages, in this order:
+#   1. deterministic known-FP pre-filter (`scripts/fast-path.mts`, no LLM). It
+#      can only ever return INVALID; exit 1 is the *only* short-circuit and its
+#      stdout is printed verbatim. Every other outcome — defer, usage error,
+#      crash, missing node/rg/ast-grep — falls through to stage 2.
+#   2. the read-only pi subagent, unchanged.
+#
+# Prints the verdict block. Exit codes:
+#   0  VERDICT: VALID (subagent only)
+#   1  VERDICT: INVALID (pre-filter or subagent)
 #   2  bad usage / missing file / bad repo root (agent mistake — fix the call)
 #   3  the validator ran and printed no VERDICT line (unverified)
 #   4  the validator crashed/timed out/could not be spawned (recovery — retry once)
@@ -68,6 +75,33 @@ if [ -z "$repo_root" ] || [ ! -d "$repo_root/.pi/extensions/ripgrep-search" ]; t
 	exit 2
 fi
 skill_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# Stage 1: the deterministic known-FP pre-filter. `FAST_PATH_CMD` overrides the
+# command (default preserved) so a test can stub the stage without touching the
+# rules. Only exit 1 short-circuits; the rules cannot return VALID, so the LLM
+# stays the sole source of a VALID verdict.
+fast_path_out="$(mktemp)"
+fast_path_err="$(mktemp)"
+fast_path_status=0
+if [ -n "${FAST_PATH_CMD:-}" ]; then
+	# shellcheck disable=SC2086
+	${FAST_PATH_CMD} "$finding" "$repo_root" >"$fast_path_out" 2>"$fast_path_err" || fast_path_status=$?
+else
+	node --experimental-strip-types "$skill_dir/scripts/fast-path.mts" "$finding" "$repo_root" \
+		>"$fast_path_out" 2>"$fast_path_err" || fast_path_status=$?
+fi
+if [ "$fast_path_status" = 1 ] && grep -q '^VERDICT: INVALID$' "$fast_path_out"; then
+	cat "$fast_path_out"
+	rm -f "$fast_path_out" "$fast_path_err"
+	exit 1
+fi
+# Anything else (defer 10, usage 2, a crash, a missing tool, an exit 1 without a
+# verdict block) is not a verdict: disclose it and let stage 2 answer. Never a
+# verdict-less exit.
+if [ -s "$fast_path_err" ]; then
+	cat "$fast_path_err" >&2
+fi
+rm -f "$fast_path_out" "$fast_path_err"
 
 # Inherit the caller's model: without --model the subagent resolves the stored
 # default, which can hit a different (unfunded) provider than this session.

@@ -1,0 +1,201 @@
+{
+	"name": "snapshot-b",
+	"provenance": "Recorded candidate set + repo evidence from a second, unrelated cheasee-pi-layout repository (Rust/Python/script heavy), replayed through a faked RepoPort. Paths and symbols are recorded evidence, not rule input.",
+	"manualAcceptance": "Not CI: an LLM re-check of a sample of these INVALID verdicts confirms none of them is a real bug. Residual risk: a rule that is too broad would wrongly drop a real finding, and only that sample check catches it.",
+	"sharedWith": "snapshot-a shares no path and no symbol with this snapshot",
+	"candidates": [
+		{
+			"finding": {
+				"id": "security:0",
+				"kind": "security",
+				"title": "MEDIUM: Command Execution",
+				"targets": [{ "kind": "file", "path": "scripts/invoke.mjs" }],
+				"files": ["scripts/invoke.mjs"]
+			},
+			"port": { "files": { "scripts/invoke.mjs": "spawn(\"git\", [\"status\"]);\n" } },
+			"expected": { "verdict": "INVALID", "row": 5, "ruleId": "argv-array-no-shell" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:0",
+				"kind": "dead-code",
+				"title": "obsolete_api()",
+				"targets": [{ "kind": "file", "path": "types/legacy/obsolete.d.ts" }],
+				"files": ["types/legacy/obsolete.d.ts"]
+			},
+			"port": {
+				"declarations": {
+					"obsolete_api": [
+						{
+							"file": "types/legacy/obsolete.d.ts",
+							"line": 5,
+							"owner": null,
+							"hasBody": false,
+							"ambient": true
+						}
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 11, "ruleId": "ambient-type-only-member" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:1",
+				"kind": "dead-code",
+				"title": "handle_event()",
+				"targets": [{ "kind": "file", "path": "crates/engine/src/dispatch.rs" }],
+				"files": ["crates/engine/src/dispatch.rs"]
+			},
+			"port": {
+				"declarations": {
+					"handle_event": [
+						{
+							"file": "crates/engine/src/dispatch.rs",
+							"line": 31,
+							"owner": "Engine",
+							"hasBody": true,
+							"ambient": false
+						}
+					]
+				},
+				"grep": {
+					"handle_event": [
+						{ "file": "crates/engine/src/dispatch.rs", "line": 31, "text": "fn handle_event(&self) {" },
+						{ "file": "crates/engine/src/wire.rs", "line": 12, "text": "dispatcher.register(handle_event);" }
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 8, "ruleId": "indirect-dispatch" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:2",
+				"kind": "dead-code",
+				"title": "compute_totals()",
+				"targets": [{ "kind": "file", "path": "scripts/report.py" }],
+				"files": ["scripts/report.py"]
+			},
+			"port": {
+				"grep": {
+					"compute_totals": [
+						{ "file": "scripts/report.py", "line": 6, "text": "# compute_totals was removed in v2" }
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 10, "ruleId": "phantom-symbol" }
+		},
+		{
+			"finding": {
+				"id": "duplicate:0",
+				"kind": "duplicate",
+				"title": "Same Name: export_report",
+				"targets": [{ "kind": "file", "path": "scripts/pdf.py" }],
+				"files": ["scripts/pdf.py", "scripts/csv.py"]
+			},
+			"port": {
+				"declarations": {
+					"export_report": [
+						{
+							"file": "scripts/pdf.py",
+							"line": 12,
+							"owner": "PdfExporter",
+							"hasBody": true,
+							"ambient": false
+						},
+						{
+							"file": "scripts/csv.py",
+							"line": 19,
+							"owner": "CsvExporter",
+							"hasBody": true,
+							"ambient": false
+						}
+					]
+				}
+			},
+			"expected": { "verdict": "INVALID", "row": 14, "ruleId": "duplicate-same-name" }
+		},
+		{
+			"finding": {
+				"id": "duplicate:1",
+				"kind": "duplicate",
+				"title": "Similar Code: fixture_payload",
+				"targets": [{ "kind": "file", "path": "fixtures/sample_a.ts" }],
+				"files": ["fixtures/sample_a.ts", "fixtures/sample_b.ts"]
+			},
+			"port": {},
+			"expected": { "verdict": "INVALID", "row": 15, "ruleId": "similar-code-cross-family" }
+		},
+		{
+			"finding": {
+				"id": "suggestion:0",
+				"kind": "suggestion",
+				"title": "Split the monolithic renderer",
+				"targets": [],
+				"files": []
+			},
+			"port": {},
+			"expected": { "verdict": "INVALID", "row": 12, "ruleId": "suggestion-derived-fact" }
+		},
+		{
+			"finding": {
+				"id": "architecture:0",
+				"kind": "architecture",
+				"title": "9 Circular Dependencies",
+				"targets": [],
+				"files": []
+			},
+			"port": {},
+			"expected": { "verdict": "INVALID", "row": 13, "ruleId": "zero-file-derived-fact" }
+		},
+		{
+			"finding": {
+				"id": "dead-code:3",
+				"kind": "dead-code",
+				"title": "orphan_widget()",
+				"targets": [{ "kind": "file", "path": "crates/engine/src/widget.rs" }],
+				"files": ["crates/engine/src/widget.rs"]
+			},
+			"port": {
+				"declarations": {
+					"orphan_widget": [
+						{
+							"file": "crates/engine/src/widget.rs",
+							"line": 44,
+							"owner": "Widget",
+							"hasBody": true,
+							"ambient": false
+						}
+					]
+				},
+				"grep": {
+					"orphan_widget": [
+						{ "file": "crates/engine/src/widget.rs", "line": 44, "text": "    fn orphan_widget(&self) {" }
+					]
+				}
+			},
+			"expected": { "verdict": "defer", "note": "planted real bug: genuinely dead code" }
+		},
+		{
+			"finding": {
+				"id": "security:1",
+				"kind": "security",
+				"title": "MEDIUM: Command Execution",
+				"targets": [{ "kind": "file", "path": "tools/deploy.ts" }],
+				"files": ["tools/deploy.ts"]
+			},
+			"port": { "files": { "tools/deploy.ts": "execSync(`rm -rf ${target}`);\n" } },
+			"expected": { "verdict": "defer", "note": "planted real bug: a shell-string exec" }
+		},
+		{
+			"finding": {
+				"id": "duplicate:2",
+				"kind": "duplicate",
+				"title": "Similar Code: transform_row",
+				"targets": [{ "kind": "file", "path": "src/pipeline/a.rs" }],
+				"files": ["src/pipeline/a.rs", "src/pipeline/b.rs"]
+			},
+			"port": {},
+			"expected": { "verdict": "defer" }
+		}
+	]
+}

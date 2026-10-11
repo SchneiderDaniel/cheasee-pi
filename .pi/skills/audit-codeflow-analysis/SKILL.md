@@ -229,7 +229,7 @@ the run. A section that parsed some entries but still reports `unparsedItems > 0
 is not unreadable: list the unparsed `###` titles (`reportUnparsedItems`) and
 disclose that the markdown format could not turn them into candidates.
 
-### Step 3 — Validate every candidate (read-only subagent)
+### Step 3 — Validate every candidate (deterministic pre-filter, then read-only subagent)
 
 A finding is a candidate until the source confirms it. Write each candidate to
 `ignore/codeflow-findings/NN-<slug>.md` (kind, section/field, title, description,
@@ -249,18 +249,35 @@ done
 wait
 ```
 
-The script spawns `pi -p` with `--tools
+`validate-finding.sh` runs two stages, in this order:
+
+1. **Deterministic pre-filter** (`scripts/fast-path.mts`, no LLM). It applies the
+   disproof steps of the mechanism rows in
+   `references/known-false-positives.md` and can only ever return `VERDICT:
+   INVALID` (with `REASON`, `EVIDENCE` and a `RULE: <id> (known-fp row N)`
+   provenance line). A `VERDICT: VALID` can therefore only ever come from stage 2.
+2. **The read-only subagent** (`pi -p`, unchanged), for every finding stage 1 did
+   not disprove: an unmatched shape, an ambiguous one, a missing tool, an
+   unreadable file or a crash all fall through to it. No candidate is ever dropped
+   or left verdict-less.
+
+The subagent is spawned with `--tools
 read,ripgrep_search,structural_search`, the `references/finding-validator.md`
 system prompt, this session's model, and no project skills or context files. Exit
 codes:
 
 | Exit | Meaning | Action |
 |------|---------|--------|
-| `0` | `VERDICT: VALID` | keep it for Step 4 |
-| `1` | `VERDICT: INVALID` | drop it; keep the `REASON` line for the confirmation list |
+| `0` | `VERDICT: VALID` (subagent only) | keep it for Step 4 |
+| `1` | `VERDICT: INVALID` (pre-filter or subagent) | drop it; keep the `REASON` line for the confirmation list |
 | `2` | usage / repo-root error (agent mistake) | fix the call and rerun |
 | `3` | ran, printed no `VERDICT` | unverified — never file, disclose as unverified |
 | `4` | crash / timeout / spawn failure | retry once; a `0`/`1` retry is authoritative, a retry still exiting `3`/`4` is unverified |
+
+Disclose the split — `dry-run.mts` prints it as
+`fast-path: <n> INVALID (<rule breakdown>), <m> deferred to LLM`, where `m` is
+exactly the candidate count that reached the subagent — so the operator can see how
+much of the run the pre-filter settled without the model.
 
 The `3`/`4` split matters: `4` reached no verdict, so retrying it is recovery,
 not answer-shopping. Retry a `4` at most once; the retry is a fresh attempt at a
@@ -360,8 +377,9 @@ never reconcile the difference by editing the vendored UI bundle.
 `scripts/dry-run.mts` exercises the extract → resolve → validate path without
 touching GitHub: it takes the first N findings, maps each cited file onto the
 repo (the markdown exporter emits bare basenames in its pattern sections),
-validates every finding with a read-only subagent, and prints the issue it would
-file — or, for a false finding, the validator's reason and evidence.
+applies the deterministic known-FP pre-filter, validates every remaining finding
+with a read-only subagent, and prints the issue it would
+file — or, for a false finding, the verdict's reason and evidence.
 
 ```bash
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --limit 5
@@ -375,7 +393,11 @@ post-suppression candidate (default `ignore/codeflow-findings/`), spawns no
 subagent, is not truncated by `--limit`, and leaves the directory in place. It
 prints the suppressed known-noise/unresolved count next to the written count, plus
 a `dispositions:` line naming each nonzero disposition (`file-bug`,
-`file-refactor`, `offer-optional`) with its count. It fails closed (exit `2`,
+`file-refactor`, `offer-optional`) with its count, plus the deterministic split
+line `fast-path: <n> INVALID (<rule breakdown>), <m> deferred to LLM` for the
+written candidate set. Every mode prints that split line — `--list` for the
+candidate set, a validation run for the candidates it validated, where `m` is
+exactly the count that reached the subagent. It fails closed (exit `2`,
 writes nothing) when the destination already holds `.md` findings, so a rerun can
 never mix stale candidates into the set: point at a fresh directory or remove the
 stale files first.
@@ -409,5 +431,15 @@ false, `2` for bad usage or a missing report.
   file-less suggestion must reference the signal that produced it.
 - Every filed issue's finding exited `0` from `validate-finding.sh`; every
   dropped finding has a recorded `REASON`.
+- The run's `fast-path: <n> INVALID (<rule breakdown>), <m> deferred to LLM` line
+  satisfies `n + m == the validated candidate count`: every `bug`-class candidate
+  either carries a pre-filter verdict or reached the subagent, none was dropped
+  verdict-less, and no `VERDICT: VALID` came from the pre-filter. Each pre-filter
+  verdict carries `RULE: <id> (known-fp row N)`, so a dropped finding is traceable
+  to a documented mechanism row.
+- Manual, not CI: a run that turns on a rule for the first time re-checks a sample
+  of its `INVALID` verdicts with the subagent prompt. A rule that is too broad
+  would drop a real finding silently, and only that sample (plus the fail-open
+  direction of every rule) keeps the residual risk visible.
 - No `gh issue create` ran before the `ask_user` answer.
 - Any issue that shares a file with another states that overlap.

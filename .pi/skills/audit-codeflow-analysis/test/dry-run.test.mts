@@ -12,7 +12,7 @@
  */
 
 import assert from "node:assert";
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
 	chmodSync,
 	existsSync,
@@ -21,6 +21,7 @@ import {
 	readFileSync,
 	readdirSync,
 	rmSync,
+	symlinkSync,
 	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -780,3 +781,71 @@ describe("dry-run disposition routing (issue #1992)", () => {
 	});
 });
 
+
+describe("dry-run fast-path split reporting (issue #2014)", () => {
+	/** One candidate the pre-filter proves false, one it must defer. */
+	const SPLIT_JSON = JSON.stringify({
+		securityIssues: [{ title: "Hardcoded Secret", severity: "high", path: REAL_FILE }],
+		suggestions: [{ title: "Extract a shared parser" }],
+	});
+
+	const writeSplitJson = (): string => {
+		const json = join(dir, "split.json");
+		writeFileSync(json, SPLIT_JSON, "utf-8");
+		return json;
+	};
+
+	it("--emit-findings prints the split line for the written candidate set", () => {
+		const r = runDryRun([
+			"--emit-findings",
+			join(dir, "split-findings"),
+			"--report",
+			fixture,
+			"--json",
+			writeSplitJson(),
+		]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.match(r.stdout, /fast-path: 1 INVALID \(suggestion-derived-fact 1\), 1 deferred to LLM/);
+	});
+
+	it("--list prints the split line for the candidate set", () => {
+		const r = runDryRun(["--list", "--report", fixture, "--json", writeSplitJson()]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.match(r.stdout, /fast-path: 1 INVALID \(suggestion-derived-fact 1\), 1 deferred to LLM/);
+	});
+
+	it("a validation run prints the split and defers exactly the validated set", () => {
+		const bin = join(dir, "split-bin");
+		const log = join(dir, "split-pi.log");
+		writePiStub(bin, log);
+		const r = runDryRun(["--report", fixture, "--json", writeSplitJson(), "--limit", "10"], {
+			PATH: `${bin}:${process.env.PATH ?? ""}`,
+		});
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.match(r.stdout, /fast-path: 1 INVALID \(suggestion-derived-fact 1\), 1 deferred to LLM/);
+		assert.strictEqual(piCallCount(log), 1, "only the deferred candidate may reach the validator");
+		assert.match(piLog(log), /Hardcoded Secret/);
+		assert.match(r.stdout, /Summary: 2 checked — 1 valid[\s\S]*1 false finding\(s\) dropped/, r.stdout);
+	});
+
+	it("reports `0 INVALID, N deferred` when every candidate needs absent evidence", () => {
+		// A PATH with only what dry-run itself needs: node for the process, git for
+		// the checkout. `rg`/`ast-grep` are unreachable, so a candidate whose rule
+		// needs cited code cannot complete its disproof and defers.
+		const bin = join(dir, "bare-bin");
+		mkdirSync(bin, { recursive: true });
+		symlinkSync(NODE, join(bin, "node"));
+		symlinkSync(execFileSync("which", ["git"], { encoding: "utf-8" }).trim(), join(bin, "git"));
+		const json = join(dir, "security-only.json");
+		writeFileSync(
+			json,
+			JSON.stringify({
+				securityIssues: [{ title: "Hardcoded Secret", severity: "high", path: REAL_FILE }],
+			}),
+			"utf-8",
+		);
+		const r = runDryRun(["--list", "--report", fixture, "--json", json], { PATH: bin });
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.match(r.stdout, /fast-path: 0 INVALID \(none\), 1 deferred to LLM/, r.stdout);
+	});
+});

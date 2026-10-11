@@ -220,6 +220,42 @@ describe("audit-codeflow-analysis SKILL.md — issue #1976 hardening", () => {
 	});
 });
 
+describe("audit-codeflow-analysis SKILL.md — issue #2014 deterministic pre-filter", () => {
+	const validator = readFileSync(
+		resolve(ROOT, ".pi/skills/audit-codeflow-analysis/references/finding-validator.md"),
+		"utf-8",
+	);
+
+	it("documents the deterministic stage as the first stage of Step 3", () => {
+		assert.match(body, /Deterministic pre-filter/i);
+		assert.match(body, /scripts\/fast-path\.mts/);
+		const first = body.indexOf("1. **Deterministic pre-filter**");
+		const second = body.indexOf("2. **The read-only subagent**");
+		assert.ok(first >= 0 && second > first, "the pre-filter must be stage 1 and the subagent stage 2");
+	});
+
+	it("states that the pre-filter can only ever answer INVALID", () => {
+		assert.match(body, /only ever return `VERDICT:/);
+		assert.match(body, /`0`[^\n]*`VERDICT: VALID`[^\n]*subagent only/i);
+	});
+
+	it("documents the RULE provenance for a pre-filter verdict", () => {
+		assert.match(body, /RULE: <id> \(known-fp row N\)/);
+		assert.match(body, /known-false-positives\.md/);
+	});
+
+	it("documents the fast-path split disclosure and its invariant", () => {
+		assert.match(body, /fast-path: <n> INVALID \(<rule breakdown>\), <m> deferred to LLM/);
+		assert.match(body, /n \+ m == the validated candidate count/);
+	});
+
+	it("tells the validator prompt that the pre-filter already ran", () => {
+		assert.match(validator, /deterministic pre-filter/i);
+		assert.match(validator, /did \*not\* disprove|never try to reproduce/i);
+		assert.match(validator, /only findings the deterministic pre-filter/i);
+	});
+});
+
 describe("audit-codeflow-analysis SKILL.md — issue #1992 disposition routing", () => {
 	it("files chore metrics/anti-patterns as refactor issues, never route-or-drop", () => {
 		assert.match(body, /`chore`[^\n]*refactor/i);

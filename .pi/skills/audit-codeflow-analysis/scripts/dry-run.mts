@@ -32,6 +32,8 @@ import {
 	type SectionCoverage,
 	type Target,
 } from "../lib/report.ts";
+import { evaluateFastPath } from "../lib/fast-path.ts";
+import { buildRepoPort } from "./fast-path.mts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const VALIDATOR = join(HERE, "validate-finding.sh");
@@ -163,6 +165,37 @@ export function selectCandidates(
 			(fact.files.length === 0 || fact.files.some((f) => resolveFile(f).how !== "unresolved")),
 	);
 	return { candidates, suppressed: facts.length - candidates.length };
+}
+
+/**
+ * Report the deterministic/LLM split for a candidate set: how many findings the
+ * known-FP pre-filter proves false (with its rule breakdown) and how many still
+ * reach the subagent. Run in-process so `--list`/`--emit-findings` stay fast.
+ */
+async function fastPathSplit(
+	facts: IssueFact[],
+	repoRoot: string,
+): Promise<{ line: string; invalid: number }> {
+	const repo = buildRepoPort(repoRoot);
+	const counts = new Map<string, number>();
+	let invalid = 0;
+	for (const fact of facts) {
+		const verdict = await evaluateFastPath(fact, repo);
+		if (verdict === null) continue;
+		invalid++;
+		counts.set(verdict.ruleId, (counts.get(verdict.ruleId) ?? 0) + 1);
+	}
+	const breakdown =
+		invalid === 0
+			? "none"
+			: [...counts.entries()]
+					.sort((a, b) => (a[0] < b[0] ? -1 : 1))
+					.map(([id, n]) => `${id} ${n}`)
+					.join(", ");
+	return {
+		line: `fast-path: ${invalid} INVALID (${breakdown}), ${facts.length - invalid} deferred to LLM\n`,
+		invalid,
+	};
 }
 
 /** Step 3 file naming slug: lowercase, non-alphanumerics to single hyphens. */
@@ -562,6 +595,7 @@ async function main(): Promise<void> {
 			`CodeFlow findings emitted — ${files.length} candidate(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
 				`${routed.length} finding(s) routed by triage (chore/informational, not bug-validated).\n` +
 				`dispositions: ${dispositionSummary(candidates)}\n` +
+				(await fastPathSplit(candidates, repoRoot)).line +
 				`${suppressed} known-noise/unresolved candidate(s) suppressed, not written.\n` +
 				`\n${coverageReport(markdown, coverage)}` +
 				(!json ? `\n${jsonNote()}` : "") +
@@ -591,12 +625,14 @@ async function main(): Promise<void> {
 				`${cited.length} cited file(s), ${cited.length - unresolved.length} found, ` +
 				`${unresolved.length} unresolved.\n` +
 				`dispositions: ${dispositionSummary(candidates)}\n` +
+				(await fastPathSplit(candidates, repoRoot)).line +
 				`No validation run, no issues created.\n`,
 		);
 		process.exit(0);
 	}
 
 	const selected = bugCandidates.slice(0, args.limit);
+	const split = await fastPathSplit(selected, repoRoot);
 
 	const sourceLabel = json ? "json" : "markdown";
 	process.stdout.write(
@@ -606,6 +642,7 @@ async function main(): Promise<void> {
 			`${routed.length} finding(s) routed by triage, not validated:\n` +
 			routed.map((f) => `  [${issueTypeOf(f)}] ${f.title}\n`).join("") +
 			`dispositions: ${dispositionSummary(candidates)}\n` +
+			split.line +
 			`\n${coverageReport(markdown, coverage)}\n` +
 			(!json ? jsonNote() : "") +
 			`Validating first ${selected.length} of ${bugCandidates.length} bug candidate(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
@@ -674,6 +711,7 @@ async function main(): Promise<void> {
 	process.stdout.write(
 		`Summary: ${validations.length} checked — ${valid} valid (would file ${valid} issue(s)), ` +
 			`${invalid} false finding(s) dropped, ${unverified} unverified.\n` +
+			`${split.line}` +
 			`Codebase link: ${cited.length - unresolved.length}/${cited.length} cited file(s) found` +
 			`${byBasename > 0 ? ` (${byBasename} by basename)` : ""}` +
 			`${unresolved.length > 0 ? `; unresolved: ${unresolved.map((r) => r.path).join(", ")}` : ""}.\n` +
