@@ -308,6 +308,55 @@ describe("fast-path row 8 — declaration reached indirectly", () => {
 		assert.strictEqual(v, null);
 	});
 
+	it("defers when the only other occurrence is a same-named typed parameter", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/b.ts", line: 4, text: "function takes(unused_helper: () => void) {}" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when the only other occurrence is a same-named bare parameter", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/b.ts", line: 4, text: "const run = (unused_helper) => unused_helper();" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when the only other occurrence is a variable or import binding", async () => {
+		for (const text of [
+			"const unused_helper = other;",
+			"import { unused_helper } from \"./other\";",
+			"export { unused_helper };",
+			"const { unused_helper } = registry;",
+		]) {
+			const v = await evaluateFastPath(
+				fact(),
+				port({
+					findDeclarations: () => [decl({ line: 12 })],
+					grep: () => [
+						{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+						{ file: "src/b.ts", line: 4, text },
+					],
+				}),
+			);
+			assert.strictEqual(v, null, text);
+		}
+	});
+
 	it("defers when a seam keyword sits in a trailing comment of a direct call", async () => {
 		const v = await evaluateFastPath(
 			fact(),

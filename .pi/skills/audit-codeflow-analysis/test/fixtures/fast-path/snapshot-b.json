@@ -3,6 +3,68 @@
 	"provenance": "Recorded candidate set + repo evidence from a second, unrelated cheasee-pi-layout repository (Rust/Python/script heavy), replayed through a faked RepoPort. Paths and symbols are recorded evidence, not rule input.",
 	"manualAcceptance": "Not CI: an LLM re-check of a sample of these INVALID verdicts confirms none of them is a real bug. Residual risk: a rule that is too broad would wrongly drop a real finding, and only that sample check catches it.",
 	"sharedWith": "snapshot-a shares no path and no symbol with this snapshot",
+	"recheck": {
+		"method": "LLM re-check of a sample of the fast-path INVALID verdicts against the recorded evidence",
+		"sampled": [
+			{
+				"findingId": "security:0",
+				"row": 5,
+				"ruleId": "argv-array-no-shell",
+				"llmVerdict": "INVALID",
+				"rationale": "the spawned command takes an argv array and sets no shell: true, so no shell interprets a metacharacter"
+			},
+			{
+				"findingId": "dead-code:0",
+				"row": 11,
+				"ruleId": "ambient-type-only-member",
+				"llmVerdict": "INVALID",
+				"rationale": "the member is declared bodyless in a declaration file, so it has no runtime body to execute"
+			},
+			{
+				"findingId": "dead-code:1",
+				"row": 8,
+				"ruleId": "indirect-dispatch",
+				"llmVerdict": "INVALID",
+				"rationale": "the method is registered by name with the dispatcher, so it is reached indirectly and is not dead"
+			},
+			{
+				"findingId": "dead-code:2",
+				"row": 10,
+				"ruleId": "phantom-symbol",
+				"llmVerdict": "INVALID",
+				"rationale": "every occurrence of the name sits in comment ink, so no code declares it"
+			},
+			{
+				"findingId": "duplicate:0",
+				"row": 14,
+				"ruleId": "duplicate-same-name",
+				"llmVerdict": "INVALID",
+				"rationale": "two distinct exporter types each declare their own method of that name; that is per-type design, not duplication"
+			},
+			{
+				"findingId": "duplicate:1",
+				"row": 15,
+				"ruleId": "similar-code-cross-family",
+				"llmVerdict": "INVALID",
+				"rationale": "every cluster member is a test fixture, so the reported similarity is fixture data, not production duplication"
+			},
+			{
+				"findingId": "suggestion:0",
+				"row": 12,
+				"ruleId": "suggestion-derived-fact",
+				"llmVerdict": "INVALID",
+				"rationale": "a suggestion is a descriptive derived signal with nothing concrete to remediate"
+			},
+			{
+				"findingId": "architecture:0",
+				"row": 13,
+				"ruleId": "zero-file-derived-fact",
+				"llmVerdict": "INVALID",
+				"rationale": "the fact cites no file and no locatable symbol, so no code can confirm it"
+			}
+		],
+		"outcome": "no VALID lost: every sampled INVALID verdict was reconfirmed INVALID and no sampled finding is a real bug"
+	},
 	"candidates": [
 		{
 			"finding": {

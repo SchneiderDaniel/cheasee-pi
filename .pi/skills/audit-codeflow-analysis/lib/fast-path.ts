@@ -117,6 +117,18 @@ const SHELL_EXECUTABLE = new RegExp(
 const SHELL_FLAG_ARGV = new RegExp(`\\[\\s*["'](?:-c|${SLASH}c)["']`, "i");
 const DIRECT_CALL_AFTER = /^\s*\(/;
 const MEMBER_ACCESS_BEFORE = /[.:]{1,2}\s*$/;
+/** A type annotation or property-key colon right after a name (`name: T`). */
+const KEY_OR_TYPE_AFTER = /^\s*\??\s*:(?!:)/;
+/** A default/assignment delimiter right after a name (`name = …`). */
+const BINDING_ASSIGN_AFTER = /^\s*=(?!=)/;
+/** A declaration keyword right before a name (`function name`, `const name`). */
+const BINDING_KEYWORD_BEFORE =
+	/\b(?:const|let|var|function|class|import|export|type|interface|enum|namespace|module|declare|using|def|fn|func|struct|impl|trait|param)\s*$/;
+/** A function/generator/constructor/catch parameter-list head. */
+const PARAM_LIST_HEAD = /\b(?:function|constructor|catch)\s*\*?\s*[A-Za-z0-9_$]*\s*$/;
+/** Value-position delimiters: argument, array element, object property, rhs. */
+const VALUE_LEFT = /[(,[{=]$/;
+const VALUE_RIGHT = /^[)\]},;]/;
 
 /** Names the analyzer's bare-word scanner invents out of a type annotation. */
 const BUILTIN_TYPE_TOKENS = new Set([
@@ -462,9 +474,16 @@ const RULES: readonly Rule[] = [
 /**
  * True when the occurrence is a structural reference in value or argument
  * position — the symbol passed by name (`wire(handler)`, `{ handler }`) rather
- * than called directly (`handler()`) or reached as a member (`x.handler`).
- * Comment ink is stripped first, so a `register`/`dispatch` keyword in trailing
- * prose cannot be mistaken for a dispatch seam.
+ * than a binding (parameter, variable, import), a direct call (`handler()`), or
+ * a member access (`x.handler`). Comment ink is stripped first, so a
+ * `register`/`dispatch` word in trailing prose cannot read as a dispatch seam.
+ *
+ * A bare name must sit between value delimiters, and every binding shape
+ * defers. The earlier "anything that is not a call or a member" test misread a
+ * shadowing parameter (`function takes(orphan: () => void) {}`) as a reference
+ * and suppressed a genuinely dead function.
+ * shortcut: call layouts are read line-locally, so a by-name reference whose
+ * delimiters sit on another line defers; upgrade if that gap ever matters.
  */
 function isValuePosition(match: Match, symbol: string): boolean {
 	const code = stripComment(match.text);
@@ -472,9 +491,51 @@ function isValuePosition(match: Match, symbol: string): boolean {
 	if (idx < 0) return false;
 	const before = code.slice(0, idx);
 	const after = code.slice(idx + symbol.length);
+	// A direct call or a member access is not a by-name reference.
 	if (DIRECT_CALL_AFTER.test(after)) return false;
 	if (MEMBER_ACCESS_BEFORE.test(before)) return false;
-	return true;
+	// A type annotation / property key (`name: T`), a default (`name = …`), or a
+	// declaration keyword (`function name`) is a binding, not a reference.
+	if (KEY_OR_TYPE_AFTER.test(after) || BINDING_ASSIGN_AFTER.test(after)) return false;
+	if (BINDING_KEYWORD_BEFORE.test(before)) return false;
+	// A destructuring or import binding (`const { name } = …`) is not a value use.
+	if (insideBraceBinding(code, idx)) return false;
+	// A function/arrow/method parameter list binds the name, so a parameter can
+	// never read as a by-name argument.
+	if (insideParameterList(code, idx)) return false;
+	return VALUE_LEFT.test(before.replace(/\s+$/, "")) && VALUE_RIGHT.test(after.replace(/^\s+/, ""));
+}
+
+/** True when the occurrence sits in a `{ … }` opened by a binding keyword. */
+function insideBraceBinding(code: string, idx: number): boolean {
+	const open = code.lastIndexOf("{", idx);
+	if (open < 0) return false;
+	return /\b(?:const|let|var|import|export|declare|using)\s*$/.test(code.slice(0, open));
+}
+
+/** Position of the innermost `(` still open at `idx`, or -1 when none is. */
+function enclosingParen(code: string, idx: number): number {
+	const stack: number[] = [];
+	for (let i = 0; i < idx && i < code.length; i++) {
+		if (code[i] === "(") stack.push(i);
+		else if (code[i] === ")") stack.pop();
+	}
+	return stack.length > 0 ? (stack[stack.length - 1] as number) : -1;
+}
+
+/**
+ * True when the occurrence sits inside a function/arrow/method parameter list —
+ * a shadowing binding, not a reference to the module-level symbol.
+ */
+function insideParameterList(code: string, idx: number): boolean {
+	const open = enclosingParen(code, idx);
+	if (open < 0) return false;
+	if (PARAM_LIST_HEAD.test(code.slice(0, open))) return true;
+	const close = code.indexOf(")", idx);
+	if (close < 0) return false;
+	const tail = code.slice(close + 1);
+	// `(a, b) => …` and `name(a, b) {` open a parameter list / method body.
+	return /^\s*=>/.test(tail) || /^\s*\{/.test(tail);
 }
 
 /** Drop any trailing line comment or block comment from one line of code. */

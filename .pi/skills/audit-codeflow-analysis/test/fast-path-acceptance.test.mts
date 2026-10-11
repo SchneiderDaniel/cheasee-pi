@@ -44,11 +44,27 @@ interface Candidate {
 	expected: { verdict: "INVALID" | "defer"; row?: number; ruleId?: string; note?: string };
 }
 
+interface RecheckSample {
+	findingId: string;
+	row: number;
+	ruleId: string;
+	/** The LLM re-check verdict; a `VALID` here means a real bug was lost. */
+	llmVerdict: "INVALID" | "VALID";
+	rationale: string;
+}
+
+interface Recheck {
+	method: string;
+	sampled: RecheckSample[];
+	outcome: string;
+}
+
 interface Snapshot {
 	name: string;
 	provenance: string;
 	manualAcceptance: string;
 	sharedWith: string;
+	recheck: Recheck;
 	candidates: Candidate[];
 }
 
@@ -122,6 +138,44 @@ describe("fast-path acceptance — two unrelated snapshots", () => {
 			assert.match(snapshot.manualAcceptance, /LLM re-check/i);
 			assert.match(snapshot.manualAcceptance, /residual risk/i);
 			assert.ok(snapshot.provenance.length > 40, "a recorded snapshot must state its provenance");
+		}
+	});
+
+	it("records a re-check result against sampled INVALID verdicts (no VALID lost)", async () => {
+		for (const snapshot of SNAPSHOTS) {
+			const recheck = snapshot.recheck;
+			assert.ok(recheck, `${snapshot.name} must record its re-check result, not only prose`);
+			assert.match(recheck.method, /LLM re-check/i);
+			assert.ok(recheck.sampled.length > 0, `${snapshot.name} must sample at least one verdict`);
+
+			// Every rule that fires on this snapshot must be covered by a sample.
+			const firedRules = new Set<string>();
+			for (const { finding, port } of snapshot.candidates) {
+				const verdict = await evaluateFastPath(finding, replayPort(port));
+				if (verdict) firedRules.add(verdict.ruleId);
+			}
+			const sampledRules = new Set(recheck.sampled.map((s) => s.ruleId));
+			for (const ruleId of firedRules) {
+				assert.ok(sampledRules.has(ruleId), `${snapshot.name}: rule ${ruleId} fired but was not re-checked`);
+			}
+
+			const candidates = new Map(snapshot.candidates.map((c) => [c.finding.id, c]));
+			for (const sample of recheck.sampled) {
+				const candidate = candidates.get(sample.findingId);
+				assert.ok(candidate, `${snapshot.name}: sampled finding ${sample.findingId} must exist`);
+				const verdict = await evaluateFastPath(candidate.finding, replayPort(candidate.port));
+				assert.ok(verdict, `${snapshot.name}: sampled finding ${sample.findingId} must be INVALID`);
+				assert.strictEqual(verdict.row, sample.row);
+				assert.strictEqual(verdict.ruleId, sample.ruleId);
+				// A `VALID` sample verdict means the fast path dropped a real bug.
+				assert.strictEqual(
+					sample.llmVerdict,
+					"INVALID",
+					`${snapshot.name}: ${sample.findingId} re-checked VALID — a real bug was lost`,
+				);
+				assert.ok(sample.rationale.length > 0, "a re-check sample must state its rationale");
+			}
+			assert.match(recheck.outcome, /no VALID lost/i);
 		}
 	});
 
