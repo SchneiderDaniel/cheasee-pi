@@ -233,7 +233,7 @@ func TestInstallationDoc_UninstallScriptReference(t *testing.T) {
 }
 
 // TestInstallationDoc_Path verifies that Step 5 bullet 8 of the installation
-// doc matches the path that config.go:fileRepository.configPath() actually
+// doc matches the path that config.go:fileRepository.repositoryConfigPath() actually
 // writes to — the XDG user config dir, not the legacy ~/.pi/agent/auth.json.
 func TestInstallationDoc_Path(t *testing.T) {
 	data, err := os.ReadFile(docPath())
