@@ -149,7 +149,13 @@
 				"targets": [{ "kind": "file", "path": "src/models/order.ts" }],
 				"files": ["src/models/order.ts"]
 			},
-			"port": {},
+			"port": {
+				"grep": {
+					"number": [
+						{ "file": "src/models/order.ts", "line": 8, "text": "  total: number;" }
+					]
+				}
+			},
 			"expected": { "verdict": "INVALID", "row": 10, "ruleId": "phantom-symbol" }
 		},
 		{

@@ -194,13 +194,36 @@ describe("fast-path row 11 — ambient/type-only declaration", () => {
 });
 
 describe("fast-path row 10 — phantom symbol", () => {
-	it("fires on a builtin type token used as a name", async () => {
+	it("fires on a builtin type token read out of a type annotation", async () => {
 		const v = await evaluateFastPath(
 			fact({ title: "string()" }),
-			port({ findDeclarations: () => [decl({ hasBody: false })] }),
+			port({
+				findDeclarations: () => [decl({ hasBody: false })],
+				grep: () => [{ file: "src/a.ts", line: 5, text: "const name: string = value;" }],
+			}),
 		);
 		assert.strictEqual(v?.row, 10);
 		assert.strictEqual(v?.ruleId, "phantom-symbol");
+	});
+
+	it("defers on a builtin-looking name with no type-annotation occurrence", async () => {
+		const v = await evaluateFastPath(
+			fact({ title: "string()" }),
+			port({ grep: () => [{ file: "src/a.ts", line: 5, text: "const s = string(value);" }] }),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers on a builtin-looking name declared as a real function in an unsupported language", async () => {
+		const v = await evaluateFastPath(
+			fact({
+				title: "string()",
+				targets: [{ kind: "file", path: "src/x.php" }],
+				files: ["src/x.php"],
+			}),
+			port({ grep: () => [{ file: "src/x.php", line: 3, text: "function string(): string {" }] }),
+		);
+		assert.strictEqual(v, null);
 	});
 
 	it("fires when every occurrence sits in a comment", async () => {
@@ -302,6 +325,36 @@ describe("fast-path row 8 — declaration reached indirectly", () => {
 				grep: () => [
 					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
 					{ file: "src/b.ts", line: 4, text: "unused_helper();" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when a value-position use is shadowed by an enclosing parameter", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/b.ts", line: 4, text: "function wrapper(unused_helper) {" },
+					{ file: "src/b.ts", line: 5, text: "  consume(unused_helper);" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when a value-position use is shadowed by a local binding", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/b.ts", line: 4, text: "const unused_helper = make();" },
+					{ file: "src/b.ts", line: 5, text: "  consume(unused_helper);" },
 				],
 			}),
 		);
@@ -459,13 +512,21 @@ describe("fast-path — suggestion and zero-file derived facts", () => {
 		assert.strictEqual(v?.ruleId, "suggestion-derived-fact");
 	});
 
-	it("fires on any fact with no target and no cited file", async () => {
+	it("fires on any fact with no target, no cited file and no symbol in the title", async () => {
 		const v = await evaluateFastPath(
 			fact({ kind: "architecture", title: "8 Highly Coupled", targets: [], files: [] }),
 			port(),
 		);
 		assert.strictEqual(v?.row, 13);
 		assert.strictEqual(v?.ruleId, "zero-file-derived-fact");
+	});
+
+	it("defers on a zero-file finding whose title names a symbol", async () => {
+		const v = await evaluateFastPath(
+			fact({ kind: "dead-code", title: "orphan_helper()", targets: [], files: [] }),
+			port(),
+		);
+		assert.strictEqual(v, null);
 	});
 
 	it("defers on a non-suggestion fact with a locatable symbol target", async () => {

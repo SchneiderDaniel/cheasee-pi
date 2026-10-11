@@ -327,6 +327,9 @@ const RULES: readonly Rule[] = [
 		async decide(finding) {
 			const targets = finding.targets ?? [];
 			if (targets.length > 0 || finding.files.length > 0) return null;
+			// A symbol named by the finding (a symbol target or a `name()`/`Label:
+			// name` title) is locatable, so this is not the zero-file shape.
+			if (symbolOf(finding) !== null) return null;
 			return {
 				reason: "the fact cites no file and no locatable symbol, so no code can confirm it",
 				evidence: `${finding.kind}: ${finding.title} — no target, no cited file`,
@@ -388,15 +391,22 @@ const RULES: readonly Rule[] = [
 			const decls = await repo.findDeclarations(symbol);
 			// A real declaration with a body means a maintainer can act on it.
 			if (decls.some((d) => d.hasBody)) return null;
-			if (BUILTIN_TYPE_TOKENS.has(symbol)) {
-				return {
-					reason: `the "function" name is a builtin type token (a scanner artifact read out of a type annotation), not a declaration with a body`,
-					evidence: `symbol: ${symbol}`,
-				};
-			}
 			const occurrences = byLocation(await repo.grep(symbol));
 			// Absent everywhere is the producer-filtered shape, not this rule.
 			if (occurrences.length === 0) return null;
+			if (BUILTIN_TYPE_TOKENS.has(symbol)) {
+				// A builtin-looking name is only a phantom when it actually sits in
+				// the scanner's type-annotation shape. A language with no known family
+				// is not covered by the declaration search and may declare a real
+				// function of that name (e.g. a `string()` in PHP), so it defers.
+				const annotation = occurrences.find((m) => !isInk(m, symbol) && isTypeAnnotation(m, symbol));
+				if (!annotation) return null;
+				if (languageFamily(annotation.file) === null) return null;
+				return {
+					reason: `the "function" name is a builtin type token read out of a type annotation, so it is a scanner artifact rather than a declaration with a body`,
+					evidence: `${annotation.file}:${annotation.line} — ${annotation.text.trim()}`,
+				};
+			}
 			if (!occurrences.every((m) => isInk(m, symbol))) return null;
 			const first = occurrences[0] as Match;
 			return {
@@ -416,9 +426,12 @@ const RULES: readonly Rule[] = [
 			// Without a declaration there is nothing to reach indirectly.
 			if (decls.length === 0) return null;
 			const declarationSites = new Set(decls.map((d) => `${d.file}:${d.line}`));
-			const refs = byLocation(await repo.grep(symbol)).filter(
-				(m) => !declarationSites.has(`${m.file}:${m.line}`) && !isInk(m, symbol),
-			);
+			const occurrences = byLocation(await repo.grep(symbol)).filter((m) => !isInk(m, symbol));
+			// A same-named parameter or local binding can shadow the symbol, so a
+			// value-position use may refer to the shadow rather than to the
+			// declaration. The reference cannot be attributed: defer, never guess.
+			if (occurrences.some((m) => isShadowingBinding(m, symbol, declarationSites))) return null;
+			const refs = occurrences.filter((m) => !declarationSites.has(`${m.file}:${m.line}`));
 			if (refs.length === 0) return null;
 			const seam = refs.find((m) => isValuePosition(m, symbol));
 			if (!seam) return null;
@@ -536,6 +549,52 @@ function insideParameterList(code: string, idx: number): boolean {
 	const tail = code.slice(close + 1);
 	// `(a, b) => …` and `name(a, b) {` open a parameter list / method body.
 	return /^\s*=>/.test(tail) || /^\s*\{/.test(tail);
+}
+
+/** A local `const`/`let`/`var` binding keyword right before an assigned name. */
+const LOCAL_BINDING_KEYWORD_BEFORE = /\b(?:const|let|var|using)\s*$/;
+
+/**
+ * True when this occurrence binds the name in a local scope — a function,
+ * arrow or method parameter, a local `const`/`let`/`var`, a destructuring
+ * pattern, or an import specifier — rather than referencing the module-level
+ * symbol. Such a binding can shadow the candidate, so a value-position use
+ * elsewhere cannot be attributed to the declaration and must defer.
+ *
+ * Declaration sites (already reported by the AST search) are excluded, so the
+ * module-level declaration itself never reads as a shadow.
+ */
+function isShadowingBinding(
+	match: Match,
+	symbol: string,
+	declarationSites: ReadonlySet<string>,
+): boolean {
+	if (declarationSites.has(`${match.file}:${match.line}`)) return false;
+	const code = stripComment(match.text);
+	const idx = code.indexOf(symbol);
+	if (idx < 0) return false;
+	const before = code.slice(0, idx);
+	const after = code.slice(idx + symbol.length);
+	// A member access names another object's member, not a local binding.
+	if (MEMBER_ACCESS_BEFORE.test(before)) return false;
+	if (insideParameterList(code, idx)) return true;
+	if (insideBraceBinding(code, idx)) return true;
+	return BINDING_ASSIGN_AFTER.test(after) && LOCAL_BINDING_KEYWORD_BEFORE.test(before);
+}
+
+/**
+ * True when the occurrence sits in a type-annotation position — the shape the
+ * analyzer's bare-word scanner reads a symbol name out of: `name: T` / `): T`,
+ * or a Go-style named result/parameter (`(name T)`).
+ */
+function isTypeAnnotation(match: Match, symbol: string): boolean {
+	const code = stripComment(match.text);
+	const idx = code.indexOf(symbol);
+	if (idx < 0) return false;
+	const before = code.slice(0, idx);
+	const after = code.slice(idx + symbol.length);
+	if (KEY_OR_TYPE_AFTER.test(after) || /:\s*$/.test(before)) return true;
+	return /\b[A-Za-z_$][A-Za-z0-9_$]*\s+$/.test(before) && /^\s*[,)]/.test(after);
 }
 
 /** Drop any trailing line comment or block comment from one line of code. */
