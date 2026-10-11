@@ -469,21 +469,40 @@ describe("run-analysis.mjs score-term measurement", () => {
 
 // Issue #2002: the `N Highly Coupled` count is the acceptance metric, so the
 // oracle plumbing and the recorded before/after are pinned here. The record was
-// produced by the pinned analyzer over `git archive` snapshots (see the
-// fixture's `provenance.method`); this block only replays the envelope and
-// report seams it depends on, plus the guard that keeps the claim honest.
+// produced by the pinned analyzer over `git archive <commit>` snapshots of the
+// immutable base and the delivered branch (see the fixture's `provenance` for
+// the exact method and commit IDs); this block replays the envelope/report
+// seams the number depends on and asserts the recorded measurement. The live
+// analyzer run needs the pinned CodeFlow checkout and minutes, so it stays out
+// of this in-gate suite — the fixture holds the envelope it printed.
 const COUPLING_BASELINE = JSON.parse(
 	readFileSync(resolve(HERE, "fixtures", "coupling-baseline.json"), "utf-8"),
 ) as {
-	before: { connections: number; coupled: number };
-	after: { connections: number; coupled: number };
+	provenance: { filedCoupled: number };
+	before: { commit: string; files: number; functions: number; connections: number; coupled: number };
+	after: { commit: string; files: number; functions: number; connections: number; coupled: number };
 	reducedBy: string[];
 	callSiteOnly: string[];
 };
 
 describe("coupling metric oracle (issue #2002)", () => {
-	it("records a real drop against the pinned analyzer over git archive snapshots", () => {
-		assert.strictEqual(COUPLING_BASELINE.before.coupled, 134, "the issue's baseline count");
+	it("records a real drop between two immutable commits on the pinned analyzer", () => {
+		assert.strictEqual(
+			COUPLING_BASELINE.provenance.filedCoupled,
+			134,
+			"the issue's filed count; the re-measured base differs once main advanced",
+		);
+		for (const [side, ref] of [
+			["before", COUPLING_BASELINE.before],
+			["after", COUPLING_BASELINE.after],
+		] as const) {
+			assert.match(ref.commit, /^[0-9a-f]{40}$/, `${side}.commit must be an immutable commit`);
+		}
+		assert.notStrictEqual(
+			COUPLING_BASELINE.after.commit,
+			COUPLING_BASELINE.before.commit,
+			"before and after must be different snapshots",
+		);
 		assert.ok(
 			COUPLING_BASELINE.after.connections < COUPLING_BASELINE.before.connections,
 			"the coupling term must fall, not just the flagged-file count",
@@ -504,7 +523,13 @@ describe("coupling metric oracle (issue #2002)", () => {
 	});
 
 	it("passes stats.connections un-remapped and keeps the coupled title verbatim", () => {
-		const stats = { files: 731, functions: 3542, connections: 2668, dead: 45, loc: 1 };
+		const stats = {
+			files: COUPLING_BASELINE.after.files,
+			functions: COUPLING_BASELINE.after.functions,
+			connections: COUPLING_BASELINE.after.connections,
+			dead: 45,
+			loc: 1,
+		};
 		const title = `${COUPLING_BASELINE.after.coupled} Highly Coupled`;
 		const fx = makeFixture({
 			analysisJs: analysisJs({

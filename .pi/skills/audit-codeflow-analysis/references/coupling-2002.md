@@ -49,7 +49,7 @@ git clone --depth 1 https://github.com/braedonsaunders/codeflow /tmp/codeflow-ui
 git -C /tmp/codeflow-ui fetch --depth 1 origin b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 git -C /tmp/codeflow-ui checkout --detach FETCH_HEAD
 
-for ref in origin/main HEAD; do
+for ref in 051d0c37cab7b3de0c100f891715111c7199d64e 214369196a2e6594f10ed4775f1032b571f1c5dd; do
   rm -rf /tmp/src && mkdir -p /tmp/src
   git archive "$ref" | tar -x -C /tmp/src
   node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs /tmp/src /tmp/codeflow-ui /tmp/out
@@ -59,26 +59,28 @@ done
 `git archive` snapshots the committed tree, so both refs are measured by the same
 analyzer over the same file-set rules. The title in `report.json` →
 `architectureIssues` is the metric; the envelope's `stats.connections` is the
-term input.
+term input. Both snapshots are immutable commit IDs: `before` is the merge base
+`origin/main` (`051d0c37`), `after` is the branch commit the record was written
+against (`21436919`); the commits after `after` touch only this record and its
+test and re-measure identically.
 
 ## Before / after (pinned analyzer, same snapshot method)
 
-| Ref | files | functions | connections | coupled | coupling term |
-|-----|-------|-----------|-------------|---------|---------------|
-| `origin/main` | 731 | 3555 | 3310 | 134 | 3.056 |
-| this branch | 731 | 3542 | 2668 | 97 | 1.300 |
+| Ref | commit | files | functions | connections | coupled | coupling term |
+|-----|--------|-------|-----------|-------------|---------|---------------|
+| `origin/main` | `051d0c37` | 752 | 3552 | 3408 | 138 | 3.064 |
+| this branch | `21436919` | 754 | 3539 | 2789 | 101 | 1.398 |
 
-Both snapshots were taken on this branch's tree **before** it was merged with
-`origin/main` (the merge brought #2001's file splits in). Every edit listed
-below survived that merge; the only moved one is `identity` →
-`identityPassThrough`, which #2001 relocated from `test/helpers/capture.ts` into
-`test/helpers/mock-pi.ts`. The file/functions columns of the `after` snapshot
-are therefore pre-merge figures.
+The issue was filed with **`134 Highly Coupled`** at `analyzedAt`
+1791738325602 against the then-main; re-running the pinned analyzer on the
+current immutable base (`origin/main` `051d0c37`) reports **138** because main
+advanced (the #2001 splits). The filed count is kept in the fixture's
+`provenance.filedCoupled`; acceptance is the drop on the delivered branch.
 
-- **`134 → 97`** flagged files (−37, −27.6 %); the coupling term
-  `min(15, max(0, connections/files − 3) · 2)` falls `3.056 → 1.300`.
+- **`138 → 101`** flagged files (−37, −26.8 %); the coupling term
+  `min(15, max(0, connections/files − 3) · 2)` falls `3.064 → 1.398`.
 - `functions` drops by 13 because the invented declarations disappear; the
-  dead-code term is unchanged (`1.266 → 1.270`, `dead` 45 both sides) — no real
+  dead-code term is unchanged (`1.239 → 1.243`, `dead` 44 both sides) — no real
   function was removed or hidden.
 
 ## What actually moved the number
@@ -98,7 +100,6 @@ behaviour change, each verified by its own compiler/test suite:
 | old | new | file |
 |-----|-----|------|
 | `write` / `child` | `writeLogRecord` / `childLogger` | `.pi/extensions/supervisor/lib/debug.ts` |
-| `all` / `size` / `flush` | `allRecords` / `recordCount` / `drain` | `.pi/extensions/supervisor/pipeline/error-collector.ts` |
 | `identity` | `identityPassThrough` | `.pi/extensions/supervisor/test/helpers/mock-pi.ts` |
 | `entry` / `config` | `makeEntry` / `makeConfig` | `.pi/extensions/caveman/test/session-level.test.ts` |
 | `exists` | `pathExists` | `.pi/extensions/lib/ensureVenv.test.ts` |
@@ -110,11 +111,17 @@ behaviour change, each verified by its own compiler/test suite:
 | `writeFile` | `writeShimFile` | `cmd/cheasee-pi/codeflow_shim_test.go`, `codeflow_shim_fp_filter_test.go` |
 | `variant` | `permute_blobs` | `cmd/cheasee-pi/codeflow_shim_fp_filter_test.go` (embedded Python fixture) |
 
-The renamed symbols' only readers are test files, which the pinned analyzer
-never counts as call sites, so the `.mts` call-site updates appear in the
-fixture's `callSiteOnly` list rather than in `reducedBy`. (`up_env_test.go` and
-`codeflow_shim_*_test.go` are `.go` files, so the analyzer does count them —
-hence they sit in `reducedBy`.)
+The renamed symbols' only readers are the files that define them or the test
+files that exercise them. `up_env_test.go` and `codeflow_shim_*_test.go` are
+`.go` files, so the analyzer does count them — hence they sit in `reducedBy`.
+
+`ErrorCollector`'s `flush` / `size` / `all` were renamed to
+`drain` / `recordCount` / `allRecords` in an earlier revision of this change,
+but the rename changed the class's exported surface. It was reverted: the
+public members keep their original names, and the coupling drop is carried by
+the edits above. (`drain` took the count from 98 to 101 — still far below the
+`138` base — so the API preservation costs a few phantom edges and nothing
+else.)
 
 The exact set, the measured before/after envelope, and the guards are pinned in
 `test/fixtures/coupling-baseline.json` and replayed by
