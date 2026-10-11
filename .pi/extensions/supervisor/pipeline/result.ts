@@ -3,6 +3,7 @@
 // withNotify wraps an async function, calls notify.error() on failure,
 // and returns a Result<T> so callers must check .ok.
 
+import type { ExtensionAPI, ExecOptions, ExecResult } from "@earendil-works/pi-coding-agent";
 import type { NotifyFn } from "./helpers.ts";
 
 /**
@@ -26,6 +27,30 @@ import type { NotifyFn } from "./helpers.ts";
 export type Result<T, E = string> =
 	| { ok: true; value: T }
 	| { ok: false; error: E; source: string };
+
+/**
+ * Normalize the pi.exec contract: it resolves `{code}` even on a non-zero
+ * exit — it never rejects. Some mocks/tests reject instead. Normalize both
+ * contracts so callers can check `.code` unconditionally; a silent success
+ * lets a failed command pass as ok.
+ */
+export async function execChecked(
+	pi: ExtensionAPI,
+	cmd: string,
+	args: string[],
+	opts?: ExecOptions,
+): Promise<ExecResult> {
+	try {
+		return await pi.exec(cmd, args, opts);
+	} catch (err: unknown) {
+		return {
+			code: 1,
+			stdout: "",
+			stderr: err instanceof Error ? err.message : String(err),
+			killed: false,
+		};
+	}
+}
 
 /**
  * Wraps an async function with a try-catch that converts thrown errors

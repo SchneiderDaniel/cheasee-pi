@@ -60,271 +60,7 @@ export interface IssueGroup {
 	overlaps: string[];
 }
 
-/** Map a `## Section` heading to an issue kind, or null for non-issue sections. */
-function sectionKind(heading: string): string | null {
-	const h = heading.trim().toLowerCase();
-	if (/^architecture issues/.test(h)) return "architecture";
-	if (/^security issues/.test(h)) return "security";
-	if (/^unused functions/.test(h)) return "dead-code";
-	if (/^anti-patterns/.test(h)) return "anti-pattern";
-	if (/^design patterns/.test(h)) return "pattern";
-	// Not emitted by the markdown exporter today, but recognised defensively in
-	// case upstream adds the sections; JSON is the source for these categories.
-	if (/^duplicate code/.test(h) || /^duplicates?\b/.test(h)) return "duplicate";
-	if (/^layer violations?\b/.test(h)) return "layer-violation";
-	if (/^suggestions?\b/.test(h) || /^recommendations?\b/.test(h)) return "suggestion";
-	return null;
-}
 
-/** A backticked token that names a file path (has a separator or an extension). */
-function isPathLike(token: string): boolean {
-	const t = token.trim();
-	if (t === "" || /\s/.test(t)) return false;
-	if (t.includes("/")) return true;
-	return /\.[A-Za-z0-9]+$/.test(t);
-}
-
-/** `A → B` (or ASCII `A -> B`), the layer-violation shape the exporter emits. */
-const LAYER_EDGE = /^(.+?)\s*(?:→|->)\s*(.+)$/;
-
-/** A file-only projection of a target list, for the path-based helpers. */
-function fileTargets(files: string[]): Target[] {
-	return files.map((path) => ({ kind: "file", path }));
-}
-
-function targetKey(target: Target): string {
-	return JSON.stringify(target);
-}
-
-/** Turn one backticked affected token into its target (path, edge or symbol). */
-function tokenTarget(token: string): Target {
-	const edge = LAYER_EDGE.exec(token);
-	if (edge) return { kind: "layer-edge", from: edge[1].trim(), to: edge[2].trim() };
-	if (isPathLike(token)) return { kind: "file", path: token };
-	return { kind: "symbol", name: token };
-}
-
-/**
- * Drop a trailing display count the exporter inlines into an item's `name` for
- * the derived architecture metrics — `index.test.ts (46 fns)`, `capture.test.mts
- * (73 imports)`, `prune_test.go (206)`. The markdown format emits only
- * `x.name || x.file` (`generateReport('md')`), so without this the item's real
- * path is lost and the whitespace makes `isPathLike` reject the whole token,
- * silently dropping every architecture issue from the report.
- */
-function stripTrailingCount(token: string): string {
-	return token.replace(/\s*\([^()]*\)\s*$/, "").trim();
-}
-
-/** Is this line the `**Affected:**` / `**Files:**` reference line of an item? */
-function isRefLine(line: string): boolean {
-	const t = line.trim();
-	return /^([-*]\s+)?\*\*(affected( files)?|files?|file)\s*:?\*\*/i.test(t);
-}
-
-/**
- * Every target a backticked reference line names, in order, deduped. A
- * path-shaped edge (`src/a.ts → src/b.ts`) is an edge, not two files: the layer
- * shape wins over the path check so the edge keeps its labels.
- */
-function targetsFromRefLine(line: string): Target[] {
-	if (!isRefLine(line)) return [];
-	const out: Target[] = [];
-	const seen = new Set<string>();
-	const re = /`([^`]+)`/g;
-	let m: RegExpExecArray | null;
-	while ((m = re.exec(line)) !== null) {
-		const token = stripTrailingCount(m[1]);
-		if (token === "") continue;
-		const target = tokenTarget(token);
-		const key = targetKey(target);
-		if (!seen.has(key)) {
-			seen.add(key);
-			out.push(target);
-		}
-	}
-	return out;
-}
-
-/**
- * Parse a CodeFlow markdown report into issue facts. Returns [] for empty,
- * unknown, or truncated input; never throws.
- */
-export function parseReport(markdown: string): IssueFact[] {
-	const facts: IssueFact[] = [];
-	const counters = new Map<string, number>();
-	let kind: string | null = null;
-	let current: IssueFact | null = null;
-
-	const flush = () => {
-		if (current && current.targets.length > 0) {
-			current.files = current.targets
-				.filter((t): t is Extract<Target, { kind: "file" }> => t.kind === "file")
-				.map((t) => t.path);
-			facts.push(current);
-		}
-		current = null;
-	};
-
-	for (const raw of (markdown ?? "").split("\n")) {
-		const line = raw.replace(/\r$/, "");
-		const h2 = /^##\s+(.*)$/.exec(line);
-		if (h2) {
-			flush();
-			kind = sectionKind(h2[1]);
-			continue;
-		}
-		const h3 = /^###\s+(.*)$/.exec(line);
-		if (h3) {
-			flush();
-			if (kind) {
-				const n = counters.get(kind) ?? 0;
-				counters.set(kind, n + 1);
-				current = {
-					id: `${kind}:${n}`,
-					kind,
-					title: h3[1].replace(/`/g, "").trim(),
-					targets: [],
-					files: [],
-				};
-			}
-			continue;
-		}
-		if (!kind || !current) continue;
-		for (const target of targetsFromRefLine(line)) {
-			const key = targetKey(target);
-			if (!current.targets.some((t) => targetKey(t) === key)) current.targets.push(target);
-		}
-	}
-	flush();
-	return facts;
-}
-
-/** Append unique, non-empty strings (whitespace trimmed). */
-function addFiles(target: string[], values: unknown): void {
-	for (const v of Array.isArray(values) ? values : []) {
-		if (typeof v !== "string") continue;
-		const t = v.trim();
-		if (t !== "" && !target.includes(t)) target.push(t);
-	}
-}
-
-/**
- * Narrow an unknown value to a plain object, or null for primitives, arrays and
- * null. Report arrays are attacker/format-controlled, so every entry must pass
- * this before its fields are read (`[null]` must not abort the whole parse).
- */
-function asRecord(value: unknown): Record<string, unknown> | null {
-	return typeof value === "object" && value !== null && !Array.isArray(value)
-		? (value as Record<string, unknown>)
-		: null;
-}
-
-/** Build a fact list from the structured JSON report. Defensive per array. */
-export function parseReportJson(text: string): IssueFact[] {
-	let root: unknown;
-	try {
-		root = JSON.parse(text ?? "");
-	} catch {
-		return [];
-	}
-	if (root === null || typeof root !== "object" || Array.isArray(root)) return [];
-	const r = root as Record<string, unknown>;
-
-	const facts: IssueFact[] = [];
-	const counters = new Map<string, number>();
-	const push = (kind: string, title: string, files: string[]): void => {
-		const n = counters.get(kind) ?? 0;
-		counters.set(kind, n + 1);
-		facts.push({ id: `${kind}:${n}`, kind, title, targets: fileTargets(files), files });
-	};
-
-	for (const issue of Array.isArray(r.architectureIssues) ? r.architectureIssues : []) {
-		const i = asRecord(issue);
-		if (!i) continue;
-		const files: string[] = [];
-		// affectedFiles is the generator's flattened `x.file || x.name`; for
-		// symbol-level items it holds display strings (`execFn (3 files)`), so keep
-		// only path-shaped entries and recover the real paths from the nested shape.
-		const affected = i.affectedFiles;
-		if (Array.isArray(affected)) {
-			addFiles(
-				files,
-				affected.filter((v) => typeof v === "string" && isPathLike(v)),
-			);
-		}
-		// The generator drops `toFile` when flattening affectedFiles, but a
-		// layer-violation item carries the imported target there. Include both
-		// endpoints of every affected item or the target file is missing from
-		// the file-conflict graph (an issue touching it would group separately).
-		for (const item of Array.isArray(i.affectedItems) ? i.affectedItems : []) {
-			const a = asRecord(item);
-			if (!a) continue;
-			addFiles(files, [a.file, a.toFile]);
-			// A third, nested shape is used for the `Duplicate Function Names` and
-			// `Similar Code Blocks` items: affectedItems[].files[].file. Without it
-			// those items keep only display strings and are suppressed as unresolved.
-			for (const f of Array.isArray(a.files) ? a.files : []) {
-				addFiles(files, [asRecord(f)?.file]);
-			}
-		}
-		push("architecture", String(i.title ?? "").trim(), files);
-	}
-	for (const dup of Array.isArray(r.duplicates) ? r.duplicates : []) {
-		const d = asRecord(dup);
-		if (!d) continue;
-		const files: string[] = [];
-		for (const f of Array.isArray(d.files) ? d.files : []) {
-			addFiles(files, [asRecord(f)?.file]);
-		}
-		const label = d.type === "code" ? "Similar Code" : "Same Name";
-		push("duplicate", `${label}: ${String(d.name ?? "").trim()}`, files);
-	}
-	for (const v of Array.isArray(r.layerViolations) ? r.layerViolations : []) {
-		const lv = asRecord(v);
-		if (!lv) continue;
-		const files: string[] = [];
-		addFiles(files, [lv.from, lv.to]);
-		const edge = `${String(lv.fromLayer ?? "")} → ${String(lv.toLayer ?? "")}`.trim();
-		push("layer-violation", edge, files);
-	}
-	for (const s of Array.isArray(r.suggestions) ? r.suggestions : []) {
-		const suggestion = asRecord(s);
-		if (!suggestion) continue;
-		// Suggestions are derived targets with no file of their own; kept so the
-		// skill can still surface them, grouped in isolation.
-		push("suggestion", String(suggestion.title ?? "").trim(), []);
-	}
-	for (const fn of Array.isArray(r.unusedFunctions) ? r.unusedFunctions : []) {
-		const f = asRecord(fn);
-		if (!f) continue;
-		const files: string[] = [];
-		addFiles(files, [f.file]);
-		push("dead-code", `${String(f.name ?? "").trim()}()`, files);
-	}
-	for (const s of Array.isArray(r.securityIssues) ? r.securityIssues : []) {
-		const sec = asRecord(s);
-		if (!sec) continue;
-		const files: string[] = [];
-		addFiles(files, [sec.path]);
-		const sev = String(sec.severity ?? "").toUpperCase();
-		push("security", `${sev}: ${String(sec.title ?? "").trim()}`.trim(), files);
-	}
-	// Design patterns and anti-patterns. The markdown exporter emits these too,
-	// so the JSON source must carry them as well or they are dropped whenever the
-	// structured artifact is present (parseBestReport prefers JSON).
-	for (const pat of Array.isArray(r.patterns) ? r.patterns : []) {
-		const p = asRecord(pat);
-		if (!p) continue;
-		const files: string[] = [];
-		addFiles(files, p.files);
-		for (const f of Array.isArray(p.fileDetails) ? p.fileDetails : []) {
-			addFiles(files, [asRecord(f)?.path]);
-		}
-		push(p.isAntiPattern === true ? "anti-pattern" : "pattern", String(p.name ?? "").trim(), files);
-	}
-	return facts;
-}
 
 /**
  * Pick the richest available source: the structured JSON report when it yields
@@ -360,8 +96,7 @@ export function hasStructuredFindings(text: string | null | undefined): boolean 
 /**
  * Drop exact-duplicate facts. The exporter emits the same finding more than
  * once (two `on_open()` entries in one file, a security issue per matching
- * line), and validation runs per fact — so a duplicate is both a wasted
- * read-only subagent run and a duplicate candidate at the confirmation gate.
+ * line), so a duplicate is a duplicate candidate at the confirmation gate.
  * Preserves input order; keeps the first of each `(kind, title, targets)` group
  * (`files` being the file-only projection).
  */
@@ -485,83 +220,22 @@ export function reportSectionCoverage(markdown: string): SectionCoverage[] {
 	});
 }
 
-/**
- * Classify a fact as auto-suppressible noise or a candidate to validate.
- *
- * Only the *text-provable* shapes qualify: the LOW stylistic security
- * categories and cross-language layer violations. CodeFlow emits one `LOW: Code
- * Comments` / `LOW: Debug Statements` per matching line and both are known to
- * fire on string literals in fixtures, ast-grep patterns and JSON (see
- * `references/known-false-positives.md`). Every code-read shape — secrets, SQL
- * injection, shell execution, command execution, dead code — stays `keep`: its
- * mechanism can only be disproved by reading the code, so it goes to the
- * validator, never to a text filter. Suppression depends on the fact alone, never
- * the filesystem.
- */
-
-/**
- * Language family of a path by extension, or null when the extension is
- * unrecognised. `.ts`/`.mts`/`.tsx`/`.js`/`.mjs`/`.jsx` share one family: a
- * TypeScript module can import a JavaScript one (and vice versa), so that pair
- * is not a language boundary.
- */
-const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-	ts: "js-ts",
-	mts: "js-ts",
-	cts: "js-ts",
-	tsx: "js-ts",
-	js: "js-ts",
-	mjs: "js-ts",
-	cjs: "js-ts",
-	jsx: "js-ts",
-	py: "python",
-	rs: "rust",
-	go: "go",
-	sh: "shell",
-	bash: "shell",
-};
-
-function languageFamily(path: string): string | null {
-	const m = /\.([A-Za-z0-9]+)\s*$/.exec(path.trim());
-	return m ? (LANGUAGE_BY_EXTENSION[m[1].toLowerCase()] ?? null) : null;
-}
-
-/** A layer edge whose two files cannot be imports of one another (no shared family). */
-function isCrossLanguageLayerViolation(files: string[]): boolean {
-	if (files.length < 2) return false;
-	const families = files.map(languageFamily);
-	// An unknown extension is kept: fail safe, never hide a finding on a guess.
-	if (families.some((f) => f === null)) return false;
-	return new Set(families).size > 1;
-}
-
-export function classifyKnownNoise(fact: IssueFact): "suppress" | "keep" {
-	if (fact.kind === "layer-violation") {
-		// CodeFlow layer violations are import-based, so a `.ts` → `.rs` edge cannot
-		// be an import: it is a bare-identifier match across a language boundary.
-		return isCrossLanguageLayerViolation(fact.files) ? "suppress" : "keep";
-	}
-	if (fact.kind !== "security") return "keep";
-	const title = fact.title.replace(/\s+/g, " ").trim().toLowerCase();
-	return /^low:\s*(code comments|debug statements)$/.test(title) ? "suppress" : "keep";
-}
-
 /** Issue type the triage policy assigns to a fact. */
 export type IssueType = "bug" | "chore" | "informational" | "out-of-scope";
 
-/** What Step 5/6 should do with a fact. */
+/** What drafting and the confirmation gate should do with a fact. */
 export type Disposition = "file-bug" | "file-refactor" | "offer-optional" | "drop";
 
 /** The derived architecture metrics the exporter emits as `<N> Metric` titles. */
 const METRIC_TITLE = /^\d+\s+(large files|highly coupled|high complexity files)\b/i;
 
 /**
- * Triage policy: decide an issue type *and* its disposition *before* any validator
- * reads code, so scope is never a validator's call. `pattern` is informational and
+ * Triage policy: decide an issue type *and* its disposition *before* any issue is
+ * drafted, so scope is never a drafting decision. `pattern` is informational and
  * offered as an optional filing; `anti-pattern` and the derived
  * size/coupling/complexity metrics are refactor scope and filed by default (with a
- * Step 6 opt-out); every other known kind is bug-template scope. Pure and
- * deterministic.
+ * confirmation-gate opt-out); every other known kind is bug-template scope. Pure
+ * and deterministic.
  */
 export function classifyFinding(fact: IssueFact): {
 	issueType: IssueType;
@@ -590,9 +264,14 @@ export function classifyFinding(fact: IssueFact): {
 		};
 	}
 	if (
-		["architecture", "security", "dead-code", "duplicate", "layer-violation", "suggestion"].includes(
-			fact.kind,
-		)
+		[
+			"architecture",
+			"security",
+			"dead-code",
+			"duplicate",
+			"layer-violation",
+			"suggestion",
+		].includes(fact.kind)
 	) {
 		return { issueType: "bug", disposition: "file-bug", reason: "bug-template kind" };
 	}
@@ -656,3 +335,19 @@ export function groupIssues(issues: IssueFact[]): IssueGroup[] {
 	}
 	return groups;
 }
+
+// ─── Split-out parser modules (issue #2001) ──────────────────────
+// The markdown/JSON adapters live in report-markdown.ts / report-json.ts;
+// re-exported here so importers keep this path (SKILL.md pins report.ts as
+// the single policy source).
+import {
+	fileTargets,
+	parseReport,
+	sectionKind,
+	targetKey,
+	targetsFromRefLine,
+} from "./report-markdown.ts";
+import { parseReportJson } from "./report-json.ts";
+
+export { parseReport } from "./report-markdown.ts";
+export { parseReportJson } from "./report-json.ts";

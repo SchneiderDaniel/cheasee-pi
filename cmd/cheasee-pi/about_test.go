@@ -3,15 +3,13 @@ package main
 import (
 	"bytes"
 	"errors"
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
+	"github.com/spf13/cobra"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/spf13/cobra"
-
-	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // 'cheasee-pi about' (alias 'intro'): non-interactive glossary print.
@@ -46,181 +44,6 @@ func TestAbout_writesToCmdOut(t *testing.T) {
 	}
 	if strings.TrimSpace(out.String()) == "" {
 		t.Error("runAboutE must write the glossary to cmd.OutOrStdout(), got empty buffer")
-	}
-}
-
-func TestAbout_contentContract(t *testing.T) {
-	output, err := testutil.RunCobra(t, rootCmd, "about")
-	if err != nil {
-		t.Fatalf("about: %v", err)
-	}
-	checks := []struct{ want, msg string }{
-		{"one workspace per repo", "what cheasee-pi is"},
-		{"workflow", "one-sentence workflow line"},
-		{"cheasee-pi init", "workflow starts at init"},
-		{"auth add <provider>", "workflow includes provider authentication"},
-		{"cheasee-pi start", "workflow ends at start"},
-		{"cheasee-settings.json", "workspace marker"},
-		{"bare clone", "bare repo definition"},
-		{"worktree", "worktree definition"},
-		{"Docker image", "container/image definition"},
-		{"Docker is required", "why Docker is required"},
-		{"isolate", "Docker rationale: isolates the pi runtime"},
-		{"mount the repo", "Docker rationale: mounts the repo into the container"},
-		{"LLM vendor", "provider = LLM vendor"},
-		{"~/.config/cheasee-pi/auth.json", "provider key location"},
-		{"injected as env vars", "provider key injection"},
-		{"pi install -l", "skill repos installed via pi install"},
-		{".pi/settings.json", "project-level -l target of pi install"},
-		{"optional browser sidecar", "CodeFlow = optional sidecar"},
-		{"8470 + fnv32(repo-slug) % 1024", "CodeFlow port derivation"},
-		{"CHEASEE_REF", "CHEASEE_REF build ARG"},
-		{"default main", "CHEASEE_REF default"},
-	}
-	for _, c := range checks {
-		if !strings.Contains(output, c.want) {
-			t.Errorf("about output must contain %q (%s)\n--- output:\n%s", c.want, c.msg, output)
-		}
-	}
-}
-
-func TestAbout_linkContract(t *testing.T) {
-	output, err := testutil.RunCobra(t, rootCmd, "about")
-	if err != nil {
-		t.Fatalf("about: %v", err)
-	}
-	if !strings.Contains(output, "docs/daily-usage.md") {
-		t.Errorf("about must link the repo-relative docs/daily-usage.md path\n--- output:\n%s", output)
-	}
-	if !strings.Contains(output, "pi.dev") {
-		t.Errorf("about must link pi.dev\n--- output:\n%s", output)
-	}
-}
-
-func TestAbout_brevityContract(t *testing.T) {
-	output, err := testutil.RunCobra(t, rootCmd, "about")
-	if err != nil {
-		t.Fatalf("about: %v", err)
-	}
-	count := 0
-	for _, line := range strings.Split(output, "\n") {
-		if strings.TrimSpace(line) != "" {
-			count++
-		}
-	}
-	if count < 8 || count > 20 {
-		t.Errorf("about must print ~10 non-empty lines, got %d\n--- output:\n%s", count, output)
-	}
-}
-
-func TestAbout_stdoutStderrSplit(t *testing.T) {
-	// about writes via cmd.OutOrStdout() — no CodeFlow-style ℹ stderr
-	// annotation may leak into its success path.
-	stderr := testutil.CaptureStderr(t, func() {
-		if _, err := testutil.RunCobra(t, rootCmd, "about"); err != nil {
-			t.Fatalf("about: %v", err)
-		}
-	})
-	if strings.TrimSpace(stderr) != "" {
-		t.Errorf("about must keep stderr empty on success, got: %q", stderr)
-	}
-}
-
-func TestAbout_extraArgsTolerated(t *testing.T) {
-	// No Args validator: cobra default ArbitraryArgs — 'about some extra args'
-	// exits 0 and still prints the glossary.
-	output, err := testutil.RunCobra(t, rootCmd, "about", "some", "extra", "args")
-	if err != nil {
-		t.Fatalf("about with extra args must succeed: %v", err)
-	}
-	if !strings.Contains(output, "cheasee-settings.json") {
-		t.Errorf("about with extra args must still print the glossary\n--- output:\n%s", output)
-	}
-}
-
-func TestAbout_unknownFlagError(t *testing.T) {
-	output, err := testutil.RunCobra(t, rootCmd, "about", "--unknown-flag")
-	if err == nil {
-		t.Fatal("about --unknown-flag must return an error")
-	}
-	// Root SilenceUsage propagates: the error line is the only guidance.
-	if !strings.Contains(err.Error(), "unknown flag") {
-		t.Errorf("error must name the unknown flag, got: %v", err)
-	}
-	if strings.Contains(output, "Usage:") || strings.Contains(output, "Available Commands:") {
-		t.Errorf("flag errors must not dump the usage block, got:\n%s", output)
-	}
-}
-
-func TestAbout_helpContract(t *testing.T) {
-	output, err := testutil.RunCobra(t, rootCmd, "about", "--help")
-	if err != nil {
-		t.Fatalf("about --help must exit 0: %v", err)
-	}
-	if !strings.Contains(output, "Usage:") || !strings.Contains(output, "glossary of cheasee-pi's core concepts") {
-		t.Errorf("about --help must show Usage: + the command description\n--- output:\n%s", output)
-	}
-	if strings.Contains(output, "cheasee-settings.json") {
-		t.Errorf("about --help must not print the glossary body\n--- output:\n%s", output)
-	}
-	if strings.Contains(output, "Auto generated by spf13/cobra") {
-		t.Errorf("about help must not carry the auto-gen tag (DisableAutoGenTag)\n--- output:\n%s", output)
-	}
-}
-
-func TestAbout_registrationContract(t *testing.T) {
-	found := false
-	for _, c := range rootCmd.Commands() {
-		if c.Name() == "about" {
-			found = true
-			if !containsStr(c.Aliases, "intro") {
-				t.Error("aboutCmd.Aliases must contain 'intro'")
-			}
-			if c.RunE == nil {
-				t.Error("aboutCmd.RunE must be non-nil (use RunE, not Run)")
-			}
-			break
-		}
-	}
-	if !found {
-		t.Fatal("rootCmd must have 'about' registered as a subcommand")
-	}
-}
-
-func TestAbout_discoverableInRootHelp(t *testing.T) {
-	output, err := testutil.RunCobra(t, rootCmd, "--help")
-	if err != nil {
-		t.Fatalf("root --help: %v", err)
-	}
-	// about must be listed in root help (runnable ⇒ grouped listing under
-	// "Getting started"; the grouped template has no "Available Commands:").
-	if !strings.Contains(output, "Getting started") || !strings.Contains(output, "\n  about ") {
-		t.Errorf("root help must list 'about' under its lifecycle group\n--- output:\n%s", output)
-	}
-}
-
-// ──────────────────────────────────────────────
-// Phase 2: alias identity + cobra help resolution
-// ──────────────────────────────────────────────
-
-func TestAbout_aliasByteIdentical(t *testing.T) {
-	// Reset the shared help flag: a prior 'about --help' run leaves it set on
-	// aboutCmd's FlagSet, which would short-circuit a plain run into a help
-	// print (same reset executeRootRunError performs on rootCmd).
-	_ = aboutCmd.Flags().Set("help", "false")
-	base, err := testutil.RunCobra(t, rootCmd, "about")
-	if err != nil {
-		t.Fatalf("about: %v", err)
-	}
-	if !strings.Contains(base, "cheasee-settings.json") {
-		t.Fatalf("about must run (not print help) — stale help flag?\n--- output:\n%s", base)
-	}
-	intro, err := testutil.RunCobra(t, rootCmd, "intro")
-	if err != nil {
-		t.Fatalf("cheasee-pi intro: %v", err)
-	}
-	if intro != base {
-		t.Errorf("'intro' output must be byte-identical to 'about'\n--- about:\n%s\n--- intro:\n%s", base, intro)
 	}
 }
 

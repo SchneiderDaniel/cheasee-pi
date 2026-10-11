@@ -2,25 +2,23 @@
 /**
  * Dry run of the codeflow-analysis skill.
  *
- * Extracts the first N findings from the CodeFlow report, validates each one
- * with the read-only subagent in `validate-finding.sh`, and PRINTS the issue it
- * would file — or the reason the finding is false. Nothing is created: this
- * script never calls `gh`.
+ * Extracts findings from the CodeFlow report and PRINTS the issues the skill
+ * would file. Nothing is created and no subagent is spawned: this script never
+ * calls `gh`.
  *
  * Usage:
  *   node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts
  *   ... --limit 5 --report ignore/codeflow-report.md --json ignore/codeflow-report.json
- *   ... --self-check
+ *   ... --list | --emit-findings [DIR] | --self-check
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	classifyFinding,
-	classifyKnownNoise,
 	dedupeIssues,
 	hasStructuredFindings,
 	parseBestReport,
@@ -34,25 +32,8 @@ import {
 } from "../lib/report.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const VALIDATOR = join(HERE, "validate-finding.sh");
-const MAX_PARALLEL = 4;
 
 // ─── Pure helpers (covered by --self-check) ───────────────────────
-
-function parseVerdict(output: string): "VALID" | "INVALID" | "UNKNOWN" {
-	const m = /^VERDICT:[ \t]*(VALID|INVALID)[ \t]*$/m.exec(output);
-	return m ? (m[1] as "VALID" | "INVALID") : "UNKNOWN";
-}
-
-/** Last line starting with `prefix`, value only ("" when absent). */
-function verdictDetail(output: string, prefix: string): string {
-	const lines = output
-		.split("\n")
-		.map((l) => l.trim())
-		.filter((l) => l.startsWith(`${prefix}:`));
-	const last = lines[lines.length - 1];
-	return last ? last.slice(prefix.length + 1).trim() : "";
-}
 
 function draftIssue(
 	fact: IssueFact,
@@ -61,7 +42,7 @@ function draftIssue(
 ): { title: string; body: string } {
 	const cited = describeTargets(fact);
 	return {
-		title: `[Bug] CodeFlow ${fact.kind}: ${fact.title}`,
+		title: `[${issueType}] CodeFlow ${fact.kind}: ${fact.title}`,
 		body: [
 			"## Describe the bug",
 			`CodeFlow reports **${fact.title}** (kind: \`${fact.kind}\`, issue type: \`${issueType}\`) in ${cited}.`,
@@ -72,7 +53,7 @@ function draftIssue(
 			"## Additional context",
 			`- Source: CodeFlow ${sourceLabel} finding \`${fact.id}\``,
 			`- Targets: ${cited}`,
-			"- Verified against the source by a read-only subagent (VERDICT: VALID, exit 0).",
+			"- This finding may be a false positive, but it still indicates badly designed code that should be improved. Confirm the claim against the cited code before fixing.",
 		].join("\n"),
 	};
 }
@@ -86,7 +67,8 @@ function renderTarget(target: Target): string {
 
 /** Human-readable target list; a fact with no target is a derived signal. */
 function describeTargets(fact: IssueFact): string {
-	const targets: Target[] = fact.targets ?? fact.files.map((path) => ({ kind: "file" as const, path }));
+	const targets: Target[] =
+		fact.targets ?? fact.files.map((path) => ({ kind: "file" as const, path }));
 	if (targets.length === 0) return "(no file — derived signal)";
 	return targets.map(renderTarget).join(", ");
 }
@@ -145,27 +127,7 @@ function resolveCited(
 	return { path: file, how: "unresolved" };
 }
 
-/**
- * Split post-dedupe facts into what a validator should read and what the run
- * can drop without reading code. Suppressed = text-provable LOW style security
- * noise (`classifyKnownNoise`) plus facts whose every cited file is unresolved
- * (CodeFlow cited a path this checkout does not contain, so there is nothing to
- * read). File-less facts are kept. The suppressed count is always returned, so
- * the caller can report it instead of silently shrinking the set.
- */
-export function selectCandidates(
-	facts: IssueFact[],
-	resolveFile: (file: string) => FileResolution,
-): { candidates: IssueFact[]; suppressed: number } {
-	const candidates = facts.filter(
-		(fact) =>
-			classifyKnownNoise(fact) === "keep" &&
-			(fact.files.length === 0 || fact.files.some((f) => resolveFile(f).how !== "unresolved")),
-	);
-	return { candidates, suppressed: facts.length - candidates.length };
-}
-
-/** Step 3 file naming slug: lowercase, non-alphanumerics to single hyphens. */
+/** Candidate file naming slug: lowercase, non-alphanumerics to single hyphens. */
 export function slugifyFinding(title: string): string {
 	const slug =
 		title
@@ -180,7 +142,7 @@ export function slugifyFinding(title: string): string {
 	return `${slug.slice(0, 80).replace(/-+$/, "")}-${hash}`;
 }
 
-/** Step 3 candidate body: kind, triage issue type/disposition, targets, id and the cited files. */
+/** Candidate body: kind, triage issue type/disposition, targets, id and the cited files. */
 function findingFileContent(fact: IssueFact): string {
 	const { issueType, disposition, reason } = classifyFinding(fact);
 	const sample = sampleNote(fact);
@@ -199,8 +161,8 @@ function findingFileContent(fact: IssueFact): string {
 			...(sample ? [sample] : []),
 			"",
 			`Triage: ${issueType} (${disposition}) — ${reason}.`,
-			"The markdown/inspection export carries no description; read the cited code and",
-			"decide whether the finding is real.",
+			"The markdown/inspection export carries no description; read the cited code before",
+			"filing the issue.",
 		].join("\n") + "\n"
 	);
 }
@@ -228,9 +190,9 @@ function dispositionSummary(facts: IssueFact[]): string {
  * Write one `NN-<slug>.md` candidate per fact; returns the written paths.
  *
  * Fails closed when the destination already holds findings: a rerun that mixed
- * a fresh candidate set with a prior run's files would feed stale candidates to
- * the documented `*.md` validation loop. The operator must point at a fresh
- * directory (or remove the stale files) instead.
+ * a fresh candidate set with a prior run's files would present stale candidates
+ * as current. The operator must point at a fresh directory (or remove the stale
+ * files) instead.
  */
 function writeFindingFiles(dir: string, facts: IssueFact[]): string[] {
 	const stale = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".md")) : [];
@@ -247,53 +209,6 @@ function writeFindingFiles(dir: string, facts: IssueFact[]): string[] {
 		writeFileSync(file, findingFileContent(fact), "utf-8");
 		return file;
 	});
-}
-
-// ─── Validation run ───────────────────────────────────────────────
-
-interface Validation {
-	fact: IssueFact;
-	exitCode: number | null;
-	output: string;
-}
-
-function runValidator(
-	findingPath: string,
-	repoRoot: string,
-): Promise<{ code: number | null; output: string }> {
-	return new Promise((resolvePromise) => {
-		const child = spawn(VALIDATOR, [findingPath, repoRoot], {
-			cwd: repoRoot,
-			// Explicit stdin: a piped-but-never-closed stdin makes `pi` read the prompt
-			// from stdin instead of argv, which yields an empty, non-zero run.
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		let output = "";
-		child.stdout.on("data", (d: Buffer) => (output += d.toString()));
-		child.stderr.on("data", (d: Buffer) => (output += d.toString()));
-		child.on("error", (err: Error) =>
-			resolvePromise({ code: null, output: `${output}\nspawn failed: ${err.message}` }),
-		);
-		child.on("close", (code) => resolvePromise({ code, output }));
-	});
-}
-
-/** Run tasks with a fixed concurrency cap, preserving input order. */
-async function mapLimit<T, R>(
-	items: T[],
-	limit: number,
-	fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-	const results = new Array<R>(items.length);
-	let next = 0;
-	const worker = async (): Promise<void> => {
-		while (next < items.length) {
-			const index = next++;
-			results[index] = await fn(items[index], index);
-		}
-	};
-	await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-	return results;
 }
 
 // ─── CLI ──────────────────────────────────────────────────────────
@@ -333,8 +248,8 @@ function parseArgs(argv: string[]): {
 		else if (arg === "--help" || arg === "-h") {
 			process.stdout.write(
 				"usage: dry-run.mts [--limit N] [--report FILE] [--json FILE] [--list] [--emit-findings [DIR]] [--self-check]\n" +
-					"  --list           extract findings and resolve cited files only (no subagents)\n" +
-					"  --emit-findings  write every candidate to NN-<slug>.md (no validation, no deletion)\n",
+					"  --list           extract findings and resolve cited files only (no issue drafts)\n" +
+					"  --emit-findings  write every candidate to NN-<slug>.md (no deletion)\n",
 			);
 			process.exit(0);
 		} else {
@@ -351,10 +266,6 @@ function parseArgs(argv: string[]): {
 
 function selfCheck(): number {
 	const checks: Array<[string, boolean]> = [
-		["VALID verdict", parseVerdict("blah\nVERDICT: VALID\nEVIDENCE: a.ts:1") === "VALID"],
-		["INVALID verdict", parseVerdict("VERDICT: INVALID\nREASON: nope") === "INVALID"],
-		["missing verdict", parseVerdict("no verdict here") === "UNKNOWN"],
-		["reason extraction", verdictDetail("REASON: one\nREASON: two\n", "REASON") === "two"],
 		[
 			"draft carries files",
 			draftIssue(
@@ -418,6 +329,20 @@ function selfCheck(): number {
 			hasStructuredFindings('{"architectureIssues":[{"title":"x"}]}') === true,
 		],
 		[
+			"draft carries the false-positive note",
+			draftIssue(
+				{
+					id: "security:0",
+					kind: "security",
+					title: "HIGH: X",
+					targets: [{ kind: "file", path: "a/b.ts" }],
+					files: ["a/b.ts"],
+				},
+				"markdown",
+				"bug",
+			).body.includes("may be a false positive"),
+		],
+		[
 			"metric disposition is file-refactor",
 			classifyFinding({
 				id: "architecture:0",
@@ -429,8 +354,13 @@ function selfCheck(): number {
 		],
 		[
 			"pattern disposition is offer-optional",
-			classifyFinding({ id: "pattern:0", kind: "pattern", title: "Singleton", targets: [], files: [] })
-				.disposition === "offer-optional",
+			classifyFinding({
+				id: "pattern:0",
+				kind: "pattern",
+				title: "Singleton",
+				targets: [],
+				files: [],
+			}).disposition === "offer-optional",
 		],
 	];
 	let failed = 0;
@@ -444,14 +374,6 @@ function selfCheck(): number {
 		failed === 0 ? `self-check OK (${checks.length} checks)\n` : `${failed} self-check(s) failed\n`,
 	);
 	return failed === 0 ? 0 : 1;
-}
-
-function lastMeaningfulLine(output: string): string {
-	const lines = output
-		.split("\n")
-		.map((l) => l.trim())
-		.filter((l) => l !== "" && !l.startsWith("```"));
-	return lines[lines.length - 1] ?? "(no output)";
 }
 
 /** Disclosure printed whenever the structured JSON export is unavailable. */
@@ -541,31 +463,25 @@ async function main(): Promise<void> {
 	const resolveFile = (file: string): FileResolution =>
 		resolveCited((p) => existsSync(resolve(repoRoot, p)), basenameIndex, file);
 
-	// Text-provable noise (LOW style security categories) and facts whose every
-	// cited file is missing are dropped before any subagent is spawned; the count
-	// is always reported so the candidate set never shrinks silently.
-	const { candidates, suppressed } = selectCandidates(unique, resolveFile);
-
-	// Scope is decided once, here, before any validator reads code: metrics and
-	// informational facts are routed (never validated as bugs), the rest are the
-	// bug-class candidate set. `classifyFinding` is the single policy source.
+	// Every deduped finding is a candidate. Scope is decided once, here, by
+	// `classifyFinding` (the single policy source): metrics and informational
+	// facts are routed to refactor/optional issues, the rest are bug-class.
+	const candidates = unique;
 	const issueTypeOf = (fact: IssueFact): IssueType => classifyFinding(fact).issueType;
-	const bugCandidates = candidates.filter((f) => issueTypeOf(f) === "bug");
 	const routed = candidates.filter((f) => issueTypeOf(f) !== "bug");
 
 	if (args.emitFindings) {
-		// Extraction only: write the Step 3 candidate set and exit. No subagent is
+		// Extraction only: write the candidate set and exit. No subagent is
 		// spawned, --limit does not truncate, and the directory is never removed.
 		const dir = resolve(repoRoot, args.emitDir ?? "ignore/codeflow-findings");
 		const files = writeFindingFiles(dir, candidates);
 		process.stdout.write(
 			`CodeFlow findings emitted — ${files.length} candidate(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
-				`${routed.length} finding(s) routed by triage (chore/informational, not bug-validated).\n` +
+				`${routed.length} finding(s) routed by triage to refactor/optional issues.\n` +
 				`dispositions: ${dispositionSummary(candidates)}\n` +
-				`${suppressed} known-noise/unresolved candidate(s) suppressed, not written.\n` +
 				`\n${coverageReport(markdown, coverage)}` +
 				(!json ? `\n${jsonNote()}` : "") +
-				`\nNo validation run, no issues created.\n`,
+				`\nNo issues created.\n`,
 		);
 		process.exit(0);
 	}
@@ -586,94 +502,49 @@ async function main(): Promise<void> {
 		process.stdout.write(`\n${coverageReport(markdown, coverage)}`);
 		if (!json) process.stdout.write(`\n${jsonNote()}`);
 		process.stdout.write(
-			`\n${candidates.length} finding(s), ${routed.length} routed by triage (chore/informational, not bug-validated), ` +
-				`${suppressed} suppressed as noise/unresolved, ` +
+			`\n${candidates.length} finding(s), ${routed.length} routed by triage to refactor/optional issues, ` +
 				`${cited.length} cited file(s), ${cited.length - unresolved.length} found, ` +
 				`${unresolved.length} unresolved.\n` +
 				`dispositions: ${dispositionSummary(candidates)}\n` +
-				`No validation run, no issues created.\n`,
+				`No issues created.\n`,
 		);
 		process.exit(0);
 	}
 
-	const selected = bugCandidates.slice(0, args.limit);
+	const selected = candidates.slice(0, args.limit);
 
 	const sourceLabel = json ? "json" : "markdown";
 	process.stdout.write(
 		`CodeFlow dry run — ${reportPath.replace(`${repoRoot}/`, "")} (${sourceLabel}, ` +
-			`${facts.length} finding(s), ${unique.length} unique, ${facts.length - unique.length} duplicate(s) dropped, ` +
-			`${suppressed} suppressed)\n` +
-			`${routed.length} finding(s) routed by triage, not validated:\n` +
+			`${facts.length} finding(s), ${unique.length} unique, ${facts.length - unique.length} duplicate(s) dropped)\n` +
+			`${routed.length} finding(s) routed by triage:\n` +
 			routed.map((f) => `  [${issueTypeOf(f)}] ${f.title}\n`).join("") +
 			`dispositions: ${dispositionSummary(candidates)}\n` +
 			`\n${coverageReport(markdown, coverage)}\n` +
 			(!json ? jsonNote() : "") +
-			`Validating first ${selected.length} of ${bugCandidates.length} bug candidate(s), ${MAX_PARALLEL} in parallel. No issues are created.\n\n`,
+			`Would file ${candidates.length} issue(s); printing the first ${selected.length}. No issues are created.\n\n`,
 	);
 
-	const findingsDir = join(repoRoot, "ignore/codeflow-findings");
-	const findingFiles = writeFindingFiles(findingsDir, selected);
-
-	let validations: Validation[];
-	try {
-		validations = await mapLimit(
-			findingFiles,
-			MAX_PARALLEL,
-			async (file, i): Promise<Validation> => {
-				const result = await runValidator(file, repoRoot);
-				return { fact: selected[i], exitCode: result.code, output: result.output };
-			},
-		);
-	} finally {
-		rmSync(findingsDir, { recursive: true, force: true });
-	}
-
-	let valid = 0;
-	let invalid = 0;
-	let unverified = 0;
-
-	validations.forEach((v, i) => {
-		const verdict = v.exitCode === 0 ? "VALID" : v.exitCode === 1 ? "INVALID" : "UNKNOWN";
+	selected.forEach((fact, i) => {
 		const files =
-			v.fact.files.length > 0
-				? v.fact.files.map((f) => renderResolved(f, resolveFile(f))).join(", ")
+			fact.files.length > 0
+				? fact.files.map((f) => renderResolved(f, resolveFile(f))).join(", ")
 				: "(none)";
+		const draft = draftIssue(fact, sourceLabel, issueTypeOf(fact));
 		process.stdout.write(
-			`[${i + 1}/${validations.length}] ${v.fact.kind} — ${v.fact.title}\n      files: ${files}\n`,
+			`[${i + 1}/${selected.length}] ${fact.kind} — ${fact.title}\n      files: ${files}\n`,
 		);
-
-		if (verdict === "VALID") {
-			valid++;
-			const draft = draftIssue(v.fact, sourceLabel, issueTypeOf(v.fact));
-			process.stdout.write(`      VALID (exit 0) — would file:\n`);
-			process.stdout.write(`      Title: ${draft.title}\n`);
-			for (const line of draft.body.split("\n")) process.stdout.write(`      │ ${line}\n`);
-			process.stdout.write(
-				`      Evidence: ${verdictDetail(v.output, "EVIDENCE") || "(none reported)"}\n\n`,
-			);
-		} else if (verdict === "INVALID") {
-			invalid++;
-			process.stdout.write(`      FALSE FINDING (exit 1) — dropped, not filed\n`);
-			process.stdout.write(
-				`      Reason: ${verdictDetail(v.output, "REASON") || lastMeaningfulLine(v.output)}\n`,
-			);
-			const evidence = verdictDetail(v.output, "EVIDENCE");
-			if (evidence) process.stdout.write(`      Evidence: ${evidence}\n`);
-			process.stdout.write("\n");
-		} else {
-			unverified++;
-			process.stdout.write(`      UNVERIFIED (exit ${v.exitCode}) — not filed\n`);
-			for (const line of v.output.split("\n")) process.stdout.write(`      │ ${line}\n`);
-			process.stdout.write("\n");
-		}
+		process.stdout.write(`      Title: ${draft.title}\n`);
+		for (const line of draft.body.split("\n")) process.stdout.write(`      │ ${line}\n`);
+		process.stdout.write("\n");
 	});
 
-	const cited = validations.flatMap((v) => v.fact.files).map(resolveFile);
+	const cited = candidates.flatMap((f) => f.files).map(resolveFile);
 	const byBasename = cited.filter((r) => r.how === "basename").length;
 	const unresolved = cited.filter((r) => r.how === "unresolved");
 	process.stdout.write(
-		`Summary: ${validations.length} checked — ${valid} valid (would file ${valid} issue(s)), ` +
-			`${invalid} false finding(s) dropped, ${unverified} unverified.\n` +
+		`Summary: ${candidates.length} candidate(s) — would file ${candidates.length} issue(s), ` +
+			`${routed.length} routed by triage.\n` +
 			`Codebase link: ${cited.length - unresolved.length}/${cited.length} cited file(s) found` +
 			`${byBasename > 0 ? ` (${byBasename} by basename)` : ""}` +
 			`${unresolved.length > 0 ? `; unresolved: ${unresolved.map((r) => r.path).join(", ")}` : ""}.\n` +
