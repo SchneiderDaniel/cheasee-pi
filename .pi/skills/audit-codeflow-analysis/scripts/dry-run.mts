@@ -53,7 +53,7 @@ function draftIssue(
 			"## Additional context",
 			`- Source: CodeFlow ${sourceLabel} finding \`${fact.id}\``,
 			`- Targets: ${cited}`,
-			"- Not source-verified during the audit run; confirm the claim against the cited code before fixing.",
+			"- This finding may be a false positive — confirm it against the cited code before fixing. The issue's aim is improving the code base, not chasing the analyzer score.",
 		].join("\n"),
 	};
 }
@@ -327,6 +327,20 @@ function selfCheck(): number {
 		[
 			"usable JSON is a structured export",
 			hasStructuredFindings('{"architectureIssues":[{"title":"x"}]}') === true,
+		],
+		[
+			"draft carries the false-positive note",
+			draftIssue(
+				{
+					id: "security:0",
+					kind: "security",
+					title: "HIGH: X",
+					targets: [{ kind: "file", path: "a/b.ts" }],
+					files: ["a/b.ts"],
+				},
+				"markdown",
+				"bug",
+			).body.includes("may be a false positive"),
 		],
 		[
 			"metric disposition is file-refactor",

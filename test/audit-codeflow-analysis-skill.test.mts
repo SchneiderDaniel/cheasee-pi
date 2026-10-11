@@ -91,6 +91,11 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 		assert.match(body, /overlap/i);
 		assert.match(body, /disclos/i, "must require disclosing overlap in the issue body");
 	});
+
+	it("requires the false-positive note and codebase-improvement purpose in every issue", () => {
+		assert.match(body, /may be a false\s+positive/i);
+		assert.match(body, /improving the code base/i);
+	});
 });
 
 describe("audit-codeflow-analysis SKILL.md — issue #1983 headless run", () => {
