@@ -8,7 +8,7 @@ deliberately left alone.
 
 ## The metric
 
-`index.html` builds it from the connection list (pinned ref below):
+`index.html` builds it from the connection list (pinned analyzer ref below):
 
 ```js
 var coupling = Object.create(null);
@@ -19,11 +19,10 @@ if (highCoup.length) issues.push({ title: highCoup.length + ' Highly Coupled', .
 
 So `N Highly Coupled` counts **files that reference more than 8 distinct
 (definingFile, functionName) pairs** — it is a per-file fan-out count, not a
-static import graph. The unit was pinned by experiment in
-`coupling-deadcode-1995.md`: the headless run has no Babel/acorn/TreeSitter, so
-sources are parsed in `heuristic-regex` mode and `Parser.findCalls` counts each
-identifier occurrence of a known function name. Two consequences drive this
-change:
+static import graph. The unit was pinned by experiment in issue #1995: the
+headless run has no Babel/acorn/TreeSitter, so sources are parsed in
+`heuristic-regex` mode and `Parser.findCalls` counts each identifier occurrence
+of a known function name. Two consequences drive this change:
 
 1. **A name that has exactly one definition repo-wide collects an edge from
    every file that merely mentions that identifier** — `defs.length === 1`
@@ -31,8 +30,11 @@ change:
    `dir`, `body`, `write` or `result` therefore imports every file that uses a
    same-named method or word.
 2. **A definition read out of a comment or a string literal is a phantom** whose
-   "callers" are every file containing that word (row 10 of
-   `known-false-positives.md`).
+   "callers" are every file containing that word. The assembly-language regexes
+   in `Parser.extractOtherLanguages` run for *every* non-Python file when the
+   headless run has no acorn, so prose like `… MkdirAll(dir, 0755)` or
+   `an internal error only (e.g. …)` declares a function named `MkdirAll` or
+   `only`.
 
 Both are *non-dependency* edges: the referencing file never calls the
 definition. Removing them is the only way to move this metric, because splitting
@@ -66,6 +68,13 @@ term input.
 | `origin/main` | 731 | 3555 | 3310 | 134 | 3.056 |
 | this branch | 731 | 3542 | 2668 | 97 | 1.300 |
 
+Both snapshots were taken on this branch's tree **before** it was merged with
+`origin/main` (the merge brought #2001's file splits in). Every edit listed
+below survived that merge; the only moved one is `identity` →
+`identityPassThrough`, which #2001 relocated from `test/helpers/capture.ts` into
+`test/helpers/mock-pi.ts`. The file/functions columns of the `after` snapshot
+are therefore pre-merge figures.
+
 - **`134 → 97`** flagged files (−37, −27.6 %); the coupling term
   `min(15, max(0, connections/files − 3) · 2)` falls `3.056 → 1.300`.
 - `functions` drops by 13 because the invented declarations disappear; the
@@ -74,26 +83,38 @@ term input.
 
 ## What actually moved the number
 
-**Pass 1 — delete phantom definitions (row 10).** Prose and string literals the
-heuristic scanner reads as declarations. The assembly-language regexes in
-`Parser.extractOtherLanguages` run for *every* non-Python file when the headless
-run has no acorn, so a doc comment such as `atomicWrite's own MkdirAll(dir, 0755)`
-or `an internal error only (e.g. …)` defines a "function" named `MkdirAll` or
-`only`. Reworded in: `codeflow/fp-filter.js`, `supervisor/pipeline/handler/agent-loop.ts`,
-`config_jsonfile.go`, `auth.go`, `uninstall.go`, `init.go`, `root_test.go`,
-`provider_test.go`, `up_compose.go`, `embedded/docker/entrypoint.sh`, and the Go
-string fixtures in `init_split_test.go`, `codeflow_shim_test.go` and
-`.pi/extensions/lib/test/source-graph.test.ts`.
+**Pass 1 — delete phantom definitions.** Prose and string literals the
+heuristic scanner reads as declarations. Reworded in:
+`codeflow/fp-filter.js`, `embedded/docker/entrypoint.sh`,
+`supervisor/pipeline/handler/agent-loop.ts`, `auth.go`, `config_jsonfile.go`,
+`init.go`, `uninstall.go`, `up_compose.go`, `root_test.go`, `provider_test.go`,
+and in the Go/TS fixture literals of `init_split_test.go`,
+`.pi/extensions/agent-harness/lib/timed-map.test.ts`,
+`.pi/extensions/agent-harness/test/index.test.ts`.
 
 **Pass 2 — disambiguate collision-prone private helpers.** Renames only, no
-behaviour change, each verified by its own compiler/test suite: `slice` →
-`sliceFixtureSection`, `entry`/`config` → `makeEntry`/`makeConfig`, `stdout` →
-`renderStdout`, `indexOf` → `indexOfArg`, `configPath` → `repositoryConfigPath`,
-`write`/`child` (logger internals) → `writeLogRecord`/`childLogger`, `identity`
-→ `identityPassThrough`, `exists` → `pathExists`, `writeFile` → `writeShimFile`,
-and the `ErrorCollector` accessors `all`/`size`/`flush` →
-`allRecords`/`recordCount`/`drain` (their only readers are `.mts` tests, which
-the pinned analyzer never analyzes).
+behaviour change, each verified by its own compiler/test suite:
+
+| old | new | file |
+|-----|-----|------|
+| `write` / `child` | `writeLogRecord` / `childLogger` | `.pi/extensions/supervisor/lib/debug.ts` |
+| `all` / `size` / `flush` | `allRecords` / `recordCount` / `drain` | `.pi/extensions/supervisor/pipeline/error-collector.ts` |
+| `identity` | `identityPassThrough` | `.pi/extensions/supervisor/test/helpers/mock-pi.ts` |
+| `entry` / `config` | `makeEntry` / `makeConfig` | `.pi/extensions/caveman/test/session-level.test.ts` |
+| `exists` | `pathExists` | `.pi/extensions/lib/ensureVenv.test.ts` |
+| `stdout` | `renderStdout` | `.pi/extensions/scrapling/test/python-adapter.test.ts` |
+| `build` | `buildThing` | `.pi/extensions/lib/test/source-graph.test.ts` |
+| `slice` | `sliceFixtureSection` | `.pi/skills/audit-codeflow-analysis/test/fixtures/generate-report-fixtures.mjs` |
+| `indexOf` | `indexOfArg` | `cmd/cheasee-pi/up_env_test.go` |
+| `configPath` | `repositoryConfigPath` | `cmd/cheasee-pi/config.go`, `config_jsonfile.go` |
+| `writeFile` | `writeShimFile` | `cmd/cheasee-pi/codeflow_shim_test.go`, `codeflow_shim_fp_filter_test.go` |
+| `variant` | `permute_blobs` | `cmd/cheasee-pi/codeflow_shim_fp_filter_test.go` (embedded Python fixture) |
+
+The renamed symbols' only readers are test files, which the pinned analyzer
+never counts as call sites, so the `.mts` call-site updates appear in the
+fixture's `callSiteOnly` list rather than in `reducedBy`. (`up_env_test.go` and
+`codeflow_shim_*_test.go` are `.go` files, so the analyzer does count them —
+hence they sit in `reducedBy`.)
 
 The exact set, the measured before/after envelope, and the guards are pinned in
 `test/fixtures/coupling-baseline.json` and replayed by
@@ -112,6 +133,15 @@ including the guard that no test-only `.mts` file is cited as a reduction source
   renaming them is mechanically the largest remaining win, but the pipeline
   image has no Rust toolchain, so the change cannot be verified in-gate.
   Left for a change that can run `cargo test --no-default-features --features ssr`.
-- **File splits.** Not applied: splitting a 36-reference coordinator yields two
-  ~18-reference files — still above the `> 8` threshold, so the count does not
-  move, while the diff and the file count both grow.
+- **File splits (the test plan's phases 1–7).** Not applied. The plan's own
+  trade-off note accepts this: a split only helps when *each* part falls back
+  under the threshold, and splitting a 36-reference coordinator yields two
+  ~18-reference files — still above `> 8`, so the flagged count does not move
+  while the diff and the analyzed file count both grow. Phase 8 (the measured
+  gate) *was* executed and is what this record pins; phases 1–7 were the plan's
+  hypothesis about how the number would move, and the measurement disproved it
+  in favour of the two passes above.
+- **Rust `session.rs` / `main.rs` / `stream.rs`.** Flagged for coupling too, but
+  the same split arithmetic applies and the toolchain is absent in-gate, so any
+  change there would be an unverifiable guess. Left for the Rust-capable change
+  noted above.

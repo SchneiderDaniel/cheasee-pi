@@ -5,6 +5,7 @@
 		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
 		"oracle": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
 		"method": "git archive <ref> | tar -x -C /tmp/src && node run-analysis.mjs /tmp/src <codeflow-ui> /tmp/out",
+		"measuredOn": "the #2002 branch tree before it was merged with origin/main; every edit below survived that merge (the `identity` rename moved from test/helpers/capture.ts to test/helpers/mock-pi.ts when #2001 split that file)",
 		"metric": "architectureIssues[\"N Highly Coupled\"] — files with more than 8 resolved cross-file identifier references (index.html: coupling[conn.target] > 8)"
 	},
 	"before": {
@@ -43,7 +44,7 @@
 		".pi/extensions/supervisor/pipeline/handler/agent-loop.ts",
 		".pi/extensions/supervisor/pipeline/error-collector.ts",
 		".pi/extensions/supervisor/lib/debug.ts",
-		".pi/extensions/supervisor/test/helpers/capture.ts",
+		".pi/extensions/supervisor/test/helpers/mock-pi.ts",
 		".pi/extensions/caveman/test/session-level.test.ts",
 		".pi/extensions/lib/ensureVenv.test.ts",
 		".pi/extensions/lib/test/source-graph.test.ts",
