@@ -31,6 +31,7 @@ export {
 } from "./jsonl-codec.ts";
 export {
 	parseCsvLine,
+	splitCsvRows,
 	migrateQnaFromCsv,
 	migrateIfCsvExists,
 } from "./csv-migration.ts";

@@ -60,7 +60,7 @@ export function parseCsvLine(line: string): QnaEntry | null {
  * Split CSV content into rows, handling RFC 4180 quoted fields that
  * may contain newlines. Returns an array of row strings.
  */
-function splitCsvRows(content: string): string[] {
+export function splitCsvRows(content: string): string[] {
 	const rows: string[] = [];
 	let current = "";
 	let inQuotes = false;

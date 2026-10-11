@@ -42,7 +42,7 @@ export interface GateRejected {
 
 // ─── Determine Next Status ────────────────────────────────────────
 
-interface NextStatusResult {
+export interface NextStatusResult {
 	status: string | null;
 	stopReason?: string;
 	/**
@@ -216,7 +216,7 @@ export function inferForwardStatus(step: WorkflowStep): string | null {
 }
 
 // ─── Branch Commit Check ────────────────────────────────────────────
-interface AuditScoreInfo {
+export interface AuditScoreInfo {
 	cycleCount: number;
 	score: AuditScore;
 	trend?: "improving" | "declining" | "stable";

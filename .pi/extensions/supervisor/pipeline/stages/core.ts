@@ -331,4 +331,9 @@ export {
 	inferForwardStatus,
 	trackAuditScore,
 } from "./status-resolution.ts";
-export type { AuditGateContext, GateRejected } from "./status-resolution.ts";
+export type {
+	AuditGateContext,
+	GateRejected,
+	NextStatusResult,
+	AuditScoreInfo,
+} from "./status-resolution.ts";

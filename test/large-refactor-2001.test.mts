@@ -17,6 +17,13 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+// Static imports pin the preserved public surface: knip only counts a symbol as
+// used when a module in the project imports it.
+import { splitCsvRows } from "../.pi/extensions/ask-user/jsonl-logger.ts";
+import type {
+	NextStatusResult,
+	AuditScoreInfo,
+} from "../.pi/extensions/supervisor/pipeline/stages/core.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -220,6 +227,31 @@ describe("large-files refactor #2001 — preserved contracts", () => {
 		const src = read(".pi/extensions/ask-user/jsonl-logger.ts");
 		assert.ok(src.includes("export async function readQnaEntries"));
 		assert.ok((src.match(/await readQnaEntries\(/g) ?? []).length >= 3);
+	});
+
+	it("jsonl-logger.ts still exports splitCsvRows (legacy CSV API)", () => {
+		// Characterization of the pre-split behavior: quoted fields may hold
+		// commas and newlines, CRLF is normalized, a trailing newline is dropped.
+		assert.deepEqual(splitCsvRows("a,b\nc,d"), ["a,b", "c,d"]);
+		assert.deepEqual(splitCsvRows('"a,b"\nc'), ['"a,b"', "c"]);
+		assert.deepEqual(splitCsvRows('"a\nb"\nc'), ['"a\nb"', "c"]);
+		assert.deepEqual(splitCsvRows("a\r\nb\r\n"), ["a", "b"]);
+		assert.deepEqual(splitCsvRows("a\nb\n"), ["a", "b"]);
+	});
+
+	it("core.ts still re-exports NextStatusResult and AuditScoreInfo types", () => {
+		const next: NextStatusResult = {
+			status: "Implementation",
+			hadExplicitMarker: true,
+			gateRejected: { score: { passing: 50, total: 100 }, required: 80, total: 100 },
+		};
+		const info: AuditScoreInfo = {
+			cycleCount: 1,
+			score: next.gateRejected!.score,
+			trend: "stable",
+		};
+		assert.equal(info.score.passing, 50);
+		assert.equal(next.hadExplicitMarker, true);
 	});
 
 	it("scrapling test/index.test.ts carries no local ExecResult/ExecFn", () => {
