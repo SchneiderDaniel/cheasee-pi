@@ -12,8 +12,8 @@
 //      one the report itself assigns the file.
 //
 // Only HIGH severity security findings are considered: the LOW/MEDIUM shapes
-// (code comments, debug statements, argv-array spawns) are owned by the audit
-// skill's own triage (`classifyKnownNoise`) and are never touched here.
+// (code comments, debug statements, argv-array spawns) are left in the report
+// for the audit skill to triage.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI

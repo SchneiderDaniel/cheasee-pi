@@ -360,8 +360,7 @@ export function hasStructuredFindings(text: string | null | undefined): boolean 
 /**
  * Drop exact-duplicate facts. The exporter emits the same finding more than
  * once (two `on_open()` entries in one file, a security issue per matching
- * line), and validation runs per fact — so a duplicate is both a wasted
- * read-only subagent run and a duplicate candidate at the confirmation gate.
+ * line), so a duplicate is a duplicate candidate at the confirmation gate.
  * Preserves input order; keeps the first of each `(kind, title, targets)` group
  * (`files` being the file-only projection).
  */
@@ -485,83 +484,22 @@ export function reportSectionCoverage(markdown: string): SectionCoverage[] {
 	});
 }
 
-/**
- * Classify a fact as auto-suppressible noise or a candidate to validate.
- *
- * Only the *text-provable* shapes qualify: the LOW stylistic security
- * categories and cross-language layer violations. CodeFlow emits one `LOW: Code
- * Comments` / `LOW: Debug Statements` per matching line and both are known to
- * fire on string literals in fixtures, ast-grep patterns and JSON (see
- * `references/known-false-positives.md`). Every code-read shape — secrets, SQL
- * injection, shell execution, command execution, dead code — stays `keep`: its
- * mechanism can only be disproved by reading the code, so it goes to the
- * validator, never to a text filter. Suppression depends on the fact alone, never
- * the filesystem.
- */
-
-/**
- * Language family of a path by extension, or null when the extension is
- * unrecognised. `.ts`/`.mts`/`.tsx`/`.js`/`.mjs`/`.jsx` share one family: a
- * TypeScript module can import a JavaScript one (and vice versa), so that pair
- * is not a language boundary.
- */
-const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-	ts: "js-ts",
-	mts: "js-ts",
-	cts: "js-ts",
-	tsx: "js-ts",
-	js: "js-ts",
-	mjs: "js-ts",
-	cjs: "js-ts",
-	jsx: "js-ts",
-	py: "python",
-	rs: "rust",
-	go: "go",
-	sh: "shell",
-	bash: "shell",
-};
-
-function languageFamily(path: string): string | null {
-	const m = /\.([A-Za-z0-9]+)\s*$/.exec(path.trim());
-	return m ? (LANGUAGE_BY_EXTENSION[m[1].toLowerCase()] ?? null) : null;
-}
-
-/** A layer edge whose two files cannot be imports of one another (no shared family). */
-function isCrossLanguageLayerViolation(files: string[]): boolean {
-	if (files.length < 2) return false;
-	const families = files.map(languageFamily);
-	// An unknown extension is kept: fail safe, never hide a finding on a guess.
-	if (families.some((f) => f === null)) return false;
-	return new Set(families).size > 1;
-}
-
-export function classifyKnownNoise(fact: IssueFact): "suppress" | "keep" {
-	if (fact.kind === "layer-violation") {
-		// CodeFlow layer violations are import-based, so a `.ts` → `.rs` edge cannot
-		// be an import: it is a bare-identifier match across a language boundary.
-		return isCrossLanguageLayerViolation(fact.files) ? "suppress" : "keep";
-	}
-	if (fact.kind !== "security") return "keep";
-	const title = fact.title.replace(/\s+/g, " ").trim().toLowerCase();
-	return /^low:\s*(code comments|debug statements)$/.test(title) ? "suppress" : "keep";
-}
-
 /** Issue type the triage policy assigns to a fact. */
 export type IssueType = "bug" | "chore" | "informational" | "out-of-scope";
 
-/** What Step 5/6 should do with a fact. */
+/** What drafting and the confirmation gate should do with a fact. */
 export type Disposition = "file-bug" | "file-refactor" | "offer-optional" | "drop";
 
 /** The derived architecture metrics the exporter emits as `<N> Metric` titles. */
 const METRIC_TITLE = /^\d+\s+(large files|highly coupled|high complexity files)\b/i;
 
 /**
- * Triage policy: decide an issue type *and* its disposition *before* any validator
- * reads code, so scope is never a validator's call. `pattern` is informational and
+ * Triage policy: decide an issue type *and* its disposition *before* any issue is
+ * drafted, so scope is never a drafting decision. `pattern` is informational and
  * offered as an optional filing; `anti-pattern` and the derived
  * size/coupling/complexity metrics are refactor scope and filed by default (with a
- * Step 6 opt-out); every other known kind is bug-template scope. Pure and
- * deterministic.
+ * confirmation-gate opt-out); every other known kind is bug-template scope. Pure
+ * and deterministic.
  */
 export function classifyFinding(fact: IssueFact): {
 	issueType: IssueType;
@@ -590,9 +528,14 @@ export function classifyFinding(fact: IssueFact): {
 		};
 	}
 	if (
-		["architecture", "security", "dead-code", "duplicate", "layer-violation", "suggestion"].includes(
-			fact.kind,
-		)
+		[
+			"architecture",
+			"security",
+			"dead-code",
+			"duplicate",
+			"layer-violation",
+			"suggestion",
+		].includes(fact.kind)
 	) {
 		return { issueType: "bug", disposition: "file-bug", reason: "bug-template kind" };
 	}

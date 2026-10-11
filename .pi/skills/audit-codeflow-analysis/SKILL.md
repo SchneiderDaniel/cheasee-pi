@@ -1,20 +1,17 @@
 ---
 name: audit-codeflow-analysis
-description: "Fetch the CodeFlow structural analysis report, verify every finding against the source with read-only subagents, turn the survivors into file-isolated git issues, and file them only after explicit user confirmation. Use when asked to analyze CodeFlow output or propose issues from a CodeFlow report."
+description: "Fetch the CodeFlow structural analysis report, turn its findings into file-isolated git issues, and file them only after explicit user confirmation. Use when asked to analyze CodeFlow output or propose issues from a CodeFlow report."
 disable-model-invocation: true
 metadata:
-  steps: fetch-report-parse-validate-group-confirm-file
+  steps: fetch-report-parse-group-confirm-file
   scope: issues-only-no-commits
-  dependencies: scripts/fetch-report.mts, git-issue-create-internal, ask_user, validate-finding.sh
+  dependencies: scripts/fetch-report.mts, git-issue-create-internal, ask_user
 ---
 
 # CodeFlow Analysis
 
-Turn a CodeFlow analysis into a set of verified git issues, each touching a
-mostly disjoint file set, filed on this repo **only after the user confirms**.
-
-CodeFlow reports false positives. Every candidate finding is checked against the
-real source by a read-only subagent before it can reach an issue.
+Turn a CodeFlow analysis into a set of git issues, each touching a mostly
+disjoint file set, filed on this repo **only after the user confirms**.
 
 ## Trigger
 
@@ -27,26 +24,19 @@ Load this skill when the user asks to:
 ## Hard Rules
 
 - **Issues only.** Do not create branches, commits, or PRs. `main` is locked.
-- **Verify before filing.** Every candidate goes through Step 3. A finding whose
-  validation exits `1` is dropped, never filed or re-framed. Exit `2` is an agent
-  mistake (`usage`/repo-root error) — fix the call and rerun; it describes the
-  call, not the finding. Exit `3` (ran, printed no `VERDICT`) is unverified: never
-  filed, and disclosed as unverified. Exit `4` (crash/timeout/spawn failure)
-  reached no verdict: retry it once, and record the retry's verdict when it
-  returns `0`/`1` — only a retry that still exits `3`/`4` is unverified.
-- **Reconcile every section before validating.** A section present in the report
+- **Reconcile every section before grouping.** A section present in the report
   must yield candidates. A section that emitted `###` items but produced zero
   candidates is being dropped whole by the parser, not empty — stop and fix
-  extraction before validating anything. Never present a partial candidate set
+  extraction before grouping anything. Never present a partial candidate set
   as a complete audit.
 - **Re-check freshness before filing.** The shim replaces the report when a new
-  browser run finishes. If `analyzedAt` moved since Step 1, the validated set no
+  browser run finishes. If `analyzedAt` moved since Step 1, the candidate set no
   longer describes the current analysis: stop and restart from Step 1.
-- **Only `bug`-class findings are validated and filed as bugs.** `classifyFinding`
+- **Only `bug`-class findings are filed as bugs.** `classifyFinding`
   (`lib/report.ts`) is the single policy source and assigns every fact its issue
-  type and disposition before any validator reads code. `chore` facts are filed as
+  type and disposition before any issue is drafted. `chore` facts are filed as
   refactor issues and `informational` facts are offered as optional filings — both
-  after the Step 6 gate, never through the bug validator and never the bug template.
+  after the Step 5 gate, never the bug template.
 - **Confirm before filing.** No `gh issue create` (directly or via
   `git-issue-create-internal`) until the user has explicitly confirmed via
   `ask_user`. Drafting is free; creating is not.
@@ -116,7 +106,7 @@ the markdown file is a short placeholder — read it, then work from the JSON
 export it points at.
 
 Record the returned `analyzedAt` and the `## Summary` table. Every later step
-works from that snapshot: the freshness check in Step 7 compares against it, and
+works from that snapshot: the freshness check in Step 6 compares against it, and
 filed issue bodies name it so a finding can be traced to the analysis it came
 from.
 
@@ -192,21 +182,14 @@ edge (`utils → ui`) or a bare symbol (`execFn (3 files)`). All three keep the 
 as a candidate; only the `file` kind enters the file-conflict graph. The parser
 (`parseReport`) keeps a fact whenever it has at least one target.
 
-Before validating, apply the text-provable pre-filter documented in
-`references/known-false-positives.md` and implemented by `classifyKnownNoise`: it
-suppresses only the LOW stylistic security categories (Code Comments, Debug
-Statements) and facts whose every cited file is unresolved. Report the suppressed
-count. Probe that reference before re-deriving a mechanism by reading code.
-
-Then, before validating anything, run the two checks that keep the candidate set
+Before grouping, run the two checks that keep the candidate set
 honest. Both are pure functions in the same module:
 
 1. **Dedupe.** `dedupeIssues(facts)` drops facts whose `(kind, title, targets)`
    already appeared. `files` is the file-only projection of `targets`, so two
    file-less facts that differ only by layer edge or symbol stay distinct. The
    exporter repeats findings (two `on_open()` entries in one file, one security
-   issue per matching line) and validation is per fact, so every duplicate is a
-   wasted read-only subagent run. Report the dropped count; never remove findings
+   issue per matching line), so report the dropped count; never remove findings
    silently.
 2. **Reconcile.** `reportSectionCoverage(markdown)` counts the `###` items each
    `## ` section declares against the candidates extracted for that kind. Any
@@ -229,52 +212,7 @@ the run. A section that parsed some entries but still reports `unparsedItems > 0
 is not unreadable: list the unparsed `###` titles (`reportUnparsedItems`) and
 disclose that the markdown format could not turn them into candidates.
 
-### Step 3 — Validate every candidate (read-only subagent)
-
-A finding is a candidate until the source confirms it. Write each candidate to
-`ignore/codeflow-findings/NN-<slug>.md` (kind, section/field, title, description,
-claimed files) — `dry-run.mts --emit-findings [DIR]` writes exactly those files
-for every post-dedupe, post-suppression candidate, with no subagent and no
-deletion. Then validate every `issueType: bug` candidate in one batched `bash`
-call — `--emit-findings` also writes the `chore`/`informational` candidates (each
-file is tagged `**Issue type:**` and `**Disposition:**`), but those are routed in
-Step 5 and never reach the validator:
-
-```bash
-for f in ignore/codeflow-findings/*.md; do
-  grep -q '^\*\*Issue type:\*\* bug$' "$f" || continue
-  .pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh "$f" > "${f%.md}.verdict" &
-  while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done
-done
-wait
-```
-
-The script spawns `pi -p` with `--tools
-read,ripgrep_search,structural_search`, the `references/finding-validator.md`
-system prompt, this session's model, and no project skills or context files. Exit
-codes:
-
-| Exit | Meaning | Action |
-|------|---------|--------|
-| `0` | `VERDICT: VALID` | keep it for Step 4 |
-| `1` | `VERDICT: INVALID` | drop it; keep the `REASON` line for the confirmation list |
-| `2` | usage / repo-root error (agent mistake) | fix the call and rerun |
-| `3` | ran, printed no `VERDICT` | unverified — never file, disclose as unverified |
-| `4` | crash / timeout / spawn failure | retry once; a `0`/`1` retry is authoritative, a retry still exiting `3`/`4` is unverified |
-
-The `3`/`4` split matters: `4` reached no verdict, so retrying it is recovery,
-not answer-shopping. Retry a `4` at most once; the retry is a fresh attempt at a
-verdict, and a retry that returns `0`/`1` is authoritative and is the verdict the
-run records. Only a retry that still exits `3`/`4` leaves the finding unverified —
-never file it, disclose it as unverified. Never re-run a completed validator (one
-that already returned `0`/`1`/`3`) hoping for a different answer: the verdict it
-returned is the verdict the run records.
-
-Take the verdict from code the subagent read itself. Reject any verdict whose
-`EVIDENCE` names a path that does not exist. Cap parallel spawns at 4, and delete
-`ignore/codeflow-findings/` when the run ends.
-
-### Step 4 — Group by file conflict (best-effort isolation)
+### Step 3 — Group by file conflict (best-effort isolation)
 
 Build a file-conflict graph: issues that share **any** file are merged
 (transitively) into one group. `groupIssues` returns, per group, `isolated`
@@ -288,7 +226,7 @@ Build a file-conflict graph: issues that share **any** file are merged
 State best-effort isolation explicitly in every issue body that could not be
 fully split: list the files, and say which are shared (disclose the overlap).
 
-### Step 5 — Draft the issues
+### Step 4 — Draft the issues
 
 For each group, draft an issue using the `git-issue-create-internal` skill (load it
 for the repo's issue template, duplicate check, and project-board wiring). Use
@@ -299,20 +237,19 @@ the group's affected files as the scope and include:
 - the best-effort isolation note,
 - the `analyzedAt` of the report the finding came from.
 
-**Kind → issue type.** Scope is decided once, before any validator reads code, by
+**Kind → issue type.** Scope is decided once, before any issue is drafted, by
 `classifyFinding` in `lib/report.ts` — that function is the single policy source.
 Consult its result per fact and act on both the returned `issueType` and its
 `disposition` (`file-bug` / `file-refactor` / `offer-optional` / `drop`); never
 re-derive a kind → issue-type mapping here:
 
-- `bug` (`file-bug`) — a Step 3-validated candidate; draft it with the bug template.
+- `bug` (`file-bug`) — a bug-class candidate; draft it with the bug template.
 - `chore` (`file-refactor`) — refactor/cleanup scope: draft a refactor issue via
   `git-issue-create-internal` (freeform "Other" path). It is part of the proposed set
-  by default, so the run offers work that improves the CodeFlow score; the Step 6
-  gate keeps it opt-out, never silently rerouted. Never send it to the bug
-  validator.
+  by default, so the run offers work that improves the CodeFlow score; the Step 5
+  gate keeps it opt-out, never silently rerouted.
 - `informational` (`offer-optional`) — an **opt-in** filing (a descriptive
-  observation, not a defect): present it in the Step 6 gate with its disposition
+  observation, not a defect): present it in the Step 5 gate with its disposition
   stated so the user can act on it. Never filed as a bug, never left structurally
   unactionable.
 - `out-of-scope` (`drop`) — drop it and state why.
@@ -320,21 +257,20 @@ re-derive a kind → issue-type mapping here:
 Do the duplicate check (`gh issue list`) for every draft. Drop drafts that match
 an existing open issue; keep the rest as the proposed set.
 
-### Step 6 — Confirmation gate (REQUIRED)
+### Step 5 — Confirmation gate (REQUIRED)
 
-Present the proposed set — and, separately, the findings dropped in Step 3 with
-their `REASON` — then ask with `ask_user`, offering exactly three choices:
-**all**, **some**, **cancel**.
+Present the proposed set, then ask with `ask_user`, offering exactly three
+choices: **all**, **some**, **cancel**.
 
 - **cancel** → stop; create nothing.
 - **some** → ask which ones, then create only those.
 - **all** → create the full set.
 
-Never proceed to Step 7 without the user's answer. The `chore` (refactor) drafts
+Never proceed to Step 6 without the user's answer. The `chore` (refactor) drafts
 are proposed by default and the `informational` (optional) drafts are offered for
 opt-in; the gate is where they are accepted or excluded, never a silent drop.
 
-### Step 7 — File the confirmed issues
+### Step 6 — File the confirmed issues
 
 Only now file the confirmed drafts via `git-issue-create-internal` (template,
 duplicate check already done, add to the project board). Issues only — no
@@ -342,7 +278,7 @@ commits, no branches, no PRs. Report the created issue URLs back to the user.
 
 Immediately before the first creation, re-fetch with `--refresh` and compare
 `analyzedAt` with Step 1. If it changed, the shim has absorbed a newer browser
-analysis and every verdict was reached against a superseded report: stop, tell
+analysis and every draft was prepared against a superseded report: stop, tell
 the user, and restart from Step 1.
 
 ### Canonical count vs the UI summary
@@ -357,31 +293,29 @@ never reconcile the difference by editing the vendored UI bundle.
 
 ## Dry run (creates nothing)
 
-`scripts/dry-run.mts` exercises the extract → resolve → validate path without
+`scripts/dry-run.mts` exercises the extract → resolve → draft path without
 touching GitHub: it takes the first N findings, maps each cited file onto the
-repo (the markdown exporter emits bare basenames in its pattern sections),
-validates every finding with a read-only subagent, and prints the issue it would
-file — or, for a false finding, the validator's reason and evidence.
+repo (the markdown exporter emits bare basenames in its pattern sections), and
+prints the issue it would file. It spawns no subagent.
 
 ```bash
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --limit 5
-node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --list        # extraction only, no subagents
-node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --emit-findings [DIR]  # write Step 3 candidates, no validation, no deletion
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --list        # extraction only, no issue drafts
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --emit-findings [DIR]  # write every candidate, no deletion
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --self-check   # pure-function checks
 ```
 
-`--emit-findings [DIR]` writes one `NN-<slug>.md` per post-dedupe,
-post-suppression candidate (default `ignore/codeflow-findings/`), spawns no
-subagent, is not truncated by `--limit`, and leaves the directory in place. It
-prints the suppressed known-noise/unresolved count next to the written count, plus
-a `dispositions:` line naming each nonzero disposition (`file-bug`,
+`--emit-findings [DIR]` writes one `NN-<slug>.md` per post-dedupe candidate
+(default `ignore/codeflow-findings/`), spawns no subagent, is not truncated by
+`--limit`, and leaves the directory in place. It prints the written count plus a
+`dispositions:` line naming each nonzero disposition (`file-bug`,
 `file-refactor`, `offer-optional`) with its count. It fails closed (exit `2`,
 writes nothing) when the destination already holds `.md` findings, so a rerun can
 never mix stale candidates into the set: point at a fresh directory or remove the
 stale files first.
 
-It never calls `gh`. Exit `0` for a completed run even when every finding is
-false, `2` for bad usage or a missing report.
+It never calls `gh`. Exit `0` for a completed run, `2` for bad usage or a missing
+report.
 
 ## Verification
 
@@ -396,18 +330,15 @@ false, `2` for bad usage or a missing report.
   `unparsedItems > 0` lists its unparsed `###` titles. A partial candidate set is
   never presented as a complete audit.
 - The metric policy is applied once: size/coupling/complexity metrics are routed
-  as chore/refactor (never bug-validated), so no confirmed metric is reported
-  VALID-but-INVALID.
+  as chore/refactor, never as bugs.
 - The `analyzedAt` re-fetch before filing matches the Step 1 value.
 - Duplicates dropped by `dedupeIssues` are reported as a count.
 - No filed issue used the bug template unless it came from a `bug`-class
   candidate; `chore` facts were filed as refactor issues and `informational` facts
-  offered as optional filings, all after the Step 6 gate — none was silently
+  offered as optional filings, all after the Step 5 gate — none was silently
   routed away or dropped.
 - Every proposed issue cites at least one `target`: a file path, a layer edge
   (`utils → ui`), or a symbol (`execFn`), matching the candidate's identity. A
   file-less suggestion must reference the signal that produced it.
-- Every filed issue's finding exited `0` from `validate-finding.sh`; every
-  dropped finding has a recorded `REASON`.
 - No `gh issue create` ran before the `ask_user` answer.
 - Any issue that shares a file with another states that overlap.
