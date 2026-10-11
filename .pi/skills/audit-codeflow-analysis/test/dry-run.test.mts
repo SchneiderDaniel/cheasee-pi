@@ -1,11 +1,10 @@
 /**
  * Tests for .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts —
- * `--emit-findings` extraction mode, known-noise pre-filtering and coverage
- * reporting.
+ * `--emit-findings` extraction mode and coverage reporting.
  *
  * The CLI is spawned as a subprocess so emit mode (which must exit 0 without
  * ever spawning a subagent) and the process-exit directory survival are tested
- * for real. Pure helpers (`selectCandidates`) are imported in-process.
+ * for real. The `slugifyFinding` helper is imported in-process.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/skills/audit-codeflow-analysis/test/dry-run.test.mts
@@ -26,16 +25,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { selectCandidates, slugifyFinding, type FileResolution } from "../scripts/dry-run.mts";
-import type { IssueFact } from "../lib/report.ts";
+import { slugifyFinding } from "../scripts/dry-run.mts";
 import { buildFullReport, FULL_REPORT_TOTALS } from "./fixtures/full-report.mts";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 const CLI = resolve(REPO_ROOT, ".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts");
-const VALIDATOR = resolve(
-	REPO_ROOT,
-	".pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh",
-);
 const NODE = process.execPath;
 
 // A real repo file every kept candidate can cite (resolution is against the
@@ -43,13 +37,12 @@ const NODE = process.execPath;
 const REAL_FILE = ".pi/skills/audit-codeflow-analysis/lib/report.ts";
 
 // Five distinct real repo files, so a metric item can list a 5-file sample that
-// resolves in the real checkout (selectCandidates drops facts whose every file is
-// unresolved).
+// resolves in the real checkout.
 const REAL_FILES = [
 	".pi/skills/audit-codeflow-analysis/lib/report.ts",
 	".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+	".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts",
 	".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts",
-	".pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh",
 	".pi/skills/audit-codeflow-analysis/SKILL.md",
 ];
 
@@ -112,7 +105,7 @@ const FIXTURE = [
 	"- **File:** `.pi/skills/audit-codeflow-analysis/scripts/dry-run.mts`",
 	"",
 	"### MEDIUM: Command Execution",
-	"- **File:** `.pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh`",
+	"- **File:** `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts`",
 	"",
 	"### HIGH: Function Constructor",
 	"- **File:** `.pi/skills/audit-codeflow-analysis/lib/fetch-report.ts`",
@@ -161,95 +154,6 @@ afterEach(() => {
 
 const baseArgs = () => ["--report", fixture, "--json", join(dir, "absent.json")];
 
-/** A `pi` stub that logs each invocation's argv to `log` and reports VALID. */
-function writePiStub(bin: string, log: string): void {
-	mkdirSync(bin, { recursive: true });
-	const pi = join(bin, "pi");
-	writeFileSync(
-		pi,
-		`#!/usr/bin/env bash\nprintf '===CALL===\\n' >> "${log}"\nprintf '%s\\n' "$@" >> "${log}"\necho 'VERDICT: VALID'\nexit 0\n`,
-		"utf-8",
-	);
-	chmodSync(pi, 0o755);
-}
-
-const piLog = (log: string): string => (existsSync(log) ? readFileSync(log, "utf-8") : "");
-const piCallCount = (log: string): number =>
-	piLog(log).split("\n").filter((l) => l === "===CALL===").length;
-
-describe("selectCandidates (pure)", () => {
-	const fact = (kind: string, title: string, files: string[]): IssueFact => ({
-		id: `${kind}:${title}`,
-		kind,
-		title,
-		targets: files.map((path) => ({ kind: "file", path })),
-		files,
-	});
-	const resolveWith =
-		(unresolved: Set<string>) =>
-		(file: string): FileResolution =>
-			unresolved.has(file) ? { path: file, how: "unresolved" } : { path: file, how: "exact" };
-
-	it("suppresses LOW style security noise and unresolved-only facts, keeping the rest", () => {
-		const facts = [
-			fact("security", "LOW: Code Comments", ["a.ts"]),
-			fact("security", "LOW: Debug Statements", ["a.ts"]),
-			fact("dead-code", "ghostFn()", ["ghost.ts"]),
-			fact("security", "HIGH: Hardcoded Secret", ["a.ts"]),
-			fact("suggestion", "Split module", []),
-		];
-		const { candidates, suppressed } = selectCandidates(facts, resolveWith(new Set(["ghost.ts"])));
-		assert.deepStrictEqual(
-			candidates.map((f) => f.title),
-			["HIGH: Hardcoded Secret", "Split module"],
-		);
-		assert.strictEqual(suppressed, 3);
-	});
-
-	it("keeps a fact when at least one cited file resolves", () => {
-		const facts = [fact("architecture", "Mixed", ["missing.ts", "a.ts"])];
-		assert.strictEqual(
-			selectCandidates(facts, resolveWith(new Set(["missing.ts"]))).candidates.length,
-			1,
-		);
-	});
-
-	it("keeps a file-less layer-edge/symbol fact instead of treating it as unresolved", () => {
-		const edge: IssueFact = {
-			id: "architecture:0",
-			kind: "architecture",
-			title: "157 Architecture Violations",
-			targets: [{ kind: "layer-edge", from: "utils", to: "ui" }],
-			files: [],
-		};
-		const symbol: IssueFact = {
-			id: "duplicate:0",
-			kind: "duplicate",
-			title: "execFn",
-			targets: [{ kind: "symbol", name: "execFn" }],
-			files: [],
-		};
-		const { candidates, suppressed } = selectCandidates([edge, symbol], resolveWith(new Set()));
-		assert.deepStrictEqual(
-			candidates.map((f) => f.title),
-			["157 Architecture Violations", "execFn"],
-		);
-		assert.strictEqual(suppressed, 0);
-	});
-
-	it("suppresses a cross-language layer violation before a validator can read it", () => {
-		const crossLanguage = fact("layer-violation", "domain → ui", ["src/a.ts", "ui/src/lib.rs"]);
-		const sameLanguage = fact("layer-violation", "domain → ui", ["src/a.ts", "src/b.mts"]);
-		const { candidates, suppressed } = selectCandidates(
-			[crossLanguage, sameLanguage],
-			resolveWith(new Set()),
-		);
-		assert.deepStrictEqual(candidates.map((f) => f.title), ["domain → ui"]);
-		assert.deepStrictEqual(candidates[0].files, ["src/a.ts", "src/b.mts"]);
-		assert.strictEqual(suppressed, 1);
-	});
-});
-
 describe("slugifyFinding", () => {
 	it("lowercases and hyphenates a title into the Step 3 file slug", () => {
 		assert.strictEqual(slugifyFinding("HIGH: Hardcoded Secret"), "high-hardcoded-secret");
@@ -275,7 +179,7 @@ describe("slugifyFinding", () => {
 describe("dry-run --emit-findings", () => {
 	it("writes one NN-<slug>.md per candidate and exits 0 without a subagent", () => {
 		const outDir = join(dir, "findings");
-		// A `pi` that fails if it is ever spawned: emit mode must not validate.
+		// A `pi` that fails if it is ever spawned: emit mode must not spawn one.
 		const bin = join(dir, "bin");
 		mkdirSync(bin, { recursive: true });
 		const pi = join(bin, "pi");
@@ -288,14 +192,14 @@ describe("dry-run --emit-findings", () => {
 		assert.strictEqual(r.status, 0, r.stderr);
 
 		const files = readdirSync(outDir).sort();
-		// 6 resolvable security candidates; --limit default (5) must not truncate.
-		assert.strictEqual(files.length, 6, `wrote ${JSON.stringify(files)}`);
+		// Every parsed candidate; --limit default (5) must not truncate.
+		assert.strictEqual(files.length, 8, `wrote ${JSON.stringify(files)}`);
 		assert.ok(files.includes("01-high-hardcoded-secret.md"), files.join(","));
 		assert.ok(
 			files.every((f) => /^\d{2}-[a-z0-9-]+\.md$/.test(f)),
 			files.join(","),
 		);
-		assert.ok(!files.some((f) => f.endsWith(".verdict")), "emit mode must not validate");
+		assert.ok(!files.some((f) => f.endsWith(".verdict")), "emit mode must not spawn a subagent");
 
 		// The directory survives process exit (no `finally` rmSync in emit mode).
 		assert.ok(existsSync(outDir), "emitted directory must survive the run");
@@ -307,19 +211,11 @@ describe("dry-run --emit-findings", () => {
 			"**Id:**",
 			"**Section:**",
 			REAL_FILE,
-			"read the cited code and",
+			"read the cited code before",
 		]) {
 			assert.ok(first.includes(want), `candidate file missing ${want}`);
 		}
 		assert.match(r.stdout, /\d+ candidate\(s\) written/);
-	});
-
-	it("reports the suppressed known-noise count instead of silently shrinking the set", () => {
-		const outDir = join(dir, "counted");
-		const r = runDryRun([...baseArgs(), "--emit-findings", outDir]);
-		assert.strictEqual(r.status, 0, r.stderr);
-		// LOW: Code Comments + the unresolved-only ghostFn.
-		assert.match(r.stdout, /2 known-noise\/unresolved candidate\(s\) suppressed/);
 	});
 
 	it("discloses a partial parse and the missing JSON export before exiting", () => {
@@ -429,42 +325,13 @@ describe("dry-run --emit-findings", () => {
 	});
 });
 
-describe("operator journey: emit → validate → reconcile", () => {
-	it("yields a complete candidate set and separates a retryable crash from a verdict-less run", () => {
+describe("operator journey: emit → list → reconcile", () => {
+	it("yields a complete candidate set and lists it without an unreadable section", () => {
 		const outDir = join(dir, "journey-findings");
 		const emit = runDryRun([...baseArgs(), "--emit-findings", outDir]);
 		assert.strictEqual(emit.status, 0, emit.stderr);
 		const files = readdirSync(outDir).sort();
 		assert.ok(files.length > 5, `expected >5 candidates, got ${files.length}`);
-
-		const bin = join(dir, "journey-bin");
-		mkdirSync(bin, { recursive: true });
-		const pi = join(bin, "pi");
-		writeFileSync(
-			pi,
-			"#!/usr/bin/env bash\ncase \"${PI_STUB_MODE:-}\" in\n  crash) echo 'RangeError: Invalid string length' >&2; exit 1 ;;\n  neverdict) echo nothing; exit 0 ;;\n  invalid) echo 'VERDICT: INVALID'; exit 0 ;;\n  *) echo 'VERDICT: VALID'; exit 0 ;;\nesac\n",
-			"utf-8",
-		);
-		chmodSync(pi, 0o755);
-		const script = resolve(
-			REPO_ROOT,
-			".pi/skills/audit-codeflow-analysis/scripts/validate-finding.sh",
-		);
-		const validate = (file: string, mode: string) =>
-			spawnSync("bash", [script, file, REPO_ROOT], {
-				cwd: REPO_ROOT,
-				encoding: "utf-8",
-				env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}`, PI_STUB_MODE: mode },
-			});
-
-		assert.strictEqual(validate(join(outDir, files[0]), "valid").status, 0);
-		assert.strictEqual(validate(join(outDir, files[1]), "invalid").status, 1);
-		assert.strictEqual(validate(join(outDir, files[2]), "neverdict").status, 3);
-		const crash = validate(join(outDir, files[3]), "crash");
-		assert.strictEqual(crash.status, 4);
-		assert.match(crash.stderr, /RangeError/);
-		// A crash is recovery, not answer-shopping: one retry is allowed.
-		assert.strictEqual(validate(join(outDir, files[3]), "valid").status, 0);
 
 		const list = runDryRun(["--list", "--report", fixture, "--json", join(dir, "absent.json")]);
 		assert.strictEqual(list.status, 0, list.stderr);
@@ -571,54 +438,6 @@ describe("dry-run triage routing (live 7-item architecture shape)", () => {
 		}
 	});
 
-	it("validate mode routes the metrics and spawns the validator once per bug-class item", () => {
-		const bin = join(dir, "arch-bin");
-		const log = join(dir, "arch-pi.log");
-		writePiStub(bin, log);
-		const r = runDryRun(
-			["--report", archFixture, "--json", join(dir, "absent.json"), "--limit", "10"],
-			{ PATH: `${bin}:${process.env.PATH ?? ""}` },
-		);
-		assert.strictEqual(r.status, 0, r.stderr);
-		const calls = piCallCount(log);
-		assert.strictEqual(calls, 4, `expected 4 validator runs, got ${calls}`);
-		const all = piLog(log);
-		assert.match(all, /157 Architecture Violations/);
-		assert.match(all, /4 Similar Code Blocks/);
-		assert.ok(!all.includes("75 Large Files"), "a metric must not be validated");
-		assert.ok(!all.includes("196 Highly Coupled"), "a metric must not be validated");
-		assert.ok(!all.includes("276 High Complexity Files"), "a metric must not be validated");
-		for (const title of ["75 Large Files", "196 Highly Coupled", "276 High Complexity Files"]) {
-			assert.match(r.stdout, new RegExp(`\\[chore\\] ${title}`));
-		}
-	});
-
-	it("validate mode spawns no validator for a metric-only report", () => {
-		const only = join(dir, "metric-only.md");
-		writeFileSync(
-			only,
-			[
-				"# CodeFlow Analysis Report",
-				"",
-				"## Architecture Issues",
-				"",
-				"### 75 Large Files",
-				`**Affected:** ${REAL_FILES.map((f, i) => `\`${f} (${46 - i} fns)\``).join(", ")}`,
-				"",
-			].join("\n"),
-			"utf-8",
-		);
-		const bin = join(dir, "metric-bin");
-		const log = join(dir, "metric-pi.log");
-		writePiStub(bin, log);
-		const r = runDryRun(["--report", only, "--json", join(dir, "absent.json")], {
-			PATH: `${bin}:${process.env.PATH ?? ""}`,
-		});
-		assert.strictEqual(r.status, 0, r.stderr);
-		assert.strictEqual(piCallCount(log), 0, "a metric must never reach a validator");
-		assert.match(r.stdout, /routed/i);
-	});
-
 	it("operator journey surfaces every item and discloses the missing JSON export", () => {
 		const outDir = join(dir, "journey-findings");
 		const args = ["--report", archFixture, "--json", join(dir, "absent.json")];
@@ -631,78 +450,25 @@ describe("dry-run triage routing (live 7-item architecture shape)", () => {
 		assert.match(list.stdout, /JSON export unavailable/);
 		assert.match(list.stdout, /partially unauditable/);
 
-		const bin = join(dir, "journey-bin");
-		const log = join(dir, "journey-pi.log");
-		writePiStub(bin, log);
-		const validate = runDryRun([...args, "--limit", "10"], {
-			PATH: `${bin}:${process.env.PATH ?? ""}`,
-		});
-		assert.strictEqual(validate.status, 0, validate.stderr);
-		assert.match(validate.stdout, /JSON export unavailable/);
-		assert.match(validate.stdout, /partially unauditable/);
-		assert.strictEqual(piCallCount(log), 4);
+		const draft = runDryRun([...args, "--limit", "10"]);
+		assert.strictEqual(draft.status, 0, draft.stderr);
+		assert.match(draft.stdout, /JSON export unavailable/);
+		assert.match(draft.stdout, /partially unauditable/);
+		assert.match(draft.stdout, /Would file 7 issue\(s\)/);
 	});
 });
 
-describe("dry-run validation-mode disclosure", () => {
+describe("dry-run default-mode disclosure", () => {
 	it("discloses a partially parsed section and lists its unparsed title", () => {
 		const partial = join(dir, "partial-validate.md");
 		writeFileSync(partial, PARTIAL_ARCH_FIXTURE, "utf-8");
-		const bin = join(dir, "partial-bin");
-		const log = join(dir, "partial-pi.log");
-		writePiStub(bin, log);
-		const r = runDryRun(["--report", partial, "--json", join(dir, "absent.json")], {
-			PATH: `${bin}:${process.env.PATH ?? ""}`,
-		});
+		const r = runDryRun(["--report", partial, "--json", join(dir, "absent.json")]);
 		assert.strictEqual(r.status, 0, r.stderr);
-		// Normal validation mode must surface the coverage shortfall, not just --list.
+		// Default mode must surface the coverage shortfall, not just --list.
 		assert.match(r.stdout, /Architecture Issues: 2 item\(s\), 1 candidate\(s\), 1 unparsed/);
 		assert.match(r.stdout, /Mystery Failure Mode/);
 		assert.match(r.stdout, /partially unauditable/);
 		assert.ok(!/UNREADABLE/.test(r.stdout), "a partial section must not be flagged unreadable");
-	});
-});
-
-describe("documented emit → validate loop", () => {
-	it("validates only issueType: bug findings from the emitted candidate set", () => {
-		const archFixture = join(dir, "documented-arch.md");
-		writeFileSync(archFixture, ARCH_FIXTURE, "utf-8");
-		const outDir = join(dir, "documented-findings");
-		const emit = runDryRun([
-			"--report",
-			archFixture,
-			"--json",
-			join(dir, "absent.json"),
-			"--emit-findings",
-			outDir,
-		]);
-		assert.strictEqual(emit.status, 0, emit.stderr);
-		// --emit-findings writes every candidate, triage-tagged.
-		assert.strictEqual(readdirSync(outDir).length, 7);
-
-		const bin = join(dir, "documented-bin");
-		const log = join(dir, "documented-pi.log");
-		writePiStub(bin, log);
-		// The exact Step 3 loop from SKILL.md: skip non-bug candidates.
-		const loop = [
-			`for f in ${outDir}/*.md; do`,
-			`  grep -q '^\\*\\*Issue type:\\*\\* bug$' "$f" || continue`,
-			`  bash "${VALIDATOR}" "$f" "${REPO_ROOT}" > "\${f%.md}.verdict" &`,
-			`  while [ "$(jobs -rp | wc -l)" -ge 4 ]; do wait -n; done`,
-			`done`,
-			`wait`,
-		].join("\n");
-		const r = spawnSync("bash", ["-c", loop], {
-			cwd: REPO_ROOT,
-			encoding: "utf-8",
-			env: { ...process.env, PATH: `${bin}:${process.env.PATH ?? ""}` },
-		});
-		assert.strictEqual(r.status, 0, r.stderr);
-		assert.strictEqual(piCallCount(log), 4, "only the 4 bug-class items may be validated");
-		const all = piLog(log);
-		assert.ok(!all.includes("75 Large Files"), "a metric must never reach a validator");
-		assert.ok(!all.includes("196 Highly Coupled"), "a metric must never reach a validator");
-		assert.ok(!all.includes("276 High Complexity Files"), "a metric must never reach a validator");
 	});
 });
 
@@ -779,4 +545,3 @@ describe("dry-run disposition routing (issue #1992)", () => {
 		assert.match(r.stdout, /self-check OK/);
 	});
 });
-

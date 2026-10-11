@@ -19,7 +19,6 @@ import { describe, it } from "node:test";
 import {
 	dedupeIssues,
 	classifyFinding,
-	classifyKnownNoise,
 	groupIssues,
 	hasStructuredFindings,
 	JSON_ONLY_CATEGORIES,
@@ -245,19 +244,16 @@ describe("parseReportJson full-category coverage", () => {
 		};
 		const facts = parseReportJson(JSON.stringify(report));
 		assert.strictEqual(facts.length, 9, "no item may be dropped");
-		assert.deepStrictEqual(
-			[...new Set(facts.map((f) => f.kind))].sort(),
-			[
-				"anti-pattern",
-				"architecture",
-				"dead-code",
-				"duplicate",
-				"layer-violation",
-				"pattern",
-				"security",
-				"suggestion",
-			],
-		);
+		assert.deepStrictEqual([...new Set(facts.map((f) => f.kind))].sort(), [
+			"anti-pattern",
+			"architecture",
+			"dead-code",
+			"duplicate",
+			"layer-violation",
+			"pattern",
+			"security",
+			"suggestion",
+		]);
 	});
 });
 
@@ -436,13 +432,9 @@ describe("parseReport (defensive)", () => {
 
 	it("treats a path-shaped edge as one edge, not two files", () => {
 		const facts = parseReport(
-			[
-				"## Architecture Issues",
-				"",
-				"### Edge",
-				"**Affected:** `src/a.ts → src/b.ts`",
-				"",
-			].join("\n"),
+			["## Architecture Issues", "", "### Edge", "**Affected:** `src/a.ts → src/b.ts`", ""].join(
+				"\n",
+			),
 		);
 		assert.deepStrictEqual(facts[0].targets, [tEdge("src/a.ts", "src/b.ts")]);
 		assert.deepStrictEqual(facts[0].files, []);
@@ -649,45 +641,6 @@ describe("dedupeIssues", () => {
 	});
 });
 
-describe("classifyKnownNoise", () => {
-	const fact = (kind: string, title: string, files: string[] = ["src/a.ts"]): IssueFact => ({
-		id: `${kind}:0`,
-		kind,
-		title,
-		targets: fileTargets(files),
-		files,
-	});
-
-	it("suppresses the LOW stylistic security categories, case/whitespace tolerant", () => {
-		for (const title of [
-			"LOW: Code Comments",
-			"low:  debug statements",
-			"LOW:CODE COMMENTS",
-			"  LOW: Debug   Statements  ",
-		]) {
-			assert.strictEqual(classifyKnownNoise(fact("security", title)), "suppress", title);
-		}
-	});
-
-	it("keeps every code-read security shape for the validator", () => {
-		for (const title of [
-			"HIGH: Hardcoded Secret",
-			"HIGH: SQL Injection Risk",
-			"HIGH: Shell Command Execution",
-			"MEDIUM: Command Execution",
-			"HIGH: Function Constructor",
-		]) {
-			assert.strictEqual(classifyKnownNoise(fact("security", title)), "keep", title);
-		}
-	});
-
-	it("keeps every non-security kind, including file-less suggestions", () => {
-		assert.strictEqual(classifyKnownNoise(fact("dead-code", "LOW: Code Comments", [])), "keep");
-		assert.strictEqual(classifyKnownNoise(fact("suggestion", "LOW: Debug Statements", [])), "keep");
-		assert.strictEqual(classifyKnownNoise(fact("architecture", "LOW: Code Comments")), "keep");
-	});
-});
-
 describe("reportSectionCoverage", () => {
 	it("flags a section that emits items but yields no candidates", () => {
 		// The live architecture shape pre-fix: every affected token carries an
@@ -734,12 +687,16 @@ describe("reportSectionCoverage", () => {
 		const edgeOnly = reportSectionCoverage(
 			"## Architecture Issues\n\n### Edge\n\n**Affected:** `utils → ui`\n",
 		);
-		assert.deepStrictEqual([edgeOnly[0].items, edgeOnly[0].candidates, edgeOnly[0].unparsedItems], [1, 1, 0]);
-
-		const refLess = reportSectionCoverage(
-			"## Architecture Issues\n\n### No ref\n\nprose\n",
+		assert.deepStrictEqual(
+			[edgeOnly[0].items, edgeOnly[0].candidates, edgeOnly[0].unparsedItems],
+			[1, 1, 0],
 		);
-		assert.deepStrictEqual([refLess[0].items, refLess[0].candidates, refLess[0].unparsedItems], [1, 0, 1]);
+
+		const refLess = reportSectionCoverage("## Architecture Issues\n\n### No ref\n\nprose\n");
+		assert.deepStrictEqual(
+			[refLess[0].items, refLess[0].candidates, refLess[0].unparsedItems],
+			[1, 0, 1],
+		);
 	});
 
 	it("reports the live 7-item architecture shape as 7 candidates", () => {
@@ -898,7 +855,6 @@ describe("triage policy is single-sourced", () => {
 	const read = (rel: string) => readFileSync(resolve(SKILL_DIR, rel), "utf-8");
 
 	it("drops the threshold clause and points at classifyFinding", () => {
-		assert.ok(!read("references/finding-validator.md").includes("size or count threshold"));
 		const skill = read("SKILL.md");
 		assert.ok(!skill.includes("JSON-only in practice"));
 		assert.ok(!skill.includes("expected, not a parser fault"));
@@ -950,11 +906,10 @@ describe("hasStructuredFindings — structured-export usability (issue #1992)", 
 	});
 
 	it("exposes the single list of markdown-invisible categories", () => {
-		assert.deepStrictEqual([...JSON_ONLY_CATEGORIES], [
-			"duplicate",
-			"layer-violation",
-			"suggestion",
-		]);
+		assert.deepStrictEqual(
+			[...JSON_ONLY_CATEGORIES],
+			["duplicate", "layer-violation", "suggestion"],
+		);
 	});
 
 	it("keeps the format-sniff contract: a stub still classifies as json", () => {
@@ -1077,7 +1032,10 @@ describe("classifyFinding — disposition (issue #1992)", () => {
 	});
 
 	it("assigns file-refactor to anti-patterns and every derived metric", () => {
-		assert.strictEqual(classifyFinding(fact("anti-pattern", "God Object")).disposition, "file-refactor");
+		assert.strictEqual(
+			classifyFinding(fact("anti-pattern", "God Object")).disposition,
+			"file-refactor",
+		);
 		for (const title of ["81 Large Files", "200 Highly Coupled", "285 High Complexity Files"]) {
 			const r = classifyFinding(fact("architecture", title));
 			assert.strictEqual(r.issueType, "chore", title);
@@ -1110,52 +1068,5 @@ describe("classifyFinding — disposition (issue #1992)", () => {
 			assert.ok(allowed.has(a.disposition), a.disposition);
 			assert.ok(a.reason.length > 0, `empty reason for ${f.kind}`);
 		}
-	});
-});
-
-describe("classifyKnownNoise — cross-language layer violations (issue #1992)", () => {
-	const lv = (files: string[]): IssueFact => ({
-		id: "layer-violation:0",
-		kind: "layer-violation",
-		title: "domain → ui",
-		targets: files.map(tFile),
-		files,
-	});
-
-	it("suppresses an edge whose endpoints cannot import each other", () => {
-		assert.strictEqual(classifyKnownNoise(lv(["src/a.ts", "ui/src/lib.rs"])), "suppress");
-		assert.strictEqual(classifyKnownNoise(lv(["src/a.ts", "src/b.py"])), "suppress");
-		assert.strictEqual(classifyKnownNoise(lv(["src/a.go", "src/b.sh"])), "suppress");
-	});
-
-	it("keeps same-family edges, including the .ts ↔ .js pair", () => {
-		assert.strictEqual(classifyKnownNoise(lv(["src/a.ts", "src/b.mts"])), "keep");
-		assert.strictEqual(classifyKnownNoise(lv(["src/a.ts", "src/b.js"])), "keep");
-	});
-
-	it("keeps one-file, file-less and unknown-extension edges (fail-safe)", () => {
-		assert.strictEqual(classifyKnownNoise(lv(["src/a.ts"])), "keep");
-		assert.strictEqual(classifyKnownNoise(lv([])), "keep");
-		assert.strictEqual(classifyKnownNoise(lv(["src/a.ts", "src/b.xyz"])), "keep");
-	});
-
-	it("is symmetric in file order and deterministic", () => {
-		const forward = lv(["src/a.ts", "src/b.rs"]);
-		const reverse = lv(["src/b.rs", "src/a.ts"]);
-		assert.strictEqual(classifyKnownNoise(forward), classifyKnownNoise(reverse));
-		assert.strictEqual(classifyKnownNoise(forward), classifyKnownNoise(forward));
-	});
-
-	it("leaves non-layer-violation kinds unchanged", () => {
-		assert.strictEqual(
-			classifyKnownNoise({
-				id: "security:0",
-				kind: "security",
-				title: "HIGH: X",
-				targets: [],
-				files: ["src/a.ts", "src/b.rs"],
-			}),
-			"keep",
-		);
 	});
 });
