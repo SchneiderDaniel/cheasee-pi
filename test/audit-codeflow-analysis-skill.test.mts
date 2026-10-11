@@ -94,7 +94,8 @@ describe("audit-codeflow-analysis SKILL.md", () => {
 
 	it("requires the false-positive note and codebase-improvement purpose in every issue", () => {
 		assert.match(body, /may be a false\s+positive/i);
-		assert.match(body, /improving the code base/i);
+		assert.match(body, /badly designed code/i);
+		assert.match(body, /should be\s+improved/i);
 	});
 });
 

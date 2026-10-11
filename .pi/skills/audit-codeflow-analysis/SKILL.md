@@ -237,8 +237,8 @@ the group's affected files as the scope and include:
 - the best-effort isolation note,
 - the `analyzedAt` of the report the finding came from,
 - the false-positive note: every issue body states the finding may be a false
-  positive and that the issue's purpose is improving the code base — not
-  chasing the CodeFlow score.
+  positive, but that it still indicates badly designed code that should be
+  improved.
 
 **Kind → issue type.** Scope is decided once, before any issue is drafted, by
 `classifyFinding` in `lib/report.ts` — that function is the single policy source.
@@ -343,7 +343,8 @@ report.
 - Every proposed issue cites at least one `target`: a file path, a layer edge
   (`utils → ui`), or a symbol (`execFn`), matching the candidate's identity. A
   file-less suggestion must reference the signal that produced it.
-- Every filed issue carries the false-positive note and states the issue's
-  purpose is improving the code base.
+- Every filed issue carries the false-positive note: the finding may be a
+  false positive, but it still indicates badly designed code that should be
+  improved.
 - No `gh issue create` ran before the `ask_user` answer.
 - Any issue that shares a file with another states that overlap.

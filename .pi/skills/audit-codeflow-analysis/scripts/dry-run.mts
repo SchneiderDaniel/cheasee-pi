@@ -53,7 +53,7 @@ function draftIssue(
 			"## Additional context",
 			`- Source: CodeFlow ${sourceLabel} finding \`${fact.id}\``,
 			`- Targets: ${cited}`,
-			"- This finding may be a false positive — confirm it against the cited code before fixing. The issue's aim is improving the code base, not chasing the analyzer score.",
+			"- This finding may be a false positive, but it still indicates badly designed code that should be improved. Confirm the claim against the cited code before fixing.",
 		].join("\n"),
 	};
 }
