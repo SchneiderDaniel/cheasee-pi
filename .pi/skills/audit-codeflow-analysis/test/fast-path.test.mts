@@ -127,6 +127,22 @@ describe("fast-path row 5 — command execution with an argv array and no shell"
 		);
 		assert.strictEqual(v, null);
 	});
+
+	it("defers when the argv-array executable is a shell interpreter", async () => {
+		for (const text of [
+			`spawn("sh", ["-c", userInput]);\n`,
+			`spawn("/bin/sh", ["-c", userInput]);\n`,
+			`execFile("bash", ["-c", userInput]);\n`,
+			`execFile("cmd.exe", ["/c", userInput]);\n`,
+		]) {
+			assert.strictEqual(await evaluateFastPath(finding, port({ readFile: () => text })), null, text);
+		}
+	});
+
+	it("defers when a non-shell executable still takes a shell -c flag", async () => {
+		const text = `spawn("some-wrapper", ["-c", userInput]);\n`;
+		assert.strictEqual(await evaluateFastPath(finding, port({ readFile: () => text })), null);
+	});
 });
 
 describe("fast-path row 11 — ambient/type-only declaration", () => {
@@ -286,6 +302,34 @@ describe("fast-path row 8 — declaration reached indirectly", () => {
 				grep: () => [
 					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
 					{ file: "src/b.ts", line: 4, text: "unused_helper();" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when a seam keyword sits in a trailing comment of a direct call", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/a.ts", line: 13, text: "unused_helper(); // register another handler" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when a seam keyword appears elsewhere on a direct-call line", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/a.ts", line: 13, text: "unused_helper(); registry.register(other);" },
 				],
 			}),
 		);

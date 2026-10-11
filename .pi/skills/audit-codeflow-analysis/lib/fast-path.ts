@@ -103,9 +103,18 @@ const SHELL_TRUE = /\bshell\s*:\s*true/;
 const EXEC_STRING = /\bexec(?:Sync)?\s*\(/;
 const EXEC_CALL = /\b(?:spawn|execFile)\s*\(/g;
 const ARGV_CALL = /\b(?:spawn|execFile)\s*\(\s*[^,()]{1,200}?,\s*\[/g;
-
-/** A callback/registration seam: the symbol is dispatched, not called by name. */
-const DISPATCH_SEAM = /\b(?:impl\s+\w+\s+for|dyn\s+[A-Z]|dispatch|register|wire)\b/;
+/**
+ * A shell interpreter named as the executable of a spawn/execFile call: an argv
+ * array still reaches a shell interpreter, which evaluates its own arguments.
+ * The optional path prefix is matched with `[^"']*` so no path separator appears
+ * in a literal (the repo-agnostic guard forbids one).
+ */
+const SHELL_EXECUTABLE = new RegExp(
+	`\\b(?:spawn|execFile)\\s*\\(\\s*["'][^"']*\\b(?:sh|bash|zsh|ksh|dash|ash|fish|csh|tcsh|cmd|powershell|pwsh|busybox)\\b`,
+	"i",
+);
+/** An argv array whose command flag makes a shell evaluate the following string. */
+const SHELL_FLAG_ARGV = new RegExp(`\\[\\s*["'](?:-c|${SLASH}c)["']`, "i");
 const DIRECT_CALL_AFTER = /^\s*\(/;
 const MEMBER_ACCESS_BEFORE = /[.:]{1,2}\s*$/;
 
@@ -329,6 +338,8 @@ const RULES: readonly Rule[] = [
 				calls += total;
 				// Conservative: a shell anywhere in the cited file defers it.
 				if (SHELL_TRUE.test(text) || EXEC_STRING.test(text)) return null;
+				// A shell interpreter or a `-c` command flag still evaluates its argument.
+				if (SHELL_EXECUTABLE.test(text) || SHELL_FLAG_ARGV.test(text)) return null;
 			}
 			return {
 				reason: `every spawn and execFile call in the cited file(s) takes an argv array and no shell: true is set, so no shell interprets a metacharacter`,
@@ -397,7 +408,7 @@ const RULES: readonly Rule[] = [
 				(m) => !declarationSites.has(`${m.file}:${m.line}`) && !isInk(m, symbol),
 			);
 			if (refs.length === 0) return null;
-			const seam = refs.find((m) => isValuePosition(m, symbol) || DISPATCH_SEAM.test(m.text));
+			const seam = refs.find((m) => isValuePosition(m, symbol));
 			if (!seam) return null;
 			return {
 				reason: `the symbol is referenced outside its declaration in value or argument position or through a dispatch seam, so the code is reached indirectly and is not dead`,
@@ -448,15 +459,31 @@ const RULES: readonly Rule[] = [
 	},
 ];
 
-/** True when the occurrence is a reference in value/argument position. */
+/**
+ * True when the occurrence is a structural reference in value or argument
+ * position — the symbol passed by name (`wire(handler)`, `{ handler }`) rather
+ * than called directly (`handler()`) or reached as a member (`x.handler`).
+ * Comment ink is stripped first, so a `register`/`dispatch` keyword in trailing
+ * prose cannot be mistaken for a dispatch seam.
+ */
 function isValuePosition(match: Match, symbol: string): boolean {
-	const idx = match.text.indexOf(symbol);
+	const code = stripComment(match.text);
+	const idx = code.indexOf(symbol);
 	if (idx < 0) return false;
-	const before = match.text.slice(0, idx);
-	const after = match.text.slice(idx + symbol.length);
+	const before = code.slice(0, idx);
+	const after = code.slice(idx + symbol.length);
 	if (DIRECT_CALL_AFTER.test(after)) return false;
 	if (MEMBER_ACCESS_BEFORE.test(before)) return false;
 	return true;
+}
+
+/** Drop any trailing line comment or block comment from one line of code. */
+function stripComment(line: string): string {
+	const code = stripStringLiterals(line);
+	const block = code.search(BLOCK_COMMENT);
+	const kept = block >= 0 ? code.slice(0, block) : code;
+	const lineComment = kept.search(LINE_COMMENT);
+	return lineComment >= 0 ? kept.slice(0, lineComment) : kept;
 }
 
 /**
