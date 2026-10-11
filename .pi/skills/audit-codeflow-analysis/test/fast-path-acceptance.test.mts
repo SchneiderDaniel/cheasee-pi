@@ -9,79 +9,35 @@
  * The snapshots are recorded fixture sets (candidate + the repo evidence the
  * rules would have read + the expected outcome), replayed through a faked
  * `RepoPort`. The second snapshot cannot be checked out in CI, so the recorded
- * replay is the CI form of the criterion; the "no VALID lost" LLM re-check stays
- * a documented run-time acceptance step (`manualAcceptance` in each fixture).
+ * replay is the CI form of the criterion. The "no VALID lost" LLM re-check is
+ * recorded with raw validator output in `fixtures/fast-path/llm-recheck.json`
+ * and independently re-verified here by `verifyArtifact`
+ * (`scripts/recheck-fast-path.mts`), which re-derives each sampled verdict and
+ * rejects a stale or VALID one.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/skills/audit-codeflow-analysis/test/fast-path-acceptance.test.mts
  */
 
 import assert from "node:assert";
+import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, it } from "node:test";
 
+import { FAST_PATH_RULES, evaluateFastPath } from "../lib/fast-path.ts";
 import {
-	FAST_PATH_RULES,
-	evaluateFastPath,
-	type Declaration,
-	type Match,
-	type RepoPort,
-} from "../lib/fast-path.ts";
-import type { IssueFact } from "../lib/report.ts";
+	loadArtifact,
+	replayPort,
+	verifyArtifact,
+	type RecheckSample,
+	type Snapshot,
+} from "../scripts/recheck-fast-path.mts";
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures", "fast-path");
 
-interface RecordedPort {
-	files?: Record<string, string>;
-	declarations?: Record<string, Declaration[]>;
-	grep?: Record<string, Match[]>;
-}
-
-interface Candidate {
-	finding: IssueFact;
-	port: RecordedPort;
-	expected: { verdict: "INVALID" | "defer"; row?: number; ruleId?: string; note?: string };
-}
-
-interface RecheckSample {
-	findingId: string;
-	row: number;
-	ruleId: string;
-	/** The LLM re-check verdict; a `VALID` here means a real bug was lost. */
-	llmVerdict: "INVALID" | "VALID";
-	rationale: string;
-}
-
-interface Recheck {
-	method: string;
-	sampled: RecheckSample[];
-	outcome: string;
-}
-
-interface Snapshot {
-	name: string;
-	provenance: string;
-	manualAcceptance: string;
-	sharedWith: string;
-	recheck: Recheck;
-	candidates: Candidate[];
-}
-
 function load(name: string): Snapshot {
 	return JSON.parse(readFileSync(resolve(FIXTURE_DIR, `${name}.json`), "utf-8")) as Snapshot;
-}
-
-/** Replay the recorded evidence as a `RepoPort`; missing evidence is absent. */
-function replayPort(record: RecordedPort): RepoPort {
-	const files = record.files ?? {};
-	const declarations = record.declarations ?? {};
-	const greps = record.grep ?? {};
-	return {
-		readFile: (path) => (path in files ? (files[path] as string) : null),
-		findDeclarations: (symbol) => declarations[symbol] ?? [],
-		grep: (pattern) => greps[pattern] ?? [],
-	};
 }
 
 const SNAPSHOTS = [load("snapshot-a"), load("snapshot-b")];
@@ -141,42 +97,51 @@ describe("fast-path acceptance — two unrelated snapshots", () => {
 		}
 	});
 
-	it("records a re-check result against sampled INVALID verdicts (no VALID lost)", async () => {
-		for (const snapshot of SNAPSHOTS) {
-			const recheck = snapshot.recheck;
-			assert.ok(recheck, `${snapshot.name} must record its re-check result, not only prose`);
-			assert.match(recheck.method, /LLM re-check/i);
-			assert.ok(recheck.sampled.length > 0, `${snapshot.name} must sample at least one verdict`);
-
-			// Every rule that fires on this snapshot must be covered by a sample.
-			const firedRules = new Set<string>();
-			for (const { finding, port } of snapshot.candidates) {
-				const verdict = await evaluateFastPath(finding, replayPort(port));
-				if (verdict) firedRules.add(verdict.ruleId);
-			}
-			const sampledRules = new Set(recheck.sampled.map((s) => s.ruleId));
-			for (const ruleId of firedRules) {
-				assert.ok(sampledRules.has(ruleId), `${snapshot.name}: rule ${ruleId} fired but was not re-checked`);
-			}
-
-			const candidates = new Map(snapshot.candidates.map((c) => [c.finding.id, c]));
-			for (const sample of recheck.sampled) {
-				const candidate = candidates.get(sample.findingId);
-				assert.ok(candidate, `${snapshot.name}: sampled finding ${sample.findingId} must exist`);
-				const verdict = await evaluateFastPath(candidate.finding, replayPort(candidate.port));
-				assert.ok(verdict, `${snapshot.name}: sampled finding ${sample.findingId} must be INVALID`);
-				assert.strictEqual(verdict.row, sample.row);
-				assert.strictEqual(verdict.ruleId, sample.ruleId);
-				// A `VALID` sample verdict means the fast path dropped a real bug.
-				assert.strictEqual(
-					sample.llmVerdict,
-					"INVALID",
-					`${snapshot.name}: ${sample.findingId} re-checked VALID — a real bug was lost`,
-				);
-				assert.ok(sample.rationale.length > 0, "a re-check sample must state its rationale");
-			}
-			assert.match(recheck.outcome, /no VALID lost/i);
+	it("verifies the recorded LLM re-check: every fired rule sampled, no VALID lost", async () => {
+		const artifact = loadArtifact();
+		const result = await verifyArtifact(artifact, SNAPSHOTS);
+		assert.ok(result.samples > 0, "the artifact must record at least one re-check");
+		assert.ok(result.rules > 0, "the artifact must cover at least one rule");
+		// Every recorded sample retains raw validator output, so the verdict is
+		// auditable rather than a bare fixture field.
+		for (const sample of artifact.samples) {
+			assert.match(sample.rawOutput, /^VERDICT:/m, `${sample.findingId} must retain raw validator output`);
 		}
+		for (const snapshot of SNAPSHOTS) {
+			assert.ok(
+				artifact.samples.some((s) => s.snapshot === snapshot.name),
+				`${snapshot.name} must be covered by the recorded re-check`,
+			);
+		}
+	});
+
+	it("rejects a tampered artifact (a VALID verdict, or lost raw output)", async () => {
+		const artifact = loadArtifact();
+		const valid = structuredClone(artifact);
+		(valid.samples[0] as RecheckSample).verdict = "VALID";
+		await assert.rejects(() => verifyArtifact(valid, SNAPSHOTS), /real bug was lost/);
+
+		const gutted = structuredClone(artifact);
+		(gutted.samples[0] as RecheckSample).rawOutput = "no verdict block here";
+		await assert.rejects(() => verifyArtifact(gutted, SNAPSHOTS), /raw validator output/);
+
+		const stale = structuredClone(artifact);
+		(stale.samples[0] as RecheckSample).ruleId = "phantom-symbol";
+		await assert.rejects(() => verifyArtifact(stale, SNAPSHOTS));
+	});
+
+	it("exposes the recorded re-check as a runnable --verify command", () => {
+		const res = spawnSync(
+			process.execPath,
+			[
+				"--experimental-strip-types",
+				resolve(import.meta.dirname, "..", "scripts", "recheck-fast-path.mts"),
+				"--verify",
+			],
+			{ encoding: "utf-8", cwd: resolve(import.meta.dirname, "..", "..", "..", "..") },
+		);
+		assert.strictEqual(res.status, 0, res.stderr);
+		assert.match(res.stdout, /no VALID recorded/);
 	});
 
 	for (const snapshot of SNAPSHOTS) {

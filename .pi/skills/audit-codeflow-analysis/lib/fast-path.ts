@@ -102,7 +102,13 @@ const COMMAND_EXEC_TITLE = /command\s*(?:execution|injection)|shell\s*(?:command
 const SHELL_TRUE = /\bshell\s*:\s*true/;
 const EXEC_STRING = /\bexec(?:Sync)?\s*\(/;
 const EXEC_CALL = /\b(?:spawn|execFile)\s*\(/g;
-const ARGV_CALL = /\b(?:spawn|execFile)\s*\(\s*[^,()]{1,200}?,\s*\[/g;
+/**
+ * A spawn/execFile call whose executable is a single string literal directly
+ * followed by an argv array. A variable, member access or concatenation in the
+ * executable slot may resolve to a shell interpreter at run time, so only this
+ * shape is safe to disprove the finding.
+ */
+const LITERAL_ARGV_CALL = /\b(?:spawn|execFile)\s*\(\s*["'][^"']*["']\s*,\s*\[/g;
 /**
  * A shell interpreter named as the executable of a spawn/execFile call: an argv
  * array still reaches a shell interpreter, which evaluates its own arguments.
@@ -114,7 +120,10 @@ const SHELL_EXECUTABLE = new RegExp(
 	"i",
 );
 /** An argv array whose command flag makes a shell evaluate the following string. */
-const SHELL_FLAG_ARGV = new RegExp(`\\[\\s*["'](?:-c|${SLASH}c)["']`, "i");
+const SHELL_FLAG_ARGV = new RegExp(
+	`\\[\\s*["'](?:-c|${SLASH}c|${SLASH}k|-command|-encodedcommand|-commandwithargs)["']`,
+	"i",
+);
 const DIRECT_CALL_AFTER = /^\s*\(/;
 const MEMBER_ACCESS_BEFORE = /[.:]{1,2}\s*$/;
 /** A type annotation or property-key colon right after a name (`name: T`). */
@@ -349,7 +358,10 @@ const RULES: readonly Rule[] = [
 				if (!text) return null;
 				const total = matchesOf(EXEC_CALL, text);
 				if (total === 0) return null;
-				if (matchesOf(ARGV_CALL, text) < total) return null;
+				// Every call must take a string-literal executable and an argv array.
+				// An unresolved executable (variable, member, concatenation) may be a
+				// shell interpreter, so it is not disproved this way and defers.
+				if (matchesOf(LITERAL_ARGV_CALL, text) < total) return null;
 				calls += total;
 				// Conservative: a shell anywhere in the cited file defers it.
 				if (SHELL_TRUE.test(text) || EXEC_STRING.test(text)) return null;
@@ -433,8 +445,13 @@ const RULES: readonly Rule[] = [
 			if (occurrences.some((m) => isShadowingBinding(m, symbol, declarationSites))) return null;
 			const refs = occurrences.filter((m) => !declarationSites.has(`${m.file}:${m.line}`));
 			if (refs.length === 0) return null;
-			const seam = refs.find((m) => isValuePosition(m, symbol));
-			if (!seam) return null;
+			// Every non-declaration occurrence must be a clear by-name reference. An
+			// occurrence that is neither a value-position operand nor a recognized
+			// binding (e.g. a parameter declared on its own line) may belong to a
+			// shadowing scope the line-local scan cannot see, so the reference is not
+			// attributable and the finding defers rather than guess.
+			if (refs.some((m) => !isValuePosition(m, symbol))) return null;
+			const seam = refs[0] as Match;
 			return {
 				reason: `the symbol is referenced outside its declaration in value or argument position or through a dispatch seam, so the code is reached indirectly and is not dead`,
 				evidence: `${seam.file}:${seam.line} — ${seam.text.trim()}`,

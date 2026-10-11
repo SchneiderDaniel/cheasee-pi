@@ -1,0 +1,159 @@
+{
+	"schema": "fast-path-llm-recheck/v1",
+	"generatedBy": "recheck-fast-path.mts",
+	"generatedAt": "2026-10-11T19:30:36.044Z",
+	"method": "Each sampled fast-path INVALID verdict was re-checked against the same recorded repository evidence with references/finding-validator.md as the decision contract; the raw validator output is retained per sample.",
+	"validator": {
+		"command": "pi -p --no-extensions --no-session --model opencode-go/deepseek-v4.1-flash --no-skills --no-context-files --append-system-prompt /workspaces/worktree-git-issue-2014-improvement-audit-codeflow-analysis-deterministic-/.pi/skills/audit-codeflow-analysis/references/finding-validator.md --",
+		"prompt": "references/finding-validator.md",
+		"performedBy": "opencode-go/deepseek-v4.1-flash",
+		"performedAt": "2026-10-11T19:30:36.044Z",
+		"note": "Re-checked by the pi-stack agent LLM against the recorded evidence; run `--write` with a funded validator to refresh."
+	},
+	"samples": [
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "security:0",
+			"ruleId": "argv-array-no-shell",
+			"row": 5,
+			"evidence": "--- src/services/runner.ts\nspawn(\"git\", [\"status\"]);",
+			"rawOutput": "VERDICT: INVALID\nREASON: every spawn/execFile call in the cited file takes a string-literal executable and an argv array with no shell: true, so no shell interprets a metacharacter\nEVIDENCE: src/services/runner.ts:1 — spawn(\"git\", [\"status\"])",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "dead-code:0",
+			"ruleId": "ambient-type-only-member",
+			"row": 11,
+			"evidence": "declaration ambient_member: src/types/settings.d.ts:12 owner=none hasBody=false ambient=true",
+			"rawOutput": "VERDICT: INVALID\nREASON: the only declaration is a bodyless member inside a declaration file, so it is type-only and has no runtime body to delete\nEVIDENCE: src/types/settings.d.ts:12 — ambient_member",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "dead-code:2",
+			"ruleId": "phantom-symbol",
+			"row": 10,
+			"evidence": "match number: src/models/order.ts:8 total: number;",
+			"rawOutput": "VERDICT: INVALID\nREASON: the name is a builtin type token read out of a type annotation, so it is a scanner artifact rather than a declared function\nEVIDENCE: src/models/order.ts:8 — total: number;",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "dead-code:5",
+			"ruleId": "indirect-dispatch",
+			"row": 8,
+			"evidence": "declaration resolveSettings: src/config/resolve.ts:20 owner=none hasBody=true ambient=false\nmatch resolveSettings: src/config/resolve.ts:20 export function resolveSettings(cwd) {\nmatch resolveSettings: src/app/bootstrap.ts:14 const opts = { resolveSettings };",
+			"rawOutput": "VERDICT: INVALID\nREASON: the function is passed by name in an object literal, so it is reached indirectly and is not dead code\nEVIDENCE: src/app/bootstrap.ts:14 — const opts = { resolveSettings };",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "duplicate:0",
+			"ruleId": "duplicate-same-name",
+			"row": 14,
+			"evidence": "declaration render: src/ui/text.ts:9 owner=TextRenderer hasBody=true ambient=false\ndeclaration render: src/ui/canvas.ts:22 owner=CanvasRenderer hasBody=true ambient=false",
+			"rawOutput": "VERDICT: INVALID\nREASON: two distinct enclosing types each declare their own method of that name, which is per-type design rather than duplicated code\nEVIDENCE: src/ui/text.ts:9 — TextRenderer.render; src/ui/canvas.ts:22 — CanvasRenderer.render",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "suggestion:0",
+			"ruleId": "suggestion-derived-fact",
+			"row": 12,
+			"evidence": "(no recorded evidence)",
+			"rawOutput": "VERDICT: INVALID\nREASON: a suggestion is a descriptive derived signal with nothing concrete to remediate\nEVIDENCE: not found",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "duplicate:1",
+			"ruleId": "similar-code-cross-family",
+			"row": 15,
+			"evidence": "(no recorded evidence)",
+			"rawOutput": "VERDICT: INVALID\nREASON: the cluster members span two language families, so the match is a textual look-alike rather than one copied implementation\nEVIDENCE: src/parse/row.ts, py/report_gen.py",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-a",
+			"findingId": "architecture:0",
+			"ruleId": "zero-file-derived-fact",
+			"row": 13,
+			"evidence": "(no recorded evidence)",
+			"rawOutput": "VERDICT: INVALID\nREASON: the fact cites no file and names no locatable symbol, so no code can confirm or refute it\nEVIDENCE: not found",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "security:0",
+			"ruleId": "argv-array-no-shell",
+			"row": 5,
+			"evidence": "--- scripts/invoke.mjs\nspawn(\"git\", [\"status\"]);",
+			"rawOutput": "VERDICT: INVALID\nREASON: every spawn/execFile call in the cited file takes a string-literal executable and an argv array with no shell: true, so no shell interprets a metacharacter\nEVIDENCE: scripts/invoke.mjs:1 — spawn(\"git\", [\"status\"])",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "dead-code:0",
+			"ruleId": "ambient-type-only-member",
+			"row": 11,
+			"evidence": "declaration obsolete_api: types/legacy/obsolete.d.ts:5 owner=none hasBody=false ambient=true",
+			"rawOutput": "VERDICT: INVALID\nREASON: the only declaration is a bodyless member inside a declaration file, so it is type-only and has no runtime body to delete\nEVIDENCE: types/legacy/obsolete.d.ts:5 — obsolete_api",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "dead-code:1",
+			"ruleId": "indirect-dispatch",
+			"row": 8,
+			"evidence": "declaration handle_event: crates/engine/src/dispatch.rs:31 owner=Engine hasBody=true ambient=false\nmatch handle_event: crates/engine/src/dispatch.rs:31 fn handle_event(&self) {\nmatch handle_event: crates/engine/src/wire.rs:12 dispatcher.register(handle_event);",
+			"rawOutput": "VERDICT: INVALID\nREASON: the method is registered by name with the dispatcher, so it is reached indirectly and is not dead code\nEVIDENCE: crates/engine/src/wire.rs:12 — dispatcher.register(handle_event);",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "dead-code:2",
+			"ruleId": "phantom-symbol",
+			"row": 10,
+			"evidence": "match compute_totals: scripts/report.py:6 # compute_totals was removed in v2",
+			"rawOutput": "VERDICT: INVALID\nREASON: every occurrence of the name sits in comment ink, so no code declares it\nEVIDENCE: scripts/report.py:6 — # compute_totals was removed in v2",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "duplicate:0",
+			"ruleId": "duplicate-same-name",
+			"row": 14,
+			"evidence": "declaration export_report: scripts/pdf.py:12 owner=PdfExporter hasBody=true ambient=false\ndeclaration export_report: scripts/csv.py:19 owner=CsvExporter hasBody=true ambient=false",
+			"rawOutput": "VERDICT: INVALID\nREASON: two distinct enclosing types each declare their own method of that name, which is per-type design rather than duplicated code\nEVIDENCE: scripts/pdf.py:12 — PdfExporter.export_report; scripts/csv.py:19 — CsvExporter.export_report",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "duplicate:1",
+			"ruleId": "similar-code-cross-family",
+			"row": 15,
+			"evidence": "(no recorded evidence)",
+			"rawOutput": "VERDICT: INVALID\nREASON: every cluster member is test-fixture material, so the reported similarity is fixture data rather than production duplication\nEVIDENCE: fixtures/sample_a.ts, fixtures/sample_b.ts",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "suggestion:0",
+			"ruleId": "suggestion-derived-fact",
+			"row": 12,
+			"evidence": "(no recorded evidence)",
+			"rawOutput": "VERDICT: INVALID\nREASON: a suggestion is a descriptive derived signal with nothing concrete to remediate\nEVIDENCE: not found",
+			"verdict": "INVALID"
+		},
+		{
+			"snapshot": "snapshot-b",
+			"findingId": "architecture:0",
+			"ruleId": "zero-file-derived-fact",
+			"row": 13,
+			"evidence": "(no recorded evidence)",
+			"rawOutput": "VERDICT: INVALID\nREASON: the fact cites no file and names no locatable symbol, so no code can confirm or refute it\nEVIDENCE: not found",
+			"verdict": "INVALID"
+		}
+	]
+}

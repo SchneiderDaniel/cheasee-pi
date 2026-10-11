@@ -254,6 +254,18 @@ describe("audit-codeflow-analysis SKILL.md — issue #2014 deterministic pre-fil
 		assert.match(validator, /did \*not\* disprove|never try to reproduce/i);
 		assert.match(validator, /only findings the deterministic pre-filter/i);
 	});
+
+	it("documents the recorded LLM re-check and its reproducible script", () => {
+		assert.match(body, /scripts\/recheck-fast-path\.mts/);
+		assert.match(body, /llm-recheck\.json/);
+		assert.match(body, /--verify/);
+		assert.ok(
+			existsSync(
+				resolve(ROOT, ".pi/skills/audit-codeflow-analysis/test/fixtures/fast-path/llm-recheck.json"),
+			),
+			"the recorded re-check artifact must exist",
+		);
+	});
 });
 
 describe("audit-codeflow-analysis SKILL.md — issue #1992 disposition routing", () => {

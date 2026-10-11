@@ -143,6 +143,31 @@ describe("fast-path row 5 — command execution with an argv array and no shell"
 		const text = `spawn("some-wrapper", ["-c", userInput]);\n`;
 		assert.strictEqual(await evaluateFastPath(finding, port({ readFile: () => text })), null);
 	});
+
+	it("defers when the executable is an unresolved variable or member", async () => {
+		for (const text of [
+			`const shell = process.env.SHELL; spawn(shell, ["-Command", userInput]);\n`,
+			`spawn(config.interpreter, ["-c", userInput]);\n`,
+			`execFile(getShell(), ["-c", userInput]);\n`,
+		]) {
+			assert.strictEqual(await evaluateFastPath(finding, port({ readFile: () => text })), null, text);
+		}
+	});
+
+	it("defers when the executable is a concatenation that could resolve to a shell", async () => {
+		const text = `spawn("p" + "wsh", ["-Command", userInput]);\n`;
+		assert.strictEqual(await evaluateFastPath(finding, port({ readFile: () => text })), null);
+	});
+
+	it("defers on a shell executable with a -Command or /k flag", async () => {
+		for (const text of [
+			`spawn("powershell", ["-Command", userInput]);\n`,
+			`execFile("pwsh", ["-EncodedCommand", payload]);\n`,
+			`spawn("cmd.exe", ["/k", userInput]);\n`,
+		]) {
+			assert.strictEqual(await evaluateFastPath(finding, port({ readFile: () => text })), null, text);
+		}
+	});
 });
 
 describe("fast-path row 11 — ambient/type-only declaration", () => {
@@ -355,6 +380,36 @@ describe("fast-path row 8 — declaration reached indirectly", () => {
 					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
 					{ file: "src/b.ts", line: 4, text: "const unused_helper = make();" },
 					{ file: "src/b.ts", line: 5, text: "  consume(unused_helper);" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when a shadowing parameter is declared on its own line", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/b.ts", line: 5, text: "  unused_helper: () => void," },
+					{ file: "src/b.ts", line: 7, text: "consume(unused_helper);" },
+				],
+			}),
+		);
+		assert.strictEqual(v, null);
+	});
+
+	it("defers when a bare parameter is declared on its own line", async () => {
+		const v = await evaluateFastPath(
+			fact(),
+			port({
+				findDeclarations: () => [decl({ line: 12 })],
+				grep: () => [
+					{ file: "src/a.ts", line: 12, text: "export function unused_helper() {" },
+					{ file: "src/b.ts", line: 5, text: "  unused_helper," },
+					{ file: "src/b.ts", line: 7, text: "consume(unused_helper);" },
 				],
 			}),
 		);

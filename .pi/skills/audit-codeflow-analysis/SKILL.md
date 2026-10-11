@@ -279,6 +279,16 @@ Disclose the split — `dry-run.mts` prints it as
 exactly the candidate count that reached the subagent — so the operator can see how
 much of the run the pre-filter settled without the model.
 
+Because a too-broad rule would drop a real finding before the subagent ever sees
+it, the no-valid-bug-lost direction is confirmed by an LLM re-check of a sample of
+the pre-filter's `INVALID` verdicts. That re-check is recorded with the raw
+validator output in `test/fixtures/fast-path/llm-recheck.json`;
+`scripts/recheck-fast-path.mts --write` regenerates it with the same validator
+prompt as `validate-finding.sh`, and `--verify` re-derives every sampled verdict,
+proves the sample covers every rule that fired, and fails on a missing raw output
+or a recorded `VALID`. Whenever a rule is added or narrowed, refresh the artifact
+and re-run `--verify`.
+
 The `3`/`4` split matters: `4` reached no verdict, so retrying it is recovery,
 not answer-shopping. Retry a `4` at most once; the retry is a fresh attempt at a
 verdict, and a retry that returns `0`/`1` is authoritative and is the verdict the
@@ -437,9 +447,12 @@ false, `2` for bad usage or a missing report.
   verdict-less, and no `VERDICT: VALID` came from the pre-filter. Each pre-filter
   verdict carries `RULE: <id> (known-fp row N)`, so a dropped finding is traceable
   to a documented mechanism row.
-- Manual, not CI: a run that turns on a rule for the first time re-checks a sample
-  of its `INVALID` verdicts with the subagent prompt. A rule that is too broad
-  would drop a real finding silently, and only that sample (plus the fail-open
-  direction of every rule) keeps the residual risk visible.
+- The no-valid-bug-lost direction is confirmed by the recorded LLM re-check:
+  `scripts/recheck-fast-path.mts --verify` re-derives every sampled `INVALID`
+  verdict, proves the sample covers every rule that fired on both snapshots, and
+  rejects a missing raw validator output or a recorded `VALID`. A rule that is too
+  broad would drop a real finding silently, and this re-check (plus the fail-open
+  direction of every rule) is what keeps that residual risk visible; the artifact
+  is under `test/fixtures/fast-path/llm-recheck.json`.
 - No `gh issue create` ran before the `ask_user` answer.
 - Any issue that shares a file with another states that overlap.
