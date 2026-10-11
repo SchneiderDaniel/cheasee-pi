@@ -479,7 +479,13 @@ const COUPLING_BASELINE = JSON.parse(
 	readFileSync(resolve(HERE, "fixtures", "coupling-baseline.json"), "utf-8"),
 ) as {
 	provenance: { filedCoupled: number };
-	before: { commit: string; files: number; functions: number; connections: number; coupled: number };
+	before: {
+		commit: string;
+		files: number;
+		functions: number;
+		connections: number;
+		coupled: number;
+	};
 	after: { commit: string; files: number; functions: number; connections: number; coupled: number };
 	reducedBy: string[];
 	callSiteOnly: string[];
@@ -549,5 +555,94 @@ describe("coupling metric oracle (issue #2002)", () => {
 
 		const produced = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
 		assert.strictEqual(produced.architectureIssues[0].title, title);
+	});
+});
+
+// ─── High-complexity-files oracle (issue #2003) ───────────────────
+// The pinned analyzer run needs the CodeFlow checkout and a `git archive` of
+// two commits, so the measurement itself stays out of this in-gate suite (the
+// mirror that enforces the `<= 30` per-sibling invariant lives in
+// `test/complexity-refactor-2003.test.mts`). This block replays the recorded
+// before/after on the immutable commits and guards the record's shape.
+const COMPLEXITY_BASELINE = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "complexity-baseline.json"), "utf-8"),
+) as {
+	provenance: { issue: number; ref: string; metric: string; filedCount: number };
+	before: { commit: string; files: number; complexityCount: number };
+	after: { commit: string; files: number; complexityCount: number };
+	reducedBy: string[];
+	deferred: { reason: string; files?: string[]; examples?: string[] }[];
+};
+
+describe("complexity metric oracle (issue #2003)", () => {
+	it("records a real drop between two immutable commits on the pinned analyzer", () => {
+		assert.strictEqual(COMPLEXITY_BASELINE.provenance.issue, 2003);
+		assert.strictEqual(
+			COMPLEXITY_BASELINE.provenance.filedCount,
+			202,
+			"the issue's filed count; the re-measured base differs once main advanced",
+		);
+		assert.match(COMPLEXITY_BASELINE.provenance.ref, /^[0-9a-f]{40}$/, "pinned analyzer ref");
+		assert.match(
+			COMPLEXITY_BASELINE.provenance.metric,
+			/critical/,
+			"the metric names the `critical` predicate",
+		);
+		for (const [side, ref] of [
+			["before", COMPLEXITY_BASELINE.before],
+			["after", COMPLEXITY_BASELINE.after],
+		] as const) {
+			assert.match(ref.commit, /^[0-9a-f]{40}$/, `${side}.commit must be an immutable commit`);
+		}
+		assert.notStrictEqual(
+			COMPLEXITY_BASELINE.after.commit,
+			COMPLEXITY_BASELINE.before.commit,
+			"before and after must be different snapshots",
+		);
+		assert.strictEqual(
+			COMPLEXITY_BASELINE.before.complexityCount,
+			216,
+			"the re-measured base on origin/main",
+		);
+		assert.ok(
+			COMPLEXITY_BASELINE.after.complexityCount < COMPLEXITY_BASELINE.before.complexityCount,
+			"the flagged-file count must fall",
+		);
+		assert.ok(
+			COMPLEXITY_BASELINE.after.files > COMPLEXITY_BASELINE.before.files,
+			"the split adds files; the drop is not from dropping files",
+		);
+	});
+
+	it("cites only existing, non-test-only reduction sources", () => {
+		assert.ok(COMPLEXITY_BASELINE.reducedBy.length > 0, "reducedBy must be non-empty");
+		for (const rel of COMPLEXITY_BASELINE.reducedBy) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing reduction source: ${rel}`);
+			assert.ok(
+				!rel.endsWith(".mts"),
+				`${rel} is test-only: the pinned analyzer never counts a .mts file`,
+			);
+		}
+	});
+
+	it("defers the Rust and embedded .sh/.js sets with reasons, and touches none of them", () => {
+		const deferred = COMPLEXITY_BASELINE.deferred;
+		assert.ok(deferred.length >= 2, "the Rust and .sh/.js deferrals are recorded");
+		for (const entry of deferred) {
+			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
+		}
+		const withFiles = deferred.filter((d) => (d.files ?? []).length > 0);
+		const rust = withFiles.find((d) => d.files!.every((f) => f.endsWith(".rs")));
+		const shellJs = withFiles.find((d) => d.files!.every((f) => /\.(sh|js|mjs)$/.test(f)));
+		assert.ok(rust, "the Rust set is recorded as deferred");
+		assert.ok(shellJs, "the embedded .sh/.js set is recorded as deferred");
+		assert.ok(rust.files!.length >= 8 && shellJs.files!.length >= 5);
+		for (const rel of [...rust.files!, ...shellJs.files!]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
+			assert.ok(
+				!COMPLEXITY_BASELINE.reducedBy.includes(rel),
+				`${rel} is both deferred and cited as reduced`,
+			);
+		}
 	});
 });
