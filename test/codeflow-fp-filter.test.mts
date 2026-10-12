@@ -1005,15 +1005,44 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 });
 
 describe("fp-filter — browser readFile source", () => {
-	it("resolves content from files[].content and returns null otherwise", () => {
+	it("reads files[].content, falls back to the served files[].piFpSource, else null", () => {
 		const fromData = readFileFrom({
-			files: [{ path: "a.ts", content: "export const a = 1;\n" }, { path: "b.ts" }],
+			files: [
+				{ path: "a.ts", content: "export const a = 1;\n" },
+				{ path: "b.ts" },
+				{ path: "c.ts", content: null, piFpSource: "export function c() {}\n" },
+				{ path: "d.ts", content: 7, piFpSource: "export function d() {}\n" },
+			],
 		});
 		assert.strictEqual(fromData("a.ts"), "export const a = 1;\n");
-		assert.strictEqual(fromData("b.ts"), null);
+		assert.strictEqual(
+			fromData("c.ts"),
+			"export function c() {}\n",
+			"freed content must fall back to the served piFpSource",
+		);
+		assert.strictEqual(fromData("d.ts"), "export function d() {}\n", "a non-string content must not block the fallback");
+		assert.strictEqual(fromData("b.ts"), null, "no retained source => null, so the filter fails open");
 		assert.strictEqual(fromData("missing.ts"), null);
 		assert.strictEqual(fromData(undefined), null);
 		assert.strictEqual(fromData("toString"), null, "prototype keys must not leak");
+	});
+
+	it("suppresses a dead function the served browser shape still references", () => {
+		// Exactly what the served page hands the filter: the analyzer has nulled
+		// every `content`, the index.html rewrite kept the text on `piFpSource`.
+		const data = {
+			files: [
+				{ path: "def.ts", content: null, piFpSource: "export function deadCall() {}\n" },
+				{ path: "use.ts", content: null, piFpSource: "function run() { deadCall(); }\n" },
+			],
+			stats: { functions: 2, dead: 1 },
+			deadFunctions: [{ name: "deadCall", file: "def.ts" }],
+		};
+
+		const { data: clean, suppressed } = sanitizeAnalysisData(data, readFileFrom(data));
+		assert.deepStrictEqual(suppressed.deadCode, [{ name: "deadCall", file: "def.ts" }]);
+		assert.deepStrictEqual(clean.deadFunctions, []);
+		assert.strictEqual(clean.stats.dead, 0);
 	});
 });
 

@@ -458,14 +458,23 @@
 
 	// --- entry point ---------------------------------------------------------
 
-	/** `readFile(path) -> content|null` over `files[].content`, for the browser. */
+	/**
+	 * `readFile(path) -> content|null` over the analyzer's retained file text, for
+	 * the browser. The analyzer frees each file's source (`f.content=null`) before
+	 * `generateReport` runs, so the served index.html is rewritten to stash the same
+	 * text on `files[].piFpSource` (see _UI_REWRITES in server.py); without it the
+	 * in-page filter has nothing to resolve references against and keeps every
+	 * finding. A path with neither field is absent, so the index stays incomplete
+	 * and the filter keeps the finding rather than guessing.
+	 */
 	function readFileFrom(data) {
 		var byPath = Object.create(null);
 		var files = data && Array.isArray(data.files) ? data.files : [];
 		for (var i = 0; i < files.length; i++) {
-			if (files[i] && typeof files[i].path === "string" && typeof files[i].content === "string") {
-				byPath[files[i].path] = files[i].content;
-			}
+			var file = files[i];
+			if (!file || typeof file.path !== "string") continue;
+			if (typeof file.content === "string") byPath[file.path] = file.content;
+			else if (typeof file.piFpSource === "string") byPath[file.path] = file.piFpSource;
 		}
 		return function (path) {
 			return typeof path === "string" && path in byPath ? byPath[path] : null;

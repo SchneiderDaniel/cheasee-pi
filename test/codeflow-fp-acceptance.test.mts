@@ -53,12 +53,13 @@ const CITED_DEAD = ["defaultIsWritable", "opened", "is_open", "reconnect_delay",
 const EXPECTED_HEALTH_SCORE = 93;
 
 const requireCjs = createRequire(import.meta.url);
-const { sanitizeAnalysisData, isFalsePositiveHygiene } = requireCjs(FILTER) as {
+const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCjs(FILTER) as {
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
 	) => { data: any; suppressed: { security: any[]; layerViolations: any[]; hygiene: any[]; deadCode: any[] } };
 	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
+	readFileFrom: (data: unknown) => (path: unknown) => string | null;
 };
 const { calcHealth } = (await import("./fixtures/codeflow-calc-health.mjs")) as {
 	calcHealth: (data: any) => { score: number; grade: string };
@@ -178,6 +179,34 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		const after = calcHealth(data);
 		assert.ok(after.score >= 90, `expected an A (>= 90), got ${after.score} (${after.grade})`);
 		assert.strictEqual(after.grade, "A");
+	});
+
+	// The served page does not read the filesystem, and its analyzer frees every
+	// file's source before `generateReport` runs. server.py rewrites that line to
+	// keep the text on `files[].piFpSource`, so the in-page filter resolves the
+	// same list the headless runner does. Replay that exact shape here: the filter
+	// gets no disk read, only the recorded paths and their retained source.
+	it("resolves the recorded dead list from the served browser shape", () => {
+		const recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
+		const readSource = makeRepoReadFile();
+		const served = {
+			...recorded,
+			files: recorded.files.map((f: { path: string }) => ({
+				path: f.path,
+				content: null,
+				piFpSource: readSource(f.path),
+			})),
+		};
+
+		const { data, suppressed } = sanitizeAnalysisData(served, readFileFrom(served));
+		for (const name of CITED_DEAD) {
+			assert.ok(
+				suppressed.deadCode.some((f: { name: string }) => f.name === name),
+				`${name} must be suppressed from the served browser shape`,
+			);
+			assert.ok(!deadNames(data).includes(name), `${name} must not survive as dead`);
+		}
+		assert.strictEqual(data.stats.dead, data.deadFunctions.length, "the count must agree with the list");
 	});
 
 	it("suppresses every LOW hygiene finding the recording carries", () => {

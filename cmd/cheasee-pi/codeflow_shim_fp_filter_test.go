@@ -56,6 +56,17 @@ assert pat.sub(lambda _: repl, out) == out, "not idempotent"
 raw = b"<script>no report function here</script>"
 assert pat.sub(lambda _: repl, raw) == raw, "anchor-free bytes altered: %r" % pat.sub(lambda _: repl, raw)
 
+# The analyzer frees each file's source before generateReport; the served page
+# must keep it on piFpSource so the in-page filter can resolve references.
+src_keep = [rw for rw in m["_UI_REWRITES"] if b"piFpSource" in rw[1]]
+assert len(src_keep) == 1, src_keep
+keep_pat, keep_repl = src_keep[0]
+freed = b"analyzed.forEach(function(f){f.content=null;});"
+kept = keep_pat.sub(lambda _: keep_repl, freed)
+assert kept == b"analyzed.forEach(function(f){f.piFpSource=f.content;f.content=null;});", kept
+assert keep_pat.sub(lambda _: keep_repl, kept) == kept, "source-keep rewrite not idempotent"
+assert keep_pat.sub(lambda _: keep_repl, b"nothing to keep here") == b"nothing to keep here", "anchor-free bytes altered"
+
 bridge = m["_BRIDGE_SCRIPT"]
 assert bridge.count(b"fp-filter.js") == 1, bridge
 assert bridge.count(b"codeflow-bridge.js") == 1, bridge

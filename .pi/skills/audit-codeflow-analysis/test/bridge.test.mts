@@ -352,6 +352,9 @@ describe("codeflow bridge capture", () => {
 		assert.match(py, /b' if \("deadFunctions" in __piFp\.data\) data\.deadFunctions = __piFp\.data\.deadFunctions;'/);
 		assert.match(py, /b' if \("issues" in __piFp\.data\) data\.issues = __piFp\.data\.issues;'/);
 		assert.match(py, /__piFpDead \+ " unused function\(s\)"/);
+		// Browser parity needs source: the analyzer frees `f.content`, so the served
+		// index.html keeps the text on `piFpSource` for the in-page filter.
+		assert.match(py, /f\.piFpSource=f\.content;f\.content=null;/);
 
 		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
 		assert.ok(existsSync(filterPath), "fp-filter.js must sit next to server.py");
@@ -409,7 +412,7 @@ describe("codeflow bridge capture", () => {
 				"{ severity: 'low', title: 'Debug Statements', code: '', path: 'docs/guide.md' }, " +
 				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/keep.ts' } ], layerViolations: [], " +
 				"stats: { dead: 1 }, " +
-				"files: [ { path: 'def.ts', content: 'export function deadCall() {}' }, { path: 'use.ts', content: 'deadCall();' } ], " +
+				"files: [ { path: 'def.ts', content: null, piFpSource: 'export function deadCall() {}' }, { path: 'use.ts', content: null, piFpSource: 'function run() { deadCall(); }' } ], " +
 				"deadFunctions: [ { name: 'deadCall', file: 'def.ts' } ], " +
 				"issues: [ { type: 'warning', title: '1 Unused Functions', items: [ { name: 'deadCall', file: 'def.ts' } ] } ] };\n" +
 				rewritten +

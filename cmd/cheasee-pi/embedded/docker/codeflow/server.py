@@ -748,6 +748,16 @@ _UI_REWRITES = (
     # Browser parity for the headless false-positive filter. A silent no-op when
     # upstream renames generateReport.
     _fp_rewrite(),
+    # The analyzer frees every file's source (`f.content=null`) before
+    # `generateReport` runs, leaving the in-page filter nothing to resolve
+    # references against (so it kept every dead-code finding). Keep the text under
+    # a private key; fp-filter.js::readFileFrom reads it. A silent no-op when
+    # upstream changes that line, in which case the filter fails open (keeps
+    # findings) rather than suppressing anything it cannot disprove.
+    (
+        re.compile(re.escape(b"analyzed.forEach(function(f){f.content=null;});")),
+        b"analyzed.forEach(function(f){f.piFpSource=f.content;f.content=null;});",
+    ),
     (re.compile(re.escape(b"repoSoft:300,repoMax:750")), b"repoSoft:10000,repoMax:10000"),
     # Hard-limit dialog: "Analyze a GitHub API sample?" — reachable only when a
     # workspace exceeds repoMax (>10000 files).
