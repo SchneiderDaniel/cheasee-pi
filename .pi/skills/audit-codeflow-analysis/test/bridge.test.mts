@@ -169,25 +169,15 @@ interface Harness {
 	sandbox: any;
 	/** The bridge's visible error banner, or null when no failure was shown. */
 	errorBanner(): FakeNode | null;
-	/** Run one poll tick of the bridge's auto-trigger interval. */
-	tick(): void;
-	/** Flush queued setTimeouts and settle the async capture microtasks. */
-	flushTimeouts(): Promise<void>;
-}
-
-/** Flush repeated auto-trigger ticks until the pending queue drains. */
-async function runAutoTrigger(h: Harness, ticks = 4): Promise<void> {
-	for (let i = 0; i < ticks; i++) {
-		h.tick();
-		await h.flushTimeouts();
-	}
+	/** Simulate the user picking a format from the served Export menu. */
+	exportAs(format: string): void;
+	/** Settle the async capture microtasks. */
+	settle(): Promise<void>;
 }
 
 function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Harness {
 	const posts: Post[] = [];
-	const timeouts: Array<() => void> = [];
 	const byId = new Map<string, FakeNode>();
-	let intervalCb: (() => void) | null = null;
 	let menuOpen = false;
 
 	const exportButton = new FakeNode(UI.button.tag, {
@@ -233,12 +223,6 @@ function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Har
 			posts.push({ url, body: String(init?.body ?? "") });
 			return fetch(new URL(url, base).href, init);
 		},
-		setInterval: (cb: () => void) => {
-			intervalCb = cb;
-		},
-		setTimeout: (cb: () => void) => {
-			timeouts.push(cb);
-		},
 		URL: {
 			createObjectURL: (_obj: unknown) => "blob:original",
 			revokeObjectURL: () => {},
@@ -252,9 +236,12 @@ function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Har
 		posts,
 		sandbox,
 		errorBanner: () => byId.get("codeflow-bridge-error") ?? null,
-		tick: () => intervalCb?.(),
-		flushTimeouts: async () => {
-			for (const cb of timeouts.splice(0)) cb();
+		exportAs: (format) => {
+			exportButton.click();
+			const idx = UI.options.findIndex((o) => o.format === format);
+			if (idx >= 0) menuItems[idx]?.click();
+		},
+		settle: async () => {
 			for (let i = 0; i < 4; i++) await Promise.resolve();
 		},
 	};
@@ -412,7 +399,11 @@ describe("codeflow bridge capture", () => {
 				"\n;globalThis.__out = generateReport('md');",
 			sandbox,
 		);
-		assert.strictEqual(sandbox.__out.securityIssues.length, 0, "const `data` must be filtered in place");
+		assert.strictEqual(
+			sandbox.__out.securityIssues.length,
+			0,
+			"const `data` must be filtered in place",
+		);
 		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
 
 		// A sanitizer error must fail closed, never fall through to unfiltered data,
@@ -461,7 +452,9 @@ describe("codeflow bridge capture", () => {
 
 	it("drives the served export flow and round-trips both formats byte-for-byte", async () => {
 		const h = runBridge(sink.base);
-		await runAutoTrigger(h);
+		h.exportAs("json");
+		h.exportAs("md");
+		await h.settle();
 		await waitForSink(sink.base);
 		const md = postsTo(h, "/api/analysis/report");
 		const json = postsTo(h, "/api/analysis/report.json");
@@ -480,7 +473,9 @@ describe("codeflow bridge capture", () => {
 
 	it("records a capture event and the POST result per format on the bridge-status route", async () => {
 		const h = runBridge(sink.base);
-		await runAutoTrigger(h);
+		h.exportAs("json");
+		h.exportAs("md");
+		await h.settle();
 		await waitForSink(sink.base);
 		await waitFor(
 			() =>
@@ -501,9 +496,6 @@ describe("codeflow bridge capture", () => {
 
 	it("ignores unrelated Blobs (worker source, raw JSON, plain text)", async () => {
 		const h = runBridge(sink.base);
-		h.tick();
-		await h.flushTimeouts();
-		h.posts.length = 0;
 		h.sandbox.URL.createObjectURL({
 			type: "text/javascript",
 			text: async () => "self.onmessage=function(){}",
@@ -585,8 +577,7 @@ describe("codeflow bridge capture", () => {
 	it("requires an architectureIssues array, not just the marker substring", async () => {
 		// A JSON body whose architectureIssues is not an array falls back to the
 		// marker rule; without the marker the shape rule rejects it entirely.
-		const withMarker =
-			'{"architectureIssues":"not-array","note":"# CodeFlow Analysis Report"}';
+		const withMarker = '{"architectureIssues":"not-array","note":"# CodeFlow Analysis Report"}';
 		const h = runBridge(sink.base, { withExportButton: false });
 		h.sandbox.URL.createObjectURL({ type: "text/plain", text: async () => withMarker });
 		for (let i = 0; i < 4; i++) await Promise.resolve();
@@ -619,9 +610,9 @@ describe("codeflow bridge capture", () => {
 		assert.strictEqual(capture.route, "/api/analysis/report.json");
 	});
 
-	it("does nothing when no export control is present", async () => {
-		const h = runBridge(sink.base, { withExportButton: false });
-		await runAutoTrigger(h);
+	it("posts nothing until the UI exports a report", async () => {
+		const h = runBridge(sink.base);
+		await h.settle();
 		assert.deepStrictEqual(h.posts, []);
 	});
 
@@ -631,7 +622,8 @@ describe("codeflow bridge capture", () => {
 		const failing = await startSink({ postStatus: 413 });
 		try {
 			const h = runBridge(failing.base);
-			await runAutoTrigger(h);
+			h.exportAs("json");
+			await h.settle();
 			await waitFor(() => h.errorBanner() !== null, "error banner");
 			const text = String(h.errorBanner()?.textContent ?? "");
 			assert.match(text, /HTTP 413/);
@@ -645,7 +637,8 @@ describe("codeflow bridge capture", () => {
 	it("surfaces a network failure (unreachable endpoint)", async () => {
 		// Port 1 is unbound: fetch rejects with a connection error.
 		const h = runBridge("http://127.0.0.1:1");
-		await runAutoTrigger(h);
+		h.exportAs("json");
+		await h.settle();
 		await waitFor(() => h.errorBanner() !== null, "error banner");
 		assert.match(String(h.sandbox.window.__codeflowBridgeError ?? ""), /unreachable/);
 	});
