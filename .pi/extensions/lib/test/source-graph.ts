@@ -137,3 +137,24 @@ export function declarersOf(dir: string, name: string): string[] {
 		.map((file) => basename(file))
 		.sort();
 }
+
+/** One module's edges, merged over several source files.
+ *  For pins that read a module the refactor split into siblings (issue #2005). */
+export function mergedGraphs(files: string[]): ModuleGraph {
+	const merged: ModuleGraph = {
+		specifiers: [],
+		importedNames: [],
+		starReExports: [],
+		namedReExports: [],
+		declarations: [],
+	};
+	for (const file of files) {
+		const graph = readGraph(file);
+		merged.specifiers.push(...graph.specifiers);
+		merged.importedNames.push(...graph.importedNames);
+		merged.starReExports.push(...graph.starReExports);
+		merged.namedReExports.push(...graph.namedReExports);
+		merged.declarations.push(...graph.declarations);
+	}
+	return merged;
+}

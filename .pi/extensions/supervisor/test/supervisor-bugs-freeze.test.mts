@@ -20,6 +20,15 @@ import { describe, it } from "node:test";
 import { readFileSync } from "node:fs";
 import type { ParsedAgent, AgentRunResult } from "../config/types.ts";
 
+/** The runner module as index.ts + the spawned-run sibling it was split into (#2005). */
+function runnerSource(): string {
+	return (
+		readFileSync(".pi/extensions/supervisor/agent/runner/index.ts", "utf-8") +
+		"\n" +
+		readFileSync(".pi/extensions/supervisor/agent/runner/spawned-run.ts", "utf-8")
+	);
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 1: Bug 2 — Missing `await` on subprocess fallback (agent-runner.ts:47)
 // ═══════════════════════════════════════════════════════════════════════
@@ -101,8 +110,8 @@ describe("Phase 1: Bug 2 — Missing await on subprocess fallback", () => {
 	});
 
 	it("1.4: runner source dispatches the subprocess fallback via runAgentSubprocess", () => {
-		// Implementation lives in runner/index.ts; runner.ts is a re-export stub.
-		const source = readFileSync(".pi/extensions/supervisor/agent/runner/index.ts", "utf-8");
+		// The spawned-run adapter was extracted verbatim into a sibling (#2005).
+		const source = runnerSource();
 		assert.ok(
 			source.includes("return runAgentSubprocess("),
 			"runAgent must dispatch the subprocess fallback",
@@ -113,7 +122,7 @@ describe("Phase 1: Bug 2 — Missing await on subprocess fallback", () => {
 		// Bug 2 fix (commit 4dd9298a): containment moved INTO runAgentSubprocess,
 		// so a synchronous throw from arg assembly is converted to a structured
 		// failure instead of escaping the caller.
-		const source = readFileSync(".pi/extensions/supervisor/agent/runner/index.ts", "utf-8");
+		const source = runnerSource();
 		assert.ok(
 			source.includes("Subprocess setup failed"),
 			"runAgentSubprocess must catch synchronous setup throws and return a failure result",

@@ -19,12 +19,13 @@ import type { RunContext } from "../pipeline/handler/shared.ts";
 import { createStageState, applyGateFailureContext } from "../pipeline/stages/index.ts";
 import type { StageState } from "../pipeline/stages/index.ts";
 import { ErrorCollector } from "../pipeline/error-collector.ts";
-import { readGraph } from "../../lib/test/source-graph.ts";
+import { mergedGraphs, readGraph } from "../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const HANDLER_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
+const HANDLER_HELPERS_TS = resolve(__dirname, "../pipeline/handler/agent-loop-helpers.ts");
 const HANDLER_STEPS_TS = resolve(__dirname, "../pipeline/handler/agent-loop-steps.ts");
 
 // runAgentLoop with the audit module mocked needs --experimental-test-module-mocks.
@@ -422,7 +423,9 @@ if (hasMockModule) {
 
 describe("Regression — gate wiring module-graph edges (Phase 5, Issue #787)", () => {
 	it("agent-loop.ts imports applyGateFailureContext through the stages barrel", () => {
-		const graph = readGraph(HANDLER_TS);
+		// The gate-wiring call site was extracted verbatim into the loop's helper
+		// sibling (issue #2005), so the module edge is read across both files.
+		const graph = mergedGraphs([HANDLER_TS, HANDLER_HELPERS_TS]);
 		assert.ok(
 			graph.importedNames.includes("applyGateFailureContext"),
 			"applyGateFailureContext imported from the stages barrel",

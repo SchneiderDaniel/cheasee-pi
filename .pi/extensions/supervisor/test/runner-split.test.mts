@@ -43,6 +43,7 @@ const MODULES = [
 	"cleanup.ts",
 	"ui.ts",
 	"event-loop.ts",
+	"spawned-run.ts",
 	"index.ts",
 ];
 
@@ -340,9 +341,11 @@ if (hasMockModule) {
 		});
 
 		it("dedup guard: neither runner inlines the preThinkingText capture", () => {
+			// Issue #2005 moved the line-handler factory to spawned-run.ts; the
+			// guard follows the handleNormalizedEvent call site.
 			const files = [
 				join(__dirname, "../agent/agent-session-runner.ts"),
-				join(RUNNER_DIR, "index.ts"),
+				join(RUNNER_DIR, "spawned-run.ts"),
 			];
 			for (const f of files) {
 				const src = readFileSync(f, "utf-8");

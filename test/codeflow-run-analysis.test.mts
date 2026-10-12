@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import { measureWorktree } from "./fixtures/long-file-mirror.mts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNNER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs");
@@ -752,6 +753,136 @@ describe("god object metric oracle (issue #2004)", () => {
 		assert.ok(
 			!GOD_OBJECT_BASELINE.reducedBy.includes(suite),
 			`${suite} is both deferred and cited as reduced`,
+		);
+	});
+});
+
+// ─── Long-file oracle (issue #2005) ────────────────────────────────
+// Same shape as the #2003/#2004 blocks above: the pinned analyzer run needs the
+// CodeFlow checkout and a `git archive` of two commits, so the measurement stays
+// out of this in-gate suite (the mirror that enforces the `<= 500` segment
+// invariant per sibling lives in `test/long-file-refactor-2005.test.mts`).
+// This block replays the recorded before/after and guards the record's shape.
+const LONG_FILE_BASELINE = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "long-file-baseline.json"), "utf-8"),
+) as {
+	provenance: {
+		issue: number;
+		ref: string;
+		metric: string;
+		filedCount: number;
+		filedAnalyzedAt: number;
+	};
+	before: { commit: string; files: number; longFileCount: number };
+	after: { commit: string; files: number; longFileCount: number };
+	reducedBy: string[];
+	deferred: { reason: string; files?: string[] }[];
+};
+
+describe("long file metric oracle (issue #2005)", () => {
+	it("records a real drop between two immutable commits on the pinned analyzer", () => {
+		assert.strictEqual(LONG_FILE_BASELINE.provenance.issue, 2005);
+		assert.strictEqual(
+			LONG_FILE_BASELINE.provenance.filedCount,
+			61,
+			"the issue's filed count; the re-measured base differs once main advanced",
+		);
+		assert.strictEqual(LONG_FILE_BASELINE.provenance.filedAnalyzedAt, 1791738325602);
+		assert.match(LONG_FILE_BASELINE.provenance.ref, /^[0-9a-f]{40}$/, "pinned analyzer ref");
+		assert.match(
+			LONG_FILE_BASELINE.provenance.metric,
+			/isCode !== false/,
+			"the metric names the `isCode` gate",
+		);
+		assert.match(
+			LONG_FILE_BASELINE.provenance.metric,
+			/lines > 500/,
+			"the metric names the exact predicate",
+		);
+		for (const [side, ref] of [
+			["before", LONG_FILE_BASELINE.before],
+			["after", LONG_FILE_BASELINE.after],
+		] as const) {
+			assert.match(ref.commit, /^[0-9a-f]{40}$/, `${side}.commit must be an immutable commit`);
+		}
+		assert.notStrictEqual(
+			LONG_FILE_BASELINE.after.commit,
+			LONG_FILE_BASELINE.before.commit,
+			"before and after must be different snapshots",
+		);
+		assert.ok(
+			LONG_FILE_BASELINE.after.longFileCount < LONG_FILE_BASELINE.before.longFileCount,
+			"the flagged-file count must fall",
+		);
+		assert.ok(
+			LONG_FILE_BASELINE.after.files > LONG_FILE_BASELINE.before.files,
+			"the split adds files; the drop is not from dropping files",
+		);
+	});
+
+	it("cites only existing, non-test-only reduction sources", () => {
+		assert.ok(LONG_FILE_BASELINE.reducedBy.length > 0, "reducedBy must be non-empty");
+		for (const rel of LONG_FILE_BASELINE.reducedBy) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing reduction source: ${rel}`);
+			assert.ok(
+				!rel.endsWith(".mts"),
+				`${rel} is test-only: the pinned analyzer never counts a .mts file`,
+			);
+		}
+	});
+
+	it("defers the Rust set and the embedded server.py, never omitting a leftover flag", () => {
+		const deferred = LONG_FILE_BASELINE.deferred;
+		assert.ok(deferred.length >= 2, "the Rust and server.py deferrals are recorded");
+		for (const entry of deferred) {
+			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
+		}
+		const withFiles = deferred.filter((d) => (d.files ?? []).length > 0);
+		const rust = withFiles.find((d) => d.files!.every((f) => f.endsWith(".rs")));
+		const serverPy = withFiles.find((d) => d.files!.every((f) => f.endsWith("server.py")));
+		assert.ok(rust, "the Rust set is recorded as deferred");
+		assert.ok(serverPy, "the embedded server.py is recorded as deferred");
+		assert.ok(rust.files!.length >= 8);
+		for (const rel of [...rust.files!, ...serverPy.files!]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
+			assert.ok(
+				!LONG_FILE_BASELINE.reducedBy.includes(rel),
+				`${rel} is both deferred and cited as reduced`,
+			);
+		}
+	});
+
+	it("names the record and the reference doc next to the fixture", () => {
+		for (const rel of [
+			"test/long-file-refactor-2005.test.mts",
+			".pi/skills/audit-codeflow-analysis/references/long-file-2005.md",
+		]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing register artifact: ${rel}`);
+		}
+	});
+
+	it("ties the recorded after envelope to the delivered tree", () => {
+		// Recompute the pinned predicate over the delivered tracked tree with the
+		// same mirror the per-sibling oracle uses, so the recorded count and the
+		// deferral list cannot drift from the source they describe.
+		const measured = measureWorktree(resolve(HERE, ".."));
+		assert.strictEqual(
+			measured.flagged.length,
+			LONG_FILE_BASELINE.after.longFileCount,
+			"after.longFileCount must equal the delivered tree's flagged files",
+		);
+		assert.strictEqual(
+			measured.codeFiles,
+			LONG_FILE_BASELINE.after.codeFiles,
+			"after.codeFiles must equal the delivered tree's scored files",
+		);
+		const recordedDeferrals = LONG_FILE_BASELINE.deferred
+			.flatMap((d) => d.files ?? [])
+			.sort();
+		assert.deepStrictEqual(
+			measured.flagged,
+			recordedDeferrals,
+			"every file still flagged in the delivered tree must be a recorded deferral",
 		);
 	});
 });

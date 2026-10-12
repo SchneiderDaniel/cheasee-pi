@@ -79,7 +79,10 @@ const TOUCHED: Record<string, string[]> = {
 		"cmd/cheasee-pi/init_clone_realgit_test.go",
 	],
 	"cmd/cheasee-pi/ui_e2e_test.go": ["cmd/cheasee-pi/ui_e2e_harness_test.go"],
-	"cmd/cheasee-pi/up_flow_test.go": ["cmd/cheasee-pi/up_flow_journey_test.go"],
+	"cmd/cheasee-pi/up_flow_test.go": [
+		"cmd/cheasee-pi/up_flow_journey_test.go",
+		"cmd/cheasee-pi/up_flow_container_test.go",
+	],
 	"cmd/cheasee-pi/up_orphans_test.go": [
 		"cmd/cheasee-pi/up_orphans_scan_test.go",
 		"cmd/cheasee-pi/up_orphans_claim_test.go",
