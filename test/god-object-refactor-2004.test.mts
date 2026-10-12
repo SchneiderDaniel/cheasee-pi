@@ -3,10 +3,11 @@
 // analyzer (`index.html` `detectPatterns`, ref below) emits it as
 //   godFiles = analyzed.filter(f => f.isCode !== false && f.functions.length > 15)
 // the *same* predicate behind the `N Large Files` architecture issue. The
-// mirrored `countFunctions` below reproduces the analyzer's headless parser
-// path (`Parser.extractOtherLanguages`) line-for-line, including the
-// cross-language RULES pass that also runs over `.go` (which is why
-// `codeflow_shim_test.go` counts 32, not its 21 `func` declarations).
+// shared mirror (`test/fixtures/function-count-mirror.mts`) reproduces the
+// analyzer's headless parser path (`Parser.extractOtherLanguages`)
+// line-for-line, including the cross-language RULES pass that also runs over
+// `.go` (which is why `codeflow_shim_test.go` counts 32, not its 21 `func`
+// declarations).
 //
 // A split only moves the metric when EVERY sibling lands `<= 15`. This test is
 // the in-gate oracle for that invariant; the recorded measurement (produced by
@@ -22,24 +23,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+	ANALYZER_REF,
+	CODE_EXTS,
+	countFunctions,
+	functionCountFlagged,
+} from "./fixtures/function-count-mirror.mts";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-
-/** The pinned analyzer ref the metric and the mirror were derived from. */
-const ANALYZER_REF = "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1";
-
-/** `index.html:1093` `Parser.codeExts` — `.mts` is absent by design. */
-const CODE_EXTS = [
-	".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi",
-	".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".cxx", ".h",
-	".hpp", ".hh", ".hxx", ".cs", ".swift", ".kt", ".kts", ".scala", ".sc",
-	".clj", ".cljs", ".cljc", ".ex", ".exs", ".erl", ".hrl", ".hs", ".lhs",
-	".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsi", ".fsx", ".ml",
-	".mli", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1",
-	".psd1", ".groovy", ".gvy", ".gradle", ".vba", ".bas", ".cls", ".xlsm",
-	".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr",
-	".inc",
-];
 
 /** Files this change split, and the siblings each split produced. */
 const TOUCHED: Record<string, string[]> = {
@@ -148,58 +140,6 @@ const PRODUCTION = new Set([
 	"cmd/cheasee-pi/identity_ports.go",
 ]);
 
-// ─── CodeFlow function-count mirror (Parser.extractOtherLanguages) ─
-
-const RULES: RegExp[] = [
-	/(?:public|private|protected|internal|static|final|override|virtual|abstract|async)\s+(?:(?:static|final|override|virtual|abstract|async)\s+)*(?:\w+\s+)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/,
-	/(?:suspend\s+)?fun\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]/,
-	/^\s*def\s+(?:self\s*\.\s*)?([a-zA-Z_][a-zA-Z0-9_]*[?!=]?)/,
-	/(?:pub\s+)?(?:async\s+)?fn\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]/,
-	/(?:public|private|protected|static)?\s*function\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/,
-	/^(?:static\s+)?(?:inline\s+)?(?:virtual\s+)?(?:\w+\s+)+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^;]*$/,
-	/(?:public|private|internal|fileprivate|open)?\s*(?:static\s+)?(?:class\s+)?func\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[<(]/,
-	/\bdef\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*[(\[]/,
-	/\bdefp?\s+([a-zA-Z_][a-zA-Z0-9_?!]*)/,
-	/(?:local\s+)?function\s+([a-zA-Z_][a-zA-Z0-9_.:]*)\s*\(/,
-	/(?:Public|Private|Friend)?\s*(?:Sub|Function)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/i,
-];
-const C_NEGATIVE = /^\s*(if|for|while|switch|return|sizeof|typeof)/;
-const GO_RULE = /^func\s+(?:\([^)]+\)\s*)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
-const PY_DEF = /^\s*(?:async\s+)?def\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
-const PY_CLASS = /^\s*class\s+([a-zA-Z_][a-zA-Z0-9_]*)/;
-
-/** Count functions exactly the way CodeFlow's headless analyzer does. */
-function countFunctions(src: string, ext: string): number {
-	const seen = new Set<string>();
-	const add = (name: string | undefined, line: number): void => {
-		if (name) seen.add(`${name}@${line}`);
-	};
-	src.split("\n").forEach((line, idx) => {
-		const lineNum = idx + 1;
-		let m: RegExpMatchArray | null;
-		if (ext === "go" && (m = line.match(GO_RULE))) add(m[1], lineNum);
-		if (ext === "py") {
-			if ((m = line.match(PY_DEF))) add(m[1], lineNum);
-			if ((m = line.match(PY_CLASS))) add(m[1], lineNum);
-			return;
-		}
-		RULES.forEach((rule, i) => {
-			if ((m = line.match(rule))) {
-				if (i === 5 && C_NEGATIVE.test(line)) return;
-				add(i === 9 ? m[1]!.split(/[.:]/).pop() : m[1], lineNum);
-			}
-		});
-	});
-	return seen.size;
-}
-
-/** The analyzer's `godFiles` predicate, including the `isCode` gate. */
-function isFlagged(src: string, rel: string): boolean {
-	const ext = rel.split(".").pop()!;
-	if (!CODE_EXTS.includes(`.${ext}`)) return false;
-	return countFunctions(src, ext) > 15;
-}
-
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf-8");
 
 // ─── The mirror mirrors the pinned detector ───────────────────────
@@ -213,9 +153,9 @@ describe("god-object refactor #2004 — the mirror is the pinned detector", () =
 		const mk = (n: number): string =>
 			Array.from({ length: n }, (_, i) => `export function f${i}() {}`).join("\n");
 		assert.equal(countFunctions(mk(15), "ts"), 15);
-		assert.equal(isFlagged(mk(15), "x.ts"), false, "15 functions must not be flagged");
+		assert.equal(functionCountFlagged(mk(15), "x.ts", 15), false, "15 functions must not be flagged");
 		assert.equal(countFunctions(mk(16), "ts"), 16);
-		assert.equal(isFlagged(mk(16), "x.ts"), true, "16 functions must be flagged");
+		assert.equal(functionCountFlagged(mk(16), "x.ts", 15), true, "16 functions must be flagged");
 	});
 
 	it("is not vacuous", () => {
@@ -227,8 +167,8 @@ describe("god-object refactor #2004 — the mirror is the pinned detector", () =
 	it("gates `.mts` out (absent from codeExts) but scores the same text as `.ts`", () => {
 		assert.equal(CODE_EXTS.includes(".mts"), false, "`.mts` is not a code ext");
 		const src = Array.from({ length: 16 }, (_, i) => `export function f${i}() {}`).join("\n");
-		assert.equal(isFlagged(src, "sample.mts"), false, "the .mts oracle is never itself scored");
-		assert.equal(isFlagged(src, "sample.ts"), true, "the same text as .ts is scored");
+		assert.equal(functionCountFlagged(src, "sample.mts", 15), false, "the .mts oracle is never itself scored");
+		assert.equal(functionCountFlagged(src, "sample.ts", 15), true, "the same text as .ts is scored");
 	});
 
 	it("runs the cross-language RULES pass over .go too", () => {
@@ -325,7 +265,7 @@ describe("god-object refactor #2004 — every file is under the metric", () => {
 			const src = read(rel);
 			const count = countFunctions(src, rel.split(".").pop()!);
 			assert.ok(count <= 15, `${rel} counts ${count} (ceiling 15)`);
-			assert.equal(isFlagged(src, rel), false, `${rel} is still flagged`);
+			assert.equal(functionCountFlagged(src, rel, 15), false, `${rel} is still flagged`);
 		});
 	}
 });
