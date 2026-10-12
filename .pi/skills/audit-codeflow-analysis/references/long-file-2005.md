@@ -46,8 +46,9 @@ node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
 node -e 'console.log(JSON.parse(require("fs").readFileSync("/tmp/out-before/report.json"))
   .patterns.find(p => p.name === "Long File").metrics.files)'
 
-# after: the last commit of this branch that changes scored code (7bcbeefd)
-git archive 7bcbeefdd873ab63e5fea644606dd84313e89b1e | tar -x -C /tmp/after
+# after: the branch tip (39e62d9e) — the last commit that changes scored code;
+# 7bcbeefd differs from it only by the register artifacts and EOF whitespace strips
+git archive 39e62d9e8d9026938aea356c3c4811e4348d3062 | tar -x -C /tmp/after
 node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
   /tmp/after <codeflow-ui> /tmp/out-after
 ```
@@ -67,12 +68,15 @@ recorded deferrals — so the envelope cannot drift from the delivered source.
 | | commit | tracked files | `Long File` |
 |---|---|---|---|
 | before | `4dcddf80` (`origin/main` after #2004) | 1194 | **35** |
-| after | `7bcbeefd` (last commit of this branch that changes scored code) | 1238 | **16** |
+| after | `39e62d9e` (branch tip) | 1239 | **16** |
 
-The commits after `7bcbeefd` add only register artifacts (this doc, the fixture,
-`test/fixtures/long-file-mirror.mts` and the oracle block); all are
-`.md`/`.json`/`.mts`, which the analyzer never scores as code, so the count and
-the flagged set are unchanged.
+The commits after the initial measurement (`7bcbeefd`) add only register
+artifacts (this doc, the fixture, `test/fixtures/long-file-mirror.mts` and the
+oracle block) plus `39e62d9e`'s EOF whitespace strips in nine split files — all
+`.md`/`.json`/`.mts` for the artifacts, and blank-line-only removals for the
+strips, which never add a segment. Every split file still lands `<= 500`
+segments, so the count and the flagged set are unchanged on every post-split
+commit.
 
 The issue was filed with **61** files at `analyzedAt 1791738325602`. The number
 had already fallen to 35 on the immutable base, because #2001 (Large Files),

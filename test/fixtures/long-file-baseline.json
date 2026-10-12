@@ -11,7 +11,7 @@
 		"filedCount": 61,
 		"baseCountNote": "the issue was filed with 61 files at analyzedAt 1791738325602 against the then-main. The immutable base below (origin/main after #2001/#2002/#2003/#2004) reports 35 flagged files: the earlier refactors already split part of the filed set. Acceptance is the drop on the delivered branch, not the filed number.",
 		"filesNote": "`files` is the snapshot's tracked-file count (`git ls-tree -r --name-only <commit> | wc -l`), a reproducible proxy for the analyzer's parsed-file count. Only its ordering matters here: `after.files > before.files` proves the drop did not come from deleting files.",
-		"afterTipNote": "the after snapshot is commit 7bcbeefd, the last commit of this branch that changes scored code. The commits after it touch only register artifacts — this fixture, `test/fixtures/long-file-mirror.mts`, the oracle block and the reference doc — which are `.json`/`.mts`/`.md`, none of which the analyzer scores as code, so the Long File count and the flagged set are identical. `after.files`/`after.codeFiles` are that commit's tracked/scored counts. The `long file metric oracle (issue #2005)` block in `test/codeflow-run-analysis.test.mts` recomputes the predicate over the delivered tree with the mirror in `test/fixtures/long-file-mirror.mts`, so this envelope cannot drift from the source it describes."
+		"afterTipNote": "the after snapshot is commit 39e62d9e, the branch tip and the last commit that changes scored code: `7bcbeefd` differs from it only by this fixture, the mirror, the oracle block, the reference doc and 39e62d9e's EOF whitespace strips in nine split files — `.json`/`.mts`/`.md` artifacts are never scored, and strips only remove blank lines, so the Long File count and the flagged set are identical on every post-split commit. `after.files`/`after.codeFiles` are the tip's tracked/scored counts. The `long file metric oracle (issue #2005)` block in `test/codeflow-run-analysis.test.mts` recomputes the predicate over the delivered tree with the mirror in `test/fixtures/long-file-mirror.mts`, so this envelope cannot drift from the source it describes."
 	},
 	"before": {
 		"ref": "origin/main",
@@ -22,8 +22,8 @@
 	},
 	"after": {
 		"ref": "worktree-git-issue-2005-refactor-long-file",
-		"commit": "7bcbeefdd873ab63e5fea644606dd84313e89b1e",
-		"files": 1238,
+		"commit": "39e62d9e8d9026938aea356c3c4811e4348d3062",
+		"files": 1239,
 		"longFileCount": 16,
 		"codeFiles": 694
 	},
