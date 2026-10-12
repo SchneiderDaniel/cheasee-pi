@@ -107,6 +107,20 @@ describe("ServerEntrySchema — runtime validation", () => {
 		);
 	});
 
+	it("accepts an arg containing newline and tab (valid argv bytes, audit regression)", () => {
+		assert.ok(
+			Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "ts-ls",
+				args: ["--stdio", "line1\nline2\tcol\n"],
+			}),
+		);
+		// NUL stays fatal — the positive control for this pattern.
+		assert.ok(
+			!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "ts-ls", args: ["ok\nbad\0"] }),
+		);
+	});
+
 	it("accepts a valid command with dashed args (positive control)", () => {
 		assert.ok(
 			Value.Check(ServerEntrySchema, {
@@ -301,6 +315,24 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 				assert.ok(mappings.some((m) => m.command === "pyright-langserver"));
 				assert.ok(mappings.some((m) => m.command === "rust-analyzer"));
 				assert.ok(mappings.some((m) => m.command === "gopls"));
+			},
+		);
+	});
+
+	it("multiline/tab arg survives settings loading (audit regression)", () => {
+		withTempSettings(
+			{
+				lspAuditor: {
+					servers: [
+						{ extensions: [".ts"], command: "custom-ts", args: ["--stdio", "a\nb\tc"] },
+					],
+				},
+			},
+			(worktree) => {
+				const settings = readSettings(worktree);
+				assert.ok(settings?.lspAuditor, "lspAuditor should be present");
+				const entry = settings!.lspAuditor!.servers![0]!;
+				assert.deepStrictEqual(entry.args, ["--stdio", "a\nb\tc"], "newline/tab arg must not be dropped");
 			},
 		);
 	});

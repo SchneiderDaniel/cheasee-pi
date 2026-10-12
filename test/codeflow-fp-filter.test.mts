@@ -115,6 +115,38 @@ const SOURCES: Record<string, string> = {
 		'import * as cp from "node:child_process";\n' +
 		"const run = cp.exec;\n" +
 		'export function go(cmd: string) { spawn("/usr/bin/pi", ["--version"], { shell: false }); run(cmd); }\n',
+	// Regression (audit): a computed member access (`cp["ex" + "ec"]`) names a
+	// child-process function the name-based scan cannot see. A safe dotted spawn
+	// beside it must not buy the file a suppression.
+	"src/computed-namespace.ts":
+		'import * as cp from "node:child_process";\n' +
+		'export function go(cmd: string) { cp.spawn("/usr/bin/pi", ["--version"], { shell: false }); cp["ex" + "ec"](cmd); }\n',
+	// Regression (audit): a computed access through a namespace alias is still a
+	// child-process member access the scan never resolves.
+	"src/computed-alias.ts":
+		'import * as cp from "node:child_process";\n' +
+		"const c = cp;\n" +
+		'export function go(cmd: string) { cp.spawn("/usr/bin/pi", ["--version"], { shell: false }); c["ex" + "ec"](cmd); }\n',
+	// Regression (audit): a require result indexed directly, with no bound name.
+	"src/computed-inline-require.ts":
+		'export function go(cmd: string) { require("node:child_process")["ex" + "ec"](cmd); }\n',
+	// Regression (audit): the require-destructuring rename form (`exec: run`) must
+	// register the shell member, so its call site is not invisible.
+	"src/renamed-exec.ts":
+		'const { exec: run } = require("node:child_process");\n' +
+		"export function go(cmd: string) { run(cmd); }\n",
+	// Regression (audit): optional chaining must not skip the scans — neither a
+	// computed member nor a dynamic program reached through `?.`.
+	"src/optional-computed.ts":
+		'import * as cp from "node:child_process";\n' +
+		'export function go(cmd: string) { cp.spawn("/usr/bin/pi", ["--version"], { shell: false }); cp?.["ex" + "ec"](cmd); }\n',
+	"src/optional-dynamic.ts":
+		'import * as cp from "node:child_process";\n' +
+		"export function go(request: { command: string; args: string[] }) { return cp?.spawn(request.command, request.args, { shell: false }); }\n",
+	// Regression (audit): a member reached through `.call` is not the scanned call.
+	"src/dotted-call.ts":
+		'import * as cp from "node:child_process";\n' +
+		'export function go(cmd: string) { cp.spawn.call(null, cmd, ["--version"], { shell: false }); }\n',
 	"src/shell-out.ts":
 		'import { execSync } from "node:child_process";\n' +
 		'export function run(cmd: string) { execSync("rm -rf " + cmd); }\n',
@@ -529,6 +561,62 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 
 	it("keeps a MEDIUM Command Execution with an aliased shell exec beside a safe spawn (regression)", () => {
 		assert.strictEqual(keepsSecurity(cmd("src/aliased-exec.ts")), true, "aliased exec() must survive");
+	});
+
+	it("keeps a MEDIUM Command Execution with a computed child-process member beside a safe spawn (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/computed-namespace.ts")),
+			true,
+			'cp["ex" + "ec"](cmd) is a member access the name scan cannot see',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with a computed member through a namespace alias (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/computed-alias.ts")),
+			true,
+			"an aliased namespace is still a child-process source",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with an inline computed require result (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/computed-inline-require.ts")),
+			true,
+			'require("node:child_process")["ex" + "ec"] is unproveable',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose shell exec is renamed by require destructuring (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/renamed-exec.ts")),
+			true,
+			"`const { exec: run } = require(...)` must register the shell member",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with a computed member reached through optional chaining (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/optional-computed.ts")),
+			true,
+			'cp?.["ex" + "ec"](cmd) is still a computed child-process member',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose dynamic program is reached through optional chaining (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/optional-dynamic.ts")),
+			true,
+			"cp?.spawn(dynamic, ...) must still be scanned",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose member is reached through `.call` (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/dotted-call.ts")),
+			true,
+			"cp.spawn.call(...) bypasses the argument scan",
+		);
 	});
 
 	it("keeps a MEDIUM Command Execution that shells out (positive control)", () => {

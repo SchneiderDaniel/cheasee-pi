@@ -362,7 +362,7 @@
 			for (var i = 0; i < parts.length; i++) {
 				var seg = parts[i].trim();
 				if (!seg) continue;
-				var asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(seg);
+				var asMatch = /^(\w+)(?:\s+as\s+|\s*:\s*)(\w+)$/.exec(seg);
 				if (asMatch) {
 					if (CP_MEMBERS[asMatch[1]]) members[asMatch[2]] = asMatch[1];
 				} else if (/^\w+$/.test(seg) && CP_MEMBERS[seg]) {
@@ -397,6 +397,7 @@
 				if (m[2] && members[m[2]]) members[m[1]] = members[m[2]];
 				else if (m[3] && m[4] && CP_MEMBERS[m[4]]) members[m[1]] = m[4];
 				else if (m[5] && members[m[5]]) members[m[1]] = members[m[5]];
+				else if (m[5] && namespaces[m[5]]) namespaces[m[1]] = true;
 			}
 			re = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(\w+)\s*[;,\n]/g;
 			while ((m = re.exec(code)) !== null) {
@@ -423,7 +424,10 @@
 
 	/** The call pattern for a bare (non-namespaced) member name. */
 	function callRegex(name) {
-		return new RegExp("(?:^|[^\\w$.])" + escapeRe(name) + "\\s*(?:<[^<>]*>)?\\s*\\(", "g");
+		return new RegExp(
+			"(?:^|[^\\w$.])" + escapeRe(name) + "\\s*(?:<[^<>]*>)?\\s*(?:\\?\\.\\s*)?\\(",
+			"g"
+		);
 	}
 
 	// Strip a trailing type assertion (`args as string[]`) before the test; it
@@ -461,10 +465,43 @@
 		);
 	}
 
+	// A computed member access names a child-process function the name-based scan
+	// can never see: `cp["ex" + "ec"](cmd)`, `cp[method]`, or
+	// `require("node:child_process")["exec"](cmd)`. Reaching a member through
+	// `.call`/`.apply` (`cp.spawn.call(...)`) likewise escapes the argument scan.
+	// Both are unproveable, so the file keeps its finding (fail closed).
+	// Over-detection only ever denies a suppression.
+	function hasComputedChildProcessAccess(code, cp) {
+		var i;
+		var namespaces = Object.keys(cp.namespaces);
+		for (i = 0; i < namespaces.length; i++) {
+			if (
+				new RegExp("(?:^|[^\\w$.])" + escapeRe(namespaces[i]) + "\\s*(?:\\?\\.)?\\s*\\[").test(
+					code,
+				)
+			)
+				return true;
+		}
+		if (/(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*(?:\?\.)?\s*\[/.test(code))
+			return true;
+		var members = Object.keys(cp.members);
+		for (i = 0; i < CP_NAMES.length; i++) members.push(CP_NAMES[i]);
+		for (i = 0; i < members.length; i++) {
+			if (
+				new RegExp(
+					"(?:^|[^\\w$])" + escapeRe(members[i]) + "\\s*(?:\\?\\.)?\\s*\\.\\s*(?:call|apply)\\s*\\(",
+				).test(code)
+			)
+				return true;
+		}
+		return false;
+	}
+
 	// Every child-process call in the file must prove argv-safe; a bare name, a
 	// registered alias, or a known namespace member all count as a call site.
 	function everyChildProcessCallIsSafe(code, bindings) {
 		var cp = childProcessBindings(code);
+		if (hasComputedChildProcessAccess(code, cp)) return false;
 		var names = Object.create(null);
 		var i;
 		for (i = 0; i < CP_NAMES.length; i++) names[CP_NAMES[i]] = true;
@@ -490,7 +527,7 @@
 		var namespaceNames = Object.keys(cp.namespaces);
 		for (i = 0; i < namespaceNames.length && safe; i++) {
 			var nsRe = new RegExp(
-				escapeRe(namespaceNames[i]) + "\\s*\\.\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
+				escapeRe(namespaceNames[i]) + "\\s*(?:\\?\\.|\\.)\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
 				"g"
 			);
 			var mm;
