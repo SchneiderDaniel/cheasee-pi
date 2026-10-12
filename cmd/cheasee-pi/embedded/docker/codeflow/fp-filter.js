@@ -11,12 +11,12 @@
 //      (different languages, no import edge) or whose claimed layer is not the
 //      one the report itself assigns the file.
 //
-// Only HIGH severity security findings are considered, plus one narrow MEDIUM
-// shape: a `Command Execution` hit whose cited file runs an argv-array
-// invocation and no shell-executing call (no `exec`/`execSync`, no `shell`
-// option other than `false`, no `-c` argv). The remaining LOW/MEDIUM shapes
-// (code comments, debug statements) are left in the report for the audit skill
-// to triage.
+// Only HIGH severity security findings are considered. MEDIUM findings — even
+// `Command Execution` — are left in the report for the audit skill to triage:
+// they cite a whole file with no snippet, and no file-wide regex can prove the
+// flagged invocation is an argv-array spawn (an aliased or dynamically-named
+// `exec` beside a safe `spawn` is invisible to it), so suppressing them would
+// risk hiding a real shell-command execution. Fail closed.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
@@ -49,10 +49,6 @@
 
 	function isHigh(issue) {
 		return typeof issue.severity === "string" && issue.severity.toLowerCase() === "high";
-	}
-
-	function isMedium(issue) {
-		return typeof issue.severity === "string" && issue.severity.toLowerCase() === "medium";
 	}
 
 	function countHigh(issues) {
@@ -153,35 +149,12 @@
 		return false;
 	}
 
-	// A `Command Execution` MEDIUM hit cites a whole file (`code: ""`), so the
-	// snippet carries no evidence. Two guards must both hold before it is
-	// dropped:
-	//
-	//   1. the file must contain a real argv-array invocation — a spawn/execFile
-	//      family call that actually receives a program and a second (argv)
-	//      argument. Matching the call *shape*, not the callee's name, keeps a
-	//      helper definition or a bare `spawn()` from masking a real finding.
-	//   2. the file must contain no shell-executing call: a bare `exec(...)` (a
-	//      shell out, even beside a safe spawn), `execSync(...)`, any `shell`
-	//      option other than `false`, or a `-c` flag argv (how `bash -c`
-	//      appears).
-	//
-	// The program argument is a string literal at the flagged call sites; the
-	// fixed seam passes an `argvCommand`-validated variable, so an identifier
-	// program is accepted once guard 2 proves the file runs no shell. Absence of
-	// a read is not proof, so an unreadable file keeps the finding.
-	var SHELL_CALL = /\bexec\s*\(|execSync\s*\(|shell\s*:\s*(?!false\b)\S|["'`]-c["'`]/;
-	var ARGV_INVOCATION =
-		/(?:spawn|execfile)[\w$]*\s*\(\s*(?:["'`][^"'`]*["'`]|[A-Za-z_$][\w$.]*)\s*,\s*(?:\[|[A-Za-z_$][\w$.]*)/i;
-
-	function isMediumCommandExecution(issue, readFile) {
-		if (!isMedium(issue)) return false;
-		if (String(issue.title).trim() !== "Command Execution") return false;
-		var content = readFile ? readFile(issue.path) : null;
-		if (typeof content !== "string") return false;
-		if (SHELL_CALL.test(content)) return false;
-		return ARGV_INVOCATION.test(content);
-	}
+	// A MEDIUM `Command Execution` hit cites a whole file (`code: ""`), so the
+	// snippet carries no evidence of the invocation. No file-wide regex can prove
+	// every child-process call is an argv-array spawn — `spawn(request.command,
+	// args)` and an aliased shell `exec` beside a safe `spawn` both defeat it —
+	// so a MEDIUM finding is never suppressed. Fail closed rather than hide a real
+	// shell-command execution; the audit triage owns these.
 
 	/**
 	 * True when a security finding must not be emitted.
@@ -190,7 +163,7 @@
 	 */
 	function isFalsePositiveSecurity(issue, readFile) {
 		if (!issue || typeof issue !== "object") return false;
-		if (!isHigh(issue)) return isMediumCommandExecution(issue, readFile);
+		if (!isHigh(issue)) return false;
 		var code = codeOf(issue);
 		if (code.trim() === "") return true;
 		if (isCommentOnly(code)) return true;

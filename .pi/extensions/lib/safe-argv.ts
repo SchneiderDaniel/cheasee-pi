@@ -52,13 +52,20 @@ export function assertNoShell<T extends object>(options: T | undefined): T & { s
 	return { ...opts, shell: false } as T & { shell: false };
 }
 
-/** Reject control bytes in env keys/values (Node throws ERR_INVALID_ARG_VALUE for NUL). */
+/**
+ * NUL only — the one byte Node rejects in an env entry. Newlines and tabs are
+ * legitimate values (a multiline PEM credential), so rejecting all C0 controls
+ * here would break a valid supervisor launch.
+ */
+const NUL = /\u0000/;
+
+/** Reject NUL in env keys/values (Node throws ERR_INVALID_ARG_VALUE); other bytes pass. */
 export function assertSafeEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
 	for (const key of Object.keys(env)) {
-		if (CONTROL_CHARS.test(key)) fail(`env.${key}`, "must not contain control characters");
+		if (NUL.test(key)) fail(`env.${key}`, "must not contain NUL");
 		const value = env[key];
-		if (typeof value === "string" && CONTROL_CHARS.test(value)) {
-			fail(`env.${key}`, "must not contain control characters");
+		if (typeof value === "string" && NUL.test(value)) {
+			fail(`env.${key}`, "must not contain NUL");
 		}
 	}
 	return env;

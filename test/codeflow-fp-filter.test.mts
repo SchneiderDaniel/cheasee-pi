@@ -56,19 +56,16 @@ const SOURCES: Record<string, string> = {
 	"ui/src/tool_card.rs": "pub fn card() {}\n",
 	"src/spawn.ts": "export function run() { spawn(); }\n",
 	"src/config.ts": "export const config = load();\n",
+	// Counterexamples the removed MEDIUM rule got wrong: a dynamic program and an
+	// aliased shell `exec` beside a safe `spawn`. Both must keep the finding.
 	"src/argv-safe.ts":
 		'export function run() { spawn("/usr/bin/pi", args, { shell: false }); }\n',
 	"src/shell-out.ts":
 		'export function run(cmd: string) { execSync("rm -rf " + cmd); }\n',
-	"src/shell-true.ts":
-		'export function run(cmd: string) { spawn("bash", [cmd], { shell: true }); }\n',
-	// A safe argv-array spawn next to a shell `exec()` — the suppression must
-	// not be triggered by the safe call, or the real finding vanishes.
-	"src/mixed.ts":
-		'export function run(cmd: string) { spawn("/usr/bin/pi", [cmd]); exec(cmd); }\n',
-	// A file whose only `spawn` token is a helper definition or a bare
-	// argument-less call is not evidence of a shell-free argv invocation.
-	"src/helper.ts": "export function spawnHelper(input: string) { return input; }\n",
+	"src/dynamic-command.ts":
+		'export function run(request: { command: string; args: string[] }) { spawn(request.command, request.args); }\n',
+	"src/aliased-exec.ts":
+		'const run = childProcess.exec;\nexport function go(cmd: string) { spawn("/usr/bin/pi", ["--version"]); run(cmd); }\n',
 };
 
 const readFile = (path: unknown): string | null =>
@@ -262,17 +259,19 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 	});
 });
 
-describe("fp-filter — MEDIUM Command Execution argv-array rule", () => {
-	it("suppresses a MEDIUM Command Execution citing a file with only argv-array spawns", () => {
+describe("fp-filter — MEDIUM findings are never suppressed (fail closed)", () => {
+	it("keeps a MEDIUM Command Execution whose file runs an argv-array spawn", () => {
+		// A file-wide regex cannot prove the invocation safe — the whole-file
+		// finding is left for the audit triage, not silently dropped.
 		assert.strictEqual(
 			keepsSecurity(
 				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/argv-safe.ts" }),
 			),
-			false,
+			true,
 		);
 	});
 
-	it("keeps a MEDIUM Command Execution whose file shells out (positive control)", () => {
+	it("keeps a MEDIUM Command Execution that shells out (positive control)", () => {
 		assert.strictEqual(
 			keepsSecurity(
 				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/shell-out.ts" }),
@@ -280,62 +279,25 @@ describe("fp-filter — MEDIUM Command Execution argv-array rule", () => {
 			true,
 			"execSync must survive",
 		);
-		assert.strictEqual(
-			keepsSecurity(
-				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/shell-true.ts" }),
-			),
-			true,
-			"shell:true must survive",
-		);
 	});
 
-	it("keeps a MEDIUM Command Execution when a safe spawn sits beside a shell exec (regression)", () => {
-		// The old rule suppressed on the mere presence of a `spawn` name, so a
-		// real `exec(cmd)` in the same file disappeared from the report.
+	it("keeps a MEDIUM Command Execution with a dynamic program (regression)", () => {
+		// `spawn(request.command, args)` — executable provenance is not provable.
 		assert.strictEqual(
 			keepsSecurity(
-				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/mixed.ts" }),
-			),
-			true,
-			"exec() must survive even beside a safe argv spawn",
-		);
-	});
-
-	it("keeps a MEDIUM Command Execution when the only `spawn` token is not an argv invocation", () => {
-		assert.strictEqual(
-			keepsSecurity(
-				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/helper.ts" }),
-			),
-			true,
-			"a helper definition is not an argv-array invocation",
-		);
-	});
-
-	it("keeps a MEDIUM finding with another title", () => {
-		assert.strictEqual(
-			keepsSecurity(
-				sec({
-					severity: "medium",
-					title: "Function Constructor",
-					code: "",
-					path: "src/argv-safe.ts",
-				}),
+				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/dynamic-command.ts" }),
 			),
 			true,
 		);
 	});
 
-	it("keeps the finding when the cited file cannot be read (absence is not proof)", () => {
+	it("keeps a MEDIUM Command Execution with an aliased shell exec beside a safe spawn (regression)", () => {
 		assert.strictEqual(
 			keepsSecurity(
-				sec({
-					severity: "medium",
-					title: "Command Execution",
-					code: "",
-					path: "does/not/exist.ts",
-				}),
+				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/aliased-exec.ts" }),
 			),
 			true,
+			"aliased exec() must survive beside a safe argv spawn",
 		);
 	});
 });

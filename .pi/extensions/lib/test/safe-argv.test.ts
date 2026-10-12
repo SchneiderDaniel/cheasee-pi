@@ -97,6 +97,11 @@ describe("assertSafeEnv", () => {
 		assert.strictEqual(assertSafeEnv(env), env);
 	});
 
+	it("accepts newlines and tabs in env values (multiline credentials)", () => {
+		const env = { PEM: "-----BEGIN KEY-----\nMIIB\t...\n-----END KEY-----\n" };
+		assert.strictEqual(assertSafeEnv(env), env);
+	});
+
 	it("throws for a NUL in an env value or key", () => {
 		assert.throws(() => assertSafeEnv({ A: "x\0y" }), UnsafeArgvError);
 		assert.throws(() => assertSafeEnv({ "A\0": "x" }), UnsafeArgvError);
