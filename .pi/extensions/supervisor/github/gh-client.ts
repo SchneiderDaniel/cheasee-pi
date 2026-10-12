@@ -77,13 +77,21 @@ export function detectTokenClass(home: string = homedir()): TokenClass {
 }
 
 /**
+ * Serializes token-scoped calls. `process.env.GH_TOKEN` is process-global, so
+ * two overlapping save/set/restore cycles would each capture the other's
+ * temporary value and the last restore can leave the token set after every
+ * call has returned. The chain guarantees only one such cycle is in flight.
+ */
+let ghEnvLock: Promise<unknown> = Promise.resolve();
+
+/**
  * Run `gh` with the resolved token injected through the child's environment.
  *
  * pi.exec exposes no `env` seam, so the token is scoped onto `process.env`
  * (which `spawn` inherits) around the call and restored in `finally`. This
  * keeps the secret out of the command string, argv and shell entirely.
- * shortcut: the env var is process-global, so concurrent gh calls wanting
- * different tokens would race — serialize gh traffic if that ever arises.
+ * shortcut: the env var is process-global — serialized here, but a caller
+ * needing a *different* token concurrently would still need per-call env.
  */
 async function runGhWithToken(
 	exec: ExecFn,
@@ -93,14 +101,18 @@ async function runGhWithToken(
 ): Promise<ExecResult> {
 	const execOpts = { signal: opts?.signal, timeout: opts?.timeout ?? 30_000 };
 	if (token === null) return exec("gh", args, execOpts);
-	const previous = process.env.GH_TOKEN;
-	process.env.GH_TOKEN = token;
-	try {
-		return await exec("gh", args, execOpts);
-	} finally {
-		if (previous === undefined) delete process.env.GH_TOKEN;
-		else process.env.GH_TOKEN = previous;
-	}
+
+	const run = ghEnvLock.then(() => {
+		const previous = process.env.GH_TOKEN;
+		process.env.GH_TOKEN = token;
+		return exec("gh", args, execOpts).finally(() => {
+			if (previous === undefined) delete process.env.GH_TOKEN;
+			else process.env.GH_TOKEN = previous;
+		});
+	});
+	// Keep the lock chain alive on failure; the caller still gets `run`'s rejection.
+	ghEnvLock = run.catch(() => {});
+	return run;
 }
 
 export async function gh(

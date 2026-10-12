@@ -391,6 +391,22 @@ describe("gh()/ghRaw() — GH_TOKEN injected via process.env, never a shell stri
 			rmSync(home, { recursive: true, force: true });
 		}
 	});
+
+	it("concurrent calls with GH_TOKEN initially absent and a hosts.yml token do not leak it", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-concurrent-absent-"));
+		try {
+			await withEnv(home, undefined, async () => {
+				writeHosts(home, "gho_file");
+				const envLog: Array<string | undefined> = [];
+				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, undefined, envLog);
+				await Promise.all([gh(exec, ["status"]), gh(exec, ["api", "/user"])]);
+				assert.deepEqual(envLog, ["gho_file", "gho_file"], "token visible to the child during each call");
+				assert.equal("GH_TOKEN" in process.env, false, "no token left set after overlapping calls");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
 });
 
 // ─── Tests: createGitHubPort() — composition + fail-closed throw ─
