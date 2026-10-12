@@ -1,0 +1,119 @@
+{
+	"provenance": {
+		"issue": 2004,
+		"title": "God Object",
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"method": "git archive <commit> | tar -x -C <dir> && node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs <dir> <codeflow-ui> <out>",
+		"metric": "patterns[name === \"God Object\"].files — analyzed files where isCode !== false && functions.length > 15 (index.html detectPatterns `godFiles`); the same predicate behind the `N Large Files` architecture issue. `functions` is the headless parser count over raw text and `isCode` gates files absent from codeExts (notably `.mts`).",
+		"filedAnalyzedAt": 1791738325602,
+		"filedCount": 63,
+		"baseCountNote": "the issue was filed with 63 files at analyzedAt 1791738325602 against the then-main. The immutable base below (origin/main after #2001/#2003) reports 38 God Object files: the earlier refactors already split part of the filed set. Acceptance is the drop on the delivered branch, not the filed number.",
+		"afterTipNote": "the after snapshot is the code tree (the split commits) measured with the pinned analyzer; the record, its oracle and the fixture are `.mts`, `.json` and `.md`, none of which the analyzer scores as code, so the God Object count is identical."
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "279bea56d3f8b25345158f0c324b5aea2bbffb76",
+		"files": 837,
+		"godObjectCount": 38,
+		"largeFilesCount": 38,
+		"vbaGodModuleCount": 29,
+		"coupled": 116,
+		"complexity": 178,
+		"functions": 3539,
+		"connections": 3147
+	},
+	"after": {
+		"ref": "issue-2004 branch",
+		"commit": "d4fb20002a6410dd29458ccb09845013b2e56b87",
+		"files": 876,
+		"godObjectCount": 22,
+		"largeFilesCount": 22,
+		"vbaGodModuleCount": 18,
+		"coupled": 120,
+		"complexity": 183,
+		"functions": 3539,
+		"connections": 3300
+	},
+	"tradeoffs": {
+		"godObject": "38 -> 22 flagged files (-16, -42.1 %); every touched original and sibling lands <= 15, so each of the 16 split families leaves the flagged set. No new sibling is itself flagged, so the drop is exactly the number of split families.",
+		"coupling": "116 -> 120 flagged files. Splitting a `package main` test file mints a new file that references the same package-level helpers/constants as its siblings, so the #2002 coupling heuristic (a file that references more than 8 defining files) counts each new sibling as coupled. The production import graph is unchanged and `functions` is identical (3539 both sides).",
+		"complexity": "178 -> 183 flagged files. The split moves whole declarations verbatim, but the newly minted sibling files carry the same raw-text branch tokens (comments and string literals included) as the originals, and the `1 + Σ(hits) > 30` ceiling is token-proportional, so a handful of new siblings edge over it. The issue under test is God Object, so the drop is delivered and the cost is recorded here rather than hidden.",
+		"functions": "unchanged (3539 both sides) — no function was added, removed or renamed; every split moves whole top-level declarations between files.",
+		"approach": "test-file splits and cohesive module splits: whole declarations move verbatim (Go between files of `package main`, Python between modules of one package) so the compiler/tests are the verification. The Python safety-net suite is deferred with a reason below."
+	},
+	"reducedBy": [
+		"cmd/cheasee-pi/up_env_test.go",
+		"cmd/cheasee-pi/codeflow_shim_test.go",
+		"cmd/cheasee-pi/init_split_test.go",
+		"cmd/cheasee-pi/helpers_test.go",
+		"cmd/cheasee-pi/catalog_test.go",
+		"cmd/cheasee-pi/init_auth_test.go",
+		"cmd/cheasee-pi/init_clone_test.go",
+		"cmd/cheasee-pi/identity.go",
+		"cmd/cheasee-pi/ui_e2e_test.go",
+		"cmd/cheasee-pi/up_flow_test.go",
+		"cmd/cheasee-pi/up_orphans_test.go",
+		"cmd/cheasee-pi/helpers_run_test.go",
+		"cmd/cheasee-pi/init_skillrepos_test.go",
+		"scripts/dependency_existence_check/registries.py",
+		"scripts/dependency_existence_check/transport.py",
+		"test/dependency-existence-check-refactor.test.py"
+	],
+	"deferred": [
+		{
+			"reason": "no Rust toolchain in the pipeline image — splits under embedded/docker/ui cannot be compiled or tested in-gate (#2002/#2003 precedent)",
+			"files": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs"
+			]
+		},
+		{
+			"reason": "the embedded .sh/.js/.mjs splits need the Dockerfile COPY set and the codeflow bridge/shim copy-set updated in the same change; deferred to the change that owns those boundary guards",
+			"files": [
+				".pi/extensions/ponytail/index.js",
+				"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+				"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+				"cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+				"cmd/cheasee-pi/embedded/docker/lib/patch-pi-session-warning.js",
+				"cmd/cheasee-pi/embedded/docker/lib/worktree-fix.sh",
+				"scripts/uninstall.sh",
+				"scripts/verify-pi-layer-cache.sh",
+				"test/dogfooding-dedup.test.sh",
+				"test/uninstall-script.test.sh"
+			]
+		},
+		{
+			"reason": "the offline safety-net suite (106 functions, 62 tests) needs ~8 scenario modules and a harness split. Its two largest TestCase classes carry 21 functions each, so landing every sibling <= 15 requires base-class declarations that add names per split — a structural change to the very suite that guards the package, not the verbatim move this change can verify in-gate. Deferred to its own recorded change (architecture trade-off), while its two smaller siblings (registries.py, transport.py) and the refactor guard are split here.",
+			"files": [
+				"test/dependency-existence-check.test.py"
+			]
+		},
+		{
+			"reason": "every remaining TS/Python flag needs a multi-module decomposition, not a single extraction: osv-scanner.ts's severity half carries 72 of its branch hits and last-json-scanner.ts's string-state machine 80, and server.py (386) needs roughly a dozen modules because its inline _BRIDGE_JS/_UI_REWRITES string literals carry 84 of its hits. Shipping the plan's one-file seam would leave both siblings flagged and not move the metric.",
+			"examples": [
+				"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+				".pi/extensions/supervisor/checks/osv-scanner.ts",
+				".pi/extensions/supervisor/agent/last-json-scanner.ts",
+				".pi/extensions/agent-harness/test/index.test.ts",
+				".pi/extensions/lib/ensureVenv.test.ts",
+				".pi/extensions/supervisor/pipeline/handler/agent-loop.ts"
+			]
+		}
+	]
+}
