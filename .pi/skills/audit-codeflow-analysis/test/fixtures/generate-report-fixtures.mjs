@@ -19,6 +19,7 @@
  */
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import vm from "node:vm";
 
 const uiPath = process.env.CODEFLOW_UI;
 if (!uiPath) {
@@ -34,13 +35,27 @@ function sliceFixtureSection(startMarker, endMarker) {
 	return { body: html.slice(s + startMarker.length, e) };
 }
 
+// Wrap captured CodeFlow source in a function expression and evaluate it in a
+// node:vm realm with dynamic code generation disabled — the same sandbox the
+// production oracle (cmd/.../codeflow/run-analysis.mjs) uses. `parameters`
+// become the wrapper's named parameters; `body` must `return` what it exposes.
+function compile(parameters, body, filename) {
+	const context = vm.createContext({}, { codeGeneration: { strings: false, wasm: false } });
+	const source = `(function (${parameters.join(", ")}) {\n${body}\n})`;
+	return new vm.Script(source, { filename }).runInContext(context, { timeout: 1000 });
+}
+
 // --- the report object shared by every format (JSON export) -----------------
 const reportSrc = html.slice(html.indexOf("var report={"), html.indexOf("if(format==='json'){"));
 const calcHealthSrc = html.slice(html.indexOf("function calcHealth(data){"), html.indexOf("// ===== CODEFLOW_METRICS_END ====="));
-const calcHealth = new Function(calcHealthSrc + "\nreturn calcHealth;")();
+const calcHealth = compile([], calcHealthSrc + "\nreturn calcHealth;", "codeflow-calc-health.js")();
 // --- the markdown builder (format === 'md') ---------------------------------
 const mdSrc = sliceFixtureSection("}else if(format==='md'){", "}else if(format==='txt'){").body;
-const buildMd = new Function("data", "repo", "h", "Blob", "URL", "document", mdSrc + "\nreturn md;");
+const buildMd = compile(
+	["data", "repo", "h", "Blob", "URL", "document"],
+	mdSrc + "\nreturn md;",
+	"codeflow-build-md.js",
+);
 
 // A representative analysis exercising every generator branch that carries
 // file references: security, unused functions, patterns, anti-patterns and
@@ -101,7 +116,11 @@ const data = {
 
 const repo = "SchneiderDaniel/cheasee-pi";
 const health = calcHealth(data);
-const report = new Function("data", "repo", "h", "Parser", "getAnalysisSourceLabel", "calcHealth", reportSrc + "\nreturn report;")(
+const report = compile(
+	["data", "repo", "h", "Parser", "getAnalysisSourceLabel", "calcHealth"],
+	reportSrc + "\nreturn report;",
+	"codeflow-report.js",
+)(
 	data,
 	repo,
 	health,
