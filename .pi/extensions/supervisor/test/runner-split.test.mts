@@ -28,6 +28,7 @@ import { EventEmitter } from "node:events";
 import { DEFAULT_AGENT_TIMEOUT_MS as CONFIG_TIMEOUT } from "../config/config.ts";
 import type { AgentRunState } from "../config/types.ts";
 import { readGraph, importersOf } from "../../lib/test/source-graph.ts";
+import { UnsafeArgvError } from "../../lib/safe-argv.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -63,6 +64,8 @@ interface MockChild {
 }
 
 let currentMockChild: MockChild | null = null;
+/** Every call the mocked spawn received — [program, args, options]. */
+const spawnCalls: unknown[][] = [];
 
 function createMockChild(): MockChild {
 	const stdout = new EventEmitter();
@@ -98,7 +101,10 @@ if (hasMockModule) {
 	for (const key of Object.keys(childProcessModule)) {
 		namedExports[key] = (childProcessModule as any)[key];
 	}
-	namedExports["spawn"] = () => createMockChild();
+	namedExports["spawn"] = (...args: unknown[]) => {
+		spawnCalls.push(args);
+		return createMockChild();
+	};
 	mock.module("node:child_process", {
 		namedExports,
 	});
@@ -381,6 +387,42 @@ if (hasMockModule) {
 			assert.equal(currentMockChild, null, "no spawn occurred at import time");
 		});
 
+		it("valid args reach spawn with the literal /usr/bin/pi program and shell:false", async () => {
+			resetMock();
+			const { spawnAgentChild } = await import("../agent/runner/spawn.ts");
+			spawnCalls.length = 0;
+
+			spawnAgentChild({ args: ["--version"], cwd: "/tmp", sandboxEnv: {} });
+
+			assert.strictEqual(spawnCalls.length, 1, "spawn must be reached for a valid call");
+			const [program, args, options] = spawnCalls[0] as [string, string[], Record<string, unknown>];
+			assert.strictEqual(program, "/usr/bin/pi", "program is the literal constant");
+			assert.deepStrictEqual(args, ["--version"]);
+			assert.strictEqual(options.shell, false);
+			assert.strictEqual(options.detached, true);
+			assert.deepStrictEqual(options.stdio, ["ignore", "pipe", "pipe"]);
+		});
+
+		it("NUL in an arg throws UnsafeArgvError and spawn is never called", async () => {
+			const { spawnAgentChild } = await import("../agent/runner/spawn.ts");
+			spawnCalls.length = 0;
+			assert.throws(
+				() => spawnAgentChild({ args: ["ok", "bad\0arg"], cwd: "/tmp", sandboxEnv: {} }),
+				UnsafeArgvError,
+			);
+			assert.strictEqual(spawnCalls.length, 0);
+		});
+
+		it("NUL in an env value throws UnsafeArgvError and spawn is never called", async () => {
+			const { spawnAgentChild } = await import("../agent/runner/spawn.ts");
+			spawnCalls.length = 0;
+			assert.throws(
+				() => spawnAgentChild({ args: ["ok"], cwd: "/tmp", sandboxEnv: { BAD: "x\0y" } }),
+				UnsafeArgvError,
+			);
+			assert.strictEqual(spawnCalls.length, 0);
+		});
+
 		it("'exit' reaps but does not resolve; 'close' resolves after trailing stdio", async () => {
 			resetMock();
 			const { runAgentSubprocess } = await import("../agent/runner.ts");
@@ -417,6 +459,40 @@ if (hasMockModule) {
 			assert.ok(
 				result.textOutput.includes("Second chunk"),
 				"textOutput includes trailing post-exit chunk (close resolves after stdio drains)",
+			);
+		});
+	});
+
+	// ── Phase 6: runSpawnedProcess spawn-failure mapping ──────────
+
+	describe("runSpawnedProcess — argv rejection maps to a failure result", () => {
+		it("invalid argv resolves success:false instead of rejecting", async () => {
+			resetMock();
+			const { runSpawnedProcess } = await import("../agent/runner/spawned-run.ts");
+			const { getDebugLogger } = await import("../lib/debug.ts");
+			spawnCalls.length = 0;
+
+			const result = await runSpawnedProcess({
+				args: ["bad\0arg"],
+				effectiveCwd: "/tmp",
+				sandboxEnv: {},
+				ctx: mockCtx,
+				widgetId: "agent-test-agent",
+				agentName: "test-agent",
+				model: "",
+				state: createState(),
+				timeoutMs: null,
+				remainingMs: null,
+				killGraceSec: undefined,
+				startedAt: Date.now(),
+				log: getDebugLogger(),
+			});
+
+			assert.strictEqual(result.success, false, "the rejection must not escape the contract");
+			assert.strictEqual(spawnCalls.length, 0, "no child may be spawned");
+			assert.ok(
+				result.output.includes("Failed to start pi:"),
+				`the failure must be surfaced: ${result.output}`,
 			);
 		});
 	});

@@ -11,9 +11,10 @@
 //      (different languages, no import edge) or whose claimed layer is not the
 //      one the report itself assigns the file.
 //
-// Only HIGH severity security findings are considered: the LOW/MEDIUM shapes
-// (code comments, debug statements, argv-array spawns) are left in the report
-// for the audit skill to triage.
+// Only HIGH severity security findings are considered, plus one narrow MEDIUM
+// shape: a `Command Execution` hit whose cited file only spawns with an argv
+// array (no shell string). The remaining LOW/MEDIUM shapes (code comments,
+// debug statements) are left in the report for the audit skill to triage.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
@@ -46,6 +47,10 @@
 
 	function isHigh(issue) {
 		return typeof issue.severity === "string" && issue.severity.toLowerCase() === "high";
+	}
+
+	function isMedium(issue) {
+		return typeof issue.severity === "string" && issue.severity.toLowerCase() === "medium";
 	}
 
 	function countHigh(issues) {
@@ -146,13 +151,31 @@
 		return false;
 	}
 
+	// A `Command Execution` MEDIUM hit cites a whole file (`code: ""`), so the
+	// snippet carries no evidence. A file whose only process work is an
+	// argv-array spawn/execFile — no `shell: true`, no `execSync`, no `-c` flag
+	// argv (how `bash -c` appears) — runs no shell command. Absence of a read is
+	// not proof, so an unreadable file keeps the finding.
+	var ARGV_SPAWN = /(?:spawn|execfile)[\w$]*\s*\(/i;
+	var SHELL_MARKER = /shell\s*:\s*true|execSync\s*\(|["'`]-c["'`]/;
+
+	function isMediumCommandExecution(issue, readFile) {
+		if (!isMedium(issue)) return false;
+		if (String(issue.title).trim() !== "Command Execution") return false;
+		var content = readFile ? readFile(issue.path) : null;
+		if (typeof content !== "string") return false;
+		if (SHELL_MARKER.test(content)) return false;
+		return ARGV_SPAWN.test(content);
+	}
+
 	/**
-	 * True when a HIGH security finding must not be emitted.
+	 * True when a security finding must not be emitted.
 	 * `readFile(path) -> string|null` supplies the cited file's content; an
 	 * unavailable file is never evidence, so it keeps the finding.
 	 */
 	function isFalsePositiveSecurity(issue, readFile) {
-		if (!issue || typeof issue !== "object" || !isHigh(issue)) return false;
+		if (!issue || typeof issue !== "object") return false;
+		if (!isHigh(issue)) return isMediumCommandExecution(issue, readFile);
 		var code = codeOf(issue);
 		if (code.trim() === "") return true;
 		if (isCommentOnly(code)) return true;

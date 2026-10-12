@@ -25,8 +25,9 @@
 
 import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
+import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -173,12 +174,16 @@ export async function repoSlug(root: string): Promise<string> {
 /** Reads remote.origin.url from the sibling bare clone — "" on any error. */
 async function bareRepoURL(root: string): Promise<string> {
 	const bare = join(dirname(root), BARE_DIR);
+	if (!isAbsolute(bare)) return "";
 	try {
-		const { stdout } = await execFileAsync(
-			"git",
-			["--git-dir", bare, "config", "--get", "remote.origin.url"],
-			{ timeout: 5000 },
-		);
+		const { program, args } = argvCommand("git", [
+			"--git-dir",
+			bare,
+			"config",
+			"--get",
+			"remote.origin.url",
+		]);
+		const { stdout } = await execFileAsync(program, args, assertNoShell({ timeout: 5000 }));
 		return stdout.trim();
 	} catch {
 		return "";

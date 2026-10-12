@@ -89,6 +89,34 @@ describe("ServerEntrySchema — runtime validation", () => {
 		);
 	});
 
+	it("rejects a blank/whitespace-only command", () => {
+		assert.ok(!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "   " }));
+	});
+
+	it("rejects a command starting with '-' (option injection)", () => {
+		assert.ok(!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "-a" }));
+	});
+
+	it("rejects a command containing NUL", () => {
+		assert.ok(!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "ts\0ls" }));
+	});
+
+	it("rejects an arg containing NUL", () => {
+		assert.ok(
+			!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "ts-ls", args: ["--stdio", "x\0y"] }),
+		);
+	});
+
+	it("accepts a valid command with dashed args (positive control)", () => {
+		assert.ok(
+			Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "typescript-language-server",
+				args: ["--stdio"],
+			}),
+		);
+	});
+
 	it("rejects missing extensions", () => {
 		assert.ok(
 			!Value.Check(ServerEntrySchema, {
@@ -440,6 +468,41 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 					assert.ok(
 						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
 						"console.warn should say 'Dropped malformed server entry'",
+					);
+				},
+			);
+
+			console.warn = originalWarn;
+		});
+
+		it("settings with a leading '-' command drops that entry, keeps valid siblings", () => {
+			warnMessages = [];
+			console.warn = (...args: unknown[]) => {
+				warnMessages.push(args.join(" "));
+			};
+
+			withTempSettings(
+				{
+					lspAuditor: {
+						servers: [
+							{ extensions: [".ts"], command: "-a" },
+							{ extensions: [".py"], command: "pyright-langserver", args: ["--stdio"] },
+						],
+					},
+				},
+				(worktree) => {
+					const settings = readSettings(worktree);
+					assert.ok(settings, "settings should not be null");
+					assert.ok(
+						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
+						"the malformed entry must be dropped with a warning",
+					);
+
+					const mappings = buildServerMappings(settings!.lspAuditor);
+					assert.ok(!mappings.some((m) => m.command === "-a"), "the '-a' entry must not survive");
+					assert.ok(
+						mappings.some((m) => m.command === "pyright-langserver"),
+						"the valid sibling must survive",
 					);
 				},
 			);

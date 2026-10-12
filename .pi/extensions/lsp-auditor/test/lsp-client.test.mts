@@ -76,11 +76,7 @@ function createDefaultMockConnection() {
 function createMockRuntime(): LspRuntime {
 	return {
 		spawn: mock.fn(() => createFakeChildProcess()),
-		execFile: mock.fn((...args: any[]) => {
-			// execFile(file, args, options, callback); find the callback
-			const cb = [...args].reverse().find((a: any) => typeof a === "function");
-			if (cb) cb(null, "", "");
-		}),
+		resolveExecutable: mock.fn((name: string) => `/usr/bin/${name}`),
 		existsSync: mock.fn(() => true),
 		readFile: mock.fn(async () => "const x = 1;\n"),
 		loadJsonRpc: mock.fn(async (): Promise<JsonRpcModule | null> => {

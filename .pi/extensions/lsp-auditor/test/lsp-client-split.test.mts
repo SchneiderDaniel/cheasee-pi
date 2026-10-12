@@ -77,10 +77,7 @@ function createDefaultMockConnection() {
 function createMockRuntime(): LspRuntime {
 	return {
 		spawn: mock.fn(() => createFakeChildProcess()),
-		execFile: mock.fn((...args: any[]) => {
-			const cb = [...args].reverse().find((a: any) => typeof a === "function");
-			if (cb) cb(null, "", "");
-		}),
+		resolveExecutable: mock.fn((name: string) => `/usr/bin/${name}`),
 		existsSync: mock.fn(() => true),
 		readFile: mock.fn(async () => "const x = 1;\n"),
 		loadJsonRpc: mock.fn(async (): Promise<JsonRpcModule | null> => {
@@ -197,7 +194,14 @@ describe("runtime.ts — seam single-module guard + default runtime", () => {
 		const result = await auditFileGroup(TS_MAPPING, SINGLE_FILE, "/worktree");
 		assert.strictEqual(result.errors.length, 0);
 		assert.ok(sentinel.spawn.mock.calls.length >= 1, "sentinel.spawn must be used");
-		assert.ok(sentinel.execFile.mock.calls.length >= 1, "sentinel.execFile must be used");
+		assert.strictEqual(sentinel.spawn.mock.calls[0].arguments[0], TS_MAPPING.command);
+		assert.deepStrictEqual(sentinel.spawn.mock.calls[0].arguments[1], TS_MAPPING.args);
+		assert.ok(sentinel.resolveExecutable.mock.calls.length >= 1, "sentinel.resolveExecutable must be used");
+		assert.strictEqual(
+			sentinel.resolveExecutable.mock.calls[0].arguments[0],
+			TS_MAPPING.command,
+			"the resolver must receive the mapping command verbatim (no interpolation)",
+		);
 		assert.ok(sentinel.readFile.mock.calls.length >= 1, "sentinel.readFile must be used");
 		assert.ok(sentinel.loadJsonRpc.mock.calls.length >= 1, "sentinel.loadJsonRpc must be used");
 	});
@@ -370,12 +374,9 @@ describe("audit-group.ts — orchestrator error paths", () => {
 		resetLspRuntime();
 	});
 
-	it("preflight which-failure → exact error, early return, spawn never called", async () => {
+	it("preflight resolve-failure → exact error, early return, spawn never called", async () => {
 		const rt = createMockRuntime();
-		rt.execFile = mock.fn((...args: any[]) => {
-			const cb = [...args].reverse().find((a: any) => typeof a === "function");
-			cb(new Error("ENOENT"), "", "");
-		});
+		rt.resolveExecutable = mock.fn(() => null) as any;
 		setLspRuntime(rt);
 
 		const result = await auditFileGroup(TS_MAPPING, SINGLE_FILE, "/worktree");
@@ -388,6 +389,21 @@ describe("audit-group.ts — orchestrator error paths", () => {
 			0,
 			"preflight runs once per group, not per file",
 		);
+	});
+
+	it("option-injection mapping command '-a' → resolver returns null, not found, no spawn", async () => {
+		const rt = createMockRuntime();
+		rt.resolveExecutable = mock.fn((name: string) => (name.startsWith("-") ? null : `/usr/bin/${name}`)) as any;
+		setLspRuntime(rt);
+
+		const result = await auditFileGroup(
+			{ ...TS_MAPPING, command: "-a" },
+			SINGLE_FILE,
+			"/worktree",
+		);
+
+		assert.deepStrictEqual(result.errors, ["LSP server -a not found on PATH"]);
+		assert.strictEqual((rt.spawn as any).mock.calls.length, 0);
 	});
 
 	it("spawn exitCode non-zero → 'failed to start (exit N)'", async () => {

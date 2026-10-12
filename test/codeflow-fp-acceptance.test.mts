@@ -38,9 +38,11 @@ const CHECKOUT_URL = "https://github.com/braedonsaunders/codeflow";
 // whatever the branch happens to be.
 const ISSUE_SNAPSHOT = "17c991c033073dccdd549c335abe6c594643b009";
 // Measured on that snapshot with the pinned analyzer: every HIGH security hit
-// (the reported nine) and the entire layer category (357 edges) is a false
-// positive. Deterministic for a fixed revision plus fixed analyzer pin.
-const EXPECTED_SECURITY_SUPPRESSED = 9;
+// (the reported nine) plus the four MEDIUM `Command Execution` hit whose cited
+// files only spawn with an argv array, and the entire layer category (357
+// edges) is a false positive. Deterministic for a fixed revision plus fixed
+// analyzer pin.
+const EXPECTED_SECURITY_SUPPRESSED = 13;
 const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
 // The filtered report these expectations imply.
 const EXPECTED_HEALTH_SCORE = 92;
@@ -209,7 +211,7 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		assert.strictEqual(
 			Number(suppressed![1]),
 			EXPECTED_SECURITY_SUPPRESSED,
-			"all nine HIGH security hits must be suppressed on the issue snapshot",
+			"every HIGH hit and the four MEDIUM Command Execution hits must be suppressed",
 		);
 		assert.strictEqual(
 			Number(suppressed![2]),
@@ -226,6 +228,20 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
 		assert.strictEqual(report.summary.healthGrade, "A");
 		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
+		assert.deepStrictEqual(
+			report.securityIssues.filter(
+				(s: { title: string; path: string }) =>
+					String(s.title).trim() === "Command Execution" &&
+					[
+						".pi/extensions/context-info/codeflow.ts",
+						".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+						".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+						".pi/extensions/supervisor/agent/runner/spawn.ts",
+					].includes(s.path),
+			),
+			[],
+			"the four cited Command Execution findings must not remain",
+		);
 		assert.deepStrictEqual(crossLanguageOf(report), [], "cross-language layer edges must not be emitted");
 		assert.deepStrictEqual(inventedLayerOf(report), [], "unsupported layer labels must not survive");
 

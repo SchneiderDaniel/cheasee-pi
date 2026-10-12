@@ -56,6 +56,12 @@ const SOURCES: Record<string, string> = {
 	"ui/src/tool_card.rs": "pub fn card() {}\n",
 	"src/spawn.ts": "export function run() { spawn(); }\n",
 	"src/config.ts": "export const config = load();\n",
+	"src/argv-safe.ts":
+		'export function run() { spawn("/usr/bin/pi", args, { shell: false }); }\n',
+	"src/shell-out.ts":
+		'export function run(cmd: string) { execSync("rm -rf " + cmd); }\n',
+	"src/shell-true.ts":
+		'export function run(cmd: string) { spawn("bash", [cmd], { shell: true }); }\n',
 };
 
 const readFile = (path: unknown): string | null =>
@@ -246,6 +252,62 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 				`${severity} must not be filtered here`,
 			);
 		}
+	});
+});
+
+describe("fp-filter — MEDIUM Command Execution argv-array rule", () => {
+	it("suppresses a MEDIUM Command Execution citing a file with only argv-array spawns", () => {
+		assert.strictEqual(
+			keepsSecurity(
+				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/argv-safe.ts" }),
+			),
+			false,
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose file shells out (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(
+				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/shell-out.ts" }),
+			),
+			true,
+			"execSync must survive",
+		);
+		assert.strictEqual(
+			keepsSecurity(
+				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/shell-true.ts" }),
+			),
+			true,
+			"shell:true must survive",
+		);
+	});
+
+	it("keeps a MEDIUM finding with another title", () => {
+		assert.strictEqual(
+			keepsSecurity(
+				sec({
+					severity: "medium",
+					title: "Function Constructor",
+					code: "",
+					path: "src/argv-safe.ts",
+				}),
+			),
+			true,
+		);
+	});
+
+	it("keeps the finding when the cited file cannot be read (absence is not proof)", () => {
+		assert.strictEqual(
+			keepsSecurity(
+				sec({
+					severity: "medium",
+					title: "Command Execution",
+					code: "",
+					path: "does/not/exist.ts",
+				}),
+			),
+			true,
+		);
 	});
 });
 

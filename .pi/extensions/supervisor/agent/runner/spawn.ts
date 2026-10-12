@@ -4,8 +4,9 @@
 // this import must stay exclusive to this file.
 
 import { spawn } from "node:child_process";
-import type { ChildProcessByStdio } from "node:child_process";
+import type { ChildProcessByStdio, SpawnOptions } from "node:child_process";
 import type { Readable } from "node:stream";
+import { argvCommand, assertNoShell, assertSafeEnv } from "../../../lib/safe-argv.ts";
 
 export interface ChildHandle {
 	/** Typed for stdio: ["ignore", "pipe", "pipe"] — stdout/stderr are non-null. */
@@ -50,12 +51,18 @@ export function spawnAgentChild(opts: SpawnAgentChildOptions): ChildHandle {
 	// 'close' from ever firing — the "stuck run" symptom this timeout
 	// feature exists to bound. Trade-off: the detached child survives an
 	// unchecked parent crash; the container dies as a unit anyway.
-	const child = spawn("/usr/bin/pi", opts.args, {
-		cwd: opts.cwd,
-		env: { ...process.env, PI_NO_COLOR: "1", ...opts.sandboxEnv },
-		stdio: ["ignore", "pipe", "pipe"],
-		detached: true,
-	});
+	const { program, args } = argvCommand("/usr/bin/pi", opts.args);
+	const env = assertSafeEnv({ ...process.env, PI_NO_COLOR: "1", ...opts.sandboxEnv });
+	const child = spawn(
+		program,
+		args as string[],
+		assertNoShell<SpawnOptions>({
+			cwd: opts.cwd,
+			env,
+			stdio: ["ignore", "pipe", "pipe"],
+			detached: true,
+		}),
+	) as ChildProcessByStdio<null, Readable, Readable>;
 
 	let childExited = false;
 	let killSent = false;

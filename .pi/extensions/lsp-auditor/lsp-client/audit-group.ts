@@ -26,6 +26,7 @@ import type {
 import { filterBySeverity } from "../formatting.ts";
 import { getRuntime, withTimeout, sleep } from "./runtime.ts";
 import { openFileForAudit, createDiagnosticsCollector } from "./audit-one.ts";
+import { argvCommand, assertNoShell } from "../../lib/safe-argv.ts";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -138,21 +139,13 @@ export async function auditFileGroup(
 // ─── Private Steps ───────────────────────────────────────────────────
 
 /**
- * Pre-flight check: verify the LSP binary is on PATH via `which`.
+ * Pre-flight check: verify the LSP binary is resolvable on PATH.
  * Returns an error string on failure, null on success.
  */
 async function preflightCheck(rt: LspRuntime, command: string): Promise<string | null> {
-	try {
-		await new Promise<void>((resolve, reject) => {
-			rt.execFile("which", [command], { timeout: 5_000 }, (err) => {
-				if (err) reject(err);
-				else resolve();
-			});
-		});
-		return null;
-	} catch {
-		return `LSP server ${command} not found on PATH`;
-	}
+	return rt.resolveExecutable(command) === null
+		? `LSP server ${command} not found on PATH`
+		: null;
 }
 
 /**
@@ -166,11 +159,16 @@ function spawnServer(
 	worktreePath: string,
 	errors: string[],
 ): { child: ChildProcess; error: string | null } {
-	const child = rt.spawn(mapping.command, mapping.args, {
-		cwd: worktreePath,
-		stdio: ["pipe", "pipe", "pipe"],
-		env: { ...process.env },
-	}) as unknown as ChildProcess;
+	const { program, args } = argvCommand(mapping.command, mapping.args);
+	const child = rt.spawn(
+		program,
+		args,
+		assertNoShell({
+			cwd: worktreePath,
+			stdio: ["pipe", "pipe", "pipe"],
+			env: { ...process.env },
+		}),
+	) as unknown as ChildProcess;
 
 	child.on("error", (err: Error) => {
 		errors.push(
