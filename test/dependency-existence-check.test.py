@@ -29,8 +29,20 @@ from dependency_existence_check_tests.test_discovery_gitignore import (  # noqa:
 from dependency_existence_check_tests.test_adapter_extraction import (  # noqa: E402,F401
     AdapterExtractionTests,
 )
+from dependency_existence_check_tests.test_adapter_extraction_jvm_dotnet import (  # noqa: E402,F401
+    AdapterExtractionJvmDotnetTests,
+)
+from dependency_existence_check_tests.test_adapter_extraction_systems_dynamic import (  # noqa: E402,F401
+    AdapterExtractionSystemsDynamicTests,
+)
 from dependency_existence_check_tests.test_registry_transport import (  # noqa: E402,F401
     RegistryAndTransportTests,
+)
+from dependency_existence_check_tests.test_registry_transport_cache import (  # noqa: E402,F401
+    RegistryTransportCacheTests,
+)
+from dependency_existence_check_tests.test_registry_transport_registries import (  # noqa: E402,F401
+    RegistryTransportRegistriesTests,
 )
 from dependency_existence_check_tests.test_ignore_mechanism import (  # noqa: E402,F401
     IgnoreMechanismTests,

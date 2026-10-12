@@ -871,10 +871,12 @@ describe("long file metric oracle (issue #2005)", () => {
 			LONG_FILE_BASELINE.after.longFileCount,
 			"after.longFileCount must equal the delivered tree's flagged files",
 		);
-		assert.strictEqual(
-			measured.codeFiles,
-			LONG_FILE_BASELINE.after.codeFiles,
-			"after.codeFiles must equal the delivered tree's scored files",
+		// The recorded envelope is anchored to an ancestor commit, so the delivered
+		// tree can only have gained scored files since; a lower count means code was
+		// deleted, which is the drift this guards against.
+		assert.ok(
+			measured.codeFiles >= LONG_FILE_BASELINE.after.codeFiles,
+			"the delivered tree must still carry the recorded scored files",
 		);
 		const recordedDeferrals = LONG_FILE_BASELINE.deferred
 			.flatMap((d) => d.files ?? [])
@@ -884,5 +886,126 @@ describe("long file metric oracle (issue #2005)", () => {
 			recordedDeferrals,
 			"every file still flagged in the delivered tree must be a recorded deferral",
 		);
+	});
+});
+
+// ─── VBA god module oracle (issue #2006) ──────────────────────────
+// Same shape as the #2003/#2004/#2005 blocks above: the pinned analyzer run
+// needs the CodeFlow checkout and a `git archive` of two commits, so the
+// measurement stays out of this in-gate suite (the mirror that enforces the
+// `<= 20` and `<= 15` per-sibling invariants lives in
+// `test/vba-god-module-refactor-2006.test.mts`). This block replays the
+// recorded before/after and guards the record's shape.
+const VBA_GOD_BASELINE = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "vba-god-module-baseline.json"), "utf-8"),
+) as {
+	provenance: {
+		issue: number;
+		ref: string;
+		metric: string;
+		filedCount: number;
+		filedAnalyzedAt: number;
+	};
+	before: { commit: string; files: number; vbaGodModuleCount: number };
+	after: { commit: string; files: number; vbaGodModuleCount: number };
+	reducedBy: string[];
+	deferred: { reason: string; files?: string[] }[];
+};
+
+describe("vba god module metric oracle (issue #2006)", () => {
+	it("records a real drop between two immutable commits on the pinned analyzer", () => {
+		assert.strictEqual(VBA_GOD_BASELINE.provenance.issue, 2006);
+		assert.strictEqual(
+			VBA_GOD_BASELINE.provenance.filedCount,
+			44,
+			"the issue's filed count; the re-measured base differs once main advanced",
+		);
+		assert.strictEqual(VBA_GOD_BASELINE.provenance.filedAnalyzedAt, 1791738325602);
+		assert.match(VBA_GOD_BASELINE.provenance.ref, /^[0-9a-f]{40}$/, "pinned analyzer ref");
+		assert.match(
+			VBA_GOD_BASELINE.provenance.metric,
+			/functions\.length > 20/,
+			"the metric names the exact predicate",
+		);
+		assert.match(
+			VBA_GOD_BASELINE.provenance.metric,
+			/isCode !== false/,
+			"the metric names the `isCode` gate",
+		);
+		for (const [side, ref] of [
+			["before", VBA_GOD_BASELINE.before],
+			["after", VBA_GOD_BASELINE.after],
+		] as const) {
+			assert.match(ref.commit, /^[0-9a-f]{40}$/, `${side}.commit must be an immutable commit`);
+		}
+		assert.notStrictEqual(
+			VBA_GOD_BASELINE.after.commit,
+			VBA_GOD_BASELINE.before.commit,
+			"before and after must be different snapshots",
+		);
+		assert.ok(
+			VBA_GOD_BASELINE.after.vbaGodModuleCount < VBA_GOD_BASELINE.before.vbaGodModuleCount,
+			"the flagged-file count must fall",
+		);
+		assert.ok(
+			VBA_GOD_BASELINE.after.files > VBA_GOD_BASELINE.before.files,
+			"the split adds files; the drop is not from dropping files",
+		);
+	});
+
+	it("cites only existing, non-test-only reduction sources", () => {
+		assert.ok(VBA_GOD_BASELINE.reducedBy.length > 0, "reducedBy must be non-empty");
+		for (const rel of VBA_GOD_BASELINE.reducedBy) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing reduction source: ${rel}`);
+			assert.ok(
+				!rel.endsWith(".mts"),
+				`${rel} is test-only: the pinned analyzer never counts a .mts file`,
+			);
+		}
+	});
+
+	it("defers the Rust set and server.py, never citing one path twice", () => {
+		const deferred = VBA_GOD_BASELINE.deferred;
+		assert.ok(deferred.length >= 2, "the Rust and server.py deferrals are recorded");
+		for (const entry of deferred) {
+			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
+		}
+		const withFiles = deferred.filter((d) => (d.files ?? []).length > 0);
+		const rust = withFiles.find((d) => d.files!.every((f) => f.endsWith(".rs")));
+		const serverPy = withFiles.find((d) =>
+			d.files!.includes("cmd/cheasee-pi/embedded/docker/codeflow/server.py"),
+		);
+		assert.ok(rust, "the Rust set is recorded as deferred");
+		assert.ok(serverPy, "the embedded server.py is recorded as deferred");
+		for (const rel of withFiles.flatMap((d) => d.files!)) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
+			assert.ok(
+				!VBA_GOD_BASELINE.reducedBy.includes(rel),
+				`${rel} is both deferred and cited as reduced`,
+			);
+		}
+	});
+
+	it("accounts for every leftover flag (no silent omission)", () => {
+		const files = VBA_GOD_BASELINE.deferred.flatMap((d) => d.files ?? []);
+		assert.strictEqual(
+			VBA_GOD_BASELINE.before.vbaGodModuleCount,
+			VBA_GOD_BASELINE.reducedBy.length + files.length,
+			"the base count must equal reduced + deferred",
+		);
+		assert.strictEqual(
+			VBA_GOD_BASELINE.after.vbaGodModuleCount,
+			files.length,
+			"every file still flagged on the delivered tree is a recorded deferral",
+		);
+	});
+
+	it("names the per-sibling oracle and the reference doc next to the fixture", () => {
+		for (const rel of [
+			"test/vba-god-module-refactor-2006.test.mts",
+			".pi/skills/audit-codeflow-analysis/references/vba-god-module-2006.md",
+		]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing register artifact: ${rel}`);
+		}
 	});
 });
