@@ -7,7 +7,7 @@
  * Collision rule:
  * - Empty or whitespace-only strings are rejected
  * - Single words without structural syntax (no `{`, `$`, `(`, `[`) are
- *   rejected — the agent should use ripgrep for text patterns like "TODO"
+ *   rejected — the agent should use ripgrep for bare-word text searches
  *
  * Returns null if valid, or an error string if invalid.
  */

@@ -24,6 +24,7 @@ import { setupCrashCleanup, shouldRetainWorktree, type CleanupOnExitDeps } from 
 import { ErrorCollector, setErrorCollector } from "../error-collector.ts";
 import { fetchIssue, readProjectBoard, checkDependencies } from "../helpers.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
+import { withPerChildEnv } from "../../../lib/exec-env.ts";
 import type { NotifyFn } from "../helpers.ts";
 import { createStageState } from "../stages/index.ts";
 import type { StageState } from "../stages/index.ts";
@@ -107,7 +108,7 @@ export function preparePipelineContext(
 	// Mode adaptation: ctx.ui.notify is fire-and-forget (safe in all modes,
 	// silently drops in print/json mode). Dialog methods (confirm/select)
 	// need ctx.hasUI check before calling.
-	const exec: ExecFn = pi.exec.bind(pi);
+	const exec: ExecFn = withPerChildEnv(pi.exec.bind(pi));
 	const notify: NotifyFn = {
 		info: (msg) => {
 			if (ctx.hasUI) {

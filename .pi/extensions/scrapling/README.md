@@ -19,7 +19,7 @@ Web crawling for AI agents is notoriously fragile — bot detection, Cloudflare 
 
 1. **Venv setup** — On first call, creates `.pi/scrapling-venv/` and `pip install scrapling[fetchers] markdownify`
 2. **URL validation** — `new URL(url)` validates the URL before any fetch
-3. **Cache check** — TODO: caching is planned but not yet implemented
+3. **Cache check** — caching is planned but not yet implemented
 4. **Acquire lock** — Semaphore ensures ≤2 concurrent crawls (configurable in `config.json`)
 5. **Crawl** — Python subprocess runs Scrapling with progressive fetching:
    - First tries lightweight `curl_cffi` fetch

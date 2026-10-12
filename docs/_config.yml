@@ -19,7 +19,7 @@ heading_anchors: true
 footer_content: "Copyright &copy; 2026 SchneiderDaniel. Distributed under the <a href=\"https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE\">MIT License.</a>"
 
 # Google Analytics
-# ga_tracking: UA-XXXXX-Y
+# ga_tracking: <your Google Analytics measurement id>
 
 # Exclude from processing
 exclude:

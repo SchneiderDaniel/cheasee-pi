@@ -15,6 +15,7 @@ import type { SupervisorConfig } from "../../config/types.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { generateBranchName } from "../../agent/task.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
+import { withPerChildEnv } from "../../../lib/exec-env.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import { writeCheckpointFile, type CheckpointName } from "../state-checkpoint.ts";
 import {
@@ -138,7 +139,7 @@ export async function runTscAndLspAudit(
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
 	// Shared exec function for running shell commands via pi.exec
-	const execFn: ExecFn = (cmd, args, opts) => pi.exec(cmd, args, opts);
+	const execFn: ExecFn = withPerChildEnv((cmd, args, opts) => pi.exec(cmd, args, opts));
 
 	// Collect ALL gate failures across every blocking gate.
 	// Gates run to completion regardless of individual failures.

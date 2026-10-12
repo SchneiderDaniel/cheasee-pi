@@ -695,7 +695,8 @@ def _ts_rewrite(anchor, tail=b""):
 # score and exports agree with the report pi reads. The filter reads cited files
 # from `data.files[].content`; a page that omits them still gets the rules that
 # need no file. The wrapper filters `data` first, then calls the original
-# (renamed) function.
+# (renamed) function, and logs the same suppression line the headless runner
+# writes to stderr (byte-identical wording, so the two paths cannot drift).
 #
 # It overwrites the two array *properties* of `data` instead of rebinding `data`:
 # a page that declares `data` as a constant cannot be reassigned, and the former
@@ -718,9 +719,9 @@ _FP_WRAPPER_BODY = (
     b" } catch (e) { var m = String((e && e.message) || e);"
     b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
     b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
-    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length) { try {"
-    b' console.info("[fp-filter] suppressed " + __piFp.suppressed.security.length +'
-    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s)");'
+    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length) { try {"
+    b' console.info("fp-filter: suppressed " + __piFp.suppressed.security.length +'
+    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s)");'
     b" } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("
