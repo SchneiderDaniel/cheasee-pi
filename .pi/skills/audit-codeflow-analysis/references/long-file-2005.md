@@ -46,22 +46,33 @@ node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
 node -e 'console.log(JSON.parse(require("fs").readFileSync("/tmp/out-before/report.json"))
   .patterns.find(p => p.name === "Long File").metrics.files)'
 
-# after: the delivered tree (same command against `git archive HEAD` of the branch)
+# after: the last commit of this branch that changes scored code (7bcbeefd)
+git archive 7bcbeefdd873ab63e5fea644606dd84313e89b1e | tar -x -C /tmp/after
+node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
+  /tmp/after <codeflow-ui> /tmp/out-after
 ```
 
 The in-gate oracle `test/long-file-refactor-2005.test.mts` mirrors the predicate
 line-for-line and asserts the invariant that makes the number fall — every
 original and sibling in the manifest is `<= 500` segments and not flagged. The
-recorded envelope lives in `test/fixtures/long-file-baseline.json` and is
-replayed by the `long file metric oracle (issue #2005)` block in
-`test/codeflow-run-analysis.test.mts`.
+shared mirror lives in `test/fixtures/long-file-mirror.mts`. The recorded
+envelope lives in `test/fixtures/long-file-baseline.json` and is replayed by the
+`long file metric oracle (issue #2005)` block in
+`test/codeflow-run-analysis.test.mts`, which also recomputes the predicate over
+the delivered tracked tree and requires the flagged set to be exactly the
+recorded deferrals — so the envelope cannot drift from the delivered source.
 
 ## Before / after (pinned analyzer, same snapshot method)
 
 | | commit | tracked files | `Long File` |
 |---|---|---|---|
 | before | `4dcddf80` (`origin/main` after #2004) | 1194 | **35** |
-| after | delivered branch | 1240 | **16** |
+| after | `7bcbeefd` (last commit of this branch that changes scored code) | 1238 | **16** |
+
+The commits after `7bcbeefd` add only register artifacts (this doc, the fixture,
+`test/fixtures/long-file-mirror.mts` and the oracle block); all are
+`.md`/`.json`/`.mts`, which the analyzer never scores as code, so the count and
+the flagged set are unchanged.
 
 The issue was filed with **61** files at `analyzedAt 1791738325602`. The number
 had already fallen to 35 on the immutable base, because #2001 (Large Files),

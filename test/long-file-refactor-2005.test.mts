@@ -21,25 +21,10 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ANALYZER_REF, CODE_EXTS, isFlagged, lineCount } from "./fixtures/long-file-mirror.mts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-
-/** The pinned analyzer ref the metric and the mirror were derived from. */
-const ANALYZER_REF = "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1";
-
-/** `index.html:1093` `Parser.codeExts` — `.mts`/`.json`/`.md` are absent by design. */
-const CODE_EXTS = [
-	".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs", ".py", ".pyw", ".pyi",
-	".java", ".go", ".rb", ".php", ".rs", ".c", ".cpp", ".cc", ".cxx", ".h",
-	".hpp", ".hh", ".hxx", ".cs", ".swift", ".kt", ".kts", ".scala", ".sc",
-	".clj", ".cljs", ".cljc", ".ex", ".exs", ".erl", ".hrl", ".hs", ".lhs",
-	".lua", ".r", ".R", ".jl", ".dart", ".elm", ".fs", ".fsi", ".fsx", ".ml",
-	".mli", ".pl", ".pm", ".sh", ".bash", ".zsh", ".fish", ".ps1", ".psm1",
-	".psd1", ".groovy", ".gvy", ".gradle", ".vba", ".bas", ".cls", ".xlsm",
-	".xlam", ".xlsb", ".xla", ".xlw", ".pas", ".pp", ".dpr", ".dpk", ".lpr",
-	".inc",
-];
 
 /** Files this change split, and the siblings each split produced. */
 const TOUCHED: Record<string, string[]> = {
@@ -150,18 +135,9 @@ const DEFERRED_RUST = [
 const DEFERRED_SERVER = "cmd/cheasee-pi/embedded/docker/codeflow/server.py";
 
 // ─── CodeFlow long-file mirror ────────────────────────────────────
-
-/** `lines = content.split("\n").length` — the analyzer's own segment count. */
-function lineCount(src: string): number {
-	return src.split("\n").length;
-}
-
-/** The analyzer's `longFiles` predicate, including the `isCode` gate. */
-function isFlagged(src: string, rel: string): boolean {
-	const ext = `.${rel.split(".").pop()}`;
-	if (!CODE_EXTS.includes(ext)) return false;
-	return lineCount(src) > 500;
-}
+// The predicate itself lives in `./fixtures/long-file-mirror.mts` so the
+// recorded-envelope oracle in `codeflow-run-analysis.test.mts` applies the
+// same mirror over the delivered tree.
 
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf-8");
 

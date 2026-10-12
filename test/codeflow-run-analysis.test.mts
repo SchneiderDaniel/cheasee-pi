@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import { measureWorktree } from "./fixtures/long-file-mirror.mts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNNER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs");
@@ -858,5 +859,30 @@ describe("long file metric oracle (issue #2005)", () => {
 		]) {
 			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing register artifact: ${rel}`);
 		}
+	});
+
+	it("ties the recorded after envelope to the delivered tree", () => {
+		// Recompute the pinned predicate over the delivered tracked tree with the
+		// same mirror the per-sibling oracle uses, so the recorded count and the
+		// deferral list cannot drift from the source they describe.
+		const measured = measureWorktree(resolve(HERE, ".."));
+		assert.strictEqual(
+			measured.flagged.length,
+			LONG_FILE_BASELINE.after.longFileCount,
+			"after.longFileCount must equal the delivered tree's flagged files",
+		);
+		assert.strictEqual(
+			measured.codeFiles,
+			LONG_FILE_BASELINE.after.codeFiles,
+			"after.codeFiles must equal the delivered tree's scored files",
+		);
+		const recordedDeferrals = LONG_FILE_BASELINE.deferred
+			.flatMap((d) => d.files ?? [])
+			.sort();
+		assert.deepStrictEqual(
+			measured.flagged,
+			recordedDeferrals,
+			"every file still flagged in the delivered tree must be a recorded deferral",
+		);
 	});
 });
