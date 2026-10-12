@@ -220,5 +220,3 @@ class EndToEndTests(unittest.TestCase):
             self.assertIn("unreachable", r["failures"][0]["message"])
         finally:
             td.cleanup()
-
-

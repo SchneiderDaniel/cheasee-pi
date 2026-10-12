@@ -229,5 +229,3 @@ class DiscoveryAndGitignoreTests(unittest.TestCase):
             self.assertEqual(len(fetcher2.requested_urls()), 7)
         finally:
             td.cleanup()
-
-

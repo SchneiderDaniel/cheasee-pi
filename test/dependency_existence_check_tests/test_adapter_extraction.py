@@ -348,5 +348,3 @@ class AdapterExtractionTests(unittest.TestCase):
         self.assertFalse(by_name["http"].transitive)
         self.assertFalse(by_name["lints"].transitive)
         self.assertTrue(by_name["matcher"].transitive)
-
-

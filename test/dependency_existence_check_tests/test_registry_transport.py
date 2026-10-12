@@ -286,5 +286,3 @@ class RegistryAndTransportTests(unittest.TestCase):
                              ["https://api.nuget.org/v3/registration5-semver1/newtonsoft.json/index.json"])
         finally:
             td.cleanup()
-
-

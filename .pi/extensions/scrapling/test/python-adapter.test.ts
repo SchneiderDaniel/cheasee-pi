@@ -401,4 +401,3 @@ describe("PythonAdapter — error handling", () => {
 		}
 	});
 });
-

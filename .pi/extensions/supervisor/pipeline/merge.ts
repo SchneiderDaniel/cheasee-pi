@@ -266,4 +266,3 @@ export {
 	classifyMergeability,
 	type PrGateVerdict,
 } from "./pr-gate.ts";
-

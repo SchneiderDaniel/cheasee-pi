@@ -300,4 +300,3 @@ describe("direction-label consolidation", () => {
 		);
 	});
 });
-

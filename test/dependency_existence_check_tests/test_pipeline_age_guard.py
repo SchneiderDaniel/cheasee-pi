@@ -199,5 +199,3 @@ class PipelineAndAgeGuardTests(unittest.TestCase):
             self.assertEqual(len(fetcher.requested_urls()), 1)
         finally:
             td.cleanup()
-
-
