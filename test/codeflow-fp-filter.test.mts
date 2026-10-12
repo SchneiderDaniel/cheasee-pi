@@ -532,6 +532,49 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 		);
 	});
 
+	it("keeps a declaration-only Go function or method (func name)", () => {
+		assert.strictEqual(
+			keepsDead("ghost", "src/go1.go", { "src/go1.go": "package main\nfunc ghost() {}\n" }),
+			true,
+		);
+		assert.strictEqual(
+			keepsDead("ghost", "src/go2.go", {
+				"src/go2.go": "package main\ntype R struct{}\nfunc (r *R) ghost() {}\n",
+			}),
+			true,
+			"a Go method with a receiver is still a declaration",
+		);
+	});
+
+	it("keeps a declaration-only TypeScript class method (name() {})", () => {
+		assert.strictEqual(
+			keepsDead("ghost", "src/cls1.ts", { "src/cls1.ts": "class A {\n\tghost() {}\n}\n" }),
+			true,
+		);
+		assert.strictEqual(
+			keepsDead("ghost", "src/cls2.ts", {
+				"src/cls2.ts": "class A {\n\tstatic async ghost(x: number): void {}\n}\n",
+			}),
+			true,
+			"a return-type annotation and modifiers are still a declaration head",
+		);
+	});
+
+	it("still suppresses a declared function that a real call reaches", () => {
+		assert.strictEqual(
+			keepsDead("ghost", "src/go3.go", {
+				"src/go3.go": "package main\nfunc ghost() {}\nfunc use() { ghost() }\n",
+			}),
+			false,
+		);
+		assert.strictEqual(
+			keepsDead("ghost", "src/cls3.ts", {
+				"src/cls3.ts": "class A {\n\tghost() {}\n}\nnew A().ghost();\n",
+			}),
+			false,
+		);
+	});
+
 	it("still detects an external use after a typed signature", () => {
 		assert.strictEqual(
 			keepsDead("foo", "src/d4.ts", {

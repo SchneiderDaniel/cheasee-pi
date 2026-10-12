@@ -270,13 +270,16 @@
 		return out;
 	}
 
-	// Definition heads: a declaration (`function`, `fn`, `def`) or a binding that
-	// assigns the name a function or an arrow.
+	// Definition heads: a declaration (`function`, `fn`, Go's `func`, `def`), an
+	// assignment of a function or arrow, or a keyword-less member (`ghost() {}`):
+	// a bare `name(...)` counts only when a body/return type follows it.
 	function definitionHead(name, flags) {
 		var n = escapeRe(name);
 		return new RegExp(
-			"(?:function\\s+" + n + "\\b|\\bfn\\s+" + n + "\\b|\\bdef\\s+" + n +
-				"\\b|\\b" + n + "\\s*(?::[^=;\\n]*)?=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[\\w$]+\\s*=>))",
+			"(?:function\\s+" + n + "\\b|\\bfn\\s+" + n + "\\b|\\bfunc\\s+(?:\\([^)\\n]*\\)\\s*)?" + n +
+				"\\b|\\bdef\\s+" + n +
+				"\\b|\\b" + n + "\\s*(?::[^=;\\n]*)?=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[\\w$]+\\s*=>)" +
+				"|(?:^|[;{}\\n])\\s*(?:[A-Za-z_$][\\w$]*\\s+)*\\*?\\b" + n + "\\b\\s*(?:<[^>\\n]*>)?\\([^)\\n]*\\)(?=\\s*[:{]))",
 			flags
 		);
 	}
