@@ -12,9 +12,11 @@
 //      one the report itself assigns the file.
 //
 // Only HIGH severity security findings are considered, plus one narrow MEDIUM
-// shape: a `Command Execution` hit whose cited file only spawns with an argv
-// array (no shell string). The remaining LOW/MEDIUM shapes (code comments,
-// debug statements) are left in the report for the audit skill to triage.
+// shape: a `Command Execution` hit whose cited file runs an argv-array
+// invocation and no shell-executing call (no `exec`/`execSync`, no `shell`
+// option other than `false`, no `-c` argv). The remaining LOW/MEDIUM shapes
+// (code comments, debug statements) are left in the report for the audit skill
+// to triage.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
@@ -152,20 +154,33 @@
 	}
 
 	// A `Command Execution` MEDIUM hit cites a whole file (`code: ""`), so the
-	// snippet carries no evidence. A file whose only process work is an
-	// argv-array spawn/execFile — no `shell: true`, no `execSync`, no `-c` flag
-	// argv (how `bash -c` appears) — runs no shell command. Absence of a read is
-	// not proof, so an unreadable file keeps the finding.
-	var ARGV_SPAWN = /(?:spawn|execfile)[\w$]*\s*\(/i;
-	var SHELL_MARKER = /shell\s*:\s*true|execSync\s*\(|["'`]-c["'`]/;
+	// snippet carries no evidence. Two guards must both hold before it is
+	// dropped:
+	//
+	//   1. the file must contain a real argv-array invocation — a spawn/execFile
+	//      family call that actually receives a program and a second (argv)
+	//      argument. Matching the call *shape*, not the callee's name, keeps a
+	//      helper definition or a bare `spawn()` from masking a real finding.
+	//   2. the file must contain no shell-executing call: a bare `exec(...)` (a
+	//      shell out, even beside a safe spawn), `execSync(...)`, any `shell`
+	//      option other than `false`, or a `-c` flag argv (how `bash -c`
+	//      appears).
+	//
+	// The program argument is a string literal at the flagged call sites; the
+	// fixed seam passes an `argvCommand`-validated variable, so an identifier
+	// program is accepted once guard 2 proves the file runs no shell. Absence of
+	// a read is not proof, so an unreadable file keeps the finding.
+	var SHELL_CALL = /\bexec\s*\(|execSync\s*\(|shell\s*:\s*(?!false\b)\S|["'`]-c["'`]/;
+	var ARGV_INVOCATION =
+		/(?:spawn|execfile)[\w$]*\s*\(\s*(?:["'`][^"'`]*["'`]|[A-Za-z_$][\w$.]*)\s*,\s*(?:\[|[A-Za-z_$][\w$.]*)/i;
 
 	function isMediumCommandExecution(issue, readFile) {
 		if (!isMedium(issue)) return false;
 		if (String(issue.title).trim() !== "Command Execution") return false;
 		var content = readFile ? readFile(issue.path) : null;
 		if (typeof content !== "string") return false;
-		if (SHELL_MARKER.test(content)) return false;
-		return ARGV_SPAWN.test(content);
+		if (SHELL_CALL.test(content)) return false;
+		return ARGV_INVOCATION.test(content);
 	}
 
 	/**

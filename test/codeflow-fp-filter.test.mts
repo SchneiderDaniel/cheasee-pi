@@ -62,6 +62,13 @@ const SOURCES: Record<string, string> = {
 		'export function run(cmd: string) { execSync("rm -rf " + cmd); }\n',
 	"src/shell-true.ts":
 		'export function run(cmd: string) { spawn("bash", [cmd], { shell: true }); }\n',
+	// A safe argv-array spawn next to a shell `exec()` — the suppression must
+	// not be triggered by the safe call, or the real finding vanishes.
+	"src/mixed.ts":
+		'export function run(cmd: string) { spawn("/usr/bin/pi", [cmd]); exec(cmd); }\n',
+	// A file whose only `spawn` token is a helper definition or a bare
+	// argument-less call is not evidence of a shell-free argv invocation.
+	"src/helper.ts": "export function spawnHelper(input: string) { return input; }\n",
 };
 
 const readFile = (path: unknown): string | null =>
@@ -279,6 +286,28 @@ describe("fp-filter — MEDIUM Command Execution argv-array rule", () => {
 			),
 			true,
 			"shell:true must survive",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution when a safe spawn sits beside a shell exec (regression)", () => {
+		// The old rule suppressed on the mere presence of a `spawn` name, so a
+		// real `exec(cmd)` in the same file disappeared from the report.
+		assert.strictEqual(
+			keepsSecurity(
+				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/mixed.ts" }),
+			),
+			true,
+			"exec() must survive even beside a safe argv spawn",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution when the only `spawn` token is not an argv invocation", () => {
+		assert.strictEqual(
+			keepsSecurity(
+				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/helper.ts" }),
+			),
+			true,
+			"a helper definition is not an argv-array invocation",
 		);
 	});
 
