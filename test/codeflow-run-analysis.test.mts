@@ -646,3 +646,112 @@ describe("complexity metric oracle (issue #2003)", () => {
 		}
 	});
 });
+
+// ─── God-object oracle (issue #2004) ──────────────────────────────
+// Same shape as the #2003 block above: the pinned analyzer run needs the
+// CodeFlow checkout and a `git archive` of two commits, so the measurement
+// stays out of this in-gate suite (the mirror that enforces the `<= 15`
+// per-sibling invariant lives in `test/god-object-refactor-2004.test.mts`).
+// This block replays the recorded before/after and guards the record's shape.
+const GOD_OBJECT_BASELINE = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "god-object-baseline.json"), "utf-8"),
+) as {
+	provenance: {
+		issue: number;
+		ref: string;
+		metric: string;
+		filedCount: number;
+		filedAnalyzedAt: number;
+	};
+	before: { commit: string; files: number; godObjectCount: number };
+	after: { commit: string; files: number; godObjectCount: number };
+	reducedBy: string[];
+	deferred: { reason: string; files?: string[]; examples?: string[] }[];
+};
+
+describe("god object metric oracle (issue #2004)", () => {
+	it("records a real drop between two immutable commits on the pinned analyzer", () => {
+		assert.strictEqual(GOD_OBJECT_BASELINE.provenance.issue, 2004);
+		assert.strictEqual(
+			GOD_OBJECT_BASELINE.provenance.filedCount,
+			63,
+			"the issue's filed count; the re-measured base differs once main advanced",
+		);
+		assert.strictEqual(GOD_OBJECT_BASELINE.provenance.filedAnalyzedAt, 1791738325602);
+		assert.match(GOD_OBJECT_BASELINE.provenance.ref, /^[0-9a-f]{40}$/, "pinned analyzer ref");
+		assert.match(
+			GOD_OBJECT_BASELINE.provenance.metric,
+			/isCode !== false/,
+			"the metric names the `isCode` gate",
+		);
+		assert.match(
+			GOD_OBJECT_BASELINE.provenance.metric,
+			/functions\.length > 15/,
+			"the metric names the exact predicate",
+		);
+		for (const [side, ref] of [
+			["before", GOD_OBJECT_BASELINE.before],
+			["after", GOD_OBJECT_BASELINE.after],
+		] as const) {
+			assert.match(ref.commit, /^[0-9a-f]{40}$/, `${side}.commit must be an immutable commit`);
+		}
+		assert.notStrictEqual(
+			GOD_OBJECT_BASELINE.after.commit,
+			GOD_OBJECT_BASELINE.before.commit,
+			"before and after must be different snapshots",
+		);
+		assert.ok(
+			GOD_OBJECT_BASELINE.after.godObjectCount < GOD_OBJECT_BASELINE.before.godObjectCount,
+			"the flagged-file count must fall",
+		);
+		assert.ok(
+			GOD_OBJECT_BASELINE.after.files > GOD_OBJECT_BASELINE.before.files,
+			"the split adds files; the drop is not from dropping files",
+		);
+	});
+
+	it("cites only existing, non-test-only reduction sources", () => {
+		assert.ok(GOD_OBJECT_BASELINE.reducedBy.length > 0, "reducedBy must be non-empty");
+		for (const rel of GOD_OBJECT_BASELINE.reducedBy) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing reduction source: ${rel}`);
+			assert.ok(
+				!rel.endsWith(".mts"),
+				`${rel} is test-only: the pinned analyzer never counts a .mts file`,
+			);
+		}
+	});
+
+	it("defers the Rust, embedded asset and offline-suite sets with reasons", () => {
+		const deferred = GOD_OBJECT_BASELINE.deferred;
+		assert.ok(deferred.length >= 2, "the Rust and .sh/.js deferrals are recorded");
+		for (const entry of deferred) {
+			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
+		}
+		const withFiles = deferred.filter((d) => (d.files ?? []).length > 0);
+		const rust = withFiles.find((d) => d.files!.every((f) => f.endsWith(".rs")));
+		const shellJs = withFiles.find((d) => d.files!.every((f) => /\.(sh|js|mjs)$/.test(f)));
+		assert.ok(rust, "the Rust set is recorded as deferred");
+		assert.ok(shellJs, "the embedded .sh/.js set is recorded as deferred");
+		assert.ok(rust.files!.length >= 8 && shellJs.files!.length >= 5);
+		for (const rel of [...rust.files!, ...shellJs.files!]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
+			assert.ok(
+				!GOD_OBJECT_BASELINE.reducedBy.includes(rel),
+				`${rel} is both deferred and cited as reduced`,
+			);
+		}
+	});
+
+	it("accounts for every leftover flag (no silent omission)", () => {
+		// The offline safety-net suite is the one flagged file this change does not
+		// split; it must be named in deferred[] with a reason rather than dropped.
+		const suite = "test/dependency-existence-check.test.py";
+		const entry = GOD_OBJECT_BASELINE.deferred.find((d) => (d.files ?? []).includes(suite));
+		assert.ok(entry, `${suite} must be split or deferred, never silently omitted`);
+		assert.ok(entry!.reason.length > 0, `${suite} deferral must state a reason`);
+		assert.ok(
+			!GOD_OBJECT_BASELINE.reducedBy.includes(suite),
+			`${suite} is both deferred and cited as reduced`,
+		);
+	});
+});
