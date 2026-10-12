@@ -42,6 +42,12 @@ export interface IssueFact {
 	/** architecture | security | dead-code | duplicate | layer-violation | suggestion | pattern | anti-pattern */
 	kind: string;
 	title: string;
+	/**
+	 * Optional human description from the structured export (CodeFlow's own
+	 * wording, e.g. `securityIssues[].description`). Absent when the source
+	 * format carries none (markdown fallback, dead-code names).
+	 */
+	description?: string;
 	/** Recoverable identities; a fact is kept when this is non-empty. */
 	targets: Target[];
 	/**
@@ -59,8 +65,6 @@ export interface IssueGroup {
 	/** Paths claimed by two or more issues in this group (empty when isolated). */
 	overlaps: string[];
 }
-
-
 
 /**
  * Pick the richest available source: the structured JSON report when it yields

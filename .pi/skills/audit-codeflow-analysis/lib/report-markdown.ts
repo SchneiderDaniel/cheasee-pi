@@ -136,6 +136,8 @@ export function parseReport(markdown: string): IssueFact[] {
 			continue;
 		}
 		if (!kind || !current) continue;
+		const desc = /^\s*[-*]?\s*\*\*Description:\*\*\s*(.+)$/i.exec(line);
+		if (desc && !current.description) current.description = desc[1].trim();
 		for (const target of targetsFromRefLine(line)) {
 			const key = targetKey(target);
 			if (!current.targets.some((t) => targetKey(t) === key)) current.targets.push(target);

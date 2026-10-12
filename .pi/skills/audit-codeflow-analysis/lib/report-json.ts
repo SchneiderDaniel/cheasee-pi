@@ -38,10 +38,18 @@ export function parseReportJson(text: string): IssueFact[] {
 
 	const facts: IssueFact[] = [];
 	const counters = new Map<string, number>();
-	const push = (kind: string, title: string, files: string[]): void => {
+	const push = (kind: string, title: string, files: string[], description?: string): void => {
 		const n = counters.get(kind) ?? 0;
 		counters.set(kind, n + 1);
-		facts.push({ id: `${kind}:${n}`, kind, title, targets: fileTargets(files), files });
+		const desc = description?.trim();
+		facts.push({
+			id: `${kind}:${n}`,
+			kind,
+			title,
+			...(desc ? { description: desc } : {}),
+			targets: fileTargets(files),
+			files,
+		});
 	};
 
 	for (const issue of Array.isArray(r.architectureIssues) ? r.architectureIssues : []) {
@@ -73,7 +81,7 @@ export function parseReportJson(text: string): IssueFact[] {
 				addFiles(files, [asRecord(f)?.file]);
 			}
 		}
-		push("architecture", String(i.title ?? "").trim(), files);
+		push("architecture", String(i.title ?? "").trim(), files, String(i.description ?? ""));
 	}
 	for (const dup of Array.isArray(r.duplicates) ? r.duplicates : []) {
 		const d = asRecord(dup);
@@ -83,7 +91,12 @@ export function parseReportJson(text: string): IssueFact[] {
 			addFiles(files, [asRecord(f)?.file]);
 		}
 		const label = d.type === "code" ? "Similar Code" : "Same Name";
-		push("duplicate", `${label}: ${String(d.name ?? "").trim()}`, files);
+		push(
+			"duplicate",
+			`${label}: ${String(d.name ?? "").trim()}`,
+			files,
+			String(d.suggestion ?? ""),
+		);
 	}
 	for (const v of Array.isArray(r.layerViolations) ? r.layerViolations : []) {
 		const lv = asRecord(v);
@@ -91,21 +104,24 @@ export function parseReportJson(text: string): IssueFact[] {
 		const files: string[] = [];
 		addFiles(files, [lv.from, lv.to]);
 		const edge = `${String(lv.fromLayer ?? "")} → ${String(lv.toLayer ?? "")}`.trim();
-		push("layer-violation", edge, files);
+		push("layer-violation", edge, files, String(lv.description ?? ""));
 	}
 	for (const s of Array.isArray(r.suggestions) ? r.suggestions : []) {
 		const suggestion = asRecord(s);
 		if (!suggestion) continue;
 		// Suggestions are derived targets with no file of their own; kept so the
 		// skill can still surface them, grouped in isolation.
-		push("suggestion", String(suggestion.title ?? "").trim(), []);
+		const desc = [suggestion.desc, suggestion.action, suggestion.impact]
+			.filter((v): v is string => typeof v === "string" && v.trim() !== "")
+			.join(" ");
+		push("suggestion", String(suggestion.title ?? "").trim(), [], desc);
 	}
 	for (const fn of Array.isArray(r.unusedFunctions) ? r.unusedFunctions : []) {
 		const f = asRecord(fn);
 		if (!f) continue;
 		const files: string[] = [];
 		addFiles(files, [f.file]);
-		push("dead-code", `${String(f.name ?? "").trim()}()`, files);
+		push("dead-code", `${String(f.name ?? "").trim()}()`, files, String(f.description ?? ""));
 	}
 	for (const s of Array.isArray(r.securityIssues) ? r.securityIssues : []) {
 		const sec = asRecord(s);
@@ -113,7 +129,12 @@ export function parseReportJson(text: string): IssueFact[] {
 		const files: string[] = [];
 		addFiles(files, [sec.path]);
 		const sev = String(sec.severity ?? "").toUpperCase();
-		push("security", `${sev}: ${String(sec.title ?? "").trim()}`.trim(), files);
+		push(
+			"security",
+			`${sev}: ${String(sec.title ?? "").trim()}`.trim(),
+			files,
+			String(sec.description ?? ""),
+		);
 	}
 	// Design patterns and anti-patterns. The markdown exporter emits these too,
 	// so the JSON source must carry them as well or they are dropped whenever the
@@ -126,7 +147,12 @@ export function parseReportJson(text: string): IssueFact[] {
 		for (const f of Array.isArray(p.fileDetails) ? p.fileDetails : []) {
 			addFiles(files, [asRecord(f)?.path]);
 		}
-		push(p.isAntiPattern === true ? "anti-pattern" : "pattern", String(p.name ?? "").trim(), files);
+		push(
+			p.isAntiPattern === true ? "anti-pattern" : "pattern",
+			String(p.name ?? "").trim(),
+			files,
+			String(p.description ?? ""),
+		);
 	}
 	return facts;
 }

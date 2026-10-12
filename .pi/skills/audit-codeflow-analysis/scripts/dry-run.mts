@@ -9,7 +9,7 @@
  * Usage:
  *   node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts
  *   ... --limit 5 --report ignore/codeflow-report.md --json ignore/codeflow-report.json
- *   ... --list | --emit-findings [DIR] | --self-check
+ *   ... --list | --emit-findings [DIR] | --emit-issues [DIR] | --self-check
  */
 
 import { execFileSync } from "node:child_process";
@@ -20,6 +20,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import {
 	classifyFinding,
 	dedupeIssues,
+	groupIssues,
 	hasStructuredFindings,
 	parseBestReport,
 	reportSectionCoverage,
@@ -186,6 +187,192 @@ function dispositionSummary(facts: IssueFact[]): string {
 	);
 }
 
+// ─── Issue drafting (--emit-issues) ───────────────────────────────
+
+/** One proposed issue: the facts it covers and the issue scope triage assigns. */
+export interface DraftGroup {
+	/** Stable identity (kind+title for subject mode, group id for graph mode). */
+	key: string;
+	/** Highest triage issue type across the group's facts (bug > chore > informational). */
+	issueType: IssueType;
+	dispositions: Disposition[];
+	/** Display title: the single subject, or the first plus a `(+N more)` suffix. */
+	title: string;
+	facts: IssueFact[];
+	files: string[];
+}
+
+/** A group's issue type is the strongest member's, so a mixed graph group is a bug. */
+function highestIssueType(types: IssueType[]): IssueType {
+	for (const t of ["bug", "chore", "informational"] as const) {
+		if (types.includes(t)) return t;
+	}
+	return "out-of-scope";
+}
+
+function buildGroup(key: string, groupFacts: IssueFact[]): DraftGroup {
+	const titles = [...new Set(groupFacts.map((f) => f.title))];
+	return {
+		key,
+		issueType: highestIssueType(groupFacts.map((f) => classifyFinding(f).issueType)),
+		dispositions: [...new Set(groupFacts.map((f) => classifyFinding(f).disposition))],
+		title: titles.length === 1 ? titles[0] : `${titles[0]} (+${titles.length - 1} more)`,
+		facts: groupFacts,
+		files: [...new Set(groupFacts.flatMap((f) => f.files))].sort(),
+	};
+}
+
+/**
+ * One proposed issue per canonical `(kind, title)` subject. This is the default
+ * because file-graph merging collapses every metric that touches hundreds of
+ * files into a single unworkable group; subject grouping keeps one issue on one
+ * subject and discloses the remaining file overlap instead.
+ */
+export function groupFactsBySubject(facts: IssueFact[]): DraftGroup[] {
+	const byKey = new Map<string, IssueFact[]>();
+	const order: string[] = [];
+	for (const fact of facts) {
+		const key = `${fact.kind}\u0000${fact.title}`;
+		const list = byKey.get(key);
+		if (list) list.push(fact);
+		else {
+			byKey.set(key, [fact]);
+			order.push(key);
+		}
+	}
+	return order.map((key) => buildGroup(key, byKey.get(key) as IssueFact[]));
+}
+
+/** One proposed issue per file-conflict group (transitive merge on shared files). */
+export function groupFactsByFileGraph(facts: IssueFact[]): DraftGroup[] {
+	return groupIssues(facts).map((g) => buildGroup(g.id, g.issues));
+}
+
+export interface DraftContext {
+	analyzedAt: string | null;
+	allGroups: DraftGroup[];
+}
+
+/** The analysis timestamp: the structured `analyzedAt` wins over the markdown line. */
+export function readAnalyzedAt(jsonText: string | null, markdown: string): string | null {
+	if (jsonText) {
+		try {
+			const root = JSON.parse(jsonText) as Record<string, unknown>;
+			const v = root.analyzedAt;
+			if (typeof v === "string" && v.trim() !== "") return v.trim();
+			if (typeof v === "number") return String(v);
+		} catch {
+			// fall through to the markdown line
+		}
+	}
+	const m = /^\*\*Analyzed:\*\*\s*(.+)$/m.exec(markdown ?? "");
+	return m ? m[1].trim() : null;
+}
+
+/**
+ * Draft one issue from a group: template-appropriate title/body, the cited
+ * CodeFlow signal, the affected files, the best-effort isolation note (shared
+ * files listed), the analysis timestamp and the false-positive note.
+ */
+export function draftIssueForGroup(
+	group: DraftGroup,
+	ctx: DraftContext,
+): { title: string; body: string } {
+	const label =
+		group.issueType === "bug" ? "[Bug]" : group.issueType === "chore" ? "[Refactor]" : "[Info]";
+	const title = `${label} ${group.title}`;
+	const descriptions = [
+		...new Set(group.facts.map((f) => f.description).filter((d): d is string => !!d)),
+	];
+	const shared = group.files.filter((f) =>
+		ctx.allGroups.some((o) => o.key !== group.key && o.files.includes(f)),
+	);
+	const signal = [
+		`**Kinds:** ${[...new Set(group.facts.map((f) => f.kind))].join(", ")}`,
+		`**Titles:** ${[...new Set(group.facts.map((f) => f.title))].map((t) => `\`${t}\``).join(", ")}`,
+		`**Dispositions:** ${group.dispositions.join(", ")}`,
+		...(descriptions.length > 0 ? [`**Description:** ${descriptions.join(" /")}`] : []),
+		...(ctx.analyzedAt !== null ? [`**analyzedAt:** \`${ctx.analyzedAt}\``] : []),
+	].join("\n");
+	const isolation =
+		group.files.length === 0
+			? "File-less finding (derived signal); file isolation is not applicable."
+			: shared.length === 0
+				? "Isolated: no other drafted issue shares a file with this one."
+				: `Best-effort isolation only: ${shared.length} of ${group.files.length} file(s) are shared with other drafted issues.`;
+	const body = [
+		"## Describe the bug",
+		`CodeFlow reports **${group.title}** (${group.issueType})${descriptions.length > 0 ? `: ${descriptions.join(" /")}` : "."}`,
+		"",
+		"## Expected behavior",
+		"The CodeFlow signal no longer applies once the cited code is addressed.",
+		"",
+		"## Additional context",
+		"",
+		"### CodeFlow signal",
+		"",
+		signal,
+		"",
+		`### Affected files (${group.files.length})`,
+		"",
+		group.files.length > 0 ? group.files.map((f) => `- \`${f}\``).join("\n") : "(none)",
+		"",
+		"### Best-effort isolation",
+		"",
+		isolation,
+		...(shared.length > 0 ? ["", "Shared files:", ...shared.map((f) => `- \`${f}\``)] : []),
+		"",
+		"### False positive",
+		"This finding may be a false positive, but it still indicates badly designed code that should be improved. Confirm the claim against the cited code before fixing.",
+		"",
+	].join("\n");
+	return { title, body };
+}
+
+/**
+ * Write one `<NN>-<slug>.md` body plus `<NN>-<slug>.title`, and a `MANIFEST.txt`.
+ * Fails closed when the destination already holds drafts, so a rerun cannot mix
+ * a fresh proposed set with a prior one.
+ */
+function writeIssueFiles(dir: string, groups: DraftGroup[], ctx: DraftContext): string[] {
+	const stale = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".md")) : [];
+	if (stale.length > 0) {
+		throw new Error(
+			`refusing to write drafts into ${dir}: it already contains ${stale.length} stale file(s) ` +
+				`(${stale.slice(0, 3).join(", ")}${stale.length > 3 ? ", …" : ""}). ` +
+				"Use a fresh destination directory or remove the stale files first, so the proposed set is never mixed.",
+		);
+	}
+	mkdirSync(dir, { recursive: true });
+	const manifest: string[] = [];
+	groups.forEach((group, i) => {
+		const base = `${String(i + 1).padStart(2, "0")}-${slugifyFinding(group.title)}`;
+		const draft = draftIssueForGroup(group, ctx);
+		writeFileSync(join(dir, `${base}.md`), draft.body, "utf-8");
+		writeFileSync(join(dir, `${base}.title`), draft.title, "utf-8");
+		manifest.push(
+			`${base}\t${draft.title}\t${group.issueType}\t${group.dispositions.join("+")}\tfiles=${group.files.length}\tfacts=${group.facts.length}`,
+		);
+	});
+	writeFileSync(join(dir, "MANIFEST.txt"), manifest.join("\n") + "\n", "utf-8");
+	return groups.map((g, i) => `${String(i + 1).padStart(2, "0")}-${slugifyFinding(g.title)}.md`);
+}
+
+/** The proposed-set table printed before the confirmation gate. */
+function issueTable(groups: DraftGroup[]): string {
+	return groups
+		.map((g, i) => {
+			const shared = g.files.filter((f) =>
+				groups.some((o) => o.key !== g.key && o.files.includes(f)),
+			).length;
+			return (
+				`  ${String(i + 1).padStart(2, "0")} [${g.issueType}] ${g.title}\n` +
+				`        files=${g.files.length} shared=${shared} facts=${g.facts.length} dispositions=${g.dispositions.join(",")}`
+			);
+		})
+		.join("\n");
+}
+
 /**
  * Write one `NN-<slug>.md` candidate per fact; returns the written paths.
  *
@@ -221,6 +408,10 @@ function parseArgs(argv: string[]): {
 	listOnly: boolean;
 	emitFindings: boolean;
 	emitDir: string | null;
+	emitIssues: boolean;
+	emitIssuesDir: string | null;
+	by: "subject" | "group";
+	analyzedAt: string | null;
 } {
 	const out = {
 		limit: 5,
@@ -230,6 +421,10 @@ function parseArgs(argv: string[]): {
 		listOnly: false,
 		emitFindings: false,
 		emitDir: null as string | null,
+		emitIssues: false,
+		emitIssuesDir: null as string | null,
+		by: "subject" as "subject" | "group",
+		analyzedAt: null as string | null,
 	};
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
@@ -242,14 +437,31 @@ function parseArgs(argv: string[]): {
 				out.emitDir = next;
 				i++;
 			}
-		} else if (arg === "--limit") out.limit = Number(argv[++i]);
+		} else if (arg === "--emit-issues") {
+			out.emitIssues = true;
+			const next = argv[i + 1];
+			if (next !== undefined && !next.startsWith("-")) {
+				out.emitIssuesDir = next;
+				i++;
+			}
+		} else if (arg === "--by") {
+			const value = argv[++i];
+			if (value !== "subject" && value !== "group") {
+				process.stderr.write(`--by must be subject or group, got ${value}\n`);
+				process.exit(2);
+			}
+			out.by = value;
+		} else if (arg === "--analyzed-at") out.analyzedAt = argv[++i];
+		else if (arg === "--limit") out.limit = Number(argv[++i]);
 		else if (arg === "--report") out.report = argv[++i];
 		else if (arg === "--json") out.json = argv[++i];
 		else if (arg === "--help" || arg === "-h") {
 			process.stdout.write(
-				"usage: dry-run.mts [--limit N] [--report FILE] [--json FILE] [--list] [--emit-findings [DIR]] [--self-check]\n" +
+				"usage: dry-run.mts [--limit N] [--report FILE] [--json FILE] [--list] [--emit-findings [DIR]] [--emit-issues [DIR]] [--by subject|group] [--analyzed-at VALUE] [--self-check]\n" +
 					"  --list           extract findings and resolve cited files only (no issue drafts)\n" +
-					"  --emit-findings  write every candidate to NN-<slug>.md (no deletion)\n",
+					"  --emit-findings  write every candidate to NN-<slug>.md (no deletion)\n" +
+					"  --emit-issues    write one proposed issue body+title per group (no deletion, no gh)\n" +
+					"  --by             issue grouping: subject (kind+title, default) or group (shared files)\n",
 			);
 			process.exit(0);
 		} else {
@@ -265,6 +477,13 @@ function parseArgs(argv: string[]): {
 }
 
 function selfCheck(): number {
+	const mk = (id: string, kind: string, title: string, files: string[]): IssueFact => ({
+		id,
+		kind,
+		title,
+		targets: files.map((path) => ({ kind: "file", path })),
+		files,
+	});
 	const checks: Array<[string, boolean]> = [
 		[
 			"draft carries files",
@@ -361,6 +580,66 @@ function selfCheck(): number {
 				targets: [],
 				files: [],
 			}).disposition === "offer-optional",
+		],
+		[
+			"subject grouping merges same kind+title",
+			groupFactsBySubject([
+				mk("a", "security", "HIGH: X", ["a.ts"]),
+				mk("b", "security", "HIGH: X", ["b.ts"]),
+			]).length === 1,
+		],
+		[
+			"subject grouping keeps distinct titles apart",
+			groupFactsBySubject([
+				mk("a", "security", "HIGH: X", ["a.ts"]),
+				mk("b", "security", "HIGH: Y", ["a.ts"]),
+			]).length === 2,
+		],
+		[
+			"file-graph grouping merges shared files",
+			groupFactsByFileGraph([
+				mk("a", "security", "A", ["shared.ts"]),
+				mk("b", "dead-code", "B()", ["shared.ts"]),
+			]).length === 1,
+		],
+		[
+			"issue draft carries label, files, timestamp and false-positive note",
+			(() => {
+				const groups = groupFactsBySubject([
+					mk("a", "security", "HIGH: X", ["a.ts"]),
+					mk("b", "security", "HIGH: X", ["b.ts"]),
+				]);
+				const draft = draftIssueForGroup(groups[0], { analyzedAt: "123", allGroups: groups });
+				return (
+					draft.title.startsWith("[Bug] ") &&
+					draft.body.includes("`a.ts`") &&
+					draft.body.includes("`b.ts`") &&
+					draft.body.includes("`123`") &&
+					draft.body.includes("false positive")
+				);
+			})(),
+		],
+		[
+			"issue draft discloses shared files",
+			(() => {
+				const groups = groupFactsBySubject([
+					mk("a", "security", "HIGH: X", ["shared.ts"]),
+					mk("b", "dead-code", "Y()", ["shared.ts"]),
+				]);
+				const draft = draftIssueForGroup(groups[0], { analyzedAt: null, allGroups: groups });
+				return (
+					draft.body.includes("Best-effort isolation only") && draft.body.includes("Shared files")
+				);
+			})(),
+		],
+		[
+			"readAnalyzedAt prefers the structured timestamp",
+			readAnalyzedAt('{"analyzedAt":"2026-01-01T00:00:00Z"}', "**Analyzed:** yesterday") ===
+				"2026-01-01T00:00:00Z",
+		],
+		[
+			"readAnalyzedAt falls back to the markdown line",
+			readAnalyzedAt(null, "**Analyzed:** 12.10.2026, 13:36:10") === "12.10.2026, 13:36:10",
 		],
 	];
 	let failed = 0;
@@ -479,6 +758,27 @@ async function main(): Promise<void> {
 			`CodeFlow findings emitted — ${files.length} candidate(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
 				`${routed.length} finding(s) routed by triage to refactor/optional issues.\n` +
 				`dispositions: ${dispositionSummary(candidates)}\n` +
+				`\n${coverageReport(markdown, coverage)}` +
+				(!json ? `\n${jsonNote()}` : "") +
+				`\nNo issues created.\n`,
+		);
+		process.exit(0);
+	}
+
+	if (args.emitIssues) {
+		// Grouped, template-appropriate issue drafts. Still creates nothing and
+		// calls no `gh`; the confirmation gate decides what is filed.
+		const groups =
+			args.by === "group" ? groupFactsByFileGraph(candidates) : groupFactsBySubject(candidates);
+		const analyzedAt = args.analyzedAt ?? readAnalyzedAt(json, markdown);
+		const dir = resolve(repoRoot, args.emitIssuesDir ?? "ignore/codeflow-issue-drafts");
+		const files = writeIssueFiles(dir, groups, { analyzedAt, allGroups: groups });
+		process.stdout.write(
+			`CodeFlow issue drafts — ${files.length} proposed issue(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
+				`grouping: ${args.by}\n` +
+				`analyzedAt: ${analyzedAt ?? "(unknown — pass --analyzed-at)"}\n` +
+				`dispositions: ${dispositionSummary(candidates)}\n` +
+				`\nproposed set:\n${issueTable(groups)}\n` +
 				`\n${coverageReport(markdown, coverage)}` +
 				(!json ? `\n${jsonNote()}` : "") +
 				`\nNo issues created.\n`,
