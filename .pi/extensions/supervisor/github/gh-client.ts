@@ -76,6 +76,33 @@ export function detectTokenClass(home: string = homedir()): TokenClass {
 	return "unknown";
 }
 
+/**
+ * Run `gh` with the resolved token injected through the child's environment.
+ *
+ * pi.exec exposes no `env` seam, so the token is scoped onto `process.env`
+ * (which `spawn` inherits) around the call and restored in `finally`. This
+ * keeps the secret out of the command string, argv and shell entirely.
+ * shortcut: the env var is process-global, so concurrent gh calls wanting
+ * different tokens would race — serialize gh traffic if that ever arises.
+ */
+async function runGhWithToken(
+	exec: ExecFn,
+	args: string[],
+	opts: { signal?: AbortSignal; timeout?: number } | undefined,
+	token: string | null,
+): Promise<ExecResult> {
+	const execOpts = { signal: opts?.signal, timeout: opts?.timeout ?? 30_000 };
+	if (token === null) return exec("gh", args, execOpts);
+	const previous = process.env.GH_TOKEN;
+	process.env.GH_TOKEN = token;
+	try {
+		return await exec("gh", args, execOpts);
+	} finally {
+		if (previous === undefined) delete process.env.GH_TOKEN;
+		else process.env.GH_TOKEN = previous;
+	}
+}
+
 export async function gh(
 	exec: ExecFn,
 	args: string[],
@@ -88,17 +115,9 @@ export async function gh(
 		timeout: opts?.timeout,
 	});
 
-	// Call gh via bash to inject GH_TOKEN, working around exec auth
-	// context issues on WSL.  Uses "$@" passthrough to avoid shell escaping.
-	const ghToken = resolveGitHubToken();
-	const shellArgs = ghToken
-		? ["-c", `GH_TOKEN='${ghToken.replace(/'/g, "'\\''")}' gh "$@"`, "_", ...args]
-		: args;
-
-	const result = await exec(ghToken ? "bash" : "gh", shellArgs, {
-		signal: opts?.signal,
-		timeout: opts?.timeout ?? 30_000,
-	});
+	// GH_TOKEN is injected via process.env (see runGhWithToken) to work around
+	// exec auth context issues on WSL.
+	const result = await runGhWithToken(exec, args, opts, resolveGitHubToken());
 	if (result.code !== 0) {
 		log.warn("gh-client", `gh ${cmdLabel} failed (code ${result.code})`, {
 			args: args.slice(0, 8),
@@ -124,15 +143,7 @@ export async function ghRaw(
 	// Same GH_TOKEN injection as gh(), but returns the raw ExecResult — no
 	// stdout trim, no throw on non-zero exit — so HTTP headers (`gh api -i`,
 	// e.g. X-OAuth-Scopes) survive for caller-side parsing.
-	const ghToken = resolveGitHubToken();
-	const shellArgs = ghToken
-		? ["-c", `GH_TOKEN='${ghToken.replace(/'/g, "'\\''")}' gh "$@"`, "_", ...args]
-		: args;
-
-	return exec(ghToken ? "bash" : "gh", shellArgs, {
-		signal: opts?.signal,
-		timeout: opts?.timeout ?? 30_000,
-	});
+	return runGhWithToken(exec, args, opts, resolveGitHubToken());
 }
 
 // ─── ghJson<T>() — typed JSON output ──────────────────────────────

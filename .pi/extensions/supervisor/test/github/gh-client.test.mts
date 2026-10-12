@@ -22,10 +22,12 @@ interface ExecCall {
 function createMockExec(
 	execResult: { code: number; stdout: string; stderr: string },
 	calls?: ExecCall[],
+	envLog?: Array<string | undefined>,
 ): ExecFn {
 	const callLog = calls || [];
 	return async (cmd: string, args: string[], opts?: ExecOptions): Promise<ExecResult> => {
 		callLog.push({ cmd, args: args || [], opts: (opts || {}) as Record<string, unknown> });
+		envLog?.push(process.env.GH_TOKEN);
 		return { ...execResult, killed: false };
 	};
 }
@@ -39,17 +41,16 @@ describe("gh() — low-level CLI wrapper", () => {
 		const result = await gh(exec, ["issue", "view", "123"]);
 		assert.equal(result, "hello world");
 		assert.equal(calls.length, 1);
-		// gh() may call through bash for GH_TOKEN injection or gh directly
-		const cmd = calls[0].cmd;
-		assert.ok(cmd === "bash" || cmd === "gh", `cmd should be bash or gh, got: ${cmd}`);
-		if (cmd === "bash") {
-			// Through bash: args[0]='-c', args[1] contains gh command, args[2]='_', then original args
-			const ghArgs = calls[0].args.slice(3);
-			assert.deepEqual(ghArgs, ["issue", "view", "123"]);
-		} else {
-			assert.deepEqual(calls[0].args, ["issue", "view", "123"]);
-		}
+		assert.equal(calls[0].cmd, "gh");
+		assert.deepEqual(calls[0].args, ["issue", "view", "123"]);
 		assert.ok(calls[0].opts);
+	});
+
+	it("defaults timeout to 30_000 when omitted", async () => {
+		const calls: ExecCall[] = [];
+		const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, calls);
+		await gh(exec, ["status"]);
+		assert.equal(calls[0].opts.timeout, 30_000);
 	});
 
 	it("throws on non-zero exit, includes stderr then stdout fallback", async () => {
@@ -264,24 +265,24 @@ async function withEnv(
 	}
 }
 
-describe("gh()/ghRaw() — per-call resolution (no stale cache)", () => {
+describe("gh()/ghRaw() — GH_TOKEN injected via process.env, never a shell string", () => {
 	it("gh(): mid-session credential appearing is picked up on the next call", async () => {
 		const home = mkdtempSync(join(tmpdir(), "gh-midsession-gh-"));
 		try {
 			await withEnv(home, undefined, async () => {
 				const calls: ExecCall[] = [];
-				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, calls);
+				const envLog: Array<string | undefined> = [];
+				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, calls, envLog);
 
 				await gh(exec, ["status"]);
 				assert.equal(calls[0].cmd, "gh", "no credential → exec gh directly");
+				assert.equal(envLog[0], undefined, "no credential → env untouched");
 
 				writeHosts(home, "gho_file");
 				await gh(exec, ["status"]);
-				assert.equal(calls[1].cmd, "bash", "new credential → inject via bash");
-				assert.ok(
-					calls[1].args[1].includes("GH_TOKEN='gho_file'"),
-					`expected injected token, got: ${calls[1].args[1]}`,
-				);
+				assert.equal(calls[1].cmd, "gh", "credential → still direct gh, no bash");
+				assert.equal(envLog[1], "gho_file", "token visible to the child during the call");
+				assert.equal(process.env.GH_TOKEN, undefined, "env restored after the call");
 			});
 		} finally {
 			rmSync(home, { recursive: true, force: true });
@@ -293,36 +294,98 @@ describe("gh()/ghRaw() — per-call resolution (no stale cache)", () => {
 		try {
 			await withEnv(home, undefined, async () => {
 				const calls: ExecCall[] = [];
-				const exec = createMockExec({ code: 0, stdout: "HTTP/2 200\n", stderr: "" }, calls);
+				const envLog: Array<string | undefined> = [];
+				const exec = createMockExec({ code: 0, stdout: "HTTP/2 200\n", stderr: "" }, calls, envLog);
 
 				await ghRaw(exec, ["api", "-i", "/user"]);
 				assert.equal(calls[0].cmd, "gh", "raw semantics: no credential → exec gh directly");
 
 				writeHosts(home, "gho_file");
 				await ghRaw(exec, ["api", "-i", "/user"]);
-				assert.equal(calls[1].cmd, "bash", "raw semantics preserved when injecting");
-				assert.ok(calls[1].args[1].includes("GH_TOKEN='gho_file'"));
+				assert.equal(calls[1].cmd, "gh", "raw semantics preserved, still direct gh");
+				assert.equal(envLog[1], "gho_file");
+				assert.equal(process.env.GH_TOKEN, undefined, "env restored after the call");
 			});
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
 	});
 
-	it("both gh() and ghRaw() inject the same escaped GH_TOKEN", async () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-escape-"));
+	it("token non-null with GH_TOKEN previously unset → restored by delete", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-delete-restore-"));
 		try {
-			await withEnv(home, "gho_it's", async () => {
+			await withEnv(home, undefined, async () => {
+				writeHosts(home, "gho_file");
+				assert.equal("GH_TOKEN" in process.env, false, "precondition: env var absent");
+				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" });
+				await gh(exec, ["status"]);
+				assert.equal("GH_TOKEN" in process.env, false, "deleted, not left as 'undefined' string");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("token with shell metacharacters passes through env byte-identical, never into argv", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-metachar-"));
+		const token = "gho_it's ; rm -rf / --weird";
+		try {
+			await withEnv(home, token, async () => {
 				const calls: ExecCall[] = [];
-				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, calls);
+				const envLog: Array<string | undefined> = [];
+				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, calls, envLog);
 				await gh(exec, ["status"]);
 				await ghRaw(exec, ["api", "/user"]);
 				for (const call of calls) {
-					assert.equal(call.cmd, "bash");
-					assert.ok(
-						call.args[1].includes("GH_TOKEN='gho_it'\\''s'"),
-						`quote escaped identically, got: ${call.args[1]}`,
-					);
+					assert.equal(call.cmd, "gh");
+					for (const arg of call.args) {
+						assert.ok(!arg.includes("gho_it"), `token leaked into argv: ${arg}`);
+					}
 				}
+				assert.deepEqual(envLog, [token, token], "token passed verbatim through env");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("non-zero exit: gh() throws and pre-existing env is restored (finally on throw path)", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-throw-env-"));
+		try {
+			await withEnv(home, "gho_env", async () => {
+				const exec = createMockExec({ code: 1, stdout: "", stderr: "auth failed" });
+				await assert.rejects(() => gh(exec, ["issue", "view", "1"]), /gh issue failed: auth failed/);
+				assert.equal(process.env.GH_TOKEN, "gho_env", "pre-existing value restored");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("exec rejection propagates and env is restored", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-reject-env-"));
+		try {
+			await withEnv(home, "gho_env", async () => {
+				const exec: ExecFn = async () => {
+					throw new Error("spawn failed");
+				};
+				await assert.rejects(() => gh(exec, ["status"]), /spawn failed/);
+				assert.equal(process.env.GH_TOKEN, "gho_env", "restored after rejection");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("concurrent same-token calls do not corrupt env; final value restored", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-concurrent-"));
+		try {
+			await withEnv(home, "gho_same", async () => {
+				const envLog: Array<string | undefined> = [];
+				const exec = createMockExec({ code: 0, stdout: "ok", stderr: "" }, undefined, envLog);
+				await Promise.all([gh(exec, ["status"]), gh(exec, ["api", "/user"])]);
+				assert.deepEqual(envLog, ["gho_same", "gho_same"]);
+				assert.equal(process.env.GH_TOKEN, "gho_same", "restored to the pre-call value");
 			});
 		} finally {
 			rmSync(home, { recursive: true, force: true });
