@@ -1,0 +1,78 @@
+{
+	"provenance": {
+		"issue": 2006,
+		"title": "VBA God Module",
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"method": "git archive <commit> | tar -x -C <dir> && node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs <dir> <codeflow-ui> <out>",
+		"metric": "patterns[name === \"VBA God Module\"].files — analyzed files where isCode !== false && functions.length > 20 (index.html:1414 detectPatterns `vbaGodFiles`). `VBA God Module` is `God Object` (> 15) at a higher ceiling over the same raw-text parser count, so this change targets <= 15 per sibling to avoid minting a God Object regression. `functions` is the headless parser count and `isCode` gates files absent from codeExts — notably the `.mts` oracle, `.json` fixture and `.md` record, none of which can ever be a reduction source.",
+		"filesNote": "`files` is the analyzer's own `summary.totalFiles` for the snapshot. Only its ordering matters here: `after.files > before.files` proves the drop did not come from deleting files. `.mts` is not in `codeExts`/`textExts`, so the shared mirror and this issue's oracle add no parsed file.",
+		"filedAnalyzedAt": 1791738325602,
+		"filedCount": 44,
+		"baseCountNote": "the issue was filed with 44 files at analyzedAt 1791738325602 against the then-main. The immutable base below (origin/main after #2001–#2005) reports 19 flagged files: the earlier refactors already cleared the Go/TS set. Acceptance is the drop on the delivered branch, not the filed number.",
+		"afterTipNote": "the after snapshot is db16ddbb, the code-tree commit of this branch (the Python split, the shared `test/fixtures/function-count-mirror.mts` and the #2004 migration to it). The artifacts that follow it — this fixture, the per-sibling oracle, the replay block and the reference doc (`.json`/`.mts`/`.md`, never scored) plus comment-only docstring corrections in the six split `.py` modules — add no `def` or `class` line, so the delivered tree re-measures 17 flagged files, the same flagged set as `git archive db16ddbb`.",
+		"deferredNote": "the 17 files below are still flagged on the delivered tree. Both removals are measured on the same analyzer as the split, so `before.vbaGodModuleCount === reducedBy.length + Σ deferred files`."
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "2b053c2bb3a0c35b9736598467e0be8c5402a8ee",
+		"files": 922,
+		"vbaGodModuleCount": 19,
+		"godObjectCount": 25,
+		"longFileCount": 16,
+		"functions": 3552,
+		"connections": 3563,
+		"loc": 154994
+	},
+	"after": {
+		"ref": "worktree-git-issue-2006-refactor-vba-god-module",
+		"commit": "db16ddbb0c84e1d21274e10ff94486cdc0d3259c",
+		"files": 927,
+		"vbaGodModuleCount": 17,
+		"godObjectCount": 23,
+		"longFileCount": 16,
+		"functions": 3558,
+		"connections": 3591,
+		"loc": 155063
+	},
+	"tradeoffs": {
+		"vbaGodModule": "19 -> 17 flagged files (-2). Both split modules carried 21 parser declarations (one class line, the shared `setUp`/`tearDown`/helper block and the scenario tests); the class contract moved to `_bases.py` and whole `def test_*` methods moved verbatim, so every original and every sibling lands <= 15 — under the `> 20` ceiling and under the `> 15` God Object ceiling.",
+		"godObject": "25 -> 23 flagged files: the expected co-benefit. `VBA God Module` is a strict subset of `God Object`, so a split that only brought a sibling under 20 could mint a God Object regression; targeting <= 15 prevents it. No sibling is itself flagged.",
+		"longFile": "unchanged (16 both sides): no file crossed the `> 500` line ceiling, and the two new siblings are far below it.",
+		"functions": "3552 -> 3558 parsed declarations; the delivered tree also gains the `.py` modules the split landed (`totalFiles` 922 -> 927). No test was added, removed or renamed: `Σ test methods` is 16 (adapter) + 13 (registry) on both sides, asserted by the oracle.",
+		"approach": "the two 21-declaration modules were split by ecosystem/cache family with the shared harness extracted into a non-test `_bases.py`; whole test methods move verbatim, so `python3 test/dependency-existence-check.test.py` still runs 62 tests and the production module `scripts/dependency-existence-check.py` is untouched.",
+		"notDone": "the 16 `.rs` files and `server.py` stay flagged and are recorded as deferred with the reason they need a boundary this change does not own."
+	},
+	"reducedBy": [
+		"test/dependency_existence_check_tests/test_adapter_extraction.py",
+		"test/dependency_existence_check_tests/test_registry_transport.py"
+	],
+	"deferred": [
+		{
+			"reason": "no Rust toolchain in the pipeline image — `which cargo/rustc` is empty, there is no Docker in-gate and no workflow compiles `embedded/docker/ui` (its builder image needs `rust:1.99`), so a split under that tree could not be compiled or tested before landing (#2002–#2005 precedent)",
+			"files": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
+			]
+		},
+		{
+			"reason": "`server.py` (51 declarations) is the codeflow bridge: moving code out of it changes the Dockerfile COPY set and the `_BRIDGE_JS`/`_UI_REWRITES` served contract pinned by `bridge.test.mts`, so it is deferred to the change that owns that boundary guard",
+			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
+		}
+	]
+}

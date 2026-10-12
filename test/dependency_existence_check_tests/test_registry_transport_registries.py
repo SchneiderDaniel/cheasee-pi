@@ -1,6 +1,8 @@
 """Registry clients and the fetch/cache transport — registry-client family.
 
-Split from test/dependency-existence-check.test.py (issue #2005 Long File refactor).
+Split from test/dependency-existence-check.test.py (issue #2005 Long File
+refactor) and re-split by scenario (issue #2006 VBA God Module refactor); the
+shared harness lives in `_bases.py`.
 """
 
 from ._common import *  # noqa: F401,F403
