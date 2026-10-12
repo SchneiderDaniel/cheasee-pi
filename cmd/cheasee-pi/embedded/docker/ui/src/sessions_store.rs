@@ -497,15 +497,7 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "cheasee-pi-ui-sessions-{tag}-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
+    use crate::test_support::unique_temp_dir;
 
     fn write_session(dir: &Path, name: &str, body: &str) -> PathBuf {
         let path = dir.join(name);
@@ -552,7 +544,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_marks_a_corrupt_file_unavailable_and_keeps_going() {
-        let dir = temp_dir("list");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-list");
         write_session(
             &dir,
             "aaaa_good.jsonl",
@@ -571,14 +563,14 @@ mod tests {
 
     #[tokio::test]
     async fn list_of_a_missing_dir_is_empty() {
-        let missing = temp_dir("missing").join("nope");
+        let missing = unique_temp_dir("cheasee-pi-ui-sessions-missing").join("nope");
         let store = store(&missing);
         assert!(store.list().await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn resolve_rejects_escape_and_ambiguity() {
-        let dir = temp_dir("resolve");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-resolve");
         write_session(
             &dir,
             "aaaa1111.jsonl",
@@ -604,7 +596,7 @@ mod tests {
 
     #[tokio::test]
     async fn guard_refuses_on_a_present_claim() {
-        let dir = temp_dir("guard");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-guard");
         write_session(
             &dir,
             "cafe_babe.jsonl",
@@ -625,7 +617,7 @@ mod tests {
         // AC5 reader side: a terminal session's `.jsonl` plus the shared
         // `.cheasee-inuse/<id>` claim it writes must surface as an in-use row
         // and refuse an attach; removing the claim clears both.
-        let dir = temp_dir("list-claim");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-list-claim");
         write_session(
             &dir,
             "feed_face.jsonl",
@@ -650,7 +642,7 @@ mod tests {
 
     #[tokio::test]
     async fn resume_refuses_when_the_recorded_cwd_is_missing() {
-        let dir = temp_dir("missing-cwd");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-missing-cwd");
         write_session(
             &dir,
             "dead_beef.jsonl",
@@ -665,7 +657,7 @@ mod tests {
 
     #[tokio::test]
     async fn resume_emits_switch_session_with_the_resolved_path() {
-        let dir = temp_dir("resume");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-resume");
         let body = format!(
             "{{\"type\":\"session\",\"id\":\"beef\",\"cwd\":{:?}}}\n",
             dir.to_string_lossy()
@@ -705,7 +697,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_file_replay_slices_after_the_cursor() {
-        let dir = temp_dir("replay-since");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-replay-since");
         linear_session(&dir, "aaaa0001", &["a", "b", "c", "d"]);
         let data = store(&dir)
             .read_entries_since("aaaa0001", Some("b"))
@@ -718,7 +710,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_file_replay_unknown_cursor_is_invalid() {
-        let dir = temp_dir("replay-unknown");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-replay-unknown");
         linear_session(&dir, "aaaa0002", &["a", "b"]);
         let err = store(&dir)
             .read_entries_since("aaaa0002", Some("zzzz"))
@@ -729,7 +721,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_file_replay_without_a_cursor_is_full() {
-        let dir = temp_dir("replay-full");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-replay-full");
         linear_session(&dir, "aaaa0003", &["a", "b", "c"]);
         let data = store(&dir).read_entries_since("aaaa0003", None).await.unwrap();
         assert_eq!(ids_of(&data.entries), vec!["a", "b", "c"]);
@@ -737,7 +729,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_file_replay_skips_a_torn_tail_line() {
-        let dir = temp_dir("replay-torn");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-replay-torn");
         let mut body = String::from("{\"type\":\"session\",\"id\":\"aaaa0004\"}\n");
         body.push_str("{\"type\":\"message\",\"id\":\"a\",\"parentId\":null}\n");
         body.push_str("{\"type\":\"message\",\"id\":\"b\",\"paren"); // torn
@@ -748,7 +740,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_file_replay_header_only_is_empty() {
-        let dir = temp_dir("replay-empty");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-replay-empty");
         write_session(
             &dir,
             "aaaa0005_aaaa0005.jsonl",
@@ -761,7 +753,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_file_replay_missing_session_errors() {
-        let dir = temp_dir("replay-missing");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-replay-missing");
         let err = store(&dir)
             .read_entries_since("nope", None)
             .await
@@ -771,7 +763,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_file_replay_leaf_ignores_an_abandoned_branch() {
-        let dir = temp_dir("replay-branch");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-replay-branch");
         // a -> b -> c, then branch from b and append x: x is now the leaf.
         let body = "{\"type\":\"session\",\"id\":\"aaaa0006\"}\n\
 {\"type\":\"message\",\"id\":\"a\",\"parentId\":null}\n\
@@ -785,7 +777,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_cursor_round_trips_and_is_absent_by_default() {
-        let dir = temp_dir("cursor");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-cursor");
         linear_session(&dir, "bbbb0001", &["a", "b"]);
         let store = store(&dir);
         assert!(store.read_cursor("bbbb0001").await.is_none());
@@ -804,7 +796,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_a_corrupt_cursor_reads_as_none() {
-        let dir = temp_dir("cursor-corrupt");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-cursor-corrupt");
         let store = store(&dir);
         std::fs::create_dir_all(dir.join(STATE_DIR)).unwrap();
         std::fs::write(dir.join(STATE_DIR).join("cccc.cursor"), b"not json").unwrap();
@@ -813,7 +805,7 @@ mod tests {
 
     #[tokio::test]
     async fn subscribe_cursor_files_are_not_session_rows() {
-        let dir = temp_dir("cursor-list");
+        let dir = unique_temp_dir("cheasee-pi-ui-sessions-cursor-list");
         linear_session(&dir, "dddd0001", &["a"]);
         let store = store(&dir);
         store

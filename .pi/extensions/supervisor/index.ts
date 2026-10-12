@@ -11,6 +11,7 @@ import { createMessageRenderer, createSummaryRenderer } from "./session/message-
 import { registerSupervisorCommand } from "./pipeline/index.ts";
 import { createIssueAutocompleteProvider, resetIssueCache } from "./event/autocomplete.ts";
 import { loadConfig } from "./config/config.ts";
+import { toExecFn } from "../lib/port-adapters.ts";
 
 export default function supervisor(pi: ExtensionAPI) {
 	pi.registerMessageRenderer("supervisor", createMessageRenderer(pi));
@@ -26,10 +27,11 @@ export default function supervisor(pi: ExtensionAPI) {
 
 		try {
 			const config = loadConfig();
-			const execFn = (cmd: string, args: string[]) => pi.exec(cmd, args);
 
 			// Register the autocomplete provider via ctx.ui (ExtensionContext, not ExtensionAPI)
-			ctx.ui.addAutocompleteProvider(createIssueAutocompleteProvider(config, execFn));
+			ctx.ui.addAutocompleteProvider(
+				createIssueAutocompleteProvider(config, toExecFn(pi.exec.bind(pi))),
+			);
 		} catch {
 			// Supervisor not configured — skip autocomplete registration silently
 		}
