@@ -53,11 +53,8 @@ describe("postIssueComment()", () => {
 		};
 		await postIssueComment(exec, 123, "owner/repo", "Comment body");
 		assert.equal(calls.length, 1);
-		// gh() may call via "bash" when GH_TOKEN env is available (gh-client.ts)
-		assert.ok(
-			calls[0].cmd === "gh" || calls[0].cmd === "bash",
-			`expected "gh" or "bash", got "${calls[0].cmd}"`,
-		);
+		// gh() always execs "gh" directly; GH_TOKEN goes through process.env (gh-client.ts)
+		assert.equal(calls[0].cmd, "gh");
 		// Must use --body-file to avoid shell interpretation of special chars
 		const bodyFileIdx = calls[0].args.indexOf("--body-file");
 		assert.notEqual(bodyFileIdx, -1, "should use --body-file instead of --body");
