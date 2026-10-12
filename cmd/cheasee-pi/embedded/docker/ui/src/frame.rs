@@ -16,6 +16,31 @@ pub fn decode_server_frame(text: &str) -> Option<ServerMessage> {
     serde_json::from_str(text).ok()
 }
 
+/// Decode one WS text frame and fan it out to every slice — the transport's
+/// single frame path. Returns the decoded message for the caller's reconnect
+/// bookkeeping; `None` means malformed, which only the transcript surfaces.
+pub fn fan_out(slices: &[UiSlice<'_>], text: &str) -> Option<ServerMessage> {
+    match decode_server_frame(text) {
+        Some(message) => {
+            for slice in slices {
+                slice.reduce(&message);
+            }
+            Some(message)
+        }
+        None => {
+            // Re-decode only to carry serde's diagnostic into the notice.
+            if let Err(err) = serde_json::from_str::<ServerMessage>(text) {
+                for slice in slices {
+                    if let UiSlice::Transcript(state) = slice {
+                        state.note_malformed_frame(&err);
+                    }
+                }
+            }
+            None
+        }
+    }
+}
+
 /// One UI state slice a decoded frame can be reduced into.
 pub enum UiSlice<'a> {
     Transcript(&'a ChatState),

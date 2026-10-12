@@ -158,12 +158,19 @@ describe("duplicate-name predicate", () => {
 
 // ─── Transport fans out through the single dispatcher ───────────
 
-describe("ws.rs fans out through UiSlice", () => {
-	it("uses decode_server_frame once and loops over the slices", () => {
+describe("ws.rs fans out through the single dispatcher", () => {
+	it("delegates decode + fan-out to frame::fan_out", () => {
 		const src = read(`${UI}/ws.rs`);
-		assert.match(src, /decode_server_frame/);
+		assert.match(src, /fan_out\(/);
 		assert.match(src, /UiSlice::Transcript/);
+		assert.ok(!/decode_server_frame/.test(src), "the transport must not decode on its own");
 		assert.ok(!/\.ingest_frame\(/.test(src), "ws.rs must not call per-slice ingest_frame");
+	});
+
+	it("frame::fan_out owns the single decode and loops over the slices", () => {
+		const src = read(`${UI}/frame.rs`);
+		assert.match(src, /pub fn fan_out\b/);
+		assert.match(src, /decode_server_frame\(text\)/);
 	});
 });
 
