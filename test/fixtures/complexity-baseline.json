@@ -1,0 +1,124 @@
+{
+	"provenance": {
+		"issue": 2003,
+		"title": "202 High Complexity Files",
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"method": "git archive <commit> | tar -x -C <dir> && node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs <dir> <codeflow-ui> <out>",
+		"metric": "architectureIssues[\"N High Complexity Files\"] — analyzed files where calcComplexity(content).level === \"critical\", i.e. 1 + Σ(branch-regex hits) > 30 over the RAW file text, comments and string literals included (index.html:1663-1685, 5453-5454)",
+		"filedAnalyzedAt": 1791738325602,
+		"filedCount": 202,
+		"baseCountNote": "the issue was filed with 202 on the then-main at analyzedAt 1791738325602; re-running the pinned analyzer on the immutable base commit below reports 216 because main advanced (the #2001/#2002 splits added files) — acceptance is the drop on the delivered branch.",
+		"afterTipNote": "the after snapshot was taken with git archive on the measured commit below. The commits after it touch only this record, its test and the fixture file: the .mts test is not a code extension (the analyzer's codeExts has .ts but not .mts) and the .json/.md record is text, so complexity is scored {score:0,level:'low'} for all three and the measurement is identical."
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "498da2cf3fa26964b424cd8b885a4a7cbb186896",
+		"files": 754,
+		"complexityCount": 216,
+		"coupled": 101
+	},
+	"after": {
+		"ref": "issue-2003 branch",
+		"commit": "da6c28275a84732817bd17fbb8422a1bce10b763",
+		"files": 835,
+		"complexityCount": 178,
+		"coupled": 116
+	},
+	"tradeoffs": {
+		"complexity": "216 -> 178 flagged files (-38, -17.6 %); every touched original and sibling lands <= 30, so each of the 38 split families leaves the critical set.",
+		"coupling": "101 -> 116 flagged files. Splitting a `package main` test file mints a new file that references the same package-level helpers/constants as its siblings, so the #2002 coupling heuristic (a file that references more than 8 defining files) counts each new sibling as coupled. 23 of the siblings are newly flagged and 15 previously-flagged paths drop off. No production import graph changed and `functions` is unchanged (3539 both sides), so no real dependency was added.",
+		"functions": "unchanged (3539 both sides) — no function was added, removed or renamed.",
+		"approach": "test-file splits only: the win is mechanical and behaviour-preserving (whole decls move verbatim between files of the same package). Production splits, the TS pure-logic extractions and the server.py package split are deferred with reasons below because each needs a multi-module decomposition to land every sibling <= 30."
+	},
+	"reducedBy": [
+		"cmd/cheasee-pi/about_contract_test.go",
+		"cmd/cheasee-pi/about_test.go",
+		"cmd/cheasee-pi/build_test.go",
+		"cmd/cheasee-pi/clean_test.go",
+		"cmd/cheasee-pi/cli_doc_test.go",
+		"cmd/cheasee-pi/cli_doc_ui_test.go",
+		"cmd/cheasee-pi/codeflow_drift_test.go",
+		"cmd/cheasee-pi/config_jsonfile_test.go",
+		"cmd/cheasee-pi/config_test.go",
+		"cmd/cheasee-pi/containers_test.go",
+		"cmd/cheasee-pi/docker_check_test.go",
+		"cmd/cheasee-pi/dockerfile_browser_constraints_test.go",
+		"cmd/cheasee-pi/dockerfile_browser_test.go",
+		"cmd/cheasee-pi/dockerfile_compose_test.go",
+		"cmd/cheasee-pi/dockerfile_layers_test.go",
+		"cmd/cheasee-pi/down_test.go",
+		"cmd/cheasee-pi/entrypoint_hardening_test.go",
+		"cmd/cheasee-pi/entrypoint_link_test.go",
+		"cmd/cheasee-pi/entrypoint_symlink_test.go",
+		"cmd/cheasee-pi/helpers_test.go",
+		"cmd/cheasee-pi/identity_test.go",
+		"cmd/cheasee-pi/installation_doc_test.go",
+		"cmd/cheasee-pi/package_filter_test.go",
+		"cmd/cheasee-pi/prune_gate_test.go",
+		"cmd/cheasee-pi/prune_images_test.go",
+		"cmd/cheasee-pi/release_config_test.go",
+		"cmd/cheasee-pi/repo_test.go",
+		"cmd/cheasee-pi/root_test.go",
+		"cmd/cheasee-pi/runner_test.go",
+		"cmd/cheasee-pi/settings_cheasee_test.go",
+		"cmd/cheasee-pi/settings_composeenv_test.go",
+		"cmd/cheasee-pi/settings_roundtrip_test.go",
+		"cmd/cheasee-pi/template_cheasee_settings_test.go",
+		"cmd/cheasee-pi/ui_asset_test.go",
+		"cmd/cheasee-pi/ui_hint_test.go",
+		"cmd/cheasee-pi/ui_resolve_test.go",
+		"cmd/cheasee-pi/up_ensure_container_ready_test.go",
+		"cmd/cheasee-pi/up_seam_test.go"
+	],
+	"deferred": [
+		{
+			"reason": "no Rust toolchain in the pipeline image — splits under embedded/docker/ui cannot be compiled or tested in-gate (#2002 precedent)",
+			"files": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs"
+			]
+		},
+		{
+			"reason": "the embedded .sh/.js/.mjs splits need the Dockerfile COPY set and the codeflow bridge/shim copy-set updated in the same change; deferred to the change that owns those boundary guards so they stay in one commit",
+			"files": [
+				".pi/extensions/ponytail/index.js",
+				"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+				"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+				"cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+				"cmd/cheasee-pi/embedded/docker/lib/patch-pi-session-warning.js",
+				"cmd/cheasee-pi/embedded/docker/lib/worktree-fix.sh",
+				"scripts/uninstall.sh",
+				"scripts/verify-pi-layer-cache.sh",
+				"test/dogfooding-dedup.test.sh",
+				"test/uninstall-script.test.sh"
+			]
+		},
+		{
+			"reason": "every remaining TS/Python flag needs a multi-module decomposition, not the plan's single extraction: osv-scanner.ts's severity half carries 72 of its 139 branch hits, last-json-scanner.ts's string-state machine 80 of its 130, and server.py (386) needs roughly a dozen modules because its inline _BRIDGE_JS/_UI_REWRITES string literals carry 84 of its hits. Shipping the plan's one-file seam would leave both siblings > 30 and not move the metric.",
+			"examples": [
+				"cmd/cheasee-pi/embedded/docker/codeflow/server.py (386)",
+				".pi/extensions/supervisor/checks/osv-scanner.ts (140)",
+				".pi/extensions/supervisor/agent/last-json-scanner.ts (131)",
+				".pi/extensions/agent-harness/test/index.test.ts (185)",
+				".pi/extensions/lib/ensureVenv.test.ts (166)",
+				".pi/extensions/supervisor/pipeline/handler/agent-loop.ts (136)"
+			]
+		}
+	]
+}
