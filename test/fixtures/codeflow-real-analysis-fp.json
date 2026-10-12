@@ -5,25 +5,25 @@
 		"snapshot": "git archive HEAD"
 	},
 	"stats": {
-		"files": 929,
-		"functions": 3560,
-		"connections": 3596,
+		"files": 931,
+		"functions": 3576,
+		"connections": 3607,
 		"dead": 44,
 		"patterns": 10,
 		"security": 9,
 		"duplicates": 9,
-		"violations": 358,
+		"violations": 363,
 		"skipped": 0,
-		"loc": 155366,
+		"loc": 156654,
 		"languages": [
 			{
 				"ext": "ts",
-				"lines": 61277,
+				"lines": 61348,
 				"pct": 39
 			},
 			{
 				"ext": "go",
-				"lines": 37047,
+				"lines": 37071,
 				"pct": 24
 			},
 			{
@@ -38,12 +38,12 @@
 			},
 			{
 				"ext": "json",
-				"lines": 11937,
+				"lines": 12858,
 				"pct": 8
 			},
 			{
 				"ext": "py",
-				"lines": 5638,
+				"lines": 5645,
 				"pct": 4
 			},
 			{
@@ -57,13 +57,13 @@
 				"pct": 1
 			},
 			{
-				"ext": "mjs",
-				"lines": 711,
-				"pct": 0
+				"ext": "js",
+				"lines": 844,
+				"pct": 1
 			},
 			{
-				"ext": "js",
-				"lines": 586,
+				"ext": "mjs",
+				"lines": 718,
 				"pct": 0
 			},
 			{
@@ -140,7 +140,7 @@
 		"parserModes": [
 			{
 				"mode": "heuristic-regex",
-				"files": 700
+				"files": 702
 			},
 			{
 				"mode": "text",
@@ -169,7 +169,7 @@
 			"title": "6 Similar Code Blocks"
 		},
 		{
-			"title": "358 Architecture Violations"
+			"title": "363 Architecture Violations"
 		},
 		{
 			"title": "193 High Complexity Files"
@@ -239,6 +239,12 @@
 		{
 			"title": "Command Execution",
 			"severity": "medium",
+			"path": ".pi/extensions/lib/exec-env.ts",
+			"code": ""
+		},
+		{
+			"title": "Command Execution",
+			"severity": "medium",
 			"path": ".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
 			"code": ""
 		},
@@ -263,49 +269,13 @@
 		{
 			"title": "Code Comments",
 			"severity": "low",
-			"path": ".pi/extensions/ask-user/jsonl-logger.ts",
-			"code": ""
-		},
-		{
-			"title": "Code Comments",
-			"severity": "low",
-			"path": ".pi/extensions/ripgrep-search/index.ts",
-			"code": ""
-		},
-		{
-			"title": "Code Comments",
-			"severity": "low",
 			"path": ".pi/extensions/ripgrep-search/README.md",
 			"code": ""
 		},
 		{
 			"title": "Code Comments",
 			"severity": "low",
-			"path": ".pi/extensions/scrapling/README.md",
-			"code": ""
-		},
-		{
-			"title": "Code Comments",
-			"severity": "low",
-			"path": ".pi/extensions/structural-analyzer/index.ts",
-			"code": ""
-		},
-		{
-			"title": "Code Comments",
-			"severity": "low",
 			"path": ".pi/extensions/structural-analyzer/README.md",
-			"code": ""
-		},
-		{
-			"title": "Code Comments",
-			"severity": "low",
-			"path": ".pi/extensions/structural-analyzer/validate.ts",
-			"code": ""
-		},
-		{
-			"title": "Code Comments",
-			"severity": "low",
-			"path": ".pi/extensions/supervisor/agents/auditor.md",
 			"code": ""
 		},
 		{
@@ -324,12 +294,6 @@
 			"title": "Code Comments",
 			"severity": "low",
 			"path": "APPEND_SYSTEM.md",
-			"code": ""
-		},
-		{
-			"title": "Code Comments",
-			"severity": "low",
-			"path": "docs/_config.yml",
 			"code": ""
 		}
 	],
@@ -559,6 +523,24 @@
 		{
 			"from": ".pi/extensions/lib/diagnostics-format.ts",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/exec-env.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/exec-env.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/exec-env.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
 			"fromLayer": "utils",
 			"toLayer": "ui"
 		},
@@ -1338,12 +1320,6 @@
 		},
 		{
 			"from": ".pi/extensions/supervisor/github/gh-client.ts",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
-			"fromLayer": "utils",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/supervisor/github/gh-client.ts",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
 			"fromLayer": "utils",
 			"toLayer": "ui"
@@ -2101,6 +2077,24 @@
 		{
 			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
 			"fromLayer": "utils",
 			"toLayer": "ui"
 		},
@@ -2969,6 +2963,14 @@
 		},
 		{
 			"path": ".pi/extensions/lib/ensureVenv.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/exec-env.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/exec-env.ts",
 			"layer": "utils"
 		},
 		{

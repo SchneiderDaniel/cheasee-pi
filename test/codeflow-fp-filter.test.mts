@@ -363,7 +363,7 @@ describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
 			const { suppressed } = sanitizeAnalysisData(input, readFile);
 			assert.deepStrictEqual(
 				Object.keys(suppressed).sort(),
-				["hygiene", "layerViolations", "security"],
+				["deadCode", "hygiene", "layerViolations", "security"],
 				JSON.stringify(input),
 			);
 		}

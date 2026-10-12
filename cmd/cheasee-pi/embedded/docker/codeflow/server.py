@@ -723,11 +723,10 @@ _FP_WRAPPER_BODY = (
     b" } catch (e) { var m = String((e && e.message) || e);"
     b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
     b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
-    b" var __piFpSuppressed = __piFp.suppressed;"
-    b" var __piFpDead = (__piFpSuppressed.deadCode || []).length;"
-    b" if (__piFpSuppressed.security.length || __piFpSuppressed.layerViolations.length || __piFpSuppressed.hygiene.length || __piFpDead) { try {"
-    b' console.info("fp-filter: suppressed " + __piFpSuppressed.security.length +'
-    b' " security issue(s), " + __piFpSuppressed.layerViolations.length + " layer violation(s), " + __piFpSuppressed.hygiene.length + " hygiene finding(s), " + __piFpDead + " unused function(s)");'
+    b" var __piFpDead = (__piFp.suppressed.deadCode || []).length;"
+    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length || __piFpDead) { try {"
+    b' console.info("fp-filter: suppressed " + __piFp.suppressed.security.length +'
+    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s), " + __piFpDead + " unused function(s)");'
     b" } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("
