@@ -266,10 +266,11 @@ async function main() {
 		data,
 		makeReadFile(sourceDir),
 	);
-	if (suppressed.security.length || suppressed.layerViolations.length) {
+	if (suppressed.security.length || suppressed.layerViolations.length || suppressed.deadCode.length) {
 		process.stderr.write(
 			`fp-filter: suppressed ${suppressed.security.length} security issue(s), ` +
-				`${suppressed.layerViolations.length} layer violation(s)\n`,
+				`${suppressed.layerViolations.length} layer violation(s), ` +
+				`${suppressed.deadCode.length} unused function(s)\n`,
 		);
 	}
 

@@ -697,7 +697,8 @@ def _ts_rewrite(anchor, tail=b""):
 # need no file. The wrapper filters `data` first, then calls the original
 # (renamed) function.
 #
-# It overwrites the two array *properties* of `data` instead of rebinding `data`:
+# It overwrites the *properties* of `data` (the finding arrays, the dead-function
+# list and the stats counts) instead of rebinding `data`:
 # a page that declares `data` as a constant cannot be reassigned, and the former
 # reassignment threw, was swallowed, and exported the unfiltered report. The
 # assignments sit inside the same try as the filter call, so a write that a
@@ -714,13 +715,17 @@ _FP_WRAPPER_BODY = (
     b" __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data));"
     b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
     b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
+    b' if ("deadFunctions" in __piFp.data) data.deadFunctions = __piFp.data.deadFunctions;'
+    b' if ("unusedFunctions" in __piFp.data) data.unusedFunctions = __piFp.data.unusedFunctions;'
+    b' if ("issues" in __piFp.data) data.issues = __piFp.data.issues;'
     b' if ("stats" in __piFp.data) data.stats = __piFp.data.stats;'
     b" } catch (e) { var m = String((e && e.message) || e);"
     b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
     b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
-    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length) { try {"
+    b" var __piFpDead = (__piFp.suppressed.deadCode || []).length;"
+    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFpDead) { try {"
     b' console.info("[fp-filter] suppressed " + __piFp.suppressed.security.length +'
-    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s)");'
+    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFpDead + " unused function(s)");'
     b" } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("

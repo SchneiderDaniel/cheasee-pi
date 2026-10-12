@@ -42,15 +42,22 @@ const ISSUE_SNAPSHOT = "17c991c033073dccdd549c335abe6c594643b009";
 // positive. Deterministic for a fixed revision plus fixed analyzer pin.
 const EXPECTED_SECURITY_SUPPRESSED = 9;
 const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
+// The dead-code report on that snapshot: 45 entries, of which the 20 the issue
+// lists in the Rust/TS sources are referenced by the snapshot (trait-impl
+// methods dispatched cross-file, function-as-value bindings). The rest name
+// symbols no analyzed file references.
+const EXPECTED_DEAD_SUPPRESSED = 20;
+// Symbols the issue cites as dead that the snapshot does carry.
+const CITED_DEAD = ["defaultIsWritable", "opened", "is_open", "reconnect_delay", "read_cursor", "write_cursor"];
 // The filtered report these expectations imply.
-const EXPECTED_HEALTH_SCORE = 92;
+const EXPECTED_HEALTH_SCORE = 93;
 
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData } = requireCjs(FILTER) as {
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
-	) => { data: any; suppressed: { security: any[]; layerViolations: any[] } };
+	) => { data: any; suppressed: { security: any[]; layerViolations: any[]; deadCode: any[] } };
 };
 const { calcHealth } = (await import("./fixtures/codeflow-calc-health.mjs")) as {
 	calcHealth: (data: any) => { score: number; grade: string };
@@ -72,6 +79,8 @@ const groundsLayer = (layer: string, p: string): boolean =>
 
 const highsOf = (data: { securityIssues: Array<{ severity: string }> }) =>
 	data.securityIssues.filter((s) => String(s.severity).toLowerCase() === "high");
+const deadNames = (data: { deadFunctions?: Array<{ name: string }> }): string[] =>
+	(Array.isArray(data.deadFunctions) ? data.deadFunctions : []).map((f) => f.name);
 const crossLanguageOf = (data: { layerViolations: Array<{ from: string; to: string }> }) =>
 	data.layerViolations.filter((v) => ext(v.from) !== ext(v.to));
 const inventedLayerOf = (
@@ -110,6 +119,9 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		assert.ok(highsOf(recorded).length >= 9, "recording must carry the HIGH security hits");
 		assert.ok(crossLanguageOf(recorded).length > 0, "recording must carry cross-language edges");
 		assert.ok(inventedLayerOf(recorded).length > 0, "recording must carry invented-layer edges");
+		for (const name of CITED_DEAD) {
+			assert.ok(deadNames(recorded).includes(name), `recording must carry the cited dead function ${name}`);
+		}
 
 		const before = calcHealth(recorded);
 		assert.ok(before.score < 90, `before-filter score should not already pass: ${before.score}`);
@@ -125,6 +137,22 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		assert.deepStrictEqual(highsOf(data), [], "no HIGH security finding may survive");
 		assert.deepStrictEqual(crossLanguageOf(data), [], "cross-language layer edges must not survive");
 		assert.deepStrictEqual(inventedLayerOf(data), [], "invented layer labels must not survive");
+
+		// The recorded dead list carries the issue's cited symbols; every one the
+		// snapshot references must be dropped and counted out of the summary.
+		assert.ok(suppressed.deadCode.length > 0, "the recording must exercise the dead-code rule");
+		for (const name of CITED_DEAD) {
+			assert.ok(
+				suppressed.deadCode.some((f: { name: string }) => f.name === name),
+				`${name} is referenced by the snapshot and must be suppressed`,
+			);
+			assert.ok(!deadNames(data).includes(name), `${name} must not survive as dead`);
+		}
+		assert.strictEqual(
+			data.stats.dead,
+			data.deadFunctions.length,
+			"the summary count must agree with the surviving list",
+		);
 
 		const after = calcHealth(data);
 		assert.ok(after.score >= 90, `expected an A (>= 90), got ${after.score} (${after.grade})`);
@@ -202,7 +230,7 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 
 		// The producer reports suppression instead of dropping silently, and the
 		// counts must reproduce the affected report's false positives exactly.
-		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\)/.exec(
+		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) unused function\(s\)/.exec(
 			run.stderr,
 		);
 		assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
@@ -215,6 +243,11 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 			Number(suppressed![2]),
 			EXPECTED_LAYER_VIOLATIONS_SUPPRESSED,
 			"the whole layer-violation category must be suppressed on the issue snapshot",
+		);
+		assert.strictEqual(
+			Number(suppressed![3]),
+			EXPECTED_DEAD_SUPPRESSED,
+			"every cited dead function the snapshot references must be suppressed",
 		);
 
 		const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
@@ -233,5 +266,17 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		// with the filtered arrays, or an A still advertises nine HIGH findings.
 		assert.strictEqual(report.summary.highSecurityIssues, 0, "summary must not still count the dropped highs");
 		assert.strictEqual(report.summary.layerViolations, 0, "summary must not still count the dropped edges");
+
+		// Same for the dead-code list: none of the cited live symbols may be
+		// reported as unused, and the summary count must match the list.
+		const reportedDead = (report.unusedFunctions ?? []).map((f: { name: string }) => f.name);
+		for (const name of CITED_DEAD) {
+			assert.ok(!reportedDead.includes(name), `${name} is referenced and must not be reported as unused`);
+		}
+		assert.strictEqual(
+			report.summary.unusedFunctions,
+			report.unusedFunctions.length,
+			"the summary dead count must agree with the reported list",
+		);
 	});
 });

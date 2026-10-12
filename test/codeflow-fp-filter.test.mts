@@ -21,11 +21,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
 const FILTER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js");
 
+type Suppressed = { security: any[]; layerViolations: any[]; deadCode: any[] };
+
 const { sanitizeAnalysisData, readFileFrom } = requireCjs(FILTER) as {
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
-	) => { data: any; suppressed: { security: any[]; layerViolations: any[] } };
+	) => { data: any; suppressed: Suppressed };
 	readFileFrom: (data: unknown) => (path: unknown) => string | null;
 };
 
@@ -286,7 +288,7 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 		const second = sanitizeAnalysisData(first.data, readFile);
 
 		assert.deepStrictEqual(second.data, first.data);
-		assert.deepStrictEqual(second.suppressed, { security: [], layerViolations: [] });
+		assert.deepStrictEqual(second.suppressed, { security: [], layerViolations: [], deadCode: [] });
 	});
 
 	it("passes data without securityIssues/layerViolations through unchanged", () => {
@@ -294,7 +296,7 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
 		assert.deepStrictEqual(data, input);
 		assert.deepStrictEqual(Object.keys(data), Object.keys(input));
-		assert.deepStrictEqual(suppressed, { security: [], layerViolations: [] });
+		assert.deepStrictEqual(suppressed, { security: [], layerViolations: [], deadCode: [] });
 	});
 
 	it("moves stats.security/violations with the filtered arrays, without mutating the input stats", () => {
@@ -427,6 +429,257 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
 		assert.strictEqual(data.layerViolations.length + suppressed.layerViolations.length, layerViolations.length);
 		assert.deepStrictEqual(suppressed.layerViolations, [layerViolations[1], layerViolations[2]]);
+	});
+});
+
+describe("fp-filter — unused-function reference rule (Phase 1)", () => {
+	/** Sanitize one dead-code entry against `sources`; every entry must survive or be suppressed. */
+	function keepsDead(name: unknown, file: unknown, sources: Record<string, string> = {}): boolean {
+		const input = {
+			files: Object.keys(sources).map((path) => ({ path })),
+			deadFunctions: [{ name, file, line: 1, ext: "ts" }],
+		};
+		const read = (p: unknown): string | null =>
+			typeof p === "string" && p in sources ? sources[p] : null;
+		const { data, suppressed } = sanitizeAnalysisData(input, read);
+		assert.strictEqual(suppressed.deadCode.length + data.deadFunctions.length, 1, "no entry may vanish");
+		return data.deadFunctions.length === 1;
+	}
+
+	it("drops an entry a different file calls (the trait-impl methods)", () => {
+		assert.strictEqual(
+			keepsDead("on_message", "ui/src/ws.rs", {
+				"ui/src/ws.rs": "pub trait Socket {\n    fn on_message<F: FnMut(String)>(&self, handler: F);\n}\n",
+				"ui/src/retry.rs": "fn pump() {\n    socket.on_message(|text| echo(text));\n}\n",
+			}),
+			false,
+		);
+	});
+
+	it("drops an entry its own file references outside the definition", () => {
+		assert.strictEqual(
+			keepsDead("reconnect_delay", "ui/src/retry.rs", {
+				"ui/src/retry.rs":
+					"pub fn reconnect_delay(effect: u64) -> u64 { effect }\n" +
+					"fn dial() {\n    let d = reconnect_delay(500);\n}\n",
+			}),
+			false,
+		);
+	});
+
+	it("drops an entry referenced as a value (?? name, = name, , name)", () => {
+		assert.strictEqual(
+			keepsDead("defaultIsWritable", ".pi/extensions/scrapling/browser-setup.ts", {
+				".pi/extensions/scrapling/browser-setup.ts":
+					"function defaultIsWritable(path: string): boolean { return true; }\n" +
+					"const isWritable = opts.isWritable ?? defaultIsWritable;\n",
+			}),
+			false,
+		);
+		assert.strictEqual(
+			keepsDead("defaultFetch", ".pi/lib/fetch-report.ts", {
+				".pi/lib/fetch-report.ts":
+					"const defaultFetch: FetchFn = (url, init) => fetch(url, init);\n" +
+					"let fetchFn: FetchFn = defaultFetch;\n" +
+					"pick(url, defaultFetch);\n",
+			}),
+			false,
+		);
+	});
+
+	it("drops an entry only referenced through a dot-call", () => {
+		assert.strictEqual(
+			keepsDead("is_open", "ui/src/retry.rs", {
+				"ui/src/retry.rs":
+					"pub fn is_open(&self) -> bool { true }\n" +
+					"fn send(transport: &Transport) {\n    if !transport.is_open() { return; }\n}\n",
+			}),
+			false,
+		);
+	});
+
+	it("keeps an entry whose only occurrence is its own definition head", () => {
+		for (const [path, src] of [
+			["src/a.ts", "function foo(x: number) { return x; }\n"],
+			["src/b.rs", "fn foo(x: u64) -> u64 { x }\n"],
+			["src/c.ts", "const foo = (x: number) => x;\n"],
+		] as Array<[string, string]>) {
+			assert.strictEqual(keepsDead("foo", path, { [path]: src }), true, path);
+		}
+	});
+
+	it("keeps a recursion-only entry (a self-reference is not a use)", () => {
+		assert.strictEqual(
+			keepsDead("foo", "src/d.ts", { "src/d.ts": "function foo() { return foo(); }\n" }),
+			true,
+		);
+	});
+
+	it("keeps an entry no file mentions", () => {
+		assert.strictEqual(keepsDead("ghost", "src/e.ts", { "src/e.ts": "export const a = 1;\n" }), true);
+	});
+
+	it("keeps an entry that only a comment mentions", () => {
+		assert.strictEqual(
+			keepsDead("foo", "src/f.ts", {
+				"src/f.ts": "// foo() runs on the retry path\n/* foo(bar) */\n",
+			}),
+			true,
+		);
+	});
+
+	it("keeps an entry that only a string or template literal mentions", () => {
+		assert.strictEqual(
+			keepsDead("foo", "src/g.ts", { "src/g.ts": 'const label = "foo()";\nconst t = `foo(bar)`;\n' }),
+			true,
+		);
+	});
+
+	it("does not match a name inside a longer identifier", () => {
+		assert.strictEqual(
+			keepsDead("read", "src/h.ts", {
+				"src/h.ts": "function alreadyRead(p) { return p; }\nfunction read() { return 1; }\n",
+			}),
+			true,
+			"alreadyRead( must not read as a use of read",
+		);
+		assert.strictEqual(
+			keepsDead("on_message", "src/i.rs", { "src/i.rs": "fn main() { socket.on_message_handler(1); }\n" }),
+			true,
+		);
+	});
+
+	it("keeps entries with a missing or non-string name/file (unreprovable)", () => {
+		const input = {
+			files: [{ path: "src/a.ts" }],
+			deadFunctions: [{ name: "foo" }, { file: "src/a.ts" }, { name: 42, file: "src/a.ts" }, null],
+		};
+		const { data, suppressed } = sanitizeAnalysisData(input, () => "function foo(){}\n");
+		assert.deepStrictEqual(suppressed.deadCode, []);
+		assert.deepStrictEqual(data.deadFunctions, input.deadFunctions);
+	});
+
+	it("keeps every entry when no content can be read (fail open)", () => {
+		assert.strictEqual(keepsDead("foo", "src/a.ts", {}), true);
+	});
+
+	it("survives malformed input without throwing", () => {
+		for (const input of [{}, { files: null }, { files: "nope" }, { files: [null, 1], deadFunctions: [] }]) {
+			assert.doesNotThrow(() =>
+				sanitizeAnalysisData({ ...input, deadFunctions: [{ name: "foo", file: "a.ts" }] }, readFile),
+			);
+		}
+	});
+});
+
+describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
+	const DEAD_SOURCES: Record<string, string> = {
+		"src/use.ts": "function keep() { return 1; }\nfunction hit() { return 2; }\nconst run = hit;\n",
+		"src/other.ts": "function ghost() { return 3; }\nghost();\n",
+	};
+	const deadRead = (p: unknown): string | null =>
+		typeof p === "string" && p in DEAD_SOURCES ? DEAD_SOURCES[p] : null;
+	const deadFiles = [{ path: "src/use.ts" }, { path: "src/other.ts" }];
+
+	it("keeps the survivors in input order and reports every drop", () => {
+		const deadFunctions = [
+			{ name: "hit", file: "src/use.ts" },
+			{ name: "keep", file: "src/use.ts" },
+			{ name: "ghost", file: "src/other.ts" },
+		];
+		const { data, suppressed } = sanitizeAnalysisData({ files: deadFiles, deadFunctions }, deadRead);
+
+		assert.deepStrictEqual(suppressed.deadCode, [deadFunctions[0], deadFunctions[2]]);
+		assert.deepStrictEqual(data.deadFunctions, [deadFunctions[1]]);
+		assert.strictEqual(
+			data.deadFunctions.length + suppressed.deadCode.length,
+			deadFunctions.length,
+			"every input entry is kept or suppressed",
+		);
+	});
+
+	it("filters the reported unusedFunctions alias too", () => {
+		const unusedFunctions = [
+			{ name: "hit", file: "src/use.ts" },
+			{ name: "keep", file: "src/use.ts" },
+		];
+		const { data, suppressed } = sanitizeAnalysisData({ files: deadFiles, unusedFunctions }, deadRead);
+		assert.deepStrictEqual(data.unusedFunctions, [unusedFunctions[1]]);
+		assert.deepStrictEqual(suppressed.deadCode, [unusedFunctions[0]]);
+	});
+
+	it("keeps the architecture entry that lists the dead functions consistent", () => {
+		const entry = {
+			type: "warning",
+			title: "3 Unused Functions",
+			desc: "Functions not called from other files",
+			items: [
+				{ name: "hit", file: "src/use.ts" },
+				{ name: "keep", file: "src/use.ts" },
+				{ name: "ghost", file: "src/other.ts" },
+			],
+		};
+		const input = {
+			files: deadFiles,
+			issues: [entry, { type: "warning", title: "1 Large Files", items: [] }],
+			deadFunctions: [
+				{ name: "hit", file: "src/use.ts" },
+				{ name: "keep", file: "src/use.ts" },
+				{ name: "ghost", file: "src/other.ts" },
+			],
+		};
+		const before = structuredClone(input);
+
+		const { data } = sanitizeAnalysisData(input, deadRead);
+
+		assert.deepStrictEqual(input, before, "input must not be touched");
+		assert.strictEqual(data.issues[0].title, "1 Unused Functions", "the header must match the list");
+		assert.deepStrictEqual(
+			data.issues[0].items.map((i: { name: string }) => i.name),
+			["keep"],
+		);
+		assert.deepStrictEqual(data.issues[1], input.issues[1], "unrelated issues must pass through");
+	});
+
+	it("drops the architecture entry when no dead function survives", () => {
+		const input = {
+			files: deadFiles,
+			issues: [{ type: "warning", title: "1 Unused Functions", items: [{ name: "hit", file: "src/use.ts" }] }],
+		};
+		const { data } = sanitizeAnalysisData(input, deadRead);
+		assert.deepStrictEqual(data.issues, []);
+	});
+
+	it("recounts stats.dead to the surviving list", () => {
+		const input = {
+			files: deadFiles,
+			stats: { files: 1, functions: 10, dead: 3 },
+			deadFunctions: [
+				{ name: "hit", file: "src/use.ts" },
+				{ name: "keep", file: "src/use.ts" },
+			],
+		};
+		const before = structuredClone(input);
+
+		const { data } = sanitizeAnalysisData(input, deadRead);
+		assert.deepStrictEqual(input.stats, before.stats, "input stats must not be touched");
+		assert.strictEqual(data.stats.dead, data.deadFunctions.length);
+		assert.strictEqual(data.stats.dead, 1);
+		assert.strictEqual(data.stats.functions, 10, "unrelated stats must survive");
+
+		const second = sanitizeAnalysisData(data, deadRead);
+		assert.deepStrictEqual(second.data, data, "idempotent");
+		assert.deepStrictEqual(second.suppressed.deadCode, []);
+	});
+
+	it("leaves stats.dead alone when there is no dead-function list", () => {
+		const { data } = sanitizeAnalysisData({ stats: { files: 1, dead: 3 } }, deadRead);
+		assert.strictEqual(data.stats.dead, 3);
+	});
+
+	it("always reports a deadCode key, alongside the untouched ones", () => {
+		const { suppressed } = sanitizeAnalysisData({ marker: "FIXTURE" }, deadRead);
+		assert.deepStrictEqual(suppressed, { security: [], layerViolations: [], deadCode: [] });
 	});
 });
 

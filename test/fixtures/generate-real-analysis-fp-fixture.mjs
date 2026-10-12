@@ -11,6 +11,10 @@
  * Usage:
  *   CODEFLOW_UI=/path/to/codeflow node test/fixtures/generate-real-analysis-fp-fixture.mjs
  *
+ * `deadFunctions` is the analyzer's own name for the dead-code list the export
+ * reports as `unusedFunctions`; only name/file are recorded, which is all the
+ * reference rule reads.
+ *
  * Source: https://github.com/braedonsaunders/codeflow at the revision pinned by
  * `ARG CODEFLOW_REF` in cmd/cheasee-pi/embedded/docker/codeflow/Dockerfile
  * (b0e82d127fc4990f571ebc6da6c5d9af2591aaa1). Re-run when the pin or the repo's
@@ -66,6 +70,7 @@ try {
 			code: i.code,
 		})),
 		layerViolations: violations,
+		deadFunctions: (data.deadFunctions || []).map((fn) => ({ name: fn.name, file: fn.file })),
 		connections: (data.connections || [])
 			.filter((c) => wanted.has(`${c.source}\u0000${c.target}`))
 			.map((c) => ({ source: c.source, target: c.target, type: c.type })),
@@ -74,7 +79,7 @@ try {
 	writeFileSync(out, `${JSON.stringify(fixture, null, "\t")}\n`);
 	console.log(
 		`wrote ${out}: ${fixture.securityIssues.length} security, ` +
-			`${fixture.layerViolations.length} layer, ${fixture.files.length} files`,
+			`${fixture.layerViolations.length} layer, ${fixture.deadFunctions.length} dead, ${fixture.files.length} files`,
 	);
 } finally {
 	rmSync(snapshot, { recursive: true, force: true });

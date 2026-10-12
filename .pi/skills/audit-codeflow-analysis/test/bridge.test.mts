@@ -347,6 +347,11 @@ describe("codeflow bridge capture", () => {
 		// The wrapper reports a sanitizer failure through the bridge's visible banner.
 		assert.match(py, /window\.__codeflowBridgeReportError = reportError/);
 		assert.match(py, /__codeflowBridgeReportError\('false-positive filter failed/);
+		// The wrapper copies the dead-function list (and the architecture entry that
+		// repeats it) back too, and reports the dead-code count like the headless runner.
+		assert.match(py, /b' if \("deadFunctions" in __piFp\.data\) data\.deadFunctions = __piFp\.data\.deadFunctions;'/);
+		assert.match(py, /b' if \("issues" in __piFp\.data\) data\.issues = __piFp\.data\.issues;'/);
+		assert.match(py, /__piFpDead \+ " unused function\(s\)"/);
 
 		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
 		assert.ok(existsSync(filterPath), "fp-filter.js must sit next to server.py");
@@ -394,7 +399,7 @@ describe("codeflow bridge capture", () => {
 		const sandbox: Record<string, any> = { piFpFilter, console: { info() {}, error() {} } };
 		vm.createContext(sandbox);
 		vm.runInContext(
-			"const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };\n" +
+			"const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [], stats: { dead: 1 }, files: [ { path: 'def.ts', content: 'export function deadCall() {}' }, { path: 'use.ts', content: 'deadCall();' } ], deadFunctions: [ { name: 'deadCall', file: 'def.ts' } ], issues: [ { type: 'warning', title: '1 Unused Functions', items: [ { name: 'deadCall', file: 'def.ts' } ] } ] };\n" +
 				rewritten +
 				"\n;globalThis.__out = generateReport('md');",
 			sandbox,
@@ -405,6 +410,13 @@ describe("codeflow bridge capture", () => {
 			"const `data` must be filtered in place",
 		);
 		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
+		assert.deepStrictEqual(
+			sandbox.__out.deadFunctions,
+			[],
+			"the served wrapper must copy the filtered dead list back",
+		);
+		assert.strictEqual(sandbox.__out.stats.dead, 0, "the served stats must agree with the list");
+		assert.deepStrictEqual(sandbox.__out.issues, [], "the architecture entry must not outlive its items");
 
 		// A sanitizer error must fail closed, never fall through to unfiltered data,
 		// and must reach the visible bridge error UI (not just the console).

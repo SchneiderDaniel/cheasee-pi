@@ -9,7 +9,12 @@
 //      at runtime, or a symbol that does not exist in the cited file;
 //   2. layer violations whose two endpoints cannot reference each other at all
 //      (different languages, no import edge) or whose claimed layer is not the
-//      one the report itself assigns the file.
+//      one the report itself assigns the file;
+//   3. unused functions that the snapshot does reference. The analyzer's call
+//      graph misses function-as-value references (`opts.fetchFn ?? defaultFetch`)
+//      and cross-file trait dispatch (`Socket::on_message` called in retry.rs),
+//      so a symbol that still appears call- or value-shaped outside its own
+//      definition is not dead.
 //
 // Only HIGH severity security findings are considered: the LOW/MEDIUM shapes
 // (code comments, debug statements, argv-array spawns) are left in the report
@@ -221,6 +226,173 @@
 		return index.connections[from + "\u0000" + to] !== true;
 	}
 
+	// --- unused functions ----------------------------------------------------
+
+	// Rust `'` opens a lifetime (`&'a str`), not a string: reading it as one
+	// would swallow everything up to the next apostrophe.
+	var APOSTROPHE_IS_CODE = { ".rs": true };
+
+	function skipQuoted(content, i, quote) {
+		i++;
+		while (i < content.length) {
+			if (content[i] === "\\") i += 2;
+			else if (content[i] === quote) return i + 1;
+			else i++;
+		}
+		return i;
+	}
+
+	// Blank comments and string bodies so a name mentioned there cannot read as a
+	// reference while the code keeps its shape. shortcut: template interpolations
+	// are treated as literal text, which only ever keeps a finding.
+	function stripNoise(content, path) {
+		var apostropheIsCode = APOSTROPHE_IS_CODE[extensionOf(path)] === true;
+		var out = "";
+		var i = 0;
+		while (i < content.length) {
+			var ch = content[i];
+			if (ch === "/" && content[i + 1] === "/") {
+				var line = content.indexOf("\n", i);
+				out += " ";
+				i = line < 0 ? content.length : line;
+			} else if (ch === "/" && content[i + 1] === "*") {
+				var end = content.indexOf("*/", i + 2);
+				out += " ";
+				i = end < 0 ? content.length : end + 2;
+			} else if (ch === '"' || ch === "`" || (ch === "'" && !apostropheIsCode)) {
+				i = skipQuoted(content, i, ch);
+				out += ch + ch;
+			} else {
+				out += ch;
+				i++;
+			}
+		}
+		return out;
+	}
+
+	// Definition heads: a declaration (`function`, `fn`, `def`) or a binding that
+	// assigns the name a function or an arrow.
+	function definitionHead(name, flags) {
+		var n = escapeRe(name);
+		return new RegExp(
+			"(?:function\\s+" + n + "\\b|\\bfn\\s+" + n + "\\b|\\bdef\\s+" + n +
+				"\\b|\\b" + n + "\\s*(?::[^=;\\n]*)?=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[\\w$]+\\s*=>))",
+			flags
+		);
+	}
+
+	// A definition ends at its closing brace, or at the `;` of a bodyless
+	// declaration (a Rust trait method). An unbalanced body runs to the end of the
+	// file, which only hides references: the finding is then kept.
+	function bodyEnd(content, from) {
+		var i = from;
+		while (i < content.length) {
+			if (content[i] === ";") return i + 1;
+			if (content[i] === "{") {
+				var depth = 0;
+				while (i < content.length) {
+					if (content[i] === "{") depth++;
+					else if (content[i] === "}" && --depth === 0) return i + 1;
+					i++;
+				}
+				return content.length;
+			}
+			i++;
+		}
+		return content.length;
+	}
+
+	function inSpans(spans, at) {
+		for (var i = 0; i < spans.length; i++) {
+			if (at >= spans[i][0] && at < spans[i][1]) return true;
+		}
+		return false;
+	}
+
+	// A use is a call (`name(`, `.name(`) or a value mention (`?? name`, `= name`,
+	// `, name`) outside every definition of that name in the file. A recursive
+	// body is not a use.
+	function referencesSymbol(content, name) {
+		var spans = [];
+		var head = definitionHead(name, "g");
+		var m;
+		while ((m = head.exec(content)) !== null) {
+			spans.push([m.index, bodyEnd(content, m.index + m[0].length)]);
+		}
+		var scan = new RegExp("\\b" + escapeRe(name) + "\\b", "g");
+		while ((m = scan.exec(content)) !== null) {
+			if (inSpans(spans, m.index)) continue;
+			if (/^\s*\(/.test(content.slice(m.index + name.length, m.index + name.length + 32))) return true;
+			if (/(?:\?\?|=|,)\s*$/.test(content.slice(Math.max(0, m.index - 64), m.index))) return true;
+		}
+		return false;
+	}
+
+	// Every symbol the analyzed files still reference, resolved lazily per symbol so
+	// each file is read once. shortcut: only the analyzer's own file set is scanned
+	// (it skips e.g. `.mts` tests), so a test-only use still reads as unreferenced.
+	function buildReferenceIndex(data, readFile) {
+		var paths = [];
+		var files = data && Array.isArray(data.files) ? data.files : [];
+		for (var i = 0; i < files.length; i++) {
+			if (files[i] && typeof files[i].path === "string") paths.push(files[i].path);
+		}
+		var cleaned = Object.create(null);
+		var known = Object.create(null);
+		return {
+			isReferenced: function (name) {
+				if (name in known) return known[name];
+				var found = false;
+				for (var i = 0; i < paths.length && !found; i++) {
+					if (!(paths[i] in cleaned)) {
+						var content = readFile ? readFile(paths[i]) : null;
+						cleaned[paths[i]] = typeof content === "string" ? stripNoise(content, paths[i]) : "";
+					}
+					found = cleaned[paths[i]] !== "" && referencesSymbol(cleaned[paths[i]], name);
+				}
+				known[name] = found;
+				return found;
+			},
+		};
+	}
+
+	// An entry that names no symbol or no file cannot be disproved, so it stays.
+	function isFalsePositiveUnusedFunction(finding, index) {
+		if (!finding || typeof finding !== "object" || typeof finding.name !== "string" || !finding.name) {
+			return false;
+		}
+		if (typeof finding.file !== "string" || !finding.file) return false;
+		return index.isReferenced(finding.name);
+	}
+
+	/** Partition a dead-function list into surviving and refuted entries. */
+	function partitionDead(list, index) {
+		var kept = [];
+		var dropped = [];
+		for (var i = 0; i < list.length; i++) {
+			if (isFalsePositiveUnusedFunction(list[i], index)) dropped.push(list[i]);
+			else kept.push(list[i]);
+		}
+		return { kept: kept, dropped: dropped };
+	}
+
+	// The architecture list repeats the dead functions under an `N Unused
+	// Functions` heading, so it must move with them.
+	function filterUnusedIssues(issues, index) {
+		var out = [];
+		for (var i = 0; i < issues.length; i++) {
+			var issue = issues[i];
+			var isDeadList = !!issue && typeof issue === "object" && Array.isArray(issue.items) &&
+				/^\d+ Unused Functions$/.test(String(issue.title));
+			var kept = isDeadList ? partitionDead(issue.items, index).kept : null;
+			if (!kept) out.push(issue);
+			else if (kept.length) {
+				out.push(Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }));
+			}
+		}
+		return out;
+	}
+
 	// --- entry point ---------------------------------------------------------
 
 	/** `readFile(path) -> content|null` over `files[].content`, for the browser. */
@@ -238,12 +410,13 @@
 	}
 
 	/**
-	 * Filter `data.securityIssues` / `data.layerViolations` in place-free fashion.
-	 * Returns a new `data` object plus the findings that were dropped, so a
-	 * caller can report the suppression instead of silently shrinking the report.
+	 * Filter `data.securityIssues` / `data.layerViolations` / the dead-function
+	 * lists in place-free fashion. Returns a new `data` object plus the findings
+	 * that were dropped, so a caller can report the suppression instead of
+	 * silently shrinking the report.
 	 */
 	function sanitizeAnalysisData(data, readFile) {
-		var suppressed = { security: [], layerViolations: [] };
+		var suppressed = { security: [], layerViolations: [], deadCode: [] };
 		if (!data || typeof data !== "object") return { data: data, suppressed: suppressed };
 
 		var out = {};
@@ -270,17 +443,37 @@
 			}
 		}
 
+		// The reported dead-function lists are `deadFunctions` in the analyzer's own
+		// data and `unusedFunctions` in the exported report; both are re-checked
+		// against the snapshot, and `stats.dead` moves with them because the health
+		// dead-code term and the summary count read it.
+		var deadCount = null;
+		var deadKeys = ["deadFunctions", "unusedFunctions"].filter(function (key) {
+			return Array.isArray(data[key]);
+		});
+		if (deadKeys.length || Array.isArray(data.issues)) {
+			var referenceIndex = buildReferenceIndex(data, readFile);
+			for (var k = 0; k < deadKeys.length; k++) {
+				var partition = partitionDead(data[deadKeys[k]], referenceIndex);
+				out[deadKeys[k]] = partition.kept;
+				suppressed.deadCode = suppressed.deadCode.concat(partition.dropped);
+				if (deadKeys[k] === "deadFunctions" || deadCount === null) deadCount = partition.kept.length;
+			}
+			if (Array.isArray(data.issues)) out.issues = filterUnusedIssues(data.issues, referenceIndex);
+		}
+
 		// `data.stats.security` / `data.stats.violations` are the same counts the
 		// report summary and the UI tab badge read, so they must move with the
 		// arrays or the report contradicts its own score ("9 high" under an A).
 		if (data.stats && typeof data.stats === "object") {
-			var stats = out.stats = Object.assign({}, data.stats);
+			var stats = (out.stats = Object.assign({}, data.stats));
 			if (typeof stats.security === "number" && Array.isArray(out.securityIssues)) {
 				stats.security = countHigh(out.securityIssues);
 			}
 			if (typeof stats.violations === "number" && Array.isArray(out.layerViolations)) {
 				stats.violations = out.layerViolations.length;
 			}
+			if (typeof stats.dead === "number" && deadCount !== null) stats.dead = deadCount;
 		}
 
 		return { data: out, suppressed: suppressed };
