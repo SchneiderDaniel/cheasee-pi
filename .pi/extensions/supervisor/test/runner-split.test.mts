@@ -403,6 +403,25 @@ if (hasMockModule) {
 			assert.deepStrictEqual(options.stdio, ["ignore", "pipe", "pipe"]);
 		});
 
+		it("multiline task and system-prompt args reach spawn (audit regression)", async () => {
+			resetMock();
+			const { spawnAgentChild } = await import("../agent/runner/spawn.ts");
+			spawnCalls.length = 0;
+
+			const task = "line one\nline two\ttabbed";
+			const systemPrompt = "You are pi.\n\nRules:\n1. be careful\n";
+			spawnAgentChild({
+				args: ["-p", "--mode", "json", task, "--system-prompt", systemPrompt],
+				cwd: "/tmp",
+				sandboxEnv: {},
+			});
+
+			assert.strictEqual(spawnCalls.length, 1, "a multiline task/prompt must not fail validation");
+			const [, args] = spawnCalls[0] as [string, string[], Record<string, unknown>];
+			assert.ok(args.includes(task), "the multiline task reaches spawn unchanged");
+			assert.ok(args.includes(systemPrompt), "the multiline system prompt reaches spawn unchanged");
+		});
+
 		it("NUL in an arg throws UnsafeArgvError and spawn is never called", async () => {
 			const { spawnAgentChild } = await import("../agent/runner/spawn.ts");
 			spawnCalls.length = 0;

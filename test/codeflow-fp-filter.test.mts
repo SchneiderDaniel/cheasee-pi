@@ -64,7 +64,7 @@ const SOURCES: Record<string, string> = {
 		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
 		'export function run(args: string[]) {\n' +
 		'  const { program, args: safeArgs } = argvCommand("/usr/bin/pi", args);\n' +
-		'  return spawn(program, safeArgs, assertNoShell({ stdio: "ignore" }));\n' +
+		'  return spawn(program, safeArgs as string[], assertNoShell({ stdio: "ignore" }));\n' +
 		"}\n",
 	"src/safe-promisified.ts":
 		'import { execFile } from "node:child_process";\n' +
@@ -85,6 +85,31 @@ const SOURCES: Record<string, string> = {
 		'import { spawn } from "node:child_process";\n' +
 		"export function run(request: { command: string; args: string[] }) {\n" +
 		"  return spawn(request.command, request.args, { shell: false });\n" +
+		"}\n",
+	// Regression (audit): `argvCommand` on a *dynamic* program proves nothing.
+	// The destructured name must stay unbound so the finding survives.
+	"src/wrapped-dynamic.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function run(request: { command: string; args: string[] }) {\n" +
+		"  const { program, args } = argvCommand(request.command, request.args);\n" +
+		'  return spawn(program, args, assertNoShell({ stdio: "ignore" }));\n' +
+		"}\n",
+	// Regression (audit): a program that is a parameter passed straight through
+	// a wrapper is not a literal — the finding must survive.
+	"src/wrapper-passthrough.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function run(program: string, args: string[]) {\n" +
+		"  return spawn(program, args, assertNoShell({}));\n" +
+		"}\n",
+	// Regression (audit): a literal program is not enough — an argv array that
+	// never passed through `argvCommand` must keep the finding.
+	"src/unvalidated-args.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function run(args: string[]) {\n" +
+		'  return spawn("/usr/bin/pi", args, assertNoShell({}));\n' +
 		"}\n",
 	"src/aliased-exec.ts":
 		'import * as cp from "node:child_process";\n' +
@@ -480,6 +505,26 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 	it("keeps a MEDIUM Command Execution with a dynamic program (regression)", () => {
 		// `spawn(request.command, args)` — executable provenance is not provable.
 		assert.strictEqual(keepsSecurity(cmd("src/dynamic-command.ts")), true);
+	});
+
+	it("keeps a MEDIUM Command Execution whose dynamic program flows through `argvCommand` (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/wrapped-dynamic.ts")),
+			true,
+			"argvCommand on a dynamic argument does not prove a literal program",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose program is a parameter passed through a wrapper (regression)", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/wrapper-passthrough.ts")), true, "a parameter is not a literal");
+	});
+
+	it("keeps a MEDIUM Command Execution whose argv is not a validated source (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/unvalidated-args.ts")),
+			true,
+			"a literal program alone is not enough without a validated argv",
+		);
 	});
 
 	it("keeps a MEDIUM Command Execution with an aliased shell exec beside a safe spawn (regression)", () => {

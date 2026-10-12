@@ -45,9 +45,10 @@ const CITED_COMMAND_EXECUTION_PATHS = [
 
 // Suppression counts measured on the fixed tree with the pinned analyzer: every
 // HIGH security hit plus the cited MEDIUM `Command Execution` findings are
-// false positives, and the whole layer category is noise.
-const EXPECTED_SECURITY_SUPPRESSED = 13;
-const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
+// false positives, and the whole layer category is noise. A genuinely dynamic
+// spawn (`lib/exec-env.ts`) is deliberately kept — see the fp-filter rule.
+const EXPECTED_SECURITY_SUPPRESSED = 16;
+const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 365;
 
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData, isFalsePositiveHygiene } = requireCjs(FILTER) as {

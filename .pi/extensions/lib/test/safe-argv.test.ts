@@ -8,7 +8,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { argvCommand, assertNoShell, assertSafeEnv, UnsafeArgvError } from "../safe-argv.ts";
+import { argvCommand, assertNoShell, assertSafeEnv, spawnArgv, UnsafeArgvError } from "../safe-argv.ts";
 
 describe("argvCommand", () => {
 	it("returns program and args unchanged, order preserved", () => {
@@ -59,9 +59,20 @@ describe("argvCommand", () => {
 		assert.throws(() => argvCommand("/usr/bin/pi", ["ok", "bad\0arg"]), UnsafeArgvError);
 	});
 
-	it("throws for a newline in the program or an arg", () => {
-		assert.throws(() => argvCommand("gi\nt", []), UnsafeArgvError);
-		assert.throws(() => argvCommand("git", ["multi\nline"]), UnsafeArgvError);
+	it("accepts newlines and tabs in args (only NUL is rejected)", () => {
+		const task = "line one\nline two\tindented";
+		const systemPrompt = "You are pi.\n\nRules:\n1. ...";
+		const { program, args } = argvCommand("/usr/bin/pi", [
+			"-p",
+			"--mode",
+			"json",
+			task,
+			"--system-prompt",
+			systemPrompt,
+		]);
+		assert.strictEqual(program, "/usr/bin/pi");
+		assert.deepStrictEqual(args.slice(3, 4), [task]);
+		assert.deepStrictEqual(args.slice(5, 6), [systemPrompt]);
 	});
 });
 
@@ -88,6 +99,31 @@ describe("assertNoShell", () => {
 
 	it("accepts undefined (no options)", () => {
 		assert.deepStrictEqual(assertNoShell(undefined), { shell: false });
+	});
+});
+
+describe("spawnArgv", () => {
+	it("validates the argv and forces shell:false before calling the spawn fn", () => {
+		const calls: Array<[string, readonly string[], object]> = [];
+		const spawnFn = (program: string, args: readonly string[], options?: object) => {
+			calls.push([program, args, options ?? {}]);
+			return "child";
+		};
+		const result = spawnArgv(spawnFn, "/usr/bin/pi", ["--version"], { cwd: "/tmp" });
+		assert.strictEqual(result, "child");
+		assert.deepStrictEqual(calls, [["/usr/bin/pi", ["--version"], { cwd: "/tmp", shell: false }]]);
+	});
+
+	it("throws before calling the spawn fn on NUL argv or a requested shell", () => {
+		let called = false;
+		const spawnFn = () => {
+			called = true;
+			return "child";
+		};
+		assert.throws(() => spawnArgv(spawnFn, "/usr/bin/pi", ["bad\0arg"]), UnsafeArgvError);
+		assert.throws(() => spawnArgv(spawnFn, "-a", []), UnsafeArgvError);
+		assert.throws(() => spawnArgv(spawnFn, "/usr/bin/pi", [], { shell: true }), UnsafeArgvError);
+		assert.strictEqual(called, false, "the spawn fn must never run on invalid argv");
 	});
 });
 
