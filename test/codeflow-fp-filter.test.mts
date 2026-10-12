@@ -515,6 +515,33 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 		);
 	});
 
+	it("keeps a recursion-only entry whose signature carries a type brace", () => {
+		assert.strictEqual(
+			keepsDead("foo", "src/d2.ts", {
+				"src/d2.ts": "function foo(opts: { x: number }) { return foo(opts); }\n",
+			}),
+			true,
+			"a parameter type brace is part of the signature, not the body",
+		);
+		assert.strictEqual(
+			keepsDead("foo", "src/d3.ts", {
+				"src/d3.ts": "function foo(opts: { x: number }): { y: number } { return foo(opts); }\n",
+			}),
+			true,
+			"a return type brace is part of the signature, not the body",
+		);
+	});
+
+	it("still detects an external use after a typed signature", () => {
+		assert.strictEqual(
+			keepsDead("foo", "src/d4.ts", {
+				"src/d4.ts":
+					"function foo(opts: { x: number }) { return 1; }\nconst v = foo({ x: 1 });\n",
+			}),
+			false,
+		);
+	});
+
 	it("keeps an entry no file mentions", () => {
 		assert.strictEqual(keepsDead("ghost", "src/e.ts", { "src/e.ts": "export const a = 1;\n" }), true);
 	});

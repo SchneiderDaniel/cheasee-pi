@@ -281,23 +281,31 @@
 		);
 	}
 
+	// Skip a balanced `{...}` block from its opening brace (or the file end).
+	function braceEnd(content, open) {
+		for (var depth = 0, i = open; i < content.length; i++) {
+			if (content[i] === "{") depth++;
+			else if (content[i] === "}" && --depth === 0) return i + 1;
+		}
+		return content.length;
+	}
+
 	// A definition ends at its closing brace, or at the `;` of a bodyless
-	// declaration (a Rust trait method). An unbalanced body runs to the end of the
-	// file, which only hides references: the finding is then kept.
+	// declaration (a Rust trait method). The parameter list and a `:`-introduced
+	// return type (`: {...}`, `extends {...}`) are signature, not body, so a
+	// recursive body is not mistaken for an external use. An unbalanced body runs
+	// to the end of the file, which only hides references: the finding is then kept.
 	function bodyEnd(content, from) {
-		var i = from;
-		while (i < content.length) {
-			if (content[i] === ";") return i + 1;
-			if (content[i] === "{") {
-				var depth = 0;
-				while (i < content.length) {
-					if (content[i] === "{") depth++;
-					else if (content[i] === "}" && --depth === 0) return i + 1;
-					i++;
-				}
-				return content.length;
+		var parens = 0;
+		for (var i = from; i < content.length; i++) {
+			var ch = content[i];
+			if (ch === "(") parens++;
+			else if (ch === ")" && parens > 0) parens--;
+			else if (parens === 0 && ch === ";") return i + 1;
+			else if (parens === 0 && ch === "{") {
+				if (!/[:|&<,]\s*$|\b(?:extends|implements)\s+$/.test(content.slice(0, i))) return braceEnd(content, i);
+				i = braceEnd(content, i) - 1; // signature/type brace: keep scanning for the body
 			}
-			i++;
 		}
 		return content.length;
 	}
