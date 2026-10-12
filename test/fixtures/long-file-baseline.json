@@ -11,7 +11,7 @@
 		"filedCount": 61,
 		"baseCountNote": "the issue was filed with 61 files at analyzedAt 1791738325602 against the then-main. The immutable base below (origin/main after #2001/#2002/#2003/#2004) reports 35 flagged files: the earlier refactors already split part of the filed set. Acceptance is the drop on the delivered branch, not the filed number.",
 		"filesNote": "`files` is the snapshot's tracked-file count (`git ls-tree -r --name-only <commit> | wc -l`), a reproducible proxy for the analyzer's parsed-file count. Only its ordering matters here: `after.files > before.files` proves the drop did not come from deleting files.",
-		"afterTipNote": "the after snapshot is commit 39e62d9e, the last commit of this branch that changes scored code; later commits touch only register artifacts (`.json`/`.mts`/`.md`, never scored) and EOF whitespace strips, so the Long File count and the flagged set are identical on every post-split commit. `7bcbeefd` differs from 39e62d9e only by this fixture, the mirror, the oracle block, the reference doc and the strips in nine split files. `after.files`/`after.codeFiles` are 39e62d9e's tracked/scored counts. The `long file metric oracle (issue #2005)` block in `test/codeflow-run-analysis.test.mts` recomputes the predicate over the delivered tree with the mirror in `test/fixtures/long-file-mirror.mts`, so this envelope cannot drift from the source it describes."
+		"afterTipNote": "the after snapshot is commit 39e62d9e, the last commit of this branch that changes scored code; later commits touch only register artifacts (`.json`/`.mts`/`.md`, never scored) and EOF whitespace strips, so the Long File count and the flagged set are identical on every post-split commit. `7bcbeefd` differs from 39e62d9e only by this fixture, the mirror, the oracle block, the reference doc and the strips in nine split files. `after.files`/`after.codeFiles` are 39e62d9e's tracked/scored counts. The `long file metric oracle (issue #2005)` block in `test/codeflow-run-analysis.test.mts` recomputes the predicate over the delivered tree with the mirror in `test/fixtures/long-file-mirror.mts`, so this envelope cannot drift from the source it describes. `after.longFileCount` was raised 16 -> 17 when #2023 added the file-scoped argv-safety proof to `fp-filter.js`; that file is recorded as a deferral below."
 	},
 	"before": {
 		"ref": "origin/main",
@@ -24,7 +24,7 @@
 		"ref": "worktree-git-issue-2005-refactor-long-file",
 		"commit": "39e62d9e8d9026938aea356c3c4811e4348d3062",
 		"files": 1239,
-		"longFileCount": 16,
+		"longFileCount": 17,
 		"codeFiles": 694
 	},
 	"tradeoffs": {
@@ -114,6 +114,10 @@
 		{
 			"reason": "the embedded server carries inline _BRIDGE_JS/_UI_REWRITES assets whose module boundaries are the Dockerfile COPY set; splitting it changes the copy-set boundary in the same commit, so it is deferred to the change that owns that guard",
 			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
+		},
+		{
+			"reason": "#2023 added the file-scoped argv-safety proof to fp-filter.js (~270 lines). It is a dual-format UMD module served verbatim as a browser <script> and require()d by the headless runner, so splitting the proof out would change the served script boundary and the #2023 change does not own that guard — its audit scope is the four shell-command sites.",
+			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]
 		}
 	]
 }

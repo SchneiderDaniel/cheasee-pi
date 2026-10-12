@@ -56,16 +56,48 @@ const SOURCES: Record<string, string> = {
 	"ui/src/tool_card.rs": "pub fn card() {}\n",
 	"src/spawn.ts": "export function run() { spawn(); }\n",
 	"src/config.ts": "export const config = load();\n",
-	// Counterexamples the removed MEDIUM rule got wrong: a dynamic program and an
-	// aliased shell `exec` beside a safe `spawn`. Both must keep the finding.
-	"src/argv-safe.ts":
-		'export function run() { spawn("/usr/bin/pi", args, { shell: false }); }\n',
-	"src/shell-out.ts":
-		'export function run(cmd: string) { execSync("rm -rf " + cmd); }\n',
+	// The safe shape the fix produces: the executable comes from `argvCommand`
+	// and the options are forced by `assertNoShell` — suppressed.
+	"src/safe-wrapper.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function run(args: string[]) {\n' +
+		'  const { program, args: safeArgs } = argvCommand("/usr/bin/pi", args);\n' +
+		'  return spawn(program, safeArgs, assertNoShell({ stdio: "ignore" }));\n' +
+		"}\n",
+	"src/safe-promisified.ts":
+		'import { execFile } from "node:child_process";\n' +
+		'import { promisify } from "node:util";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"const execFileAsync = promisify(execFile);\n" +
+		"export async function run() {\n" +
+		'  const { program, args } = argvCommand("git", ["status"]);\n' +
+		"  return execFileAsync(program, args, assertNoShell({ timeout: 5000 }));\n" +
+		"}\n",
+	// A file that only imports the `ChildProcess` type never calls the module.
+	"src/type-only.ts":
+		'import type { ChildProcess } from "node:child_process";\nexport type C = ChildProcess;\n',
+	// Counterexamples that must keep the finding: a dynamic program, an aliased
+	// shell `exec`, an explicit `execSync`, a truthy `shell` option, and a shell
+	// program with a `-c` command string.
 	"src/dynamic-command.ts":
-		'export function run(request: { command: string; args: string[] }) { spawn(request.command, request.args); }\n',
+		'import { spawn } from "node:child_process";\n' +
+		"export function run(request: { command: string; args: string[] }) {\n" +
+		"  return spawn(request.command, request.args, { shell: false });\n" +
+		"}\n",
 	"src/aliased-exec.ts":
-		'const run = childProcess.exec;\nexport function go(cmd: string) { spawn("/usr/bin/pi", ["--version"]); run(cmd); }\n',
+		'import * as cp from "node:child_process";\n' +
+		"const run = cp.exec;\n" +
+		'export function go(cmd: string) { spawn("/usr/bin/pi", ["--version"], { shell: false }); run(cmd); }\n',
+	"src/shell-out.ts":
+		'import { execSync } from "node:child_process";\n' +
+		'export function run(cmd: string) { execSync("rm -rf " + cmd); }\n',
+	"src/shell-true.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'export function run(args: string[]) { return spawn("git", args, { shell: true }); }\n',
+	"src/shell-program.ts":
+		'import { execFile } from "node:child_process";\n' +
+		'export function run(cmd: string) { return execFile("/bin/bash", ["-c", cmd]); }\n',
 };
 
 const readFile = (path: unknown): string | null =>
@@ -248,7 +280,7 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 		assert.strictEqual(keepsSecurity(sec({ path: "does/not/exist.ts", code: 'const KEY = "sk-live-abc";' })), true);
 	});
 
-	it("leaves LOW and MEDIUM findings alone (owned by the audit triage)", () => {
+	it("leaves LOW and non-Command-Execution MEDIUM findings alone (audit triage owns them)", () => {
 		for (const severity of ["low", "medium", "LOW"]) {
 			assert.strictEqual(
 				keepsSecurity(sec({ severity, title: "Code Comments", description: "TODO", code: "// TODO: fix" })),
@@ -259,46 +291,49 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 	});
 });
 
-describe("fp-filter — MEDIUM findings are never suppressed (fail closed)", () => {
-	it("keeps a MEDIUM Command Execution whose file runs an argv-array spawn", () => {
-		// A file-wide regex cannot prove the invocation safe — the whole-file
-		// finding is left for the audit triage, not silently dropped.
-		assert.strictEqual(
-			keepsSecurity(
-				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/argv-safe.ts" }),
-			),
-			true,
-		);
+describe("fp-filter — MEDIUM Command Execution proves the file argv-safe before dropping it", () => {
+	const cmd = (path: string) => sec({ severity: "medium", title: "Command Execution", code: "", path });
+
+	it("drops a MEDIUM Command Execution whose file routes every spawn through the policy", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/safe-wrapper.ts")), false, "literal+argvCommand+assertNoShell");
 	});
 
-	it("keeps a MEDIUM Command Execution that shells out (positive control)", () => {
-		assert.strictEqual(
-			keepsSecurity(
-				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/shell-out.ts" }),
-			),
-			true,
-			"execSync must survive",
-		);
+	it("drops a MEDIUM Command Execution whose file promisifies `execFile` through the policy", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/safe-promisified.ts")), false, "aliased execFile is still seen");
+	});
+
+	it("drops a MEDIUM Command Execution whose file only imports the `ChildProcess` type", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/type-only.ts")), false, "a type import is no call site");
 	});
 
 	it("keeps a MEDIUM Command Execution with a dynamic program (regression)", () => {
 		// `spawn(request.command, args)` — executable provenance is not provable.
-		assert.strictEqual(
-			keepsSecurity(
-				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/dynamic-command.ts" }),
-			),
-			true,
-		);
+		assert.strictEqual(keepsSecurity(cmd("src/dynamic-command.ts")), true);
 	});
 
 	it("keeps a MEDIUM Command Execution with an aliased shell exec beside a safe spawn (regression)", () => {
-		assert.strictEqual(
-			keepsSecurity(
-				sec({ severity: "medium", title: "Command Execution", code: "", path: "src/aliased-exec.ts" }),
-			),
-			true,
-			"aliased exec() must survive beside a safe argv spawn",
-		);
+		assert.strictEqual(keepsSecurity(cmd("src/aliased-exec.ts")), true, "aliased exec() must survive");
+	});
+
+	it("keeps a MEDIUM Command Execution that shells out (positive control)", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/shell-out.ts")), true, "execSync must survive");
+	});
+
+	it("keeps a MEDIUM Command Execution with `shell: true` (positive control)", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/shell-true.ts")), true, "a truthy shell option must survive");
+	});
+
+	it("keeps a MEDIUM Command Execution that runs a shell program with `-c` (positive control)", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/shell-program.ts")), true, "bash -c must survive");
+	});
+
+	it("keeps the finding when the cited file cannot be read (absence is not proof)", () => {
+		assert.strictEqual(keepsSecurity(cmd("does/not/exist.ts")), true);
+	});
+
+	it("keeps a MEDIUM Command Execution in a file with no recognised safe shape", () => {
+		// `spawn()` with no import and no argv still runs an executable.
+		assert.strictEqual(keepsSecurity(cmd("src/spawn.ts")), true);
 	});
 });
 

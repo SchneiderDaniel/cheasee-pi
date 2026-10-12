@@ -33,19 +33,15 @@ const FIXTURE = join(HERE, "fixtures", "codeflow-real-analysis-fp.json");
 const PINNED_REF = "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1";
 const CHECKOUT_URL = "https://github.com/braedonsaunders/codeflow";
 
-// The revision this issue reports on. Pinning the live acceptance run to it
-// (not HEAD) means the assertions reproduce the affected report rather than
-// whatever the branch happens to be.
-const ISSUE_SNAPSHOT = "17c991c033073dccdd549c335abe6c594643b009";
-// Measured on that snapshot with the pinned analyzer: every HIGH security hit
-// (the reported nine) plus the entire layer category (357 edges) is a false
-// positive. The four cited MEDIUM `Command Execution` hits are left in the
-// report (fail closed — a file-wide regex cannot prove the invocation safe).
-// Deterministic for a fixed revision plus fixed analyzer pin.
-const EXPECTED_SECURITY_SUPPRESSED = 9;
-const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
-// The filtered report these expectations imply.
-const EXPECTED_HEALTH_SCORE = 92;
+// The four sites this issue reports on. The recording below carries the pinned
+// analyzer's MEDIUM `Command Execution` hits at exactly these paths; the live
+// acceptance runs on the fixed tree and requires none of them to survive.
+const CITED_COMMAND_EXECUTION_PATHS = [
+	".pi/extensions/context-info/codeflow.ts",
+	".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+	".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+	".pi/extensions/supervisor/agent/runner/spawn.ts",
+];
 
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData } = requireCjs(FILTER) as {
@@ -80,6 +76,12 @@ const inventedLayerOf = (
 	data: { layerViolations: Array<{ from: string; to: string; fromLayer: string; toLayer: string }> },
 ) => data.layerViolations.filter((v) => !groundsLayer(v.fromLayer, v.from) || !groundsLayer(v.toLayer, v.to));
 
+/** The cited MEDIUM `Command Execution` hits that must not survive the filter. */
+const commandExecutionOf = (data: { securityIssues: Array<{ title: string; path: string }> }) =>
+	data.securityIssues.filter(
+		(s) => String(s.title).trim() === "Command Execution" && CITED_COMMAND_EXECUTION_PATHS.includes(s.path),
+	);
+
 /** Read one analyzed path out of the repo, mirroring the producer's containment. */
 function makeRepoReadFile(): (path: unknown) => string | null {
 	const root = realpathSync(REPO_ROOT);
@@ -110,6 +112,13 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		// positives the issue and the previous audit found (else the assertions
 		// below would pass vacuously).
 		assert.ok(highsOf(recorded).length >= 9, "recording must carry the HIGH security hits");
+		assert.deepStrictEqual(
+			commandExecutionOf(recorded)
+				.map((s) => s.path)
+				.sort(),
+			[...CITED_COMMAND_EXECUTION_PATHS].sort(),
+			"recording must carry the four cited MEDIUM Command Execution hits",
+		);
 		assert.ok(crossLanguageOf(recorded).length > 0, "recording must carry cross-language edges");
 		assert.ok(inventedLayerOf(recorded).length > 0, "recording must carry invented-layer edges");
 
@@ -125,6 +134,15 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		);
 
 		assert.deepStrictEqual(highsOf(data), [], "no HIGH security finding may survive");
+		// The recording is the pre-fix analyzer output, but the filter reads the
+		// files on disk — the fixed ones. Every cited spawn now routes through the
+		// shared argv policy, so the whole-file finding is a proven false positive
+		// and none of the four survives.
+		assert.deepStrictEqual(
+			commandExecutionOf(data),
+			[],
+			"no cited MEDIUM Command Execution may survive on the fixed tree",
+		);
 		assert.deepStrictEqual(crossLanguageOf(data), [], "cross-language layer edges must not survive");
 		assert.deepStrictEqual(inventedLayerOf(data), [], "invented layer labels must not survive");
 
@@ -135,23 +153,6 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 });
 
 describe("fp-filter — live acceptance against the pinned analyzer", () => {
-	/** The issue revision, fetched when this checkout does not already carry it. */
-	function ensureIssueSnapshot(): string {
-		try {
-			execFileSync("git", ["cat-file", "-e", `${ISSUE_SNAPSHOT}^{commit}`], {
-				cwd: REPO_ROOT,
-				stdio: "ignore",
-			});
-		} catch {
-			execFileSync("git", ["fetch", "--depth", "1", "origin", ISSUE_SNAPSHOT], {
-				cwd: REPO_ROOT,
-				stdio: "ignore",
-				timeout: 180_000,
-			});
-		}
-		return ISSUE_SNAPSHOT;
-	}
-
 	/** A usable pinned checkout, or null when none is present and none was fetched. */
 	function resolveCheckout(): string | null {
 		const explicit = process.env.CODEFLOW_UI_DIR || "/opt/codeflow-ui";
@@ -183,14 +184,18 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 	const SKIP =
 		"pinned CodeFlow checkout unavailable (set CODEFLOW_UI_DIR, or CODEFLOW_FP_E2E=0 to skip)";
 
-	it("headless report on the issue snapshot scores an A and drops every false positive", { skip: UI_DIR ? false : SKIP }, () => {
+	// The audit asked for the signal to be resolved on the *fixed* tree, not
+	// merely reproduced on the pre-fix revision: the producer analyzes the branch
+	// under test and the four cited MEDIUM hits must be gone.
+	it("headless report on the updated tree emits no cited Command Execution", { skip: UI_DIR ? false : SKIP }, () => {
 		const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
 		const outDir = mkdtempSync(join(tmpdir(), "fp-accept-out-"));
 		cleanups.push(snapshotDir, outDir);
 
-		// Deterministic snapshot: the exact revision the issue reports on, fed to
-		// the producer the way the shim feeds it.
-		const archive = execFileSync("git", ["archive", ensureIssueSnapshot()], {
+		// The updated tree, fed to the producer the way the shim feeds it. The
+		// filter reads these files, so each cited spawn is proven argv-safe and
+		// the stale whole-file finding is dropped.
+		const archive = execFileSync("git", ["archive", "HEAD"], {
 			cwd: REPO_ROOT,
 			maxBuffer: 1 << 30,
 		});
@@ -202,55 +207,26 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		});
 		assert.strictEqual(run.status, 0, `producer failed:\n${run.stderr}`);
 
-		// The producer reports suppression instead of dropping silently, and the
-		// counts must reproduce the affected report's false positives exactly.
+		// The producer reports suppression instead of dropping silently.
 		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\)/.exec(
 			run.stderr,
 		);
 		assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
-		assert.strictEqual(
-			Number(suppressed![1]),
-			EXPECTED_SECURITY_SUPPRESSED,
-			"every HIGH security hit must be suppressed (MEDIUM is left to triage)",
-		);
-		assert.strictEqual(
-			Number(suppressed![2]),
-			EXPECTED_LAYER_VIOLATIONS_SUPPRESSED,
-			"the whole layer-violation category must be suppressed on the issue snapshot",
-		);
 
 		const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
-		assert.strictEqual(
-			report.summary.healthScore,
-			EXPECTED_HEALTH_SCORE,
-			`expected the corrected score, got ${report.summary.healthScore} (${report.summary.healthGrade})`,
+		assert.deepStrictEqual(
+			commandExecutionOf(report),
+			[],
+			"the four cited MEDIUM Command Execution hits must be resolved on the fixed tree",
 		);
+		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
 		assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
 		assert.strictEqual(report.summary.healthGrade, "A");
-		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
-		// The four cited MEDIUM `Command Execution` hits are real signals on this
-		// pre-fix snapshot — the seam each cites still passes an unvalidated argv.
-		// The filter must leave them for triage (fail closed), never hide a
-		// possible shell execution with a file-wide heuristic.
-		assert.strictEqual(
-			report.securityIssues.filter(
-				(s: { title: string; path: string }) =>
-					String(s.title).trim() === "Command Execution" &&
-					[
-						".pi/extensions/context-info/codeflow.ts",
-						".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
-						".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
-						".pi/extensions/supervisor/agent/runner/spawn.ts",
-					].includes(s.path),
-			).length,
-			4,
-			"the four cited MEDIUM findings must be left in the report (fail closed)",
-		);
 		assert.deepStrictEqual(crossLanguageOf(report), [], "cross-language layer edges must not be emitted");
 		assert.deepStrictEqual(inventedLayerOf(report), [], "unsupported layer labels must not survive");
 
 		// The report must not contradict its own score: the summary counts move
-		// with the filtered arrays, or an A still advertises nine HIGH findings.
+		// with the filtered arrays.
 		assert.strictEqual(report.summary.highSecurityIssues, 0, "summary must not still count the dropped highs");
 		assert.strictEqual(report.summary.layerViolations, 0, "summary must not still count the dropped edges");
 	});

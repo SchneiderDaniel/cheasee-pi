@@ -11,12 +11,10 @@
 //      (different languages, no import edge) or whose claimed layer is not the
 //      one the report itself assigns the file.
 //
-// Only HIGH severity security findings are considered. MEDIUM findings — even
-// `Command Execution` — are left in the report for the audit skill to triage:
-// they cite a whole file with no snippet, and no file-wide regex can prove the
-// flagged invocation is an argv-array spawn (an aliased or dynamically-named
-// `exec` beside a safe `spawn` is invisible to it), so suppressing them would
-// risk hiding a real shell-command execution. Fail closed.
+// A MEDIUM `Command Execution` finding is considered too, but only when the
+// cited file's own text proves the hit a false positive (see the file-scoped
+// proof below). It cites a whole file with no snippet, so any unreadable file,
+// dynamic program or shell call keeps the finding — fail closed.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
@@ -149,21 +147,334 @@
 		return false;
 	}
 
-	// A MEDIUM `Command Execution` hit cites a whole file (`code: ""`), so the
-	// snippet carries no evidence of the invocation. No file-wide regex can prove
-	// every child-process call is an argv-array spawn — `spawn(request.command,
-	// args)` and an aliased shell `exec` beside a safe `spawn` both defeat it —
-	// so a MEDIUM finding is never suppressed. Fail closed rather than hide a real
-	// shell-command execution; the audit triage owns these.
+	// --- MEDIUM `Command Execution`: file-scoped, so file-scoped proof -------
+	//
+	// The analyzer's `Command Execution` rule fires on a whole file — an import
+	// or `require` of `node:child_process`, or a `child_process.exec` call — and
+	// records it with no snippet (`code: ""`), so the finding names a file, not an
+	// invocation. Its predicate is upstream and cannot be narrowed here; proving
+	// the hit a false positive needs the cited file's own text. A file is
+	// suppressed only when *every* child-process call it makes is an argv-array
+	// invocation through the shared policy (`argvCommand` for the program,
+	// `assertNoShell` for the options) and no shell-executing construct appears
+	// anywhere. An unreadable file, an unrecognised call shape, a dynamic
+	// program, or any shell call keeps the finding (fail closed).
 
-	/**
-	 * True when a security finding must not be emitted.
-	 * `readFile(path) -> string|null` supplies the cited file's content; an
-	 * unavailable file is never evidence, so it keeps the finding.
-	 */
-	function isFalsePositiveSecurity(issue, readFile) {
-		if (!issue || typeof issue !== "object") return false;
-		if (!isHigh(issue)) return false;
+	// `node:child_process` members, by whether they run an argv array or a shell
+	// string. `execFile("sh", ["-c", x])` is still argv-shaped but names a shell,
+	// so a shell-program literal is denied separately below.
+	var CP_MEMBERS = {
+		spawn: "argv",
+		spawnSync: "argv",
+		execFile: "argv",
+		execFileSync: "argv",
+		exec: "shell",
+		execSync: "shell",
+		fork: "shell",
+	};
+	var CP_NAMES = Object.keys(CP_MEMBERS);
+	// A bare shell program passed as the executable argument.
+	var SHELL_PROGRAM = /["'`](?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|cmd(?:\.exe)?|powershell(?:\.exe)?)["'`]/;
+
+	/** Positioned on the opening quote; returns the index just past the close. */
+	function skipString(code, i) {
+		var quote = code[i++];
+		while (i < code.length) {
+			if (code[i] === "\\") {
+				i += 2;
+				continue;
+			}
+			if (code[i] === quote) return i + 1;
+			i++;
+		}
+		return i;
+	}
+
+	/** True when a `/` after `prefix` opens a regex literal, not a division. */
+	function startsRegex(prefix) {
+		for (var i = prefix.length - 1; i >= 0; i--) {
+			var c = prefix[i];
+			if (c === " " || c === "\t" || c === "\n" || c === "\r") continue;
+			return !/[A-Za-z0-9_$)\]"'`]/.test(c);
+		}
+		return true;
+	}
+
+	/** Positioned on the opening `/`; returns the index just past the flags. */
+	function skipRegex(code, i) {
+		i++;
+		var inClass = false;
+		while (i < code.length) {
+			var c = code[i];
+			if (c === "\\") {
+				i += 2;
+				continue;
+			}
+			if (c === "[") inClass = true;
+			else if (c === "]") inClass = false;
+			else if (c === "/" && !inClass) return i + 1;
+			else if (c === "\n") return i;
+			i++;
+		}
+		return i;
+	}
+
+	// String- and regex-aware comment removal, so a comment can neither hide a
+	// call site nor a regex containing `//` fake one.
+	function stripComments(code) {
+		var out = "";
+		var i = 0;
+		while (i < code.length) {
+			var ch = code[i];
+			if (ch === '"' || ch === "'" || ch === "`") {
+				var s = i;
+				i = skipString(code, i);
+				out += code.slice(s, i);
+				continue;
+			}
+			if (ch === "/" && code[i + 1] === "/") {
+				i = code.indexOf("\n", i);
+				if (i < 0) break;
+				continue;
+			}
+			if (ch === "/" && code[i + 1] === "*") {
+				var end = code.indexOf("*/", i + 2);
+				if (end < 0) break;
+				i = end + 2;
+				continue;
+			}
+			if (ch === "/" && startsRegex(out)) {
+				var r = i;
+				i = skipRegex(code, i);
+				out += code.slice(r, i);
+				continue;
+			}
+			out += ch;
+			i++;
+		}
+		return out;
+	}
+
+	// Top-level comma split, honouring nesting and strings — call arguments.
+	function splitTopLevel(text) {
+		var parts = [];
+		var depth = 0;
+		var start = 0;
+		var i = 0;
+		while (i < text.length) {
+			var ch = text[i];
+			if (ch === '"' || ch === "'" || ch === "`") {
+				i = skipString(text, i);
+				continue;
+			}
+			if (ch === "(" || ch === "[" || ch === "{") depth++;
+			else if (ch === ")" || ch === "]" || ch === "}") depth--;
+			else if (ch === "," && depth === 0) {
+				parts.push(text.slice(start, i));
+				start = i + 1;
+			}
+			i++;
+		}
+		parts.push(text.slice(start));
+		return parts;
+	}
+
+	// The argument list of the call whose `(` is at `open`, minus the parens.
+	function argumentText(code, open) {
+		var depth = 0;
+		var i = open;
+		while (i < code.length) {
+			var ch = code[i];
+			if (ch === '"' || ch === "'" || ch === "`") {
+				i = skipString(code, i);
+				continue;
+			}
+			if (ch === "(") depth++;
+			else if (ch === ")") {
+				depth--;
+				if (depth === 0) return code.slice(open + 1, i);
+			}
+			i++;
+		}
+		return null;
+	}
+
+	// A literal program: a quoted string, or a template with no interpolation.
+	function isLiteralProgram(text) {
+		var a = text.trim();
+		return (
+			/^"(?:[^"\\\n]|\\.)*"$/.test(a) ||
+			/^'(?:[^'\\\n]|\\.)*'$/.test(a) ||
+			/^`[^`$\\]*`$/.test(a)
+		);
+	}
+
+	// Names bound by `const { program, args } = argvCommand(...)` — the only
+	// identifiers accepted as a call's executable argument besides a literal.
+	function argvCommandBindings(code) {
+		var names = Object.create(null);
+		var re = /(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]*)?=\s*argvCommand\s*(?:<[^<>]*>)?\s*\(/g;
+		var m;
+		while ((m = re.exec(code)) !== null) {
+			var parts = m[1].split(",");
+			for (var i = 0; i < parts.length; i++) {
+				var local = parts[i].trim().split(":").pop().trim();
+				var id = /^[A-Za-z_$][\w$]*/.exec(local);
+				if (id) names[id[0]] = true;
+			}
+		}
+		return names;
+	}
+
+	// Local names that stand for a `node:child_process` member: named/namespace
+	// imports, `require` destructuring, member assignment, `promisify(member)`,
+	// and destructuring off a namespace — so an aliased spawn/exec is still seen
+	// as a call site. Over-registering only ever denies a finding (fail closed).
+	function childProcessBindings(code) {
+		var members = Object.create(null);
+		var namespaces = Object.create(null);
+		var m;
+
+		function addNamed(list) {
+			var parts = list.split(",");
+			for (var i = 0; i < parts.length; i++) {
+				var seg = parts[i].trim();
+				if (!seg) continue;
+				var asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(seg);
+				if (asMatch) {
+					if (CP_MEMBERS[asMatch[1]]) members[asMatch[2]] = asMatch[1];
+				} else if (/^\w+$/.test(seg) && CP_MEMBERS[seg]) {
+					members[seg] = seg;
+				}
+			}
+		}
+
+		var re = /import\s*(?:type\s*)?([\s\S]*?)\s*from\s*["'](?:node:)?child_process["']/g;
+		while ((m = re.exec(code)) !== null) {
+			var clause = m[1];
+			var star = /\*\s+as\s+(\w+)/.exec(clause);
+			if (star) namespaces[star[1]] = true;
+			var brace = /\{([^}]*)\}/.exec(clause);
+			if (brace) addNamed(brace[1]);
+			else if (!star && /^\s*\w+\s*$/.test(clause)) namespaces[clause.trim()] = true;
+		}
+
+		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*(?:\.\s*(\w+))?/g;
+		while ((m = re.exec(code)) !== null) {
+			var lhs = m[1].trim();
+			if (m[2]) {
+				if (CP_MEMBERS[m[2]]) members[lhs] = m[2];
+			} else if (/^\{/.test(lhs)) addNamed(lhs.replace(/^\{/, "").replace(/\}$/, ""));
+			else if (/^\w+$/.test(lhs)) namespaces[lhs] = true;
+		}
+
+		// Assignment and destructuring aliases, iterated to a fixpoint.
+		for (var pass = 0; pass < 3; pass++) {
+			re = /(?:const|let|var)\s+(\w+)\s*=\s*(?:promisify\s*\(\s*(\w+)\s*\)|(\w+)\s*\.\s*(\w+)|(\w+))/g;
+			while ((m = re.exec(code)) !== null) {
+				if (m[2] && members[m[2]]) members[m[1]] = members[m[2]];
+				else if (m[3] && m[4] && CP_MEMBERS[m[4]]) members[m[1]] = m[4];
+				else if (m[5] && members[m[5]]) members[m[1]] = members[m[5]];
+			}
+			re = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(\w+)\s*[;,\n]/g;
+			while ((m = re.exec(code)) !== null) {
+				if (namespaces[m[2]]) addNamed(m[1]);
+			}
+		}
+
+		return { members: members, namespaces: namespaces };
+	}
+
+	// Any shell-executing construct in the file: a shell member name (`exec`,
+	// `execSync`, `fork` — standalone, aliased or namespaced), a `shell` option
+	// that is not explicitly `false`, a `-c` command string, a shell-program
+	// literal, `eval`, or `new Function`.
+	function hasShellExecution(code) {
+		if (/(?:^|[^\w$])(?:exec|execSync|fork)(?![\w$])/.test(code)) return true;
+		if (/(?:^|[^\w$])shell\s*:\s*(?!\s*false\b)/.test(code)) return true;
+		if (/["'`]-c["'`]/.test(code)) return true;
+		if (SHELL_PROGRAM.test(code)) return true;
+		if (/(?:^|[^\w$])eval\s*\(/.test(code)) return true;
+		if (/\bnew\s+Function\s*\(/.test(code)) return true;
+		return false;
+	}
+
+	/** The call pattern for a bare (non-namespaced) member name. */
+	function callRegex(name) {
+		return new RegExp("(?:^|[^\\w$.])" + escapeRe(name) + "\\s*(?:<[^<>]*>)?\\s*\\(", "g");
+	}
+
+	// One call is safe when its executable is a literal (or `argvCommand`-bound)
+	// and its options argument forces the shell off.
+	function isSafeArgvCall(member, args, boundNames) {
+		if (CP_MEMBERS[member] !== "argv") return false;
+		var parts = splitTopLevel(args);
+		if (parts.length < 2) return false;
+		var program = parts[0].trim();
+		if (!isLiteralProgram(program) && !boundNames[program]) return false;
+		var options = parts.slice(1).join(",");
+		return (
+			/assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(options) ||
+			/(?:^|[^\w$])shell\s*:\s*false\b/.test(options)
+		);
+	}
+
+	// Every child-process call in the file must prove argv-safe; a bare name, a
+	// registered alias, or a known namespace member all count as a call site.
+	function everyChildProcessCallIsSafe(code, boundNames) {
+		var bindings = childProcessBindings(code);
+		var names = Object.create(null);
+		var i;
+		for (i = 0; i < CP_NAMES.length; i++) names[CP_NAMES[i]] = true;
+		for (var local in bindings.members) names[local] = true;
+
+		var safe = true;
+		Object.keys(names).forEach(function (name) {
+			if (!safe) return;
+			var member = bindings.members[name] || name;
+			var re = callRegex(name);
+			var m;
+			while ((m = re.exec(code)) !== null) {
+				var open = code.indexOf("(", m.index + m[0].length - 1);
+				var args = argumentText(code, open);
+				if (args === null || !isSafeArgvCall(member, args, boundNames)) {
+					safe = false;
+					return;
+				}
+			}
+		});
+		if (!safe) return false;
+
+		var namespaceNames = Object.keys(bindings.namespaces);
+		for (i = 0; i < namespaceNames.length && safe; i++) {
+			var nsRe = new RegExp(
+				escapeRe(namespaceNames[i]) + "\\s*\\.\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
+				"g"
+			);
+			var mm;
+			while ((mm = nsRe.exec(code)) !== null) {
+				var openNs = code.indexOf("(", mm.index + mm[0].length - 1);
+				var argsNs = argumentText(code, openNs);
+				if (argsNs === null || !isSafeArgvCall(mm[1], argsNs, boundNames)) {
+					safe = false;
+					break;
+				}
+			}
+		}
+		return safe;
+	}
+
+	function isFalsePositiveCommandExecution(issue, readFile) {
+		if (typeof issue.severity !== "string" || issue.severity.toLowerCase() !== "medium") return false;
+		if (String(issue.title).trim() !== "Command Execution") return false;
+		var content = readFile ? readFile(issue.path) : null;
+		if (typeof content !== "string") return false;
+		var code = stripComments(content);
+		if (hasShellExecution(code)) return false;
+		return everyChildProcessCallIsSafe(code, argvCommandBindings(code));
+	}
+
+	function isFalsePositiveHighSecurity(issue, readFile) {
 		var code = codeOf(issue);
 		if (code.trim() === "") return true;
 		if (isCommentOnly(code)) return true;
@@ -172,6 +483,17 @@
 		if (namesMissingSymbol(issue, content)) return true;
 		if (!ENV_READ.test(code) && !resolvesViaHelper(code, content)) return false;
 		return !hasLiteralAssignment(code);
+	}
+
+	/**
+	 * True when a security finding must not be emitted.
+	 * `readFile(path) -> string|null` supplies the cited file's content; an
+	 * unavailable file is never evidence, so it keeps the finding.
+	 */
+	function isFalsePositiveSecurity(issue, readFile) {
+		if (!issue || typeof issue !== "object") return false;
+		if (isHigh(issue)) return isFalsePositiveHighSecurity(issue, readFile);
+		return isFalsePositiveCommandExecution(issue, readFile);
 	}
 
 	// --- layer violations ----------------------------------------------------
