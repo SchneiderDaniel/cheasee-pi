@@ -633,6 +633,65 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 		assert.strictEqual(keepsDead("foo", "src/a.ts", {}), true);
 	});
 
+	it("keeps a finding when its own definition file cannot be read (mixed readable/unreadable)", () => {
+		// The listed definition is unreadable, so the same-named call in the other
+		// readable file cannot be attributed to it: the finding must stand.
+		const sources: Record<string, string | null> = {
+			"ui/src/ws.rs": null,
+			"ui/src/retry.rs": "fn pump() {\n    socket.on_message(|text| echo(text));\n}\n",
+		};
+		const read = (p: unknown): string | null =>
+			typeof p === "string" && p in sources ? sources[p] : null;
+		const entry = { name: "on_message", file: "ui/src/ws.rs" };
+		const input = {
+			files: [{ path: "ui/src/ws.rs" }, { path: "ui/src/retry.rs" }],
+			deadFunctions: [entry],
+		};
+		const { data, suppressed } = sanitizeAnalysisData(input, read);
+		assert.deepStrictEqual(suppressed.deadCode, []);
+		assert.deepStrictEqual(data.deadFunctions, [entry]);
+	});
+
+	it("keeps every finding when only an unrelated scanned file cannot be read", () => {
+		// One unavailable file leaves the index incomplete, so nothing is
+		// suppressed rather than risk a wrong attribution.
+		const sources: Record<string, string | null> = {
+			"ui/src/ws.rs":
+				"pub trait Socket {\n    fn on_message<F: FnMut(String)>(&self, handler: F);\n}\n",
+			"ui/src/retry.rs": "fn pump() {\n    socket.on_message(|text| echo(text));\n}\n",
+			"ui/src/missing.ts": null,
+		};
+		const read = (p: unknown): string | null =>
+			typeof p === "string" && p in sources ? sources[p] : null;
+		const entry = { name: "on_message", file: "ui/src/ws.rs" };
+		const input = {
+			files: [
+				{ path: "ui/src/ws.rs" },
+				{ path: "ui/src/retry.rs" },
+				{ path: "ui/src/missing.ts" },
+			],
+			deadFunctions: [entry],
+			stats: { dead: 1 },
+		};
+		const { data, suppressed } = sanitizeAnalysisData(input, read);
+		assert.deepStrictEqual(suppressed.deadCode, []);
+		assert.deepStrictEqual(data.deadFunctions, [entry]);
+		assert.strictEqual(data.stats.dead, 1, "the summary count must not move without a drop");
+	});
+
+	it("keeps a finding whose definition file is not among the analyzed files", () => {
+		const sources: Record<string, string> = {
+			"ui/src/retry.rs": "fn pump() {\n    socket.on_message(|text| echo(text));\n}\n",
+		};
+		const read = (p: unknown): string | null =>
+			typeof p === "string" && p in sources ? sources[p] : null;
+		const entry = { name: "on_message", file: "ui/src/ws.rs" };
+		const input = { files: [{ path: "ui/src/retry.rs" }], deadFunctions: [entry] };
+		const { data, suppressed } = sanitizeAnalysisData(input, read);
+		assert.deepStrictEqual(suppressed.deadCode, []);
+		assert.deepStrictEqual(data.deadFunctions, [entry]);
+	});
+
 	it("survives malformed input without throwing", () => {
 		for (const input of [{}, { files: null }, { files: "nope" }, { files: [null, 1], deadFunctions: [] }]) {
 			assert.doesNotThrow(() =>

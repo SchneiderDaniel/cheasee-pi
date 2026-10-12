@@ -339,30 +339,29 @@
 		return false;
 	}
 
-	// Every symbol the analyzed files still reference, resolved lazily per symbol so
-	// each file is read once. shortcut: only the analyzer's own file set is scanned
-	// (it skips e.g. `.mts` tests), so a test-only use still reads as unreferenced.
+	// Every symbol the analyzed files still reference: any unreadable file (the
+	// definition's own included, else a same-named call elsewhere cannot be
+	// attributed to it) leaves the index incomplete, so nothing resolves and every
+	// finding stands — fail open. shortcut: only the analyzer's own file set is
+	// scanned (it skips e.g. `.mts` tests), so a test-only use reads as unreferenced.
 	function buildReferenceIndex(data, readFile) {
-		var paths = [];
 		var files = data && Array.isArray(data.files) ? data.files : [];
+		var cleaned = Object.create(null), complete = true, known = Object.create(null);
 		for (var i = 0; i < files.length; i++) {
-			if (files[i] && typeof files[i].path === "string") paths.push(files[i].path);
+			var path = files[i] && typeof files[i].path === "string" ? files[i].path : null;
+			var raw = path !== null && readFile ? readFile(path) : null;
+			if (typeof raw === "string") cleaned[path] = stripNoise(raw, path);
+			else complete = false;
 		}
-		var cleaned = Object.create(null);
-		var known = Object.create(null);
 		return {
-			isReferenced: function (name) {
+			isReferenced: function (name, file) {
+				if (!complete || !(file in cleaned)) return false;
 				if (name in known) return known[name];
 				var found = false;
-				for (var i = 0; i < paths.length && !found; i++) {
-					if (!(paths[i] in cleaned)) {
-						var content = readFile ? readFile(paths[i]) : null;
-						cleaned[paths[i]] = typeof content === "string" ? stripNoise(content, paths[i]) : "";
-					}
-					found = cleaned[paths[i]] !== "" && referencesSymbol(cleaned[paths[i]], name);
+				for (var key in cleaned) {
+					if (referencesSymbol(cleaned[key], name)) { found = true; break; }
 				}
-				known[name] = found;
-				return found;
+				return (known[name] = found);
 			},
 		};
 	}
@@ -373,7 +372,7 @@
 			return false;
 		}
 		if (typeof finding.file !== "string" || !finding.file) return false;
-		return index.isReferenced(finding.name);
+		return index.isReferenced(finding.name, finding.file);
 	}
 
 	/** Partition a dead-function list into surviving and refuted entries. */
