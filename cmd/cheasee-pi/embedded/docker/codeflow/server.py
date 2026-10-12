@@ -246,58 +246,6 @@ _BRIDGE_JS = br"""(function () {
     } catch (e) {}
     return url;
   };
-
-  // Best-effort auto-trigger. The real export control is an icon button whose
-  // label lives in aria-label/title ("Export analysis") - its text node is empty
-  // once analysis data exists - and the report formats are menu items labelled
-  // "JSON Report" / "Markdown" (CodeFlow index.html b0e82d1). One export per
-  // tick: the menu closes after each pick, so reopen it for the next format.
-  function labelOf(el) {
-    if (!el) return "";
-    var attr = "";
-    if (el.getAttribute) attr = (el.getAttribute("aria-label") || "") + " " + (el.getAttribute("title") || "");
-    return (attr + " " + (el.textContent || "")).trim();
-  }
-  function findExportButton() {
-    var nodes = document.querySelectorAll("button,[role=button]");
-    for (var i = 0; i < nodes.length; i++) {
-      if (/export/i.test(labelOf(nodes[i]))) return nodes[i];
-    }
-    return null;
-  }
-  function findMenuItem(re) {
-    var nodes = document.querySelectorAll(".export-option,[role=menuitem],[role=option],li");
-    for (var i = 0; i < nodes.length; i++) {
-      var t = (nodes[i].textContent || "").trim();
-      if (re.test(t)) return nodes[i];
-    }
-    return null;
-  }
-
-  var pending = ["JSON Report", "Markdown"];
-  var busy = false;
-  function trigger() {
-    if (busy || pending.length === 0 || !document.body) return;
-    var btn = findExportButton();
-    if (!btn || btn.disabled) return;
-    var label = pending[0];
-    busy = true;
-    try {
-      btn.click();
-    } catch (e) {
-      busy = false;
-      return;
-    }
-    setTimeout(function () {
-      var item = findMenuItem(new RegExp("^" + label.replace(/\s+/g, "\\s+") + "$", "i"));
-      if (item) {
-        pending.shift();
-        try { item.click(); } catch (e) {}
-      }
-      busy = false;
-    }, 60);
-  }
-  setInterval(trigger, 3000);
 })();
 """
 
