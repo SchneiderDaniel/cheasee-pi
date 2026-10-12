@@ -3,18 +3,14 @@
  * Business logic extracted to submodules (config, args, parse) and internal.ts.
  */
 
-import type { ExtensionAPI, Theme, ToolResultEvent } from "@earendil-works/pi-coding-agent";
-import { truncateLine } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import type { ExtensionAPI, ToolResultEvent } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { mkdtemp, rm, stat, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
 
-import type { ExtensionMode, RgResult, SearchConfig } from "./types.ts";
+import type { ExtensionMode, SearchConfig } from "./types.ts";
 import { RipgrepSearchOutputSchema } from "./types.ts";
-import type { RipgrepSearchOutput } from "./types.ts";
 import { loadSearchConfig, resolveBackend, ripgrepAvailable } from "./config.ts";
 import { buildRgArgs, buildGrepArgs, parseVimgrepOutput, parseGrepOutput } from "./backends.ts";
 import {
@@ -25,12 +21,16 @@ import {
 	setCachedResult,
 	clearCache,
 	setTestCtxMode,
-	getCtxMode,
 } from "./internal.ts";
 import { shouldInvalidateSearchCache } from "../lib/tool-mutation.ts";
+import {
+	buildStructuredSummary,
+	buildStructuredContent,
+	buildErrorStructuredContent,
+} from "./summary.ts";
+import { renderCallImpl, renderResultImpl } from "./render.ts";
 
 const MAX_TOTAL_RESULTS = 500;
-const DEFAULT_DISPLAY_RESULTS = 10;
 
 // ---------------------------------------------------------------------------
 // Mode awareness — ExtensionMode mirrors upstream type for mode gating
@@ -110,108 +110,6 @@ export async function verifyDirectory(cwd: string, directory: string): Promise<s
 		const errorCode = nodeErr.code ? ` (${nodeErr.code})` : "";
 		throw new Error(`Failed to access directory "${directory}": ${err}${errorCode}`);
 	}
-}
-
-/**
- * Build a structured human-readable summary of search results.
- * Replaces the old JSON output format with a concise summary
- * showing top-N results, truncated indicator, and file counts.
- */
-export function buildStructuredSummary(
-	searchResult: RgResult,
-	searcherName: string,
-	query: string,
-	directory: string,
-	maxDisplay: number = DEFAULT_DISPLAY_RESULTS,
-): { text: string; details: Record<string, unknown> } {
-	const totalReturned = searchResult.total_returned;
-
-	if (totalReturned === 0) {
-		return {
-			text: `No matches found for query "${query}" in "${directory}" (${searcherName}).`,
-			details: { success: true, total_returned: 0, searcher: searcherName },
-		};
-	}
-
-	// Count unique files
-	const uniqueFiles = new Set(searchResult.results.map((r) => r.file));
-
-	let text = `${searcherName} search results for query: ${query}\n`;
-	text += `Directory: ${directory}\n`;
-	text += `Matches returned: ${totalReturned}`;
-	text += ` across ${uniqueFiles.size} file${uniqueFiles.size !== 1 ? "s" : ""}\n\n`;
-
-	// Show top-N results (each line truncated to MAX_LINE_LENGTH for safety)
-	const displayResults = searchResult.results.slice(0, maxDisplay);
-	for (let i = 0; i < displayResults.length; i++) {
-		const r = displayResults[i]!;
-		const truncatedText = truncateLine(r.text).text;
-		text += `${i + 1}. ${r.file}:${r.line}:${r.column}:${truncatedText}\n`;
-	}
-
-	const resultsTruncated = totalReturned > maxDisplay;
-	let truncatedIndicator = "";
-	if (resultsTruncated) {
-		truncatedIndicator = `\n[Showing first ${maxDisplay} of ${totalReturned} results across ${uniqueFiles.size} file${uniqueFiles.size !== 1 ? "s" : ""}.]`;
-		text += truncatedIndicator;
-	}
-
-	const details: Record<string, unknown> = {
-		success: true,
-		searcher: searcherName,
-		total_returned: totalReturned,
-		unique_files: uniqueFiles.size,
-		truncated: resultsTruncated,
-	};
-
-	return { text, details };
-}
-
-/**
- * Build the `structuredContent` payload declared by `RipgrepSearchOutputSchema`.
- *
- * Rebuilt at the request boundary on every exit (including cache hits): the
- * cache stores only the domain `RgResult`, so `query`/`directory`/`searcher`
- * always come from the request scope rather than the cached entry.
- */
-export function buildStructuredContent(
-	searchResult: RgResult,
-	searcherName: string,
-	query: string,
-	directory: string,
-): RipgrepSearchOutput {
-	return {
-		query,
-		searcher: searcherName,
-		directory,
-		total_returned: searchResult.total_returned,
-		results: searchResult.results.map((r) => ({ ...r })),
-		truncated: searchResult.truncated ?? false,
-	};
-}
-
-/**
- * Error-path variant of {@link buildStructuredContent}: identical shape with
- * zeroed result fields, plus `error` (stderr) and `code` (exit code).
- * `code` is omitted when the exit code is unknown (null).
- */
-export function buildErrorStructuredContent(
-	searcherName: string,
-	query: string,
-	directory: string,
-	error: string,
-	code: number | null,
-): RipgrepSearchOutput {
-	return {
-		query,
-		searcher: searcherName,
-		directory,
-		total_returned: 0,
-		results: [],
-		truncated: false,
-		error,
-		...(code !== null ? { code } : {}),
-	};
 }
 
 /**
@@ -450,113 +348,10 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 	});
 }
 
-// ---------------------------------------------------------------------------
-// Renderers — exported for testing
-// ---------------------------------------------------------------------------
-
-/** Render the tool call. */
-export function renderCallImpl(
-	args: { query: string; directory?: string },
-	theme: Theme,
-	_context: unknown,
-): Text {
-	const mode = getCtxMode();
-	if (mode && mode !== "tui") {
-		return new Text(args.query, 0, 0);
-	}
-
-	let text = theme.fg("toolTitle", theme.bold("rg "));
-	text += theme.fg("accent", `"${args.query}"`);
-	if (args.directory && args.directory !== ".") text += theme.fg("muted", ` in ${args.directory}`);
-	return new Text(text, 0, 0);
-}
-
-/** Render the tool result. */
-export function renderResultImpl(
-	result: {
-		content: Array<{ type: string; text?: string }>;
-		details?: Record<string, unknown>;
-	},
-	options: { expanded?: boolean; isPartial?: boolean },
-	theme: Theme,
-	_context: unknown,
-): Text {
-	const { expanded, isPartial } = options;
-	const mode = getCtxMode();
-
-	// Non-TUI mode: pass through raw text content without theme
-	if (mode && mode !== "tui") {
-		const textContent = (result.content[0] as { text?: string })?.text ?? "";
-		return new Text(textContent, 0, 0);
-	}
-
-	const d = result.details as
-		| {
-				total_returned?: number;
-				searcher?: string;
-				truncated?: boolean;
-				fullOutputPath?: string;
-				success?: boolean;
-				searchDirectory?: string;
-		  }
-		| undefined;
-
-	if (isPartial) return new Text(theme.fg("warning", "Searching..."), 0, 0);
-	if (!d || d.success === false)
-		return new Text(
-			theme.fg("error", (result.content[0] as { text?: string })?.text ?? "Search failed"),
-			0,
-			0,
-		);
-	if (!d.total_returned) return new Text(theme.fg("dim", "No matches found"), 0, 0);
-
-	let text = theme.fg("success", `${d.total_returned} matches`);
-	text += theme.fg("muted", ` (${d.searcher ?? "?"})`);
-	if (d.truncated) text += theme.fg("warning", " [truncated]");
-
-	if (expanded) {
-		const c = result.content[0] as { text?: string } | undefined;
-		if (c?.text) {
-			const lines = c.text.split("\n").slice(0, 20);
-			for (const line of lines) {
-				// Apply OSC 8 file:// hyperlink when searchDirectory is available
-				const formattedLine = d.searchDirectory ? wrapOsc8Link(line, d.searchDirectory) : line;
-				text += "\n" + theme.fg("dim", formattedLine);
-			}
-			if (c.text.split("\n").length > 20)
-				text += "\n" + theme.fg("muted", "... (use read tool to see full output)");
-		}
-		if (d.fullOutputPath) text += "\n" + theme.fg("dim", `Full output: ${d.fullOutputPath}`);
-	}
-
-	return new Text(text, 0, 0);
-}
-
-// ---------------------------------------------------------------------------
-// OSC 8 hyperlink helper
-// ---------------------------------------------------------------------------
-
-/**
- * Wrap file path in a result line with an OSC 8 file:// hyperlink.
- *
- * Input format (from buildStructuredSummary):
- *   "1. file:line:column:text"
- * Output:
- *   "1. \x1b]8;;file:///path#L42\x1b\\file:42:16\x1b]8;;\x1b\\:text"
- */
-export function wrapOsc8Link(line: string, searchDirectory: string): string {
-	const resultLineRe = /^(\d+\.\s+)([^:]+):(\d+):(\d+):/;
-	const match = line.match(resultLineRe);
-	if (!match) return line;
-
-	const [, prefix, file, lineNum] = match;
-	const fileUrl = pathToFileURL(join(searchDirectory, file)).href + "#L" + lineNum;
-	const osc8 = `\x1b]8;;${fileUrl}\x1b\\`;
-	const osc8End = `\x1b]8;;\x1b\\`;
-
-	// Build: "N. ${OSC8}file:line:column${OSC8_END}:text"
-	const matchedPart = match[0]; // e.g. "1. src/app.ts:42:16:"
-	const prefixLen = prefix.length; // "1. "
-	const filePart = matchedPart.slice(prefixLen, -1); // "src/app.ts:42:16" (without trailing colon)
-	return `${prefix}${osc8}${filePart}${osc8End}:${line.slice(matchedPart.length)}`;
-}
+// Summary + render helpers extracted to siblings (issue #2005).
+export {
+	buildStructuredSummary,
+	buildStructuredContent,
+	buildErrorStructuredContent,
+} from "./summary.ts";
+export { renderCallImpl, renderResultImpl, wrapOsc8Link } from "./render.ts";

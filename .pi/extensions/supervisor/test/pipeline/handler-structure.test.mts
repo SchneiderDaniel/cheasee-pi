@@ -21,6 +21,7 @@ const PACKAGE_FILES = [
 	"index.ts",
 	"preflight.ts",
 	"agent-loop.ts",
+	"agent-loop-helpers.ts",
 	"agent-loop-steps.ts",
 	"post-pipeline.ts",
 	"pr-gates.ts",
@@ -177,6 +178,27 @@ describe("handler package — acyclic imports", () => {
 				);
 			}
 		}
+	});
+
+	it("agent-loop-helpers.ts stays acyclic — never imports the loop, its phases or the barrel", () => {
+		const { specifiers } = readGraph(resolve(HANDLER_PKG, "agent-loop-helpers.ts"));
+		for (const target of [
+			"./agent-loop.ts",
+			"./agent-loop-steps.ts",
+			"./preflight.ts",
+			"./post-pipeline.ts",
+			"./pr-gates.ts",
+			"./index.ts",
+		]) {
+			assert.ok(
+				!specifiers.includes(target),
+				`agent-loop-helpers.ts must not import ${target} (acyclic graph)`,
+			);
+		}
+		assert.ok(
+			specifiers.includes("./shared.ts"),
+			"agent-loop-helpers.ts consumes RunContext from ./shared.ts",
+		);
 	});
 
 	it("phase modules consume shared.ts (RunContext / fetchResolvedByInfo)", () => {

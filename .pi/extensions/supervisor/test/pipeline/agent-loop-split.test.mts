@@ -75,6 +75,7 @@ describe("agent-loop split — S138 ceilings on extracted helpers (issue #1533)"
 	const AGENT_LOOP_STEPS_SRC = src(join(HANDLER_PKG, "agent-loop-steps.ts"));
 	const FILE_SOURCES: Record<string, string> = {
 		"agent-loop.ts": AGENT_LOOP,
+		"agent-loop-helpers.ts": src(join(HANDLER_PKG, "agent-loop-helpers.ts")),
 		"agent-loop-steps.ts": AGENT_LOOP_STEPS_SRC,
 	};
 	const STAGES = readdirSync(STAGES_DIR)
@@ -85,10 +86,11 @@ describe("agent-loop split — S138 ceilings on extracted helpers (issue #1533)"
 
 	const CEILING = 100;
 	const sameFileHelpers: Array<[string, string]> = [
-		["agent-loop.ts", "dispatchAgentWithRetry"],
-		["agent-loop.ts", "handleBudgetExceeded"],
-		["agent-loop.ts", "runPreTransitionHooks"],
-		["agent-loop.ts", "refreshWorktreeBeforeImplementation"],
+		["agent-loop-helpers.ts", "dispatchAgentWithRetry"],
+		["agent-loop-helpers.ts", "handleBudgetExceeded"],
+		["agent-loop-helpers.ts", "runPreTransitionHooks"],
+		["agent-loop-helpers.ts", "refreshWorktreeBeforeImplementation"],
+		["agent-loop-helpers.ts", "reportTimedOutAgent"],
 		["agent-loop-steps.ts", "resolveStep"],
 		["agent-loop-steps.ts", "runBacklogStep"],
 		["agent-loop-steps.ts", "runDoneStep"],
@@ -192,8 +194,9 @@ describe("agent-loop split — acyclic stages→handler, signals not break/conti
 
 describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 	const AGENT_LOOP = src(join(HANDLER_PKG, "agent-loop.ts"));
+	const AGENT_LOOP_HELPERS = src(join(HANDLER_PKG, "agent-loop-helpers.ts"));
 	const AGENT_LOOP_STEPS = src(join(HANDLER_PKG, "agent-loop-steps.ts"));
-	const ALL = `${AGENT_LOOP}\n${AGENT_LOOP_STEPS}`;
+	const ALL = `${AGENT_LOOP}\n${AGENT_LOOP_HELPERS}\n${AGENT_LOOP_STEPS}`;
 
 	it("each extracted helper is called exactly once across agent-loop.ts + agent-loop-steps.ts", () => {
 		for (const call of [
@@ -250,21 +253,29 @@ describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 
 	it("pinned strings still resolve in agent-loop.ts", () => {
 		const pins = [
+			"refreshWorktreeBeforeImplementation(runCtx, worktreePath)",
+			"// Pre-transition hooks",
+		];
+		for (const pin of pins) {
+			assert.ok(AGENT_LOOP.includes(pin), `pinned string missing: ${pin}`);
+		}
+	});
+
+	it("pinned helper strings resolve in agent-loop-helpers.ts (issue #2005 move)", () => {
+		const pins = [
 			"validateAgentResult(result)",
 			"if (result.budgetExceeded)",
 			"const { result: initialResult } = await executeAgent(",
 			"const auditResult = await runTscAndLspAudit(",
 			"applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note",
 			"step.hooks?.some((h) => GATE_HOOKS.includes(h))",
-			"// Pre-transition hooks",
 			"// Graceful degradation",
-			"refreshWorktreeBeforeImplementation(runCtx, worktreePath)",
 		];
 		for (const pin of pins) {
-			assert.ok(AGENT_LOOP.includes(pin), `pinned string missing: ${pin}`);
+			assert.ok(AGENT_LOOP_HELPERS.includes(pin), `pinned string missing: ${pin}`);
 		}
 		assert.equal(
-			(AGENT_LOOP.match(/if \(result\.budgetExceeded\)/g) || []).length,
+			(AGENT_LOOP_HELPERS.match(/if \(result\.budgetExceeded\)/g) || []).length,
 			2,
 			"budgetExceeded guard appears twice (retry gate + pipeline control)",
 		);
