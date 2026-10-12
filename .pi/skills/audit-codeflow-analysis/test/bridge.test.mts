@@ -432,6 +432,12 @@ describe("codeflow bridge capture", () => {
 		);
 		assert.strictEqual(sandbox.__out.stats.dead, 0, "the served stats must agree with the list");
 		assert.deepStrictEqual(sandbox.__out.issues, [], "the architecture entry must not outlive its items");
+		// Upstream frees each file's source on purpose; the wrapper must release the
+		// text it retained for the filter once the filter has read it.
+		assert.ok(
+			sandbox.__out.files.every((f: { piFpSource: unknown }) => f.piFpSource === null),
+			"the served report must not retain the analyzed source",
+		);
 		// Byte-parity with the headless stderr line (see codeflow-run-analysis.test.mts).
 		assert.deepStrictEqual(logs, [
 			"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 1 unused function(s)",

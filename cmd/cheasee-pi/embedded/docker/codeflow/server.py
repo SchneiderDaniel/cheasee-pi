@@ -698,6 +698,10 @@ def _ts_rewrite(anchor, tail=b""):
 # (renamed) function, and logs the same suppression line the headless runner
 # writes to stderr (byte-identical wording, so the two paths cannot drift).
 #
+# The wrapper also releases the retained source (`files[].piFpSource`) once the
+# filter has read it: upstream frees that text on purpose, and a large scan must
+# not pin it in the tab after the report is built.
+#
 # It overwrites the *properties* of `data` (the finding arrays, the dead-function
 # list and the stats counts) instead of rebinding `data`:
 # a page that declares `data` as a constant cannot be reassigned, and the former
@@ -714,6 +718,7 @@ _FP_WRAPPER_BODY = (
     b" var __piFp;"
     b" try {"
     b" __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data));"
+    b' if ("files" in data && Array.isArray(data.files)) data.files.forEach(function (f) { if (f) f.piFpSource = null; });'
     b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
     b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
     b' if ("deadFunctions" in __piFp.data) data.deadFunctions = __piFp.data.deadFunctions;'

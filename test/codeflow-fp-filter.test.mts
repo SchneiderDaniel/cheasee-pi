@@ -643,6 +643,43 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 		);
 	});
 
+	it("attributes a cross-file mention to the listed definition only when it can be", () => {
+		// Two modules define `helper`; a.ts calls its own, so the bare call there
+		// cannot excuse b.ts's unreferenced copy.
+		const shared = {
+			"src/a.ts": "export function helper() { return 1; }\nexport function run() { helper(); }\n",
+			"src/b.ts": "export function helper() { return 2; }\n",
+		};
+		assert.strictEqual(keepsDead("helper", "src/a.ts", shared), false, "a same-file use refutes it");
+		assert.strictEqual(
+			keepsDead("helper", "src/b.ts", shared),
+			true,
+			"the bare call in a.ts resolves to a.ts's own `helper`, so it cannot refute b.ts's",
+		);
+		// A receiver call dispatches through the receiver's type, so a file that
+		// defines the same name does not make it ambiguous. This is the shape the
+		// real report carries: `socket.on_close(...)` in retry.rs, whose own policy
+		// type also has an `on_close`, against `on_close` implemented in ws.rs.
+		assert.strictEqual(
+			keepsDead("on_close", "ui/src/ws.rs", {
+				"ui/src/ws.rs": "impl Socket for Ws {\n    fn on_close(&self) {}\n}\n",
+				"ui/src/retry.rs":
+					"impl Policy {\n    pub fn on_close(&mut self) -> u64 { 1 }\n}\n" +
+					"fn wire(socket: &Ws) {\n    socket.on_close();\n}\n",
+			}),
+			false,
+			"a dot-call is not resolved by the caller's own same-named definition",
+		);
+		// A name no file defines keeps resolving cross-file, whatever the shape.
+		assert.strictEqual(
+			keepsDead("solo", "src/d.ts", {
+				"src/d.ts": "pub fn solo() -> u64 { 1 }\n",
+				"src/e.rs": "fn wire() {\n    let handler = solo;\n}\n",
+			}),
+			false,
+		);
+	});
+
 	it("drops an entry its own file references outside the definition", () => {
 		assert.strictEqual(
 			keepsDead("reconnect_delay", "ui/src/retry.rs", {

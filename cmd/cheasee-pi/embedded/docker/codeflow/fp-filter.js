@@ -373,10 +373,10 @@
 		return false;
 	}
 
-	// A use is a call (`name(`, `.name(`) or a value mention (`?? name`, `= name`,
-	// `, name`) outside every definition of that name in the file. A recursive
-	// body is not a use.
-	function referencesSymbol(content, name) {
+	// How a file mentions a name outside its own definitions: a receiver call
+	// (`.name(`), a plain call (`name(`) or a value mention (`?? name`, `= name`,
+	// `, name`). Null when it does not mention it. A recursive body is not a use.
+	function referenceShape(content, name) {
 		var spans = [];
 		var head = definitionHead(name, "g");
 		var m;
@@ -384,12 +384,18 @@
 			spans.push([m.index, bodyEnd(content, m.index + m[0].length)]);
 		}
 		var scan = new RegExp("\\b" + escapeRe(name) + "\\b", "g");
+		var shape = null;
 		while ((m = scan.exec(content)) !== null) {
 			if (inSpans(spans, m.index)) continue;
-			if (/^\s*\(/.test(content.slice(m.index + name.length, m.index + name.length + 32))) return true;
-			if (/(?:\?\?|=|,)\s*$/.test(content.slice(Math.max(0, m.index - 64), m.index))) return true;
+			var before = content.slice(Math.max(0, m.index - 64), m.index);
+			if (/^\s*\(/.test(content.slice(m.index + name.length, m.index + name.length + 32))) {
+				if (/\.[\w$]*\s*$/.test(before)) return "dispatch";
+				shape = "call";
+			} else if (shape === null && /(?:\?\?|=|,)\s*$/.test(before)) {
+				shape = "value";
+			}
 		}
-		return false;
+		return shape;
 	}
 
 	// Every symbol the analyzed files still reference: any unreadable file (the
@@ -397,24 +403,51 @@
 	// attributed to it) leaves the index incomplete, so nothing resolves and every
 	// finding stands — fail open. shortcut: only the analyzer's own file set is
 	// scanned (it skips e.g. `.mts` tests), so a test-only use reads as unreferenced.
+	//
+	// A mention in another file only refutes the listed definition when it can be
+	// attributed to it: a receiver call dispatches through the receiver's type,
+	// and a file that does not define the name at all has nothing local to resolve
+	// a mention to. Any other mention may target a same-named `helper` in its own
+	// module, so it keeps the finding instead of hiding dead code.
+	// shortcut: a dot-call in a file that defines the same name is still
+	// attributed to the listed definition (the receiver's type is not known from
+	// text); upgrade this when the analyzer records call targets.
 	function buildReferenceIndex(data, readFile) {
 		var files = data && Array.isArray(data.files) ? data.files : [];
-		var cleaned = Object.create(null), complete = true, known = Object.create(null);
+		var cleaned = Object.create(null), complete = true;
 		for (var i = 0; i < files.length; i++) {
 			var path = files[i] && typeof files[i].path === "string" ? files[i].path : null;
 			var raw = path !== null && readFile ? readFile(path) : null;
 			if (typeof raw === "string") cleaned[path] = stripNoise(raw, path);
 			else complete = false;
 		}
+		var known = Object.create(null), defines = Object.create(null);
+		// shortcut: definition sites are matched textually, so a declaration form
+		// `definitionHead` misses reads as an extra owner and keeps the finding.
+		function definesLocally(name, file) {
+			if (!(name in defines)) {
+				var paths = Object.create(null);
+				for (var key in cleaned) paths[key] = definitionHead(name).test(cleaned[key]);
+				defines[name] = paths;
+			}
+			return defines[name][file] === true;
+		}
+		function referencedElsewhere(name, file) {
+			for (var key in cleaned) {
+				if (key === file) continue;
+				var shape = referenceShape(cleaned[key], name);
+				if (shape === "dispatch") return true;
+				if (shape !== null && !definesLocally(name, key)) return true;
+			}
+			return false;
+		}
 		return {
 			isReferenced: function (name, file) {
 				if (!complete || !(file in cleaned)) return false;
-				if (name in known) return known[name];
-				var found = false;
-				for (var key in cleaned) {
-					if (referencesSymbol(cleaned[key], name)) { found = true; break; }
-				}
-				return (known[name] = found);
+				var key = file + "\u0000" + name;
+				if (key in known) return known[key];
+				var found = referenceShape(cleaned[file], name) !== null || referencedElsewhere(name, file);
+				return (known[key] = found);
 			},
 		};
 	}
