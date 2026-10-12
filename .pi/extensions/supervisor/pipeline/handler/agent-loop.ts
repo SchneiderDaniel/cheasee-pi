@@ -462,13 +462,3 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 	runCtx.stopReason = stopReason;
 	runCtx.prCreationResult = prCreationResult;
 }
-
-// Per-iteration policy helpers extracted to a sibling (issue #2005).
-// Explicit named re-exports keep the handler-package surface stable.
-export {
-	dispatchAgentWithRetry,
-	handleBudgetExceeded,
-	refreshWorktreeBeforeImplementation,
-	reportTimedOutAgent,
-	runPreTransitionHooks,
-};

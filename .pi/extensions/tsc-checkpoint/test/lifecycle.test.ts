@@ -1,65 +1,31 @@
 // ─── tsc-checkpoint: lifecycle + trust + mode guards ─────────────
 // Split from index.test.ts (issue #2005 Long File refactor).
-// Same fixture preamble; scenario seam at session_shutdown.
-/**
- * Tests for index.ts — Extension entry point, backward-compatible re-exports,
- * lifecycle cleanup, trust gate, mode-adapted output.
- *
- * Rewritten for the consolidated watcher: no MockAdapter, no TscWatchAdapter.
- * Uses real temp fixtures + _injectDiagnostics for tests that need diagnostic data.
- *
- * Run with:
- *   node --experimental-strip-types --test .pi/extensions/tsc-checkpoint/test/index.test.ts
- */
+// Scenario seam: Phase 11 (session_shutdown) onward.
 
 import assert from "node:assert";
 import fs from "node:fs";
 import { describe, it } from "node:test";
 import { resolve, join } from "node:path";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+
+
 
 import {
 	DiagnosticsWatcher,
-	resolveDiagnosticFilePath,
 	formatDiagnostics,
 	formatDiagnosticsJson,
-	directionLabel,
-	runTscCheckpoint,
 } from "../index.ts";
 
 import type { TscDiagnostic, DiagnosticTrend } from "../index.ts";
 
-// ═══════════════════════════════════════════════════════════════════════
-// Fixture helpers
-// ═══════════════════════════════════════════════════════════════════════
-
-function createFixture(): { dir: string; cleanup: () => void } {
-	const dir = mkdtempSync(join(tmpdir(), "tsc-index-test-"));
-	const cleanup = () => {
-		try {
-			rmSync(dir, { recursive: true, force: true });
-		} catch {
-			// ignore cleanup errors
-		}
-	};
-	return { dir, cleanup };
-}
-
-function createMinimalFixture(): { dir: string; tsconfigPath: string; cleanup: () => void } {
-	const { dir, cleanup } = createFixture();
-	writeFileSync(
-		join(dir, "tsconfig.json"),
-		JSON.stringify({ compilerOptions: { noEmit: true, strict: true } }),
-		"utf-8",
-	);
-	return { dir, tsconfigPath: join(dir, "tsconfig.json"), cleanup };
-}
+import {
+	createMinimalFixture,
+	createCheckHandler,
+	createMockPi,
+} from "./fixtures.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
-// Phase 9: Pipeline contract — runTscCheckpoint signature & shape
+// Phase 11: Lifecycle cleanup via session_shutdown event
 // ═══════════════════════════════════════════════════════════════════════
-
 
 describe("session_shutdown lifecycle", () => {
 	it("tscCheckpoint registers on('session_shutdown', handler) during initialization", async () => {

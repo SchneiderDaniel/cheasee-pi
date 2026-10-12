@@ -14,16 +14,21 @@ import type { StageState } from "../../pipeline/stages/core.ts";
 import { createStageState, applyGateFailureContext } from "../../pipeline/stages/index.ts";
 import { buildDuplicateCodeContext } from "../../pipeline/stages/index.ts";
 import { buildDeadCodeContext } from "../../checks/dead-code.ts";
-import { readGraph } from "../../../lib/test/source-graph.ts";
+import { mergedGraphs, readGraph } from "../../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const AGENT_LOOP_TS = resolve(__dirname, "../../pipeline/handler/agent-loop.ts");
+const AGENT_LOOP_HELPERS_TS = resolve(__dirname, "../../pipeline/handler/agent-loop-helpers.ts");
 const AGENT_LOOP_STEPS_TS = resolve(__dirname, "../../pipeline/handler/agent-loop-steps.ts");
 
+// The loop's helper tail was extracted verbatim into a sibling (issue #2005), so
+// the source/graph pins below read the loop module as both files.
 function agentLoopSource(): string {
-	return readFileSync(AGENT_LOOP_TS, "utf-8");
+	return (
+		readFileSync(AGENT_LOOP_TS, "utf-8") + "\n" + readFileSync(AGENT_LOOP_HELPERS_TS, "utf-8")
+	);
 }
 
 function agentLoopStepsSource(): string {
@@ -104,7 +109,7 @@ describe("StageState — rebaseConflictFiles field (Phase 3, Issue #1473)", () =
 
 describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #1473)", () => {
 	it("tryRebaseOntoBase imported from ../rebase.ts", () => {
-		const graph = readGraph(AGENT_LOOP_TS);
+		const graph = mergedGraphs([AGENT_LOOP_TS, AGENT_LOOP_HELPERS_TS]);
 		assert.ok(
 			graph.importedNames.includes("tryRebaseOntoBase"),
 			"tryRebaseOntoBase imported by agent-loop.ts",

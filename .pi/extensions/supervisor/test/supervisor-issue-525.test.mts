@@ -208,7 +208,11 @@ describe("Bug 1 — SupervisorMessageDetails interface update", () => {
 // ═══════════════════════════════════════════════════════════════════════
 
 describe("Bug 1 — Pipeline handler passes result data through agentResults", () => {
-	const source = readFileSync(".pi/extensions/supervisor/pipeline/handler/agent-loop.ts", "utf-8");
+	// The dispatch helpers were extracted verbatim into a sibling (issue #2005).
+	const source =
+		readFileSync(".pi/extensions/supervisor/pipeline/handler/agent-loop.ts", "utf-8") +
+		"\n" +
+		readFileSync(".pi/extensions/supervisor/pipeline/handler/agent-loop-helpers.ts", "utf-8");
 
 	it("5.1: handler passes result data via buildAgentResultEntry and executeAgent", () => {
 		// Handler no longer calls sendAgentResultMessage directly — executeAgent

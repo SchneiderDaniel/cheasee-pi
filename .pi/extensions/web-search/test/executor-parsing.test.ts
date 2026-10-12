@@ -10,18 +10,15 @@
 
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import fs from "node:fs";
-import path from "node:path";
+
+
 import { execFileSync } from "node:child_process";
 import type { ExecResult, ExecFn } from "../types.ts";
-import { SEARCH_SCRIPT } from "../python-script.ts";
+
 import { FRAME } from "../protocol.ts";
 import {
-	shSingleQuote,
-	runSearchScript,
 	parseSearchOutput,
 	parseSearchResults,
-	cleanupStaleTempDirs,
 } from "../executor.ts";
 import { formatResults } from "../index.ts";
 

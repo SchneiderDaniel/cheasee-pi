@@ -16,15 +16,15 @@
 
 import { afterEach, beforeEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+
+
+
 import { join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
+
 
 import factory from "../index.ts";
 import type { ExecOptions, ExecResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { isRegistered } from "../../../../test/lib/test-discovery.mts";
+
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 const DOC_PATH = join(ROOT, "docs", "extensions", "rtk.md");
