@@ -10,6 +10,7 @@ import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
+import { withPerChildEnv } from "../../../lib/exec-env.ts";
 import { commitAndPush, pushBranch } from "../../github/git.ts";
 
 /**
@@ -141,7 +142,7 @@ export async function handleDeveloperCommit(
 		error: (msg) => ctx.ui.notify(msg, "error"),
 	};
 	const commitResult = await commitAndPush(
-		pi.exec.bind(pi),
+		withPerChildEnv(pi.exec.bind(pi)),
 		worktreePath,
 		config.remote!,
 		worktreeBranch,
@@ -265,8 +266,8 @@ export async function preserveTimedOutWork(
 	// Bound every preservation git call (see PRESERVATION_GIT_TIMEOUT_MS). Explicit
 	// per-call timeouts win; untimed calls (notably the inner `git push`) inherit
 	// the bound so a stalled remote cannot hang the timeout path indefinitely.
-	const exec: ExecFn = (cmd, args, opts) =>
-		pi.exec(cmd, args, { timeout: PRESERVATION_GIT_TIMEOUT_MS, ...opts });
+	const exec: ExecFn = withPerChildEnv((cmd, args, opts) =>
+		pi.exec(cmd, args, { timeout: PRESERVATION_GIT_TIMEOUT_MS, ...opts }));
 	try {
 		const status = await exec("git", ["status", "--porcelain"], {
 			cwd: worktreePath,

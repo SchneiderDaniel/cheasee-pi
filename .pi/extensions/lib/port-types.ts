@@ -25,12 +25,14 @@ export type ExecResult = {
  * Subprocess exec function (no killed/signal fields — those are divergence-only).
  *
  * opts.cwd is the only addition over the narrowest (web-search/ensureVenv) shape
- * and is what supervisor/checks callers already pass.
+ * and is what supervisor/checks callers already pass. opts.env scopes variables
+ * to the one child (`withPerChildEnv` in lib/exec-env.ts) so a secret never has
+ * to be written to `process.env` — pi.exec's own ExecOptions has no env field.
  */
 export type ExecFn = (
 	cmd: string,
 	args: string[],
-	opts?: { timeout?: number; signal?: AbortSignal; cwd?: string },
+	opts?: { timeout?: number; signal?: AbortSignal; cwd?: string; env?: Record<string, string> },
 ) => Promise<ExecResult>;
 
 /** Structured progress callback. */

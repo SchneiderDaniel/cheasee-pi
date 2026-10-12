@@ -25,9 +25,10 @@ export interface TokenResolutionOptions {
  * Env wins (trimmed, whitespace-only treated as unset), else the
  * `oauth_token:` line in the gh credential store, else null. Intentionally
  * uncached: a memoised null would poison later calls once `gh auth login`
- * or an exported GH_TOKEN lands mid-session. GH_TOKEN is injected into
- * `gh`/`ghRaw` to work around WSL auth context mismatch where pi.exec
- * can return 401 even though the gh binary itself is authenticated.
+ * or an exported GH_TOKEN lands mid-session. GH_TOKEN is passed to
+ * `gh`/`ghRaw` as a per-child env option to work around WSL auth context
+ * mismatch where pi.exec can return 401 even though the gh binary itself is
+ * authenticated.
  */
 export function resolveGitHubToken(opts?: TokenResolutionOptions): string | null {
 	const env = opts?.env ?? process.env;
@@ -77,21 +78,12 @@ export function detectTokenClass(home: string = homedir()): TokenClass {
 }
 
 /**
- * Serializes token-scoped calls. `process.env.GH_TOKEN` is process-global, so
- * two overlapping save/set/restore cycles would each capture the other's
- * temporary value and the last restore can leave the token set after every
- * call has returned. The chain guarantees only one such cycle is in flight.
- */
-let ghEnvLock: Promise<unknown> = Promise.resolve();
-
-/**
  * Run `gh` with the resolved token injected through the child's environment.
  *
- * pi.exec exposes no `env` seam, so the token is scoped onto `process.env`
- * (which `spawn` inherits) around the call and restored in `finally`. This
- * keeps the secret out of the command string, argv and shell entirely.
- * shortcut: the env var is process-global — serialized here, but a caller
- * needing a *different* token concurrently would still need per-call env.
+ * The token goes in the per-call `env` option of {@link ExecFn}, so it reaches
+ * only the `gh` child: `process.env` is never mutated and no concurrently
+ * spawned process can inherit it. This keeps the secret out of the command
+ * string, argv and shell entirely.
  */
 async function runGhWithToken(
 	exec: ExecFn,
@@ -101,22 +93,7 @@ async function runGhWithToken(
 ): Promise<ExecResult> {
 	const execOpts = { signal: opts?.signal, timeout: opts?.timeout ?? 30_000 };
 	if (token === null) return exec("gh", args, execOpts);
-
-	const run = ghEnvLock.then(async () => {
-		const previous = process.env.GH_TOKEN;
-		process.env.GH_TOKEN = token;
-		// try/finally (not `.finally()`): a synchronously-throwing ExecFn never
-		// returns a promise, so the restore must not depend on one existing.
-		try {
-			return await exec("gh", args, execOpts);
-		} finally {
-			if (previous === undefined) delete process.env.GH_TOKEN;
-			else process.env.GH_TOKEN = previous;
-		}
-	});
-	// Keep the lock chain alive on failure; the caller still gets `run`'s rejection.
-	ghEnvLock = run.catch(() => {});
-	return run;
+	return exec("gh", args, { ...execOpts, env: { GH_TOKEN: token } });
 }
 
 export async function gh(
@@ -131,8 +108,8 @@ export async function gh(
 		timeout: opts?.timeout,
 	});
 
-	// GH_TOKEN is injected via process.env (see runGhWithToken) to work around
-	// exec auth context issues on WSL.
+	// GH_TOKEN is injected as a per-child env var (see runGhWithToken) to work
+	// around exec auth context issues on WSL.
 	const result = await runGhWithToken(exec, args, opts, resolveGitHubToken());
 	if (result.code !== 0) {
 		log.warn("gh-client", `gh ${cmdLabel} failed (code ${result.code})`, {
