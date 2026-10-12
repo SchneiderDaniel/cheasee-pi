@@ -53,11 +53,12 @@ const CITED_DEAD = ["defaultIsWritable", "opened", "is_open", "reconnect_delay",
 const EXPECTED_HEALTH_SCORE = 93;
 
 const requireCjs = createRequire(import.meta.url);
-const { sanitizeAnalysisData } = requireCjs(FILTER) as {
+const { sanitizeAnalysisData, isFalsePositiveHygiene } = requireCjs(FILTER) as {
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
-	) => { data: any; suppressed: { security: any[]; layerViolations: any[]; deadCode: any[] } };
+	) => { data: any; suppressed: { security: any[]; layerViolations: any[]; hygiene: any[]; deadCode: any[] } };
+	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
 };
 const { calcHealth } = (await import("./fixtures/codeflow-calc-health.mjs")) as {
 	calcHealth: (data: any) => { score: number; grade: string };
@@ -81,6 +82,26 @@ const highsOf = (data: { securityIssues: Array<{ severity: string }> }) =>
 	data.securityIssues.filter((s) => String(s.severity).toLowerCase() === "high");
 const deadNames = (data: { deadFunctions?: Array<{ name: string }> }): string[] =>
 	(Array.isArray(data.deadFunctions) ? data.deadFunctions : []).map((f) => f.name);
+
+// The LOW hygiene heuristics (`Code Comments` / `Debug Statements`).
+const HYGIENE_TITLES = new Set(["Code Comments", "Debug Statements"]);
+const isLowHygiene = (s: { severity?: string; title?: string }) =>
+	String(s.severity).toLowerCase() === "low" && HYGIENE_TITLES.has(String(s.title));
+const lowsOf = (data: { securityIssues: Array<{ severity?: string; title?: string }> }) =>
+	data.securityIssues.filter(isLowHygiene);
+
+// The shipping sources the issue cites, plus the two shipping doc/config files
+// whose placeholder and planned-work markers were reworded by hand.
+const HYGIENE_REWORDS = [
+	".pi/extensions/ask-user/jsonl-logger.ts",
+	".pi/extensions/structural-analyzer/validate.ts",
+	".pi/extensions/structural-analyzer/index.ts",
+	".pi/extensions/ripgrep-search/index.ts",
+	".pi/extensions/scrapling/README.md",
+	"docs/_config.yml",
+];
+const MARKERS = /\b(TODO|FIXME|HACK|XXX{2,})\b/;
+const repoFile = (rel: string) => readFileSync(join(REPO_ROOT, rel), "utf8");
 const crossLanguageOf = (data: { layerViolations: Array<{ from: string; to: string }> }) =>
 	data.layerViolations.filter((v) => ext(v.from) !== ext(v.to));
 const inventedLayerOf = (
@@ -158,6 +179,46 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		assert.ok(after.score >= 90, `expected an A (>= 90), got ${after.score} (${after.grade})`);
 		assert.strictEqual(after.grade, "A");
 	});
+
+	it("suppresses every LOW hygiene finding the recording carries", () => {
+		const recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
+		const lows = lowsOf(recorded);
+		assert.ok(lows.length > 0, "the recording must carry the LOW hygiene findings the issue reports");
+		// Regenerated after the source rewords, the recording cites only test and
+		// doc artifacts, so the hygiene rule accounts for all of them.
+		const { data, suppressed } = sanitizeAnalysisData(recorded, makeRepoReadFile());
+		assert.strictEqual(
+			suppressed.hygiene.length,
+			lows.length,
+			"every LOW hygiene finding on an artifact path must be suppressed",
+		);
+		assert.deepStrictEqual(lowsOf(data), [], "no LOW hygiene finding may survive into the report");
+		// And none of them may cite a reworded shipping source any more.
+		const reworded = new Set(HYGIENE_REWORDS);
+		for (const finding of lowsOf(recorded)) {
+			assert.ok(!reworded.has(finding.path), `rewritten source still flagged: ${finding.path}`);
+		}
+	});
+
+	it("the cited shipping sources carry no raw marker token (the rewords landed)", () => {
+		for (const rel of HYGIENE_REWORDS) {
+			assert.doesNotMatch(repoFile(rel), MARKERS, `${rel} must not carry a deferred-work token`);
+		}
+	});
+
+	it("keeps the fixtures and teaching content the tokens belong to", () => {
+		// Blind token stripping would break these: they are fixture data, worked
+		// examples and the `mktemp` template, not deferred work.
+		assert.match(repoFile(".pi/extensions/structural-analyzer/test/index.test.mts"), /console\.log\(/);
+		assert.match(repoFile(".pi/extensions/ripgrep-search/test/ripgrep-search.test.mts"), MARKERS);
+		assert.match(repoFile(".pi/extensions/supervisor/test/pipeline-worktree-integration.test.mts"), /XXXXXX/);
+		for (const skill of [
+			".pi/skills/audit-clean-code/SKILL.md",
+			".pi/skills/audit-code-simplification/SKILL.md",
+		]) {
+			assert.match(repoFile(skill), MARKERS, `${skill} must keep its teaching content`);
+		}
+	});
 });
 
 describe("fp-filter — live acceptance against the pinned analyzer", () => {
@@ -230,7 +291,7 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 
 		// The producer reports suppression instead of dropping silently, and the
 		// counts must reproduce the affected report's false positives exactly.
-		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) unused function\(s\)/.exec(
+		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) hygiene finding\(s\), (\d+) unused function\(s\)/.exec(
 			run.stderr,
 		);
 		assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
@@ -244,8 +305,12 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 			EXPECTED_LAYER_VIOLATIONS_SUPPRESSED,
 			"the whole layer-violation category must be suppressed on the issue snapshot",
 		);
+		assert.ok(
+			Number(suppressed![3]) > 0,
+			"the issue snapshot's LOW hygiene findings on artifact paths must be reported",
+		);
 		assert.strictEqual(
-			Number(suppressed![3]),
+			Number(suppressed![4]),
 			EXPECTED_DEAD_SUPPRESSED,
 			"every cited dead function the snapshot references must be suppressed",
 		);
@@ -261,6 +326,16 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
 		assert.deepStrictEqual(crossLanguageOf(report), [], "cross-language layer edges must not be emitted");
 		assert.deepStrictEqual(inventedLayerOf(report), [], "unsupported layer labels must not survive");
+		// The snapshot predates the source rewords, so a LOW marker in shipping
+		// source legitimately stays; nothing the hygiene rule classifies as a test
+		// or doc artifact may survive it.
+		for (const finding of report.securityIssues) {
+			assert.strictEqual(
+				isFalsePositiveHygiene(finding),
+				false,
+				`a LOW hygiene artifact survived the filter: ${finding.path}`,
+			);
+		}
 
 		// The report must not contradict its own score: the summary counts move
 		// with the filtered arrays, or an A still advertises nine HIGH findings.

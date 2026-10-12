@@ -268,6 +268,14 @@ describe("run-analysis.mjs headless producer", () => {
 						line: 3,
 						code: 'const KEY = "sk-live-abc";',
 					},
+					{
+						severity: "low",
+						title: "Code Comments",
+						description: "Unresolved marker.",
+						path: "src/widget.test.ts",
+						line: 4,
+						code: "",
+					},
 				],
 				layerViolations: [
 					{ from: "keep.ts", to: "main.rs", fromLayer: "ui", toLayer: "ui" },
@@ -294,7 +302,7 @@ describe("run-analysis.mjs headless producer", () => {
 		assert.deepStrictEqual(json.layerViolations, [], "the layer category is noise here");
 		assert.match(
 			stderr,
-			/fp-filter: suppressed 2 security issue\(s\), 2 layer violation\(s\), 0 unused function\(s\)/,
+			/fp-filter: suppressed 2 security issue\(s\), 2 layer violation\(s\), 1 hygiene finding\(s\), 0 unused function\(s\)\n/,
 			"suppression must be observable, never silent",
 		);
 	});
@@ -322,8 +330,8 @@ describe("run-analysis.mjs headless producer", () => {
 		assert.strictEqual(code, 0, `stderr: ${stderr}`);
 		assert.match(
 			stderr,
-			/fp-filter: suppressed 1 security issue\(s\), 0 layer violation\(s\), 1 unused function\(s\)/,
-			"the dead count rides alongside the other two, which keep their own",
+			/fp-filter: suppressed 1 security issue\(s\), 0 layer violation\(s\), 0 hygiene finding\(s\), 1 unused function\(s\)\n/,
+			"the dead count rides alongside the others, which keep their own",
 		);
 		const json = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
 		assert.deepStrictEqual(
@@ -332,6 +340,55 @@ describe("run-analysis.mjs headless producer", () => {
 			"only the symbol no snapshot file references may be reported as unused",
 		);
 		assert.strictEqual(json.stats.dead, json.unusedFunctions.length, "the summary count must agree");
+	});
+
+	it("drops LOW hygiene findings only on non-shipping artifacts and reports them", () => {
+		const fx = makeFixture({
+			analysisJs: analysisJs({
+				marker: "HYGIENE",
+				stats: { files: 2, functions: 1, loc: 2 },
+				securityIssues: [
+					{
+						severity: "low",
+						title: "Code Comments",
+						description: "Unresolved marker.",
+						path: "src/widget.test.ts",
+						line: 1,
+						code: "",
+					},
+					{
+						severity: "low",
+						title: "Debug Statements",
+						description: "Console call.",
+						path: ".pi/extensions/x/test/index.test.mts",
+						line: 2,
+						code: "",
+					},
+					{
+						severity: "low",
+						title: "Code Comments",
+						description: "Unresolved marker.",
+						path: "src/config.ts",
+						line: 3,
+						code: "",
+					},
+				],
+				layerViolations: [],
+			}),
+		});
+		const { code, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		const json = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
+		assert.deepStrictEqual(
+			json.securityIssues.map((s: { path: string }) => s.path),
+			["src/config.ts"],
+			"LOW hygiene on shipping source is real work, not an artifact",
+		);
+		assert.strictEqual(
+			stderr,
+			"fp-filter: suppressed 0 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 0 unused function(s)\n",
+		);
 	});
 
 	it("reads the cited file from the snapshot: phantom symbol dropped, present symbol kept", () => {

@@ -156,6 +156,20 @@ func TestCodeFlowServer_Bridge(t *testing.T) {
 		}
 	})
 
+	// The periodic Export-button/menu click was removed (it downloaded a report
+	// as soon as the UI opened); the headless /api/analysis/run route fills both
+	// report slots. Pin that the bridge does not reintroduce the poll.
+	t.Run("bridge never auto-triggers the served export control", func(t *testing.T) {
+		_, _, body := s.do(t, http.MethodGet, "/codeflow-bridge.js", nil, "")
+		js := string(body)
+		if strings.Contains(js, "setInterval") {
+			t.Errorf("bridge js polls (setInterval) — reintroduces the auto-download")
+		}
+		if strings.Contains(js, "aria-label") || strings.Contains(js, "export-option") {
+			t.Errorf("bridge js reaches into the export button/menu markup")
+		}
+	})
+
 	t.Run("rewrites never touch non-index assets", func(t *testing.T) {
 		status, _, body := s.do(t, http.MethodGet, "/main.js", nil, "")
 		if status != http.StatusOK {

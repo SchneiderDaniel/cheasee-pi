@@ -2,7 +2,7 @@
 //
 // Applied to the structured `data` the analyzer produced, *before* any report
 // artifact is built, so the health score, the markdown export, the JSON export
-// and the stats all agree. Two categories:
+// and the stats all agree. Four categories:
 //
 //   1. security findings that cite no real code — an empty or comment-only
 //      snippet, a string-literal type union, a value the environment resolves
@@ -10,15 +10,17 @@
 //   2. layer violations whose two endpoints cannot reference each other at all
 //      (different languages, no import edge) or whose claimed layer is not the
 //      one the report itself assigns the file;
-//   3. unused functions that the snapshot does reference. The analyzer's call
+//   3. LOW hygiene findings (`Code Comments` / `Debug Statements`) whose cited
+//      path is a non-shipping artifact — a test or a document, where the
+//      flagged token is fixture data or a worked example, not deferred work;
+//   4. unused functions that the snapshot does reference. The analyzer's call
 //      graph misses function-as-value references (`opts.fetchFn ?? defaultFetch`)
 //      and cross-file trait dispatch (`Socket::on_message` called in retry.rs),
 //      so a symbol that still appears call- or value-shaped outside its own
 //      definition is not dead.
 //
-// Only HIGH severity security findings are considered: the LOW/MEDIUM shapes
-// (code comments, debug statements, argv-array spawns) are left in the report
-// for the audit skill to triage.
+// Security suppression considers HIGH severity only: the LOW/MEDIUM shapes
+// (argv-array spawns) are left in the report for the audit skill to triage.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
@@ -166,6 +168,57 @@
 		if (namesMissingSymbol(issue, content)) return true;
 		if (!ENV_READ.test(code) && !resolvesViaHelper(code, content)) return false;
 		return !hasLiteralAssignment(code);
+	}
+
+	// --- LOW hygiene findings -------------------------------------------------
+
+	// The two titles CodeFlow raises for its raw marker-comment and debug-output
+	// substring matches. Matched verbatim: its matcher is looser than any
+	// anchored rule we could mirror, so a title it does not emit exactly is not a
+	// finding this rule claims to understand.
+	var HYGIENE_TITLES = { "Code Comments": true, "Debug Statements": true };
+
+	function isLow(issue) {
+		return typeof issue.severity === "string" && issue.severity.toLowerCase() === "low";
+	}
+
+	var TEST_FILE = /\.(?:test|spec)\.[^./]+$/;
+
+	// A test artifact is a `test`/`tests`/`__tests__` directory or a `*.test.*` /
+	// `*.spec.*` file name. The class is deliberately narrow: a genuine marker
+	// inside one of them never reaches the report.
+	function isTestArtifact(path) {
+		var segments = path.split("/");
+		var last = segments.length - 1;
+		for (var i = 0; i < last; i++) {
+			if (segments[i] === "test" || segments[i] === "tests" || segments[i] === "__tests__") return true;
+		}
+		return TEST_FILE.test(segments[last]);
+	}
+
+	// A documentation artifact is a `.md`/`.mdx` file or a path under `docs/`.
+	function isDocArtifact(path) {
+		var segments = path.split("/");
+		var last = segments.length - 1;
+		if (/\.(?:md|mdx)$/.test(segments[last])) return true;
+		for (var i = 0; i < last; i++) if (segments[i] === "docs") return true;
+		return false;
+	}
+
+	/**
+	 * True when the analyzer's LOW hygiene heuristic flagged a non-shipping
+	 * artifact: a test or a document, where the cited token is domain data. The
+	 * rule is path-class only — CodeFlow emits no snippet for these findings, and
+	 * a token rule over shipping source would hide real deferred work.
+	 * `readFile` is accepted for signature parity with the other predicates; the
+	 * class rule needs no content.
+	 */
+	function isFalsePositiveHygiene(issue, readFile) {
+		if (!issue || typeof issue !== "object" || !isLow(issue)) return false;
+		if (typeof issue.title !== "string" || HYGIENE_TITLES[issue.title] !== true) return false;
+		if (typeof issue.path !== "string" || issue.path === "") return false;
+		var path = issue.path.toLowerCase();
+		return isTestArtifact(path) || isDocArtifact(path);
 	}
 
 	// --- layer violations ----------------------------------------------------
@@ -426,7 +479,7 @@
 	 * silently shrinking the report.
 	 */
 	function sanitizeAnalysisData(data, readFile) {
-		var suppressed = { security: [], layerViolations: [], deadCode: [] };
+		var suppressed = { security: [], layerViolations: [], hygiene: [], deadCode: [] };
 		if (!data || typeof data !== "object") return { data: data, suppressed: suppressed };
 
 		var out = {};
@@ -438,7 +491,8 @@
 			out.securityIssues = [];
 			for (var i = 0; i < data.securityIssues.length; i++) {
 				var issue = data.securityIssues[i];
-				if (isFalsePositiveSecurity(issue, readFile)) suppressed.security.push(issue);
+				if (isFalsePositiveHygiene(issue, readFile)) suppressed.hygiene.push(issue);
+				else if (isFalsePositiveSecurity(issue, readFile)) suppressed.security.push(issue);
 				else out.securityIssues.push(issue);
 			}
 		}
@@ -493,6 +547,7 @@
 		sanitizeAnalysisData: sanitizeAnalysisData,
 		isFalsePositiveSecurity: isFalsePositiveSecurity,
 		isFalsePositiveLayerViolation: isFalsePositiveLayerViolation,
+		isFalsePositiveHygiene: isFalsePositiveHygiene,
 		readFileFrom: readFileFrom,
 	};
 });

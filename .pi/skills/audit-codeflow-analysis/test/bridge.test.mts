@@ -396,18 +396,30 @@ describe("codeflow bridge capture", () => {
 
 		// A page that declares `data` as a constant: the former `data = ...`
 		// rebinding threw and exported unfiltered data.
-		const sandbox: Record<string, any> = { piFpFilter, console: { info() {}, error() {} } };
+		const logs: string[] = [];
+		const sandbox: Record<string, any> = {
+			piFpFilter,
+			console: { info: (m: string) => logs.push(String(m)), error() {} },
+		};
 		vm.createContext(sandbox);
 		vm.runInContext(
-			"const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [], stats: { dead: 1 }, files: [ { path: 'def.ts', content: 'export function deadCall() {}' }, { path: 'use.ts', content: 'deadCall();' } ], deadFunctions: [ { name: 'deadCall', file: 'def.ts' } ], issues: [ { type: 'warning', title: '1 Unused Functions', items: [ { name: 'deadCall', file: 'def.ts' } ] } ] };\n" +
+			"const data = { securityIssues: [ " +
+				"{ severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' }, " +
+				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/widget.test.ts' }, " +
+				"{ severity: 'low', title: 'Debug Statements', code: '', path: 'docs/guide.md' }, " +
+				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/keep.ts' } ], layerViolations: [], " +
+				"stats: { dead: 1 }, " +
+				"files: [ { path: 'def.ts', content: 'export function deadCall() {}' }, { path: 'use.ts', content: 'deadCall();' } ], " +
+				"deadFunctions: [ { name: 'deadCall', file: 'def.ts' } ], " +
+				"issues: [ { type: 'warning', title: '1 Unused Functions', items: [ { name: 'deadCall', file: 'def.ts' } ] } ] };\n" +
 				rewritten +
 				"\n;globalThis.__out = generateReport('md');",
 			sandbox,
 		);
-		assert.strictEqual(
-			sandbox.__out.securityIssues.length,
-			0,
-			"const `data` must be filtered in place",
+		assert.deepStrictEqual(
+			sandbox.__out.securityIssues.map((s: { path: string }) => s.path),
+			["src/keep.ts"],
+			"const `data` must be filtered in place: only the shipping-source marker survives",
 		);
 		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
 		assert.deepStrictEqual(
@@ -417,6 +429,10 @@ describe("codeflow bridge capture", () => {
 		);
 		assert.strictEqual(sandbox.__out.stats.dead, 0, "the served stats must agree with the list");
 		assert.deepStrictEqual(sandbox.__out.issues, [], "the architecture entry must not outlive its items");
+		// Byte-parity with the headless stderr line (see codeflow-run-analysis.test.mts).
+		assert.deepStrictEqual(logs, [
+			"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 1 unused function(s)",
+		]);
 
 		// A sanitizer error must fail closed, never fall through to unfiltered data,
 		// and must reach the visible bridge error UI (not just the console).

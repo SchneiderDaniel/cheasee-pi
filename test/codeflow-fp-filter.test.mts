@@ -21,13 +21,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
 const FILTER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js");
 
-type Suppressed = { security: any[]; layerViolations: any[]; deadCode: any[] };
+type Suppressed = { security: any[]; layerViolations: any[]; hygiene: any[]; deadCode: any[] };
 
-const { sanitizeAnalysisData, readFileFrom } = requireCjs(FILTER) as {
+const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCjs(FILTER) as {
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
 	) => { data: any; suppressed: Suppressed };
+	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
 	readFileFrom: (data: unknown) => (path: unknown) => string | null;
 };
 
@@ -75,6 +76,21 @@ function sec(over: Record<string, unknown> = {}): Record<string, unknown> {
 	};
 }
 
+/** A LOW hygiene finding as the analyzer emits it: no snippet of its own. */
+function hyg(over: Record<string, unknown> = {}): Record<string, unknown> {
+	return {
+		severity: "low",
+		title: "Code Comments",
+		description: "Unresolved work marker found.",
+		path: ".pi/extensions/agent-harness/test/index.test.ts",
+		line: 1,
+		code: "",
+		...over,
+	};
+}
+
+const nullReadFile = () => null;
+
 const LAYER_FILES = [
 	{ path: "src/ui/from.ts", layer: "ui" },
 	{ path: "src/ui/to.ts", layer: "ui" },
@@ -98,7 +114,11 @@ function violation(over: Record<string, unknown> = {}): Record<string, unknown> 
 /** Sanitize one security finding and report whether it survived. */
 function keepsSecurity(issue: Record<string, unknown>): boolean {
 	const { data, suppressed } = sanitizeAnalysisData({ securityIssues: [issue] }, readFile);
-	assert.strictEqual(suppressed.security.length + data.securityIssues.length, 1, "no finding may vanish");
+	assert.strictEqual(
+		suppressed.security.length + suppressed.hygiene.length + data.securityIssues.length,
+		1,
+		"no finding may vanish",
+	);
 	return data.securityIssues.length === 1;
 }
 
@@ -240,14 +260,170 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 		assert.strictEqual(keepsSecurity(sec({ path: "does/not/exist.ts", code: 'const KEY = "sk-live-abc";' })), true);
 	});
 
-	it("leaves LOW and MEDIUM findings alone (owned by the audit triage)", () => {
-		for (const severity of ["low", "medium", "LOW"]) {
+	it("keeps MEDIUM and keeps LOW hygiene on shipping source (real work, not an artifact)", () => {
+		for (const severity of ["medium", "MEDIUM"]) {
 			assert.strictEqual(
 				keepsSecurity(sec({ severity, title: "Code Comments", description: "TODO", code: "// TODO: fix" })),
 				true,
 				`${severity} must not be filtered here`,
 			);
 		}
+		assert.strictEqual(
+			keepsSecurity(sec({ severity: "low", title: "Code Comments", code: "// TODO: fix", path: "src/config.ts" })),
+			true,
+			"a LOW TODO marker in shipping source is real work",
+		);
+	});
+});
+
+describe("fp-filter — LOW hygiene false positives (Phase 1)", () => {
+	it("suppresses LOW Code Comments on a test-directory path", () => {
+		assert.strictEqual(
+			isFalsePositiveHygiene(hyg({ path: ".pi/extensions/agent-harness/test/index.test.ts" }), nullReadFile),
+			true,
+		);
+	});
+
+	it("suppresses test/spec files outside any test directory", () => {
+		for (const path of ["src/widget.test.ts", "src/widget.test.mts", "src/widget.spec.ts", "src/widget.spec.tsx"]) {
+			assert.strictEqual(isFalsePositiveHygiene(hyg({ path }), nullReadFile), true, path);
+		}
+		assert.strictEqual(isFalsePositiveHygiene(hyg({ path: "src/latest.ts" }), nullReadFile), false, "not a .test.* file");
+	});
+
+	it("suppresses LOW Debug Statements on a test path (the console fixtures)", () => {
+		assert.strictEqual(
+			isFalsePositiveHygiene(
+				hyg({ title: "Debug Statements", path: ".pi/extensions/structural-analyzer/test/index.test.mts" }),
+				nullReadFile,
+			),
+			true,
+		);
+	});
+
+	it("suppresses LOW hygiene on documentation artifacts", () => {
+		for (const path of [
+			".pi/extensions/ripgrep-search/README.md",
+			"APPEND_SYSTEM.md",
+			".pi/skills/audit-clean-code/SKILL.md",
+			".pi/skills/audit-codeflow-analysis/references/known-false-positives.md",
+			"docs/_config.yml",
+			"docs/guide.mdx",
+		]) {
+			assert.strictEqual(isFalsePositiveHygiene(hyg({ path }), nullReadFile), true, path);
+		}
+	});
+
+	it("keeps LOW hygiene on shipping source", () => {
+		for (const path of [
+			".pi/extensions/ask-user/jsonl-logger.ts",
+			".pi/extensions/ripgrep-search/index.ts",
+			".pi/extensions/structural-analyzer/index.ts",
+			".pi/extensions/structural-analyzer/validate.ts",
+			"cmd/cheasee-pi/main.go",
+		]) {
+			assert.strictEqual(isFalsePositiveHygiene(hyg({ path }), nullReadFile), false, path);
+		}
+	});
+
+	it("is severity- and title-gated", () => {
+		for (const severity of ["medium", "high", "MEDIUM"]) {
+			assert.strictEqual(isFalsePositiveHygiene(hyg({ severity, path: "src/widget.test.ts" }), nullReadFile), false, severity);
+		}
+		for (const title of ["Shell Command Execution", "Code Comment", "code comments", "code comments "]) {
+			assert.strictEqual(isFalsePositiveHygiene(hyg({ title, path: "src/widget.test.ts" }), nullReadFile), false, title);
+		}
+	});
+
+	it("keeps malformed findings (never suppress on ambiguity)", () => {
+		for (const issue of [
+			null,
+			"low",
+			hyg({ severity: undefined }),
+			hyg({ title: undefined }),
+			hyg({ path: undefined }),
+			hyg({ path: "" }),
+			hyg({ path: 42 }),
+		]) {
+			assert.strictEqual(isFalsePositiveHygiene(issue, nullReadFile), false, JSON.stringify(issue));
+		}
+	});
+
+	it("classifies by path alone: no cited file is read", () => {
+		const boom = () => {
+			throw new Error("the hygiene rule must not read the cited file");
+		};
+		assert.strictEqual(isFalsePositiveHygiene(hyg({ path: "src/widget.test.ts" }), boom), true);
+	});
+});
+
+describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
+	it("always carries the full suppressed key set, even for empty input", () => {
+		for (const input of [null, undefined, 42, "x", {}, { securityIssues: [] }]) {
+			const { suppressed } = sanitizeAnalysisData(input, readFile);
+			assert.deepStrictEqual(
+				Object.keys(suppressed).sort(),
+				["hygiene", "layerViolations", "security"],
+				JSON.stringify(input),
+			);
+		}
+	});
+
+	it("routes a LOW hygiene finding to suppressed.hygiene, never suppressed.security", () => {
+		const finding = hyg({ path: "src/widget.test.ts" });
+		const { data, suppressed } = sanitizeAnalysisData({ securityIssues: [finding] }, readFile);
+		assert.deepStrictEqual(suppressed.hygiene, [finding]);
+		assert.deepStrictEqual(suppressed.security, []);
+		assert.deepStrictEqual(data.securityIssues, []);
+	});
+
+	it("accounts for every input entry across the three buckets", () => {
+		const issues = [
+			sec(),
+			sec({ code: "" }),
+			hyg({ path: "src/widget.test.ts" }),
+			sec({ severity: "low", title: "Code Comments", code: "// TODO", path: "src/config.ts" }),
+		];
+		const violations = [violation(), violation({ from: "cmd/build.go", to: "ui/src/retry.rs" })];
+		const input = {
+			files: LAYER_FILES,
+			connections: CONNECTIONS,
+			securityIssues: issues,
+			layerViolations: violations,
+		};
+		const before = structuredClone(input);
+
+		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
+
+		assert.deepStrictEqual(input, before, "input must not be touched");
+		assert.strictEqual(
+			data.securityIssues.length + suppressed.security.length + suppressed.hygiene.length,
+			issues.length,
+		);
+		assert.strictEqual(data.layerViolations.length + suppressed.layerViolations.length, violations.length);
+	});
+
+	it("leaves stats.security alone when only hygiene findings are dropped", () => {
+		const input = {
+			stats: { files: 2, security: 1 },
+			securityIssues: [sec(), hyg({ path: "src/widget.test.ts" })],
+		};
+		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
+		assert.strictEqual(suppressed.hygiene.length, 1);
+		assert.strictEqual(data.stats.security, 1, "the score term counts HIGH findings only");
+	});
+
+	it("is idempotent when hygiene findings are dropped on the first pass", () => {
+		const input = { securityIssues: [sec({ code: "" }), hyg({ path: "src/widget.test.ts" })] };
+		const first = sanitizeAnalysisData(input, readFile);
+		const second = sanitizeAnalysisData(first.data, readFile);
+		assert.deepStrictEqual(second.data, first.data);
+		assert.deepStrictEqual(second.suppressed, {
+			security: [],
+			layerViolations: [],
+			hygiene: [],
+			deadCode: [],
+		});
 	});
 });
 
@@ -273,6 +449,7 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 		assert.deepStrictEqual(data.unusedFunctions, [{ name: "dead" }]);
 		assert.strictEqual(suppressed.security.length, 1);
 		assert.strictEqual(suppressed.layerViolations.length, 1);
+		assert.strictEqual(suppressed.hygiene.length, 0);
 		assert.strictEqual(data.securityIssues.length, 1);
 		assert.strictEqual(data.layerViolations.length, 1);
 	});
@@ -288,7 +465,12 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 		const second = sanitizeAnalysisData(first.data, readFile);
 
 		assert.deepStrictEqual(second.data, first.data);
-		assert.deepStrictEqual(second.suppressed, { security: [], layerViolations: [], deadCode: [] });
+		assert.deepStrictEqual(second.suppressed, {
+			security: [],
+			layerViolations: [],
+			hygiene: [],
+			deadCode: [],
+		});
 	});
 
 	it("passes data without securityIssues/layerViolations through unchanged", () => {
@@ -296,7 +478,12 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
 		assert.deepStrictEqual(data, input);
 		assert.deepStrictEqual(Object.keys(data), Object.keys(input));
-		assert.deepStrictEqual(suppressed, { security: [], layerViolations: [], deadCode: [] });
+		assert.deepStrictEqual(suppressed, {
+			security: [],
+			layerViolations: [],
+			hygiene: [],
+			deadCode: [],
+		});
 	});
 
 	it("moves stats.security/violations with the filtered arrays, without mutating the input stats", () => {
@@ -808,7 +995,12 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 
 	it("always reports a deadCode key, alongside the untouched ones", () => {
 		const { suppressed } = sanitizeAnalysisData({ marker: "FIXTURE" }, deadRead);
-		assert.deepStrictEqual(suppressed, { security: [], layerViolations: [], deadCode: [] });
+		assert.deepStrictEqual(suppressed, {
+			security: [],
+			layerViolations: [],
+			hygiene: [],
+			deadCode: [],
+		});
 	});
 });
 

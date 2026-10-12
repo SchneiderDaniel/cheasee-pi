@@ -173,7 +173,7 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 			"Respects .gitignore natively. Searches hidden files/directories (except .git/).",
 		promptSnippet: "Search codebase for literal text or regex using ripgrep",
 		promptGuidelines: [
-			"Use ripgrep_search for literal text searches — magic numbers, hardcoded strings, error messages, TODOs, configuration values.",
+			"Use ripgrep_search for literal text searches — magic numbers, hardcoded strings, error messages, comment markers, configuration values.",
 			"ripgrep_search respects .gitignore natively. Default max_count=10 (per file). Default directory='.'.",
 			"Searches hidden files/directories (e.g. .pi/), but excludes .git/.",
 		],
