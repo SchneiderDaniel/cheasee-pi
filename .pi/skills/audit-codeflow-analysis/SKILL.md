@@ -228,9 +228,28 @@ fully split: list the files, and say which are shared (disclose the overlap).
 
 ### Step 4 — Draft the issues
 
-For each group, draft an issue using the `git-issue-create-internal` skill (load it
-for the repo's issue template, duplicate check, and project-board wiring). Use
-the group's affected files as the scope and include:
+Generate the draft bodies with the skill-owned drafting mode instead of
+composing them by hand:
+
+```bash
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts \
+  --emit-issues ignore/codeflow-issue-drafts --by subject
+```
+
+`--emit-issues` writes one `<NN>-<slug>.md` body, one `<NN>-<slug>.title`, and a
+`MANIFEST.txt` per grouping, each carrying the CodeFlow signal (with the
+export's own description), the affected files, the best-effort isolation note
+with the shared files listed, the `analyzedAt` and the false-positive note. It
+creates nothing and calls no `gh`. `--by subject` (the default) files one issue
+per `(kind, title)` subject and discloses the remaining file overlap; `--by
+group` files one issue per transitive file-conflict group (which on a large
+report merges almost everything into one issue). Review the generated bodies
+before the gate.
+
+For each proposed issue, use the generated body as the draft and file it via the
+`git-issue-create-internal` skill (load it for the repo's issue template,
+duplicate check, and project-board wiring). The draft already carries, and must
+keep:
 
 - the CodeFlow signal (kind, section/field, title, description),
 - the file list (marking shared files when the group is not isolated),
@@ -305,8 +324,17 @@ prints the issue it would file. It spawns no subagent.
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --limit 5
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --list        # extraction only, no issue drafts
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --emit-findings [DIR]  # write every candidate, no deletion
+node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --emit-issues [DIR] [--by subject|group]  # grouped issue bodies + titles, no deletion
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --self-check   # pure-function checks
 ```
+
+`--emit-issues [DIR]` writes the proposed issue set (default
+`ignore/codeflow-issue-drafts/`): one `<NN>-<slug>.md` body and `<NN>-<slug>.title`
+per group, plus `MANIFEST.txt` (`<file>\t<title>\t<issueType>\t<dispositions>\tfiles=N\tfacts=N`).
+It is not truncated by `--limit`, reads `analyzedAt` from the structured export
+(or the markdown `**Analyzed:**` line) unless `--analyzed-at VALUE` overrides it,
+prints the proposed-set table, and fails closed on a destination that already
+holds `.md` drafts. It never calls `gh`.
 
 `--emit-findings [DIR]` writes one `NN-<slug>.md` per post-dedupe candidate
 (default `ignore/codeflow-findings/`), spawns no subagent, is not truncated by

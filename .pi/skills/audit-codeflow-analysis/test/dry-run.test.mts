@@ -472,6 +472,130 @@ describe("dry-run default-mode disclosure", () => {
 	});
 });
 
+describe("dry-run --emit-issues", () => {
+	it("writes one draft per subject, with title, signal, timestamp and isolation", () => {
+		const json = join(dir, "drafts.json");
+		writeFileSync(
+			json,
+			JSON.stringify({
+				analyzedAt: "2026-10-12T11:36:08.312Z",
+				securityIssues: [
+					{
+						severity: "high",
+						title: "Hardcoded Secret",
+						description: "never hardcode tokens",
+						path: REAL_FILE,
+					},
+					{ severity: "high", title: "Hardcoded Secret", path: REAL_FILES[1] },
+				],
+				unusedFunctions: [{ name: "ghostFn", file: REAL_FILE }],
+			}),
+			"utf-8",
+		);
+		const outDir = join(dir, "drafts");
+		const r = runDryRun(["--report", fixture, "--json", json, "--emit-issues", outDir]);
+		assert.strictEqual(r.status, 0, r.stderr);
+
+		const files = readdirSync(outDir).sort();
+		const bodies = files.filter((f) => f.endsWith(".md"));
+		const titles = files.filter((f) => f.endsWith(".title"));
+		assert.strictEqual(bodies.length, 2, files.join(","));
+		assert.strictEqual(titles.length, 2, files.join(","));
+		assert.ok(files.includes("MANIFEST.txt"), files.join(","));
+
+		const secretTitle = titles.find((t) => t.includes("hardcoded"));
+		assert.ok(secretTitle, files.join(","));
+		const secretBody = readFileSync(join(outDir, secretTitle.replace(/\.title$/, ".md")), "utf-8");
+		assert.match(readFileSync(join(outDir, secretTitle), "utf-8"), /^\[Bug\] /);
+		for (const want of [
+			"`2026-10-12T11:36:08.312Z`",
+			`\`${REAL_FILE}\``,
+			`\`${REAL_FILES[1]}\``,
+			"Best-effort isolation only",
+			"Shared files:",
+			"never hardcode tokens",
+			"false positive",
+		]) {
+			assert.ok(secretBody.includes(want), `draft missing ${want}`);
+		}
+		const manifest = readFileSync(join(outDir, "MANIFEST.txt"), "utf-8");
+		assert.match(manifest, /\[Bug\] HIGH: Hardcoded Secret/);
+		assert.match(manifest, /files=2/);
+		assert.match(r.stdout, /2 proposed issue\(s\) written/);
+		assert.match(r.stdout, /No issues created/);
+	});
+
+	it("--by group merges facts that share a file into one draft", () => {
+		const json = join(dir, "drafts-group.json");
+		writeFileSync(
+			json,
+			JSON.stringify({
+				securityIssues: [{ severity: "high", title: "Hardcoded Secret", path: REAL_FILE }],
+				unusedFunctions: [{ name: "ghostFn", file: REAL_FILE }],
+			}),
+			"utf-8",
+		);
+		const outDir = join(dir, "drafts-group");
+		const r = runDryRun([
+			"--report",
+			fixture,
+			"--json",
+			json,
+			"--emit-issues",
+			outDir,
+			"--by",
+			"group",
+		]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		assert.strictEqual(readdirSync(outDir).filter((f) => f.endsWith(".md")).length, 1);
+	});
+
+	it("falls back to the markdown **Analyzed:** line when the JSON export is absent", () => {
+		const report = join(dir, "analyzed.md");
+		writeFileSync(
+			report,
+			[
+				"# CodeFlow Analysis Report",
+				"**Analyzed:** 12.10.2026, 13:36:10",
+				"",
+				"## Security Issues",
+				"",
+				"### HIGH: Hardcoded Secret",
+				`- **File:** \`${REAL_FILE}\``,
+				"- **Description:** tokens must come from env, not source",
+				"",
+			].join("\n"),
+			"utf-8",
+		);
+		const outDir = join(dir, "analyzed-drafts");
+		const r = runDryRun([
+			"--report",
+			report,
+			"--json",
+			join(dir, "absent.json"),
+			"--emit-issues",
+			outDir,
+		]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		const body = readFileSync(
+			join(outDir, readdirSync(outDir).find((f) => f.endsWith(".md")) as string),
+			"utf-8",
+		);
+		assert.ok(body.includes("`12.10.2026, 13:36:10`"), body);
+		assert.ok(body.includes("tokens must come from env, not source"), body);
+	});
+
+	it("fails closed instead of mixing a rerun with stale drafts", () => {
+		const outDir = join(dir, "stale-drafts");
+		mkdirSync(outDir, { recursive: true });
+		writeFileSync(join(outDir, "01-old.md"), "old", "utf-8");
+		const r = runDryRun([...baseArgs(), "--emit-issues", outDir]);
+		assert.strictEqual(r.status, 2, r.stderr);
+		assert.match(r.stderr, /already contains 1 stale file/);
+		assert.strictEqual(readFileSync(join(outDir, "01-old.md"), "utf-8"), "old");
+	});
+});
+
 describe("dry-run disposition routing (issue #1992)", () => {
 	it("names each nonzero disposition in the --list summary", () => {
 		const archFixture = join(dir, "disp-arch.md");
