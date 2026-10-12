@@ -18,7 +18,7 @@ import { spawn as realSpawn } from "node:child_process";
 import { existsSync as realExistsSync, statSync } from "node:fs";
 import { readFile as realReadFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import { argvCommand, assertNoShell } from "../../lib/safe-argv.ts";
+import { spawnArgv } from "../../lib/safe-argv.ts";
 import type { LspRuntime, JsonRpcModule } from "../types.ts";
 
 /** True when `path` names an existing, executable regular file. */
@@ -99,12 +99,16 @@ export function createDefaultRuntime(): LspRuntime {
 	let jsonRpcModule: JsonRpcModule | null = null;
 
 	return {
-		// Re-enforce the argv invariant at the chokepoint every LSP spawn passes:
-		// an invalid argv or a caller-supplied shell never reaches realSpawn.
-		spawn: (command, args, options) => {
-			const { program, args: safeArgs } = argvCommand(command, args);
-			return realSpawn(program, safeArgs as string[], assertNoShell(options) as any) as any;
-		},
+		// The invariant is re-enforced at the chokepoint every LSP spawn passes:
+		// spawnArgv validates the argv and forces `shell:false` before realSpawn
+		// ever runs, so an invalid argv or a caller-supplied shell cannot reach it.
+		spawn: (command, args, options) =>
+			spawnArgv(
+				realSpawn as (program: string, args: readonly string[], options?: object) => unknown,
+				command,
+				args,
+				options,
+			) as any,
 		resolveExecutable: (name) => resolveExecutableOnPath(name),
 		existsSync: (path) => realExistsSync(path),
 		readFile: (path, encoding) => (realReadFile as any)(path, encoding),

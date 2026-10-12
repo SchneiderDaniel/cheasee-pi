@@ -2,19 +2,24 @@
 //
 // Applied to the structured `data` the analyzer produced, *before* any report
 // artifact is built, so the health score, the markdown export, the JSON export
-// and the stats all agree. Two categories:
+// and the stats all agree. Four categories:
 //
-//   1. security findings that cite no real code — an empty or comment-only
+//   1. HIGH security findings that cite no real code — an empty or comment-only
 //      snippet, a string-literal type union, a value the environment resolves
 //      at runtime, or a symbol that does not exist in the cited file;
-//   2. layer violations whose two endpoints cannot reference each other at all
+//   2. MEDIUM `Command Execution` findings, which the analyzer raises from a
+//      whole-file `node:child_process` import/require rather than a call. Such a
+//      finding is dropped only when the cited file's own text proves *every*
+//      child-process call is an argv-array invocation whose program resolves to
+//      a literal and whose argv is a literal array or a `argvCommand`-validated
+//      binding, with the shell forced off. An unreadable file, a dynamic
+//      program, unvalidated argv, or any shell call keeps it (fail closed).
+//   3. layer violations whose two endpoints cannot reference each other at all
 //      (different languages, no import edge) or whose claimed layer is not the
-//      one the report itself assigns the file.
-//
-// A MEDIUM `Command Execution` finding is considered too, but only when the
-// cited file's own text proves the hit a false positive (see the file-scoped
-// proof below). It cites a whole file with no snippet, so any unreadable file,
-// dynamic program or shell call keeps the finding — fail closed.
+//      one the report itself assigns the file;
+//   4. LOW hygiene findings (`Code Comments` / `Debug Statements`) whose cited
+//      path is a non-shipping artifact — a test or a document, where the
+//      flagged token is fixture data or a worked example, not deferred work.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
@@ -309,21 +314,38 @@
 		);
 	}
 
-	// Names bound by `const { program, args } = argvCommand(...)` — the only
-	// identifiers accepted as a call's executable argument besides a literal.
+	// Names bound by `const { program, args } = argvCommand(...)`. Only a
+	// destructured `program` whose argvCommand first argument is *itself a
+	// literal* proves a later call's executable; `argvCommand(request.command,
+	// ...)` binds nothing, so a dynamic program keeps its finding. Destructured
+	// `args` names are recorded as validated argv sources.
 	function argvCommandBindings(code) {
-		var names = Object.create(null);
+		var programs = Object.create(null);
+		var argsNames = Object.create(null);
 		var re = /(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]*)?=\s*argvCommand\s*(?:<[^<>]*>)?\s*\(/g;
 		var m;
 		while ((m = re.exec(code)) !== null) {
-			var parts = m[1].split(",");
-			for (var i = 0; i < parts.length; i++) {
-				var local = parts[i].trim().split(":").pop().trim();
+			var open = code.indexOf("(", m.index + m[0].length - 1);
+			var callArgs = argumentText(code, open);
+			var parts = callArgs === null ? [] : splitTopLevel(callArgs);
+			var programLiteral = parts.length >= 1 && isLiteralProgram(parts[0]) ? parts[0].trim() : null;
+			var fields = m[1].split(",");
+			for (var i = 0; i < fields.length; i++) {
+				var seg = fields[i].trim();
+				if (!seg) continue;
+				var colon = seg.indexOf(":");
+				var field = (colon < 0 ? seg : seg.slice(0, colon)).trim();
+				var local = (colon < 0 ? seg : seg.slice(colon + 1)).trim();
 				var id = /^[A-Za-z_$][\w$]*/.exec(local);
-				if (id) names[id[0]] = true;
+				if (!id) continue;
+				if (field === "program") {
+					if (programLiteral !== null) programs[id[0]] = programLiteral;
+				} else if (field === "args") {
+					argsNames[id[0]] = true;
+				}
 			}
 		}
-		return names;
+		return { programs: programs, args: argsNames };
 	}
 
 	// Local names that stand for a `node:child_process` member: named/namespace
@@ -404,14 +426,34 @@
 		return new RegExp("(?:^|[^\\w$.])" + escapeRe(name) + "\\s*(?:<[^<>]*>)?\\s*\\(", "g");
 	}
 
-	// One call is safe when its executable is a literal (or `argvCommand`-bound)
-	// and its options argument forces the shell off.
-	function isSafeArgvCall(member, args, boundNames) {
+	// Strip a trailing type assertion (`args as string[]`) before the test; it
+	// hides no value change. `as` in a nested generic is never trailing.
+	function stripAssertion(text) {
+		var a = text.trim();
+		var m = /\s+as\s+[^,]+$/.exec(a);
+		return m ? a.slice(0, m.index).trim() : a;
+	}
+
+	// A literal argv array, e.g. `["--version"]` — no element can smuggle a
+	// program in, so this is a validated argv source alongside `argvCommand`.
+	function isArrayLiteral(text) {
+		var a = text.trim();
+		return a.charAt(0) === "[" && a.charAt(a.length - 1) === "]";
+	}
+
+	// One call is safe when its executable resolves to a literal (directly or
+	// through `argvCommand(<literal>, ...)`), its argv is a literal array or an
+	// `argvCommand`-validated binding, and its options force the shell off.
+	// Anything else — a dynamic program or an unvalidated argv array — fails
+	// closed so a genuine command-execution finding is never hidden.
+	function isSafeArgvCall(member, args, bindings) {
 		if (CP_MEMBERS[member] !== "argv") return false;
 		var parts = splitTopLevel(args);
 		if (parts.length < 2) return false;
-		var program = parts[0].trim();
-		if (!isLiteralProgram(program) && !boundNames[program]) return false;
+		var program = stripAssertion(parts[0]);
+		if (!isLiteralProgram(program) && typeof bindings.programs[program] !== "string") return false;
+		var argvExpr = stripAssertion(parts[1]);
+		if (!isArrayLiteral(argvExpr) && bindings.args[argvExpr] !== true) return false;
 		var options = parts.slice(1).join(",");
 		return (
 			/assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(options) ||
@@ -421,23 +463,23 @@
 
 	// Every child-process call in the file must prove argv-safe; a bare name, a
 	// registered alias, or a known namespace member all count as a call site.
-	function everyChildProcessCallIsSafe(code, boundNames) {
-		var bindings = childProcessBindings(code);
+	function everyChildProcessCallIsSafe(code, bindings) {
+		var cp = childProcessBindings(code);
 		var names = Object.create(null);
 		var i;
 		for (i = 0; i < CP_NAMES.length; i++) names[CP_NAMES[i]] = true;
-		for (var local in bindings.members) names[local] = true;
+		for (var local in cp.members) names[local] = true;
 
 		var safe = true;
 		Object.keys(names).forEach(function (name) {
 			if (!safe) return;
-			var member = bindings.members[name] || name;
+			var member = cp.members[name] || name;
 			var re = callRegex(name);
 			var m;
 			while ((m = re.exec(code)) !== null) {
 				var open = code.indexOf("(", m.index + m[0].length - 1);
 				var args = argumentText(code, open);
-				if (args === null || !isSafeArgvCall(member, args, boundNames)) {
+				if (args === null || !isSafeArgvCall(member, args, bindings)) {
 					safe = false;
 					return;
 				}
@@ -445,7 +487,7 @@
 		});
 		if (!safe) return false;
 
-		var namespaceNames = Object.keys(bindings.namespaces);
+		var namespaceNames = Object.keys(cp.namespaces);
 		for (i = 0; i < namespaceNames.length && safe; i++) {
 			var nsRe = new RegExp(
 				escapeRe(namespaceNames[i]) + "\\s*\\.\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
@@ -455,7 +497,7 @@
 			while ((mm = nsRe.exec(code)) !== null) {
 				var openNs = code.indexOf("(", mm.index + mm[0].length - 1);
 				var argsNs = argumentText(code, openNs);
-				if (argsNs === null || !isSafeArgvCall(mm[1], argsNs, boundNames)) {
+				if (argsNs === null || !isSafeArgvCall(mm[1], argsNs, bindings)) {
 					safe = false;
 					break;
 				}
@@ -494,6 +536,57 @@
 		if (!issue || typeof issue !== "object") return false;
 		if (isHigh(issue)) return isFalsePositiveHighSecurity(issue, readFile);
 		return isFalsePositiveCommandExecution(issue, readFile);
+	}
+
+	// --- LOW hygiene findings -------------------------------------------------
+
+	// The two titles CodeFlow raises for its raw marker-comment and debug-output
+	// substring matches. Matched verbatim: its matcher is looser than any
+	// anchored rule we could mirror, so a title it does not emit exactly is not a
+	// finding this rule claims to understand.
+	var HYGIENE_TITLES = { "Code Comments": true, "Debug Statements": true };
+
+	function isLow(issue) {
+		return typeof issue.severity === "string" && issue.severity.toLowerCase() === "low";
+	}
+
+	var TEST_FILE = /\.(?:test|spec)\.[^./]+$/;
+
+	// A test artifact is a `test`/`tests`/`__tests__` directory or a `*.test.*` /
+	// `*.spec.*` file name. The class is deliberately narrow: a genuine marker
+	// inside one of them never reaches the report.
+	function isTestArtifact(path) {
+		var segments = path.split("/");
+		var last = segments.length - 1;
+		for (var i = 0; i < last; i++) {
+			if (segments[i] === "test" || segments[i] === "tests" || segments[i] === "__tests__") return true;
+		}
+		return TEST_FILE.test(segments[last]);
+	}
+
+	// A documentation artifact is a `.md`/`.mdx` file or a path under `docs/`.
+	function isDocArtifact(path) {
+		var segments = path.split("/");
+		var last = segments.length - 1;
+		if (/\.(?:md|mdx)$/.test(segments[last])) return true;
+		for (var i = 0; i < last; i++) if (segments[i] === "docs") return true;
+		return false;
+	}
+
+	/**
+	 * True when the analyzer's LOW hygiene heuristic flagged a non-shipping
+	 * artifact: a test or a document, where the cited token is domain data. The
+	 * rule is path-class only — CodeFlow emits no snippet for these findings, and
+	 * a token rule over shipping source would hide real deferred work.
+	 * `readFile` is accepted for signature parity with the other predicates; the
+	 * class rule needs no content.
+	 */
+	function isFalsePositiveHygiene(issue, readFile) {
+		if (!issue || typeof issue !== "object" || !isLow(issue)) return false;
+		if (typeof issue.title !== "string" || HYGIENE_TITLES[issue.title] !== true) return false;
+		if (typeof issue.path !== "string" || issue.path === "") return false;
+		var path = issue.path.toLowerCase();
+		return isTestArtifact(path) || isDocArtifact(path);
 	}
 
 	// --- layer violations ----------------------------------------------------
@@ -576,7 +669,7 @@
 	 * caller can report the suppression instead of silently shrinking the report.
 	 */
 	function sanitizeAnalysisData(data, readFile) {
-		var suppressed = { security: [], layerViolations: [] };
+		var suppressed = { security: [], layerViolations: [], hygiene: [] };
 		if (!data || typeof data !== "object") return { data: data, suppressed: suppressed };
 
 		var out = {};
@@ -588,7 +681,8 @@
 			out.securityIssues = [];
 			for (var i = 0; i < data.securityIssues.length; i++) {
 				var issue = data.securityIssues[i];
-				if (isFalsePositiveSecurity(issue, readFile)) suppressed.security.push(issue);
+				if (isFalsePositiveHygiene(issue, readFile)) suppressed.hygiene.push(issue);
+				else if (isFalsePositiveSecurity(issue, readFile)) suppressed.security.push(issue);
 				else out.securityIssues.push(issue);
 			}
 		}
@@ -623,6 +717,7 @@
 		sanitizeAnalysisData: sanitizeAnalysisData,
 		isFalsePositiveSecurity: isFalsePositiveSecurity,
 		isFalsePositiveLayerViolation: isFalsePositiveLayerViolation,
+		isFalsePositiveHygiene: isFalsePositiveHygiene,
 		readFileFrom: readFileFrom,
 	};
 });

@@ -17,8 +17,8 @@ export class UnsafeArgvError extends Error {
 	}
 }
 
-/** C0 controls + DEL. NUL truncates an argv entry; the rest are smuggled bytes. */
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+/** NUL is the only byte an argv entry or env value cannot carry. */
+const NUL = /\u0000/;
 
 export interface ArgvCommand {
 	readonly program: string;
@@ -34,11 +34,11 @@ export function argvCommand(program: string, args: readonly string[]): ArgvComma
 	if (typeof program !== "string") fail("program", "must be a string");
 	if (program.trim() === "") fail("program", "must not be blank");
 	if (program.startsWith("-")) fail("program", "must not start with '-' (option injection)");
-	if (CONTROL_CHARS.test(program)) fail("program", "must not contain control characters");
+	if (NUL.test(program)) fail("program", "must not contain NUL");
 	if (!Array.isArray(args)) fail("args", "must be an array");
 	for (const arg of args) {
 		if (typeof arg !== "string") fail("arg", "must be a string");
-		if (CONTROL_CHARS.test(arg)) fail("arg", "must not contain control characters");
+		if (NUL.test(arg)) fail("arg", "must not contain NUL");
 	}
 	return Object.freeze({ program, args: Object.freeze([...args]) });
 }
@@ -53,11 +53,20 @@ export function assertNoShell<T extends object>(options: T | undefined): T & { s
 }
 
 /**
- * NUL only — the one byte Node rejects in an env entry. Newlines and tabs are
- * legitimate values (a multiline PEM credential), so rejecting all C0 controls
- * here would break a valid supervisor launch.
+ * The single argv-array spawn seam: validate `command`/`args` through the
+ * policy and force `shell:false` before the injected `spawnFn` runs, so no
+ * caller can reach a real spawn with an unvalidated program or a shell. The
+ * `spawnFn` binding is the only thing a caller supplies — the argv is not.
  */
-const NUL = /\u0000/;
+export function spawnArgv(
+	spawnFn: (program: string, args: string[], options: object) => unknown,
+	command: string,
+	args: readonly string[],
+	options?: object,
+): unknown {
+	const { program, args: safeArgs } = argvCommand(command, args);
+	return spawnFn(program, [...safeArgs], assertNoShell(options));
+}
 
 /** Reject NUL in env keys/values (Node throws ERR_INVALID_ARG_VALUE); other bytes pass. */
 export function assertSafeEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {

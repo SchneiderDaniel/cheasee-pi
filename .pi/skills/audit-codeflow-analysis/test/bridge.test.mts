@@ -391,20 +391,32 @@ describe("codeflow bridge capture", () => {
 
 		// A page that declares `data` as a constant: the former `data = ...`
 		// rebinding threw and exported unfiltered data.
-		const sandbox: Record<string, any> = { piFpFilter, console: { info() {}, error() {} } };
+		const logs: string[] = [];
+		const sandbox: Record<string, any> = {
+			piFpFilter,
+			console: { info: (m: string) => logs.push(String(m)), error() {} },
+		};
 		vm.createContext(sandbox);
 		vm.runInContext(
-			"const data = { securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };\n" +
+			"const data = { securityIssues: [ " +
+				"{ severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' }, " +
+				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/widget.test.ts' }, " +
+				"{ severity: 'low', title: 'Debug Statements', code: '', path: 'docs/guide.md' }, " +
+				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/keep.ts' } ], layerViolations: [] };\n" +
 				rewritten +
 				"\n;globalThis.__out = generateReport('md');",
 			sandbox,
 		);
-		assert.strictEqual(
-			sandbox.__out.securityIssues.length,
-			0,
-			"const `data` must be filtered in place",
+		assert.deepStrictEqual(
+			sandbox.__out.securityIssues.map((s: { path: string }) => s.path),
+			["src/keep.ts"],
+			"const `data` must be filtered in place: only the shipping-source marker survives",
 		);
 		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
+		// Byte-parity with the headless stderr line (see codeflow-run-analysis.test.mts).
+		assert.deepStrictEqual(logs, [
+			"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 2 hygiene finding(s)",
+		]);
 
 		// A sanitizer error must fail closed, never fall through to unfiltered data,
 		// and must reach the visible bridge error UI (not just the console).

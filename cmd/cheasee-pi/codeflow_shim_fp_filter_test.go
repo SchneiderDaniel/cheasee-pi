@@ -42,6 +42,9 @@ assert b'if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.
 assert b'if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;' in out, out
 assert b'if ("stats" in __piFp.data) data.stats = __piFp.data.stats;' in out, out
 assert b"data = piFpFilter" not in out, "must not rebind data (const-safe): %r" % out
+assert b'"fp-filter: suppressed "' in out, "suppression log must keep the headless wording: %r" % out
+assert b"__piFp.suppressed.hygiene.length" in out, "the hygiene count must be reported: %r" % out
+assert b'" hygiene finding(s)")' in out, out
 assert b'"use strict"' in out, out
 assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
 assert b"__codeflowBridgeReportError" in out, "sanitizer failure must be visible: %r" % out
@@ -115,7 +118,7 @@ m = runpy.run_path(sys.argv[1])
 pat, repl = m["_UI_REWRITES"][0]
 rewritten = pat.sub(lambda _: repl, b"function generateReport(format){ return data; }").decode()
 
-ok = """const data = { stats: { security: 1, violations: 0 }, securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] };
+ok = """const data = { stats: { security: 1, violations: 0 }, securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' }, { severity: 'low', title: 'Code Comments', code: '', path: 'src/widget.test.ts' } ], layerViolations: [] };
 const piFpFilter = require(process.argv[2]);
 """ + rewritten + """
 generateReport('md');
@@ -160,6 +163,12 @@ open(sys.argv[5], "w").write(frozen)
 	}
 	if !strings.Contains(string(out), "RESULT{\"security\":0,\"layers\":0,\"stats\":{\"security\":0,\"violations\":0}}") {
 		t.Errorf("const `data` was not filtered in place (arrays and stats must both move): %s", out)
+	}
+	if !strings.Contains(
+		string(out),
+		"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 1 hygiene finding(s)",
+	) {
+		t.Errorf("the served wrapper must log the same suppression line as the headless runner, got: %s", out)
 	}
 
 	out, err = exec.Command(node, failHarness, filterPath).CombinedOutput()

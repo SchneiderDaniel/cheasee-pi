@@ -111,7 +111,7 @@ export default function structuralAnalyzer(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			"Use structural_search for syntax-aware code searches where you need to find function calls, class definitions, try/catch blocks, or method invocations without text-match noise from comments or strings.",
 			"Pattern syntax uses $META_VAR for single AST node matching (e.g., console.log($A)) and $$$MULTI for zero-or-more nodes (e.g., try { $$$BODY } catch (e) { $A }).",
-			"Single-word text patterns like 'TODO' are rejected — use ripgrep_search for plain text searches instead of ast-grep.",
+			"Single-word text patterns (no structural syntax) are rejected — use ripgrep_search for plain text searches instead of ast-grep.",
 			"Combine structural_search results with read to inspect specific matches by file path and line range.",
 		],
 		parameters: Type.Object({
