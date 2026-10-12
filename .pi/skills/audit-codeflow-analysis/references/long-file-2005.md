@@ -46,8 +46,8 @@ node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
 node -e 'console.log(JSON.parse(require("fs").readFileSync("/tmp/out-before/report.json"))
   .patterns.find(p => p.name === "Long File").metrics.files)'
 
-# after: the branch tip (39e62d9e) — the last commit that changes scored code;
-# 7bcbeefd differs from it only by the register artifacts and EOF whitespace strips
+# after: the last commit of this branch that changes scored code (39e62d9e);
+# later commits touch only register artifacts and EOF whitespace strips
 git archive 39e62d9e8d9026938aea356c3c4811e4348d3062 | tar -x -C /tmp/after
 node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
   /tmp/after <codeflow-ui> /tmp/out-after
@@ -68,7 +68,7 @@ recorded deferrals — so the envelope cannot drift from the delivered source.
 | | commit | tracked files | `Long File` |
 |---|---|---|---|
 | before | `4dcddf80` (`origin/main` after #2004) | 1194 | **35** |
-| after | `39e62d9e` (branch tip) | 1239 | **16** |
+| after | `39e62d9e` (last commit changing scored code) | 1239 | **16** |
 
 The commits after the initial measurement (`7bcbeefd`) add only register
 artifacts (this doc, the fixture, `test/fixtures/long-file-mirror.mts` and the
