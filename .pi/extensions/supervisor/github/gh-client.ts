@@ -102,13 +102,17 @@ async function runGhWithToken(
 	const execOpts = { signal: opts?.signal, timeout: opts?.timeout ?? 30_000 };
 	if (token === null) return exec("gh", args, execOpts);
 
-	const run = ghEnvLock.then(() => {
+	const run = ghEnvLock.then(async () => {
 		const previous = process.env.GH_TOKEN;
 		process.env.GH_TOKEN = token;
-		return exec("gh", args, execOpts).finally(() => {
+		// try/finally (not `.finally()`): a synchronously-throwing ExecFn never
+		// returns a promise, so the restore must not depend on one existing.
+		try {
+			return await exec("gh", args, execOpts);
+		} finally {
 			if (previous === undefined) delete process.env.GH_TOKEN;
 			else process.env.GH_TOKEN = previous;
-		});
+		}
 	});
 	// Keep the lock chain alive on failure; the caller still gets `run`'s rejection.
 	ghEnvLock = run.catch(() => {});

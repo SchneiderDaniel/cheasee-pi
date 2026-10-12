@@ -377,6 +377,22 @@ describe("gh()/ghRaw() — GH_TOKEN injected via process.env, never a shell stri
 		}
 	});
 
+	it("synchronous exec throw propagates and env is restored (no stale token)", async () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-sync-throw-env-"));
+		try {
+			await withEnv(home, undefined, async () => {
+				writeHosts(home, "gho_file");
+				const exec = (() => {
+					throw new Error("spawn failed sync");
+				}) as unknown as ExecFn;
+				await assert.rejects(() => gh(exec, ["status"]), /spawn failed sync/);
+				assert.equal("GH_TOKEN" in process.env, false, "token deleted, not left set");
+			});
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
 	it("concurrent same-token calls do not corrupt env; final value restored", async () => {
 		const home = mkdtempSync(join(tmpdir(), "gh-concurrent-"));
 		try {
