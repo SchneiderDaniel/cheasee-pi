@@ -241,7 +241,7 @@ pub struct Assembler {
 
 impl Assembler {
     /// Reduce one event. Returns whether anything visible changed.
-    pub fn apply(&mut self, event: &Event) -> bool {
+    pub fn reduce_event(&mut self, event: &Event) -> bool {
         // `message_end` is authoritative: ignore trailing deltas for a message
         // that is already finalized, until the next `message_start` opens one.
         if self.finalized && matches!(event, Event::MessageUpdate { .. }) {
@@ -915,7 +915,7 @@ impl ChatState {
     }
 
     /// Reduce one server message. Returns whether anything changed.
-    pub fn apply(&self, message: &ServerMessage) -> bool {
+    pub fn reduce_transcript(&self, message: &ServerMessage) -> bool {
         match message {
             ServerMessage::Event { event } => {
                 // `try_maybe_update` notifies subscribers only when the
@@ -923,7 +923,7 @@ impl ChatState {
                 let changed = self
                     .assembler
                     .try_maybe_update(|a| {
-                        let changed = a.apply(event);
+                        let changed = a.reduce_event(event);
                         (changed, changed)
                     })
                     .unwrap_or(false);
@@ -1012,17 +1012,11 @@ impl ChatState {
         }
     }
 
-    /// Decode and reduce one WS text frame. A malformed frame is surfaced, not
-    /// silently dropped, and never kills the connection.
-    pub fn ingest_frame(&self, text: &str) -> bool {
-        match serde_json::from_str::<ServerMessage>(text) {
-            Ok(message) => self.apply(&message),
-            Err(err) => {
-                self.notice
-                    .set(Some(format!("malformed server frame: {err}")));
-                true
-            }
-        }
+    /// Surface a malformed frame instead of killing the connection.
+    pub fn note_malformed_frame(&self, err: &serde_json::Error) -> bool {
+        self.notice
+            .set(Some(format!("malformed server frame: {err}")));
+        true
     }
 
     fn schedule_flush(&self) {
@@ -1100,10 +1094,10 @@ mod tests {
     #[test]
     fn deltas_append_in_order() {
         let mut a = Assembler::default();
-        a.apply(&Event::MessageStart { message: json!({}) });
-        assert!(a.apply(&delta(0, "Hello")));
-        assert!(a.apply(&delta(0, ", ")));
-        a.apply(&delta(0, "world"));
+        a.reduce_event(&Event::MessageStart { message: json!({}) });
+        assert!(a.reduce_event(&delta(0, "Hello")));
+        assert!(a.reduce_event(&delta(0, ", ")));
+        a.reduce_event(&delta(0, "world"));
         assert_eq!(texts(&a), vec![(0, "Hello, world".to_string())]);
         assert!(matches!(a.rows()[0].kind, RowKind::Text(_)));
     }
@@ -1113,10 +1107,10 @@ mod tests {
     #[test]
     fn interleaved_blocks_are_grouped_by_content_index() {
         let mut a = Assembler::default();
-        a.apply(&delta(0, "answer"));
-        a.apply(&thinking_delta(1, "hmm"));
-        a.apply(&delta(0, "!"));
-        a.apply(&thinking_delta(1, "?"));
+        a.reduce_event(&delta(0, "answer"));
+        a.reduce_event(&thinking_delta(1, "hmm"));
+        a.reduce_event(&delta(0, "!"));
+        a.reduce_event(&thinking_delta(1, "?"));
         assert_eq!(
             texts(&a),
             vec![(0, "answer!".to_string()), (1, "hmm?".to_string())]
@@ -1129,9 +1123,9 @@ mod tests {
     #[test]
     fn text_end_replaces_the_delta_buffer() {
         let mut a = Assembler::default();
-        a.apply(&delta(0, "Hel"));
-        a.apply(&delta(0, "lo wor"));
-        a.apply(&Event::MessageUpdate {
+        a.reduce_event(&delta(0, "Hel"));
+        a.reduce_event(&delta(0, "lo wor"));
+        a.reduce_event(&Event::MessageUpdate {
             message: None,
             assistant_message_event: json!({"type": "text_end", "contentIndex": 0, "content": "Hello world"}),
             usage: None,
@@ -1144,8 +1138,8 @@ mod tests {
     #[test]
     fn message_end_is_authoritative_and_splits_thinking() {
         let mut a = Assembler::default();
-        a.apply(&delta(0, "partial that is wrong"));
-        a.apply(&Event::MessageEnd {
+        a.reduce_event(&delta(0, "partial that is wrong"));
+        a.reduce_event(&Event::MessageEnd {
             message: json!({
                 "role": "assistant",
                 "content": [
@@ -1174,20 +1168,20 @@ mod tests {
     #[test]
     fn trailing_delta_after_message_end_is_ignored_until_next_message_start() {
         let mut a = Assembler::default();
-        a.apply(&Event::MessageStart { message: json!({}) });
-        a.apply(&delta(0, "partial"));
-        a.apply(&Event::MessageEnd {
+        a.reduce_event(&Event::MessageStart { message: json!({}) });
+        a.reduce_event(&delta(0, "partial"));
+        a.reduce_event(&Event::MessageEnd {
             message: json!({
                 "role": "assistant",
                 "content": [{"type": "text", "text": "final"}]
             }),
         });
         // A stray delta after the authoritative end cannot corrupt the text.
-        assert!(!a.apply(&delta(0, " CORRUPT")));
+        assert!(!a.reduce_event(&delta(0, " CORRUPT")));
         assert_eq!(texts(&a), vec![(0, "final".to_string())]);
         // The next message start re-opens assembly; earlier rows are kept.
-        assert!(a.apply(&Event::MessageStart { message: json!({}) }));
-        assert!(a.apply(&delta(0, "second")));
+        assert!(a.reduce_event(&Event::MessageStart { message: json!({}) }));
+        assert!(a.reduce_event(&delta(0, "second")));
         assert_eq!(
             texts(&a),
             vec![(0, "final".to_string()), (0, "second".to_string())]
@@ -1199,12 +1193,12 @@ mod tests {
     #[test]
     fn usage_is_replaced_not_accumulated() {
         let mut a = Assembler::default();
-        a.apply(&Event::MessageUpdate {
+        a.reduce_event(&Event::MessageUpdate {
             message: None,
             assistant_message_event: json!({"type": "text_delta", "contentIndex": 0, "delta": "x"}),
             usage: Some(json!({"input": 10, "output": 2, "cost": {"total": 0.01}})),
         });
-        a.apply(&Event::MessageUpdate {
+        a.reduce_event(&Event::MessageUpdate {
             message: None,
             assistant_message_event: json!({"type": "text_delta", "contentIndex": 0, "delta": "y"}),
             usage: Some(json!({"input": 10, "output": 5, "cost": {"total": 0.02}})),
@@ -1219,9 +1213,9 @@ mod tests {
     #[test]
     fn settled_clears_streaming_but_agent_end_does_not() {
         let mut a = Assembler::default();
-        a.apply(&Event::AgentStart);
+        a.reduce_event(&Event::AgentStart);
         assert!(a.status().is_streaming());
-        a.apply(&Event::AgentEnd {
+        a.reduce_event(&Event::AgentEnd {
             messages: vec![],
             will_retry: Some(true),
         });
@@ -1231,7 +1225,7 @@ mod tests {
             "agent_end may still be retried"
         );
         assert_eq!(a.will_retry(), Some(true));
-        assert!(a.apply(&Event::AgentSettled));
+        assert!(a.reduce_event(&Event::AgentSettled));
         assert_eq!(a.status(), StreamStatus::Settled);
     }
 
@@ -1239,7 +1233,7 @@ mod tests {
     fn live_text_is_bounded() {
         let mut a = Assembler::default();
         for _ in 0..(MAX_LIVE_TEXT / 10 + 2) {
-            a.apply(&delta(0, "0123456789"));
+            a.reduce_event(&delta(0, "0123456789"));
         }
         let body = a.rows()[0].kind.as_text().unwrap();
         assert!(body.truncated);
@@ -1256,7 +1250,7 @@ mod tests {
         }))
         .unwrap();
         let mut a = Assembler::default();
-        assert!(a.apply(&event));
+        assert!(a.reduce_event(&event));
         assert_eq!(texts(&a), vec![(0, "hi".to_string())]);
     }
 
@@ -1267,7 +1261,7 @@ mod tests {
         let owner = leptos::prelude::Owner::new();
         owner.set();
         let state = ChatState::new();
-        assert!(state.apply(&ServerMessage::CommandResponse {
+        assert!(state.reduce_transcript(&ServerMessage::CommandResponse {
             id: None,
             command: "prompt".into(),
             success: false,
@@ -1282,10 +1276,10 @@ mod tests {
     #[test]
     fn rows_are_append_only_across_turns() {
         let mut a = Assembler::default();
-        a.apply(&Event::MessageStart { message: json!({}) });
-        a.apply(&delta(0, "first"));
-        a.apply(&Event::MessageStart { message: json!({}) });
-        a.apply(&delta(0, "second"));
+        a.reduce_event(&Event::MessageStart { message: json!({}) });
+        a.reduce_event(&delta(0, "first"));
+        a.reduce_event(&Event::MessageStart { message: json!({}) });
+        a.reduce_event(&delta(0, "second"));
         assert_eq!(texts(&a).len(), 2);
     }
 
@@ -1293,13 +1287,13 @@ mod tests {
     #[test]
     fn row_ids_are_monotonic_and_unique() {
         let mut a = Assembler::default();
-        a.apply(&Event::AgentStart);
-        a.apply(&delta(0, "x"));
-        a.apply(&Event::TurnEnd {
+        a.reduce_event(&Event::AgentStart);
+        a.reduce_event(&delta(0, "x"));
+        a.reduce_event(&Event::TurnEnd {
             message: json!({}),
             tool_results: vec![],
         });
-        a.apply(&Event::ToolExecutionStart {
+        a.reduce_event(&Event::ToolExecutionStart {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             args: json!({}),
@@ -1336,7 +1330,7 @@ mod tests {
         let run = || {
             let mut a = Assembler::default();
             for event in &events {
-                a.apply(event);
+                a.reduce_event(event);
             }
             a.rows().to_vec()
         };
@@ -1359,18 +1353,18 @@ mod tests {
     #[test]
     fn tool_update_replaces_snapshot_never_appends() {
         let mut a = Assembler::default();
-        a.apply(&Event::ToolExecutionStart {
+        a.reduce_event(&Event::ToolExecutionStart {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             args: json!({}),
         });
-        a.apply(&Event::ToolExecutionUpdate {
+        a.reduce_event(&Event::ToolExecutionUpdate {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             args: json!({}),
             partial_result: json!({"content": [{"type": "text", "text": "par"}]}),
         });
-        a.apply(&Event::ToolExecutionUpdate {
+        a.reduce_event(&Event::ToolExecutionUpdate {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             args: json!({}),
@@ -1388,12 +1382,12 @@ mod tests {
     #[test]
     fn tool_end_marks_done_or_error() {
         let mut a = Assembler::default();
-        a.apply(&Event::ToolExecutionStart {
+        a.reduce_event(&Event::ToolExecutionStart {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             args: json!({}),
         });
-        a.apply(&Event::ToolExecutionEnd {
+        a.reduce_event(&Event::ToolExecutionEnd {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             result: json!({"content": [{"type": "text", "text": "total 48"}]}),
@@ -1404,12 +1398,12 @@ mod tests {
         assert_eq!(card.status, ToolStatus::Done);
 
         let mut b = Assembler::default();
-        b.apply(&Event::ToolExecutionStart {
+        b.reduce_event(&Event::ToolExecutionStart {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             args: json!({}),
         });
-        b.apply(&Event::ToolExecutionEnd {
+        b.reduce_event(&Event::ToolExecutionEnd {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             result: json!({"content": [{"type": "text", "text": "boom"}]}),
@@ -1425,20 +1419,20 @@ mod tests {
     #[test]
     fn tool_events_become_rows_between_text() {
         let mut a = Assembler::default();
-        a.apply(&delta(0, "before"));
-        a.apply(&Event::ToolExecutionStart {
+        a.reduce_event(&delta(0, "before"));
+        a.reduce_event(&Event::ToolExecutionStart {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             args: json!({}),
         });
-        a.apply(&Event::ToolExecutionEnd {
+        a.reduce_event(&Event::ToolExecutionEnd {
             tool_call_id: "c".into(),
             tool_name: "bash".into(),
             result: json!({"content": []}),
             is_error: false,
         });
-        a.apply(&Event::MessageStart { message: json!({}) });
-        a.apply(&delta(0, "after"));
+        a.reduce_event(&Event::MessageStart { message: json!({}) });
+        a.reduce_event(&delta(0, "after"));
         let kinds: Vec<&str> = a
             .rows()
             .iter()
@@ -1458,7 +1452,7 @@ mod tests {
         let owner = leptos::prelude::Owner::new();
         owner.set();
         let state = ChatState::new();
-        state.apply(&ServerMessage::Event {
+        state.reduce_transcript(&ServerMessage::Event {
             event: Event::BashExecutionUpdate {
                 id: Some("b1".into()),
                 delta: Some("out\n".into()),
@@ -1472,13 +1466,13 @@ mod tests {
     #[test]
     fn turn_and_run_boundaries_emit_markers() {
         let mut a = Assembler::default();
-        a.apply(&Event::AgentStart);
-        a.apply(&Event::TurnStart);
-        a.apply(&Event::TurnEnd {
+        a.reduce_event(&Event::AgentStart);
+        a.reduce_event(&Event::TurnStart);
+        a.reduce_event(&Event::TurnEnd {
             message: json!({}),
             tool_results: vec![],
         });
-        a.apply(&Event::AgentEnd {
+        a.reduce_event(&Event::AgentEnd {
             messages: vec![],
             will_retry: None,
         });
@@ -1505,9 +1499,9 @@ mod tests {
     #[test]
     fn markers_interleave_chronologically() {
         let mut a = Assembler::default();
-        a.apply(&Event::AgentStart);
-        a.apply(&delta(0, "x"));
-        a.apply(&Event::TurnEnd {
+        a.reduce_event(&Event::AgentStart);
+        a.reduce_event(&delta(0, "x"));
+        a.reduce_event(&Event::TurnEnd {
             message: json!({}),
             tool_results: vec![],
         });
@@ -1530,14 +1524,14 @@ mod tests {
     #[test]
     fn extension_error_before_message_end_keeps_chronology() {
         let mut a = Assembler::default();
-        a.apply(&Event::MessageStart { message: json!({}) });
-        a.apply(&delta(0, "streaming"));
-        a.apply(&Event::ExtensionError {
+        a.reduce_event(&Event::MessageStart { message: json!({}) });
+        a.reduce_event(&delta(0, "streaming"));
+        a.reduce_event(&Event::ExtensionError {
             extension_path: "/e.ts".into(),
             event: "tool_call".into(),
             error: "boom".into(),
         });
-        a.apply(&Event::MessageEnd {
+        a.reduce_event(&Event::MessageEnd {
             message: json!({
                 "role": "assistant",
                 "content": [{"type": "text", "text": "final"}]
@@ -1561,13 +1555,13 @@ mod tests {
     #[test]
     fn extension_error_is_a_row_and_stream_continues() {
         let mut a = Assembler::default();
-        a.apply(&Event::ExtensionError {
+        a.reduce_event(&Event::ExtensionError {
             extension_path: "/e.ts".into(),
             event: "tool_call".into(),
             error: "boom".into(),
         });
         assert!(matches!(a.rows()[0].kind, RowKind::ExtensionError(_)));
-        assert!(a.apply(&delta(0, "still alive")));
+        assert!(a.reduce_event(&delta(0, "still alive")));
         assert_eq!(a.rows().len(), 2);
     }
 
@@ -1575,7 +1569,7 @@ mod tests {
     #[test]
     fn empty_agent_end_still_marks_boundary() {
         let mut a = Assembler::default();
-        a.apply(&Event::AgentEnd {
+        a.reduce_event(&Event::AgentEnd {
             messages: vec![],
             will_retry: None,
         });
@@ -1637,17 +1631,17 @@ mod tests {
         let owner = leptos::prelude::Owner::new();
         owner.set();
         let state = ChatState::new();
-        state.apply(&ServerMessage::SessionReplay {
+        state.reduce_transcript(&ServerMessage::SessionReplay {
             id: None,
             session_id: "s".into(),
             entries: vec![json!({"id": "u1", "message": {"role": "user", "content": "hi"}})],
             done: false,
         });
         assert_eq!(state.rows.get().len(), 1);
-        state.apply(&ServerMessage::Event {
+        state.reduce_transcript(&ServerMessage::Event {
             event: Event::MessageStart { message: json!({}) },
         });
-        state.apply(&ServerMessage::Event {
+        state.reduce_transcript(&ServerMessage::Event {
             event: delta(0, "live"),
         });
         assert_eq!(state.rows.get().len(), 2);
@@ -1670,12 +1664,12 @@ mod tests {
         ]);
 
         let mut live = Assembler::default();
-        live.apply(&Event::ToolExecutionStart {
+        live.reduce_event(&Event::ToolExecutionStart {
             tool_call_id: "call_1".into(),
             tool_name: "bash".into(),
             args: json!({"command": "ls"}),
         });
-        live.apply(&Event::ToolExecutionEnd {
+        live.reduce_event(&Event::ToolExecutionEnd {
             tool_call_id: "call_1".into(),
             tool_name: "bash".into(),
             result: json!({"content": [{"type": "text", "text": "total 48"}]}),

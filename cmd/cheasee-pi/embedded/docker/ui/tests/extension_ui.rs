@@ -20,6 +20,7 @@ use std::time::Duration;
 use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage};
 use cheasee_pi_ui::controls::ControlsState;
 use cheasee_pi_ui::extension_ui::{ExtensionUiState, PendingDialog};
+use cheasee_pi_ui::frame::UiSlice;
 use cheasee_pi_ui::protocol::{ExtensionUI, ExtensionUiRequest};
 use cheasee_pi_ui::rpc::framing::{encode_record, JsonlReader};
 use cheasee_pi_ui::rpc::RpcClient;
@@ -482,10 +483,10 @@ fn extension_ui_notify_appends_toast_and_defaults_type() {
     let _owner = owner();
     let (_controls, state) = state_with_draft();
 
-    assert!(state.apply(&ServerMessage::ExtensionUi {
+    assert!(state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("t1", "notify", json!({"message": "blocked", "notifyType": "warning"}))).unwrap()
     }));
-    assert!(state.apply(&ServerMessage::ExtensionUi {
+    assert!(state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("t2", "notify", json!({"message": "plain"}))).unwrap()
     }));
 
@@ -502,7 +503,7 @@ fn extension_ui_dismiss_toast_removes_only_that_toast() {
     let (_controls, state) = state_with_draft();
 
     for (id, message) in [("t1", "one"), ("t2", "two")] {
-        state.apply(&ServerMessage::ExtensionUi {
+        state.reduce_chrome(&ServerMessage::ExtensionUi {
             request: serde_json::from_value(request(id, "notify", json!({"message": message}))).unwrap(),
         });
     }
@@ -517,12 +518,12 @@ fn extension_ui_set_status_replaces_same_key() {
     let _owner = owner();
     let (_controls, state) = state_with_draft();
 
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("s1", "setStatus", json!({"statusKey": "my-ext", "statusText": "Turn 3 running..."}))).unwrap(),
     });
     assert_eq!(state.statuses.get().get("my-ext").map(String::as_str), Some("Turn 3 running..."));
 
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("s2", "setStatus", json!({"statusKey": "my-ext", "statusText": "idle"}))).unwrap(),
     });
     assert_eq!(state.statuses.get().get("my-ext").map(String::as_str), Some("idle"));
@@ -533,7 +534,7 @@ fn extension_ui_set_widget_stores_lines_and_placement() {
     let _owner = owner();
     let (_controls, state) = state_with_draft();
 
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("w1", "setWidget", json!({"widgetKey": "w", "widgetLines": ["a"], "widgetPlacement": "aboveEditor"}))).unwrap(),
     });
     let widgets = state.widgets.get();
@@ -547,7 +548,7 @@ fn extension_ui_set_title_stores_title() {
     let _owner = owner();
     let (_controls, state) = state_with_draft();
 
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("title", "setTitle", json!({"title": "New title"}))).unwrap(),
     });
     assert_eq!(state.title.get(), Some("New title".to_string()));
@@ -558,13 +559,13 @@ fn extension_ui_set_editor_text_writes_draft_and_is_case_sensitive() {
     let _owner = owner();
     let (controls, state) = state_with_draft();
 
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("d1", "set_editor_text", json!({"text": "draft"}))).unwrap(),
     });
     assert_eq!(controls.draft.get(), "draft");
 
     // Wrong case: exact-match dispatch must ignore it, leaving the draft alone.
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("d2", "setEditorText", json!({"text": "clobbered"}))).unwrap(),
     });
     assert_eq!(controls.draft.get(), "draft");
@@ -576,7 +577,7 @@ fn extension_ui_tui_only_methods_are_ignored() {
     let (controls, state) = state_with_draft();
 
     for method in ["custom", "setFooter", "setHeader"] {
-        let changed = state.apply(&ServerMessage::ExtensionUi {
+        let changed = state.reduce_chrome(&ServerMessage::ExtensionUi {
             request: serde_json::from_value(request("x", method, json!({"text": "ignored"}))).unwrap(),
         });
         assert!(!changed, "{method} must be a no-op");
@@ -594,12 +595,12 @@ fn extension_ui_ingest_frame_decodes_and_ignores_malformed() {
     let _owner = owner();
     let (_controls, state) = state_with_draft();
 
-    assert!(state.ingest_frame(
+    assert!(UiSlice::Chrome(&state).ingest_frame(
         r#"{"type":"extension_ui","request":{"type":"extension_ui_request","id":"f1","method":"confirm","title":"Go?"}}"#
     ));
     assert_eq!(state.dialog.get().map(|d| d.id), Some("f1".to_string()));
 
-    assert!(!state.ingest_frame("not json"), "a malformed frame must not panic");
+    assert!(!UiSlice::Chrome(&state).ingest_frame("not json"), "a malformed frame must not panic");
 }
 
 // ── Phase 5: user journey ───────────────────────────────────────────────────
@@ -615,7 +616,7 @@ async fn extension_ui_operator_journey_confirm() {
     // pi asks a blocking question; the browser shows it.
     write_record(&mut to_child, request("c1", "confirm", json!({"title": "Allow?"}))).await;
     let message = next_message(&mut received).await;
-    assert!(state.apply(&message));
+    assert!(state.reduce_chrome(&message));
     assert_eq!(state.dialog.get().unwrap().id, "c1");
     assert_eq!(session.pending_dialog().map(|r| r.id), Some("c1".to_string()));
 
@@ -655,7 +656,7 @@ async fn extension_ui_operator_mixed_chrome_journey() {
     ] {
         write_record(&mut to_child, raw).await;
         let message = next_message(&mut received).await;
-        assert!(state.apply(&message));
+        assert!(state.reduce_chrome(&message));
     }
 
     assert_eq!(controls.draft.get(), "draft");
@@ -726,18 +727,18 @@ fn extension_ui_missing_required_fields_do_not_clear_unrelated_state() {
     let _owner = owner();
     let (_controls, state) = state_with_draft();
 
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("s1", "setStatus", json!({"statusKey": "k", "statusText": "live"}))).unwrap(),
     });
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("w1", "setWidget", json!({"widgetKey": "w", "widgetLines": ["a"], "widgetPlacement": "aboveEditor"}))).unwrap(),
     });
 
     // A malformed sibling must be ignored, not wipe the stored chrome.
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("s2", "setStatus", json!({"statusKey": "k"}))).unwrap(),
     });
-    state.apply(&ServerMessage::ExtensionUi {
+    state.reduce_chrome(&ServerMessage::ExtensionUi {
         request: serde_json::from_value(request("w2", "setWidget", json!({"widgetKey": "w"}))).unwrap(),
     });
 

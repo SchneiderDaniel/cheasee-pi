@@ -97,7 +97,7 @@ impl CompactionState {
     }
 }
 
-/// The control-plane signals the panels read and [`ControlsState::apply`] writes.
+/// The control-plane signals the panels read and [`ControlsState::reduce_controls`] writes.
 #[derive(Clone, Copy)]
 pub struct ControlsState {
     /// The full pending queue, replaced wholesale on every `queue_update`.
@@ -165,7 +165,7 @@ impl ControlsState {
     }
 
     /// Reduce one server message. Returns whether anything visible changed.
-    pub fn apply(&self, message: &ServerMessage) -> bool {
+    pub fn reduce_controls(&self, message: &ServerMessage) -> bool {
         match message {
             ServerMessage::Event { event } => self.apply_event(event),
             ServerMessage::CommandResponse {
@@ -195,15 +195,6 @@ impl ControlsState {
             },
             // Notices and lag are the transcript's concern.
             _ => false,
-        }
-    }
-
-    /// Decode and reduce one WS frame. A malformed frame is left to
-    /// `ChatState` (which surfaces it); it must not blank the control panel.
-    pub fn ingest_frame(&self, text: &str) -> bool {
-        match serde_json::from_str::<ServerMessage>(text) {
-            Ok(message) => self.apply(&message),
-            Err(_) => false,
         }
     }
 
@@ -501,7 +492,7 @@ mod tests {
     #[test]
     fn controls_available_models_populate_the_picker() {
         let c = controls();
-        assert!(c.apply(&ok(
+        assert!(c.reduce_controls(&ok(
             "get_available_models",
             json!({"models": [
                 {"id": "claude", "name": "Claude", "provider": "anthropic", "reasoning": true},
@@ -516,7 +507,7 @@ mod tests {
     #[test]
     fn controls_thinking_levels_include_the_off_case() {
         let c = controls();
-        assert!(c.apply(&ok(
+        assert!(c.reduce_controls(&ok(
             "get_available_thinking_levels",
             json!({"levels": ["off"]}),
         )));
@@ -527,7 +518,7 @@ mod tests {
     #[test]
     fn controls_stats_keep_the_unknown_context_state() {
         let c = controls();
-        c.apply(&ok(
+        c.reduce_controls(&ok(
             "get_session_stats",
             json!({
                 "sessionId": "s",
@@ -543,7 +534,7 @@ mod tests {
         assert_eq!(usage.percent, None, "unknown percent is null, not zero");
         assert_eq!(usage.tokens, None);
 
-        c.apply(&ok(
+        c.reduce_controls(&ok(
             "get_session_stats",
             json!({"contextUsage": {"tokens": 0, "contextWindow": 200000, "percent": 0}}),
         ));
@@ -552,7 +543,7 @@ mod tests {
             Some(0.0)
         );
 
-        c.apply(&ok(
+        c.reduce_controls(&ok(
             "get_session_stats",
             json!({"contextUsage": {"tokens": 200000, "contextWindow": 200000, "percent": 100}}),
         ));
@@ -566,21 +557,21 @@ mod tests {
     #[test]
     fn controls_queue_update_replaces_not_appends() {
         let c = controls();
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::QueueUpdate {
                 steering: vec!["a".into()],
                 follow_up: vec!["b".into()],
             },
         });
         assert_eq!(c.queue.get().steering, vec!["a".to_string()]);
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::QueueUpdate {
                 steering: vec!["c".into()],
                 follow_up: vec![],
             },
         });
         assert_eq!(c.queue.get().steering, vec!["c".to_string()]);
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::QueueUpdate {
                 steering: vec![],
                 follow_up: vec![],
@@ -597,7 +588,7 @@ mod tests {
             steering: vec!["one".into()],
             follow_up: vec!["two".into()],
         });
-        assert!(c.apply(&ok(
+        assert!(c.reduce_controls(&ok(
             "clear_queue",
             json!({"steering": ["one"], "followUp": ["two"]}),
         )));
@@ -609,7 +600,7 @@ mod tests {
     #[test]
     fn controls_thinking_level_changed_updates_without_polling() {
         let c = controls();
-        assert!(c.apply(&ServerMessage::Event {
+        assert!(c.reduce_controls(&ServerMessage::Event {
             event: Event::ThinkingLevelChanged {
                 level: "high".into(),
             },
@@ -622,7 +613,7 @@ mod tests {
     fn controls_retry_banner_tracks_auto_retry_events() {
         let c = controls();
         assert_eq!(c.auto_retry.get(), None, "indeterminate until set");
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::AutoRetryStart {
                 attempt: 1,
                 max_attempts: 3,
@@ -636,7 +627,7 @@ mod tests {
         assert_eq!(banner.delay_ms, 2000);
         assert_eq!(banner.error_message, "529");
 
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::AutoRetryEnd {
                 success: true,
                 attempt: 2,
@@ -650,11 +641,11 @@ mod tests {
     #[test]
     fn controls_failed_set_model_leaves_selection_unchanged() {
         let c = controls();
-        c.apply(&ok(
+        c.reduce_controls(&ok(
             "set_model",
             json!({"id": "old", "name": "Old", "provider": "p"}),
         ));
-        assert!(c.apply(&failed("set_model", "Model not found: p/new")));
+        assert!(c.reduce_controls(&failed("set_model", "Model not found: p/new")));
         assert_eq!(c.model.get().unwrap().id, "old");
         assert!(c.notice.get().unwrap().contains("Model not found"));
     }
@@ -663,8 +654,8 @@ mod tests {
     #[test]
     fn controls_null_cycle_is_a_noop() {
         let c = controls();
-        assert!(!c.apply(&ok("cycle_model", Value::Null)));
-        assert!(!c.apply(&ok("cycle_thinking_level", Value::Null)));
+        assert!(!c.reduce_controls(&ok("cycle_model", Value::Null)));
+        assert!(!c.reduce_controls(&ok("cycle_thinking_level", Value::Null)));
         assert!(c.model.get().is_none());
         assert!(c.notice.get().is_none());
     }
@@ -674,14 +665,14 @@ mod tests {
     fn controls_toggles_commit_on_success() {
         let c = controls();
         c.set_auto_compaction(true);
-        c.apply(&ok("set_auto_compaction", json!({})));
+        c.reduce_controls(&ok("set_auto_compaction", json!({})));
         assert_eq!(c.auto_compaction.get(), Some(true));
 
         c.set_auto_retry(false);
-        c.apply(&ok("set_auto_retry", json!({})));
+        c.reduce_controls(&ok("set_auto_retry", json!({})));
         assert_eq!(c.auto_retry.get(), Some(false));
 
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::AutoRetryStart {
                 attempt: 1,
                 max_attempts: 3,
@@ -689,7 +680,7 @@ mod tests {
                 error_message: "e".into(),
             },
         });
-        c.apply(&ok("abort_retry", json!({})));
+        c.reduce_controls(&ok("abort_retry", json!({})));
         assert!(c.retry.get().is_none());
     }
 
@@ -698,7 +689,7 @@ mod tests {
     fn controls_failed_toggle_does_not_commit() {
         let c = controls();
         c.set_auto_compaction(true);
-        c.apply(&failed("set_auto_compaction", "nope"));
+        c.reduce_controls(&failed("set_auto_compaction", "nope"));
         assert_eq!(c.auto_compaction.get(), None);
     }
 
@@ -706,21 +697,21 @@ mod tests {
     #[test]
     fn controls_bash_chunks_assemble_per_id() {
         let c = controls();
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::BashExecutionUpdate {
                 id: Some("b1".into()),
                 delta: Some("foo".into()),
                 extra: serde_json::Map::new(),
             },
         });
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::BashExecutionUpdate {
                 id: Some("b1".into()),
                 delta: Some("bar\n".into()),
                 extra: serde_json::Map::new(),
             },
         });
-        c.apply(&ServerMessage::Event {
+        c.reduce_controls(&ServerMessage::Event {
             event: Event::BashExecutionUpdate {
                 id: Some("b2".into()),
                 delta: Some("other\n".into()),
@@ -736,7 +727,7 @@ mod tests {
     #[test]
     fn controls_reports_a_rejected_command() {
         let c = controls();
-        assert!(c.apply(&failed("clear_queue", "Unknown command: clear_queue")));
+        assert!(c.reduce_controls(&failed("clear_queue", "Unknown command: clear_queue")));
         assert!(c
             .notice
             .get()

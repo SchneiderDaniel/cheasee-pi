@@ -380,17 +380,7 @@ mod tests {
 
     use tokio::io::AsyncBufReadExt;
 
-    fn unique_dir(tag: &str) -> PathBuf {
-        use std::sync::atomic::{AtomicUsize, Ordering};
-        static SEQ: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "cheasee-pi-process-test-{tag}-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
+    use crate::test_support::unique_temp_dir;
 
     /// Write an executable `pi` shim that prints the env the child actually
     /// received, then blocks on stdin until teardown.
@@ -469,7 +459,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_pipes_stdio_and_applies_env_allowlist() {
-        let dir = unique_dir("allowlist");
+        let dir = unique_temp_dir("cheasee-pi-process-test-allowlist");
         let spec = spec_for(&write_shim(&dir));
 
         let mut env = ChildEnv::none();
@@ -493,7 +483,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_env_clear_blocks_host_shell_env() {
-        let dir = unique_dir("env-clear");
+        let dir = unique_temp_dir("cheasee-pi-process-test-env-clear");
         let spec = spec_for(&write_shim(&dir));
 
         // Present in the server process; must not reach the child (AC2).
@@ -523,7 +513,7 @@ mod tests {
     /// dir pinned, so terminal and UI sessions share one flat `.pi/sessions`.
     #[tokio::test]
     async fn spawn_pins_workspace_cwd_and_session_dir() {
-        let dir = unique_dir("cwd");
+        let dir = unique_temp_dir("cheasee-pi-process-test-cwd");
         let spec = spec_for(&write_shim(&dir));
 
         let mut child = spawn(&spec, &ChildEnv::none(), "sess-cwd").unwrap();
@@ -574,7 +564,7 @@ mod tests {
 
     #[tokio::test]
     async fn child_without_provider_keys_still_spawns() {
-        let dir = unique_dir("no-keys");
+        let dir = unique_temp_dir("cheasee-pi-process-test-no-keys");
         let spec = spec_for(&write_shim(&dir));
 
         let env = ChildEnv::none();
@@ -591,7 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn stderr_is_drained_concurrently_and_never_parsed() {
-        let dir = unique_dir("stderr");
+        let dir = unique_temp_dir("cheasee-pi-process-test-stderr");
         let spec = spec_for(&write_shim(&dir));
 
         let mut child = spawn(&spec, &ChildEnv::none(), "sess-stderr").unwrap();
@@ -634,7 +624,7 @@ mod tests {
     /// AC4: stdout must have exactly one reader. `take_io` enforces it.
     #[tokio::test]
     async fn take_io_hands_pipes_over_exactly_once() {
-        let dir = unique_dir("take-io");
+        let dir = unique_temp_dir("cheasee-pi-process-test-take-io");
         let spec = spec_for(&write_shim(&dir));
         let mut child = spawn(&spec, &ChildEnv::none(), "sess-io").unwrap();
 
@@ -657,7 +647,7 @@ mod tests {
 
     #[tokio::test]
     async fn pid_registry_records_and_shuts_down_children() {
-        let dir = unique_dir("registry");
+        let dir = unique_temp_dir("cheasee-pi-process-test-registry");
         let spec = spec_for(&write_shim(&dir));
 
         let registry = PidRegistry::new();

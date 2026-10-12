@@ -248,19 +248,7 @@ pub fn load_child_env_from(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    static SEQ: AtomicUsize = AtomicUsize::new(0);
-
-    fn unique_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "cheasee-auth-test-{tag}-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
+    use crate::test_support::unique_temp_dir;
 
     fn write_auth(dir: &Path, body: &str) -> PathBuf {
         let path = dir.join("auth.json");
@@ -375,7 +363,7 @@ mod tests {
 
     #[test]
     fn missing_auth_file_reports_missing_source_and_no_keys() {
-        let home = unique_dir("missing");
+        let home = unique_temp_dir("cheasee-auth-test-missing");
         let env = load_child_env_from(Some(&home), None).unwrap();
         assert_eq!(env.source, AuthSource::Missing);
         assert!(!env.has_provider_keys);
@@ -392,7 +380,7 @@ mod tests {
 
     #[test]
     fn xdg_path_is_preferred_and_legacy_is_the_fallback() {
-        let home = unique_dir("paths");
+        let home = unique_temp_dir("cheasee-auth-test-paths");
         std::fs::create_dir_all(home.join(".pi/agent")).unwrap();
         write_auth(&home.join(".pi/agent"), r#"{"groq": {"key": "legacy"}}"#);
 
@@ -412,8 +400,8 @@ mod tests {
 
     #[test]
     fn explicit_override_path_wins_over_home_paths() {
-        let home = unique_dir("override-home");
-        let other = unique_dir("override-other");
+        let home = unique_temp_dir("cheasee-auth-test-override-home");
+        let other = unique_temp_dir("cheasee-auth-test-override-other");
         std::fs::create_dir_all(home.join(".config/cheasee-pi")).unwrap();
         write_auth(&home.join(".config/cheasee-pi"), r#"{"xai": {"key": "home"}}"#);
         let override_path = write_auth(&other, r#"{"together": {"key": "override"}}"#);

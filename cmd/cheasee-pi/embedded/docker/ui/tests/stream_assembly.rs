@@ -6,6 +6,7 @@
 //! filter reaches it (`cargo test --no-default-features --features ssr stream`).
 
 use cheasee_pi_ui::bridge::{ClientMessage, ServerMessage, StreamingBehavior};
+use cheasee_pi_ui::frame::UiSlice;
 use cheasee_pi_ui::protocol::{AssistantMessageEvent, Event};
 use cheasee_pi_ui::stream::{
     Assembler, ChatState, Marker, Row, RowKind, StreamStatus, MAX_LIVE_TEXT,
@@ -39,10 +40,10 @@ fn texts(rows: &[Row]) -> Vec<(u32, String)> {
 #[test]
 fn stream_assembles_text_deltas_in_order() {
     let mut assembler = Assembler::default();
-    assembler.apply(&Event::MessageStart { message: json!({}) });
-    assembler.apply(&delta(0, "Hello"));
-    assembler.apply(&delta(0, ", "));
-    assembler.apply(&delta(0, "world"));
+    assembler.reduce_event(&Event::MessageStart { message: json!({}) });
+    assembler.reduce_event(&delta(0, "Hello"));
+    assembler.reduce_event(&delta(0, ", "));
+    assembler.reduce_event(&delta(0, "world"));
 
     assert_eq!(
         texts(assembler.rows()),
@@ -56,11 +57,11 @@ fn stream_assembles_text_deltas_in_order() {
 #[test]
 fn stream_groups_blocks_by_content_index() {
     let mut assembler = Assembler::default();
-    assembler.apply(&delta(0, "answer"));
-    assembler.apply(&update(
+    assembler.reduce_event(&delta(0, "answer"));
+    assembler.reduce_event(&update(
         json!({"type": "thinking_delta", "contentIndex": 1, "delta": "hmm"}),
     ));
-    assembler.apply(&delta(0, "!"));
+    assembler.reduce_event(&delta(0, "!"));
 
     assert_eq!(
         texts(assembler.rows()),
@@ -74,9 +75,9 @@ fn stream_groups_blocks_by_content_index() {
 #[test]
 fn stream_end_events_are_authoritative() {
     let mut assembler = Assembler::default();
-    assembler.apply(&delta(0, "Hel"));
-    assembler.apply(&delta(0, "lo wr"));
-    assembler.apply(&update(
+    assembler.reduce_event(&delta(0, "Hel"));
+    assembler.reduce_event(&delta(0, "lo wr"));
+    assembler.reduce_event(&update(
         json!({"type": "text_end", "contentIndex": 0, "content": "Hello world"}),
     ));
     assert_eq!(
@@ -84,7 +85,7 @@ fn stream_end_events_are_authoritative() {
         vec![(0, "Hello world".to_string())]
     );
 
-    assembler.apply(&Event::MessageEnd {
+    assembler.reduce_event(&Event::MessageEnd {
         message: json!({
             "role": "assistant",
             "content": [
@@ -105,7 +106,7 @@ fn stream_end_events_are_authoritative() {
 fn stream_usage_replaces_not_accumulates() {
     let mut assembler = Assembler::default();
     for (output, cost) in [(2u64, 0.01f64), (5, 0.02)] {
-        assembler.apply(&Event::MessageUpdate {
+        assembler.reduce_event(&Event::MessageUpdate {
             message: None,
             assistant_message_event: json!({"type": "text_delta", "contentIndex": 0, "delta": "x"}),
             usage: Some(json!({"input": 10, "output": output, "cost": {"total": cost}})),
@@ -123,17 +124,17 @@ fn stream_usage_replaces_not_accumulates() {
 #[test]
 fn stream_settles_only_on_agent_settled() {
     let mut assembler = Assembler::default();
-    assembler.apply(&Event::AgentStart);
+    assembler.reduce_event(&Event::AgentStart);
     assert!(assembler.status().is_streaming());
 
-    assembler.apply(&Event::AgentEnd {
+    assembler.reduce_event(&Event::AgentEnd {
         messages: vec![],
         will_retry: Some(true),
     });
     assert_eq!(assembler.status(), StreamStatus::Streaming);
     assert_eq!(assembler.will_retry(), Some(true));
 
-    assembler.apply(&Event::AgentSettled);
+    assembler.reduce_event(&Event::AgentSettled);
     assert_eq!(assembler.status(), StreamStatus::Settled);
 }
 
@@ -141,7 +142,7 @@ fn stream_settles_only_on_agent_settled() {
 fn stream_bounds_the_live_text() {
     let mut assembler = Assembler::default();
     for _ in 0..(MAX_LIVE_TEXT / 10 + 2) {
-        assembler.apply(&delta(0, "0123456789"));
+        assembler.reduce_event(&delta(0, "0123456789"));
     }
     let body = assembler.rows()[0].kind.as_text().unwrap();
     assert!(body.truncated);
@@ -157,7 +158,7 @@ fn stream_decodes_a_delta_only_message_update() {
     }))
     .expect("delta-only record must decode");
     let mut assembler = Assembler::default();
-    assembler.apply(&event);
+    assembler.reduce_event(&event);
     assert_eq!(texts(assembler.rows()), vec![(0, "hi".to_string())]);
 }
 
@@ -217,14 +218,14 @@ fn stream_chat_state_surfaces_lag_and_rejection() {
     owner.set();
     let state = ChatState::new();
 
-    state.apply(&ServerMessage::Lagged {
+    state.reduce_transcript(&ServerMessage::Lagged {
         skipped: 5,
         resync_required: true,
     });
     assert_eq!(state.lagged.get(), 5);
     assert!(state.notice.get().unwrap().contains("5 events dropped"));
 
-    state.apply(&ServerMessage::CommandResponse {
+    state.reduce_transcript(&ServerMessage::CommandResponse {
         id: None,
         command: "prompt".into(),
         success: false,
@@ -243,7 +244,7 @@ fn stream_chat_state_flushes_frames_into_signals() {
     owner.set();
     let state = ChatState::new();
 
-    state.ingest_frame(
+    UiSlice::Transcript(&state).ingest_frame(
         &serde_json::to_string(&ServerMessage::Event {
             event: delta(0, "hello"),
         })
@@ -251,7 +252,7 @@ fn stream_chat_state_flushes_frames_into_signals() {
     );
     assert_eq!(texts(&state.rows.get()), vec![(0, "hello".to_string())]);
 
-    state.ingest_frame(
+    UiSlice::Transcript(&state).ingest_frame(
         &serde_json::to_string(&ServerMessage::Event {
             event: Event::AgentSettled,
         })
@@ -355,7 +356,7 @@ fn stream_control_events_do_not_touch_the_transcript() {
     let owner = Owner::new();
     owner.set();
     let state = ChatState::new();
-    state.apply(&ServerMessage::Event {
+    state.reduce_transcript(&ServerMessage::Event {
         event: Event::AgentStart,
     });
     let before = state.rows.get();
@@ -407,7 +408,7 @@ fn stream_control_events_do_not_touch_the_transcript() {
             level: "high".into(),
         },
     ] {
-        assert!(!state.apply(&ServerMessage::Event { event }));
+        assert!(!state.reduce_transcript(&ServerMessage::Event { event }));
     }
     assert_eq!(state.rows.get(), before);
     assert_eq!(state.status.get(), StreamStatus::Streaming);
@@ -503,7 +504,7 @@ fn stream_replay_entries_are_folded_and_deduplicated() {
         json!({"id": "u1", "message": {"role": "user", "content": "hello"}}),
         json!({"id": "a1", "message": {"role": "assistant", "content": [{"type": "text", "text": "hi there"}]}}),
     ];
-    assert!(state.apply(&ServerMessage::SessionReplay {
+    assert!(state.reduce_transcript(&ServerMessage::SessionReplay {
         id: None,
         session_id: "s".into(),
         entries: entries.clone(),
@@ -514,7 +515,7 @@ fn stream_replay_entries_are_folded_and_deduplicated() {
     assert_eq!(texts(&state.rows.get())[1], (0, "hi there".to_string()));
 
     // The same replay again is a no-op: dedupe is by stable entry id.
-    assert!(!state.apply(&ServerMessage::SessionReplay {
+    assert!(!state.reduce_transcript(&ServerMessage::SessionReplay {
         id: None,
         session_id: "s".into(),
         entries,
@@ -538,7 +539,7 @@ fn stream_replay_pairs_camel_case_tool_call_and_result() {
         json!({"id": "t1", "message": {"role": "toolResult", "toolCallId": "call_1",
             "toolName": "bash", "content": [{"type": "text", "text": "total 48"}], "isError": false}}),
     ];
-    state.apply(&ServerMessage::SessionReplay {
+    state.reduce_transcript(&ServerMessage::SessionReplay {
         id: None,
         session_id: "s".into(),
         entries,
@@ -569,7 +570,7 @@ fn stream_replay_error_result_keeps_error_status() {
         json!({"id": "t1", "message": {"role": "toolResult", "toolCallId": "call_1",
             "toolName": "bash", "content": [{"type": "text", "text": "command failed"}], "isError": true}}),
     ];
-    state.apply(&ServerMessage::SessionReplay {
+    state.reduce_transcript(&ServerMessage::SessionReplay {
         id: None,
         session_id: "s".into(),
         entries,
@@ -591,32 +592,32 @@ fn stream_tool_events_become_rows_between_text() {
     let state = ChatState::new();
     let event = |event| ServerMessage::Event { event };
 
-    state.apply(&event(delta(0, "before")));
-    state.apply(&event(Event::ToolExecutionStart {
+    state.reduce_transcript(&event(delta(0, "before")));
+    state.reduce_transcript(&event(Event::ToolExecutionStart {
         tool_call_id: "call_1".into(),
         tool_name: "bash".into(),
         args: json!({"command": "ls"}),
     }));
-    state.apply(&event(Event::ToolExecutionUpdate {
+    state.reduce_transcript(&event(Event::ToolExecutionUpdate {
         tool_call_id: "call_1".into(),
         tool_name: "bash".into(),
         args: json!({"command": "ls"}),
         partial_result: json!({"content": [{"type": "text", "text": "par"}]}),
     }));
-    state.apply(&event(Event::ToolExecutionUpdate {
+    state.reduce_transcript(&event(Event::ToolExecutionUpdate {
         tool_call_id: "call_1".into(),
         tool_name: "bash".into(),
         args: json!({"command": "ls"}),
         partial_result: json!({"content": [{"type": "text", "text": "partial"}]}),
     }));
-    state.apply(&event(Event::ToolExecutionEnd {
+    state.reduce_transcript(&event(Event::ToolExecutionEnd {
         tool_call_id: "call_1".into(),
         tool_name: "bash".into(),
         result: json!({"content": [{"type": "text", "text": "total 48"}]}),
         is_error: false,
     }));
-    state.apply(&event(Event::MessageStart { message: json!({}) }));
-    state.apply(&event(delta(0, "after")));
+    state.reduce_transcript(&event(Event::MessageStart { message: json!({}) }));
+    state.reduce_transcript(&event(delta(0, "after")));
 
     let rows = state.rows.get();
     let kinds: Vec<&str> = rows
@@ -638,9 +639,9 @@ fn stream_tool_events_become_rows_between_text() {
 #[test]
 fn stream_turns_emit_markers() {
     let mut assembler = Assembler::default();
-    assembler.apply(&Event::AgentStart);
-    assembler.apply(&Event::TurnStart);
-    assembler.apply(&Event::AgentEnd {
+    assembler.reduce_event(&Event::AgentStart);
+    assembler.reduce_event(&Event::TurnStart);
+    assembler.reduce_event(&Event::AgentEnd {
         messages: vec![],
         will_retry: None,
     });
@@ -664,13 +665,13 @@ fn stream_rows_render_history_then_live_in_one_key_space() {
     let owner = Owner::new();
     owner.set();
     let state = ChatState::new();
-    state.apply(&ServerMessage::SessionReplay {
+    state.reduce_transcript(&ServerMessage::SessionReplay {
         id: None,
         session_id: "s".into(),
         entries: vec![json!({"id": "u1", "message": {"role": "user", "content": "hi"}})],
         done: false,
     });
-    state.apply(&ServerMessage::Event {
+    state.reduce_transcript(&ServerMessage::Event {
         event: delta(0, "live"),
     });
     let rows = state.rows.get();

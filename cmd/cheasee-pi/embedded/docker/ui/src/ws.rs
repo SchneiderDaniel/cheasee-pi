@@ -23,6 +23,7 @@ use crate::bridge::{ClientMessage, ServerMessage};
 use crate::components::session_list::SessionListState;
 use crate::controls::ControlsState;
 use crate::extension_ui::ExtensionUiState;
+use crate::frame::{decode_server_frame, UiSlice};
 use crate::retry::{deliver, send_status, wire, Adapter, SendOutcome, SessionEffect, Socket, Timer};
 use crate::stream::ChatState;
 
@@ -302,12 +303,26 @@ fn open(
             }
         },
         move |text| {
-            state.ingest_frame(&text);
-            controls.ingest_frame(&text);
-            extension_ui.ingest_frame(&text);
-            session_list.ingest_frame(&text);
-            if let Ok(message) = serde_json::from_str::<ServerMessage>(&text) {
-                handle_reconnect_frame(&message, set_status);
+            let slices = [
+                UiSlice::Transcript(&state),
+                UiSlice::Controls(&controls),
+                UiSlice::Chrome(&extension_ui),
+                UiSlice::Sessions(&session_list),
+            ];
+            match decode_server_frame(&text) {
+                Some(message) => {
+                    for slice in &slices {
+                        slice.reduce(&message);
+                    }
+                    handle_reconnect_frame(&message, set_status);
+                }
+                None => {
+                    // A malformed frame is surfaced once, by the transcript
+                    // slice; every other slice stays a silent no-op.
+                    if let Err(err) = serde_json::from_str::<ServerMessage>(&text) {
+                        state.note_malformed_frame(&err);
+                    }
+                }
             }
         },
         move || {

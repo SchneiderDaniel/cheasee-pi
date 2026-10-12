@@ -196,7 +196,7 @@ async fn controls_journey_queue_clear_and_abort() {
         json!({"type":"queue_update","steering":[],"followUp":["first","second"]}),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     assert_eq!(controls.queue.get().follow_up.len(), 2, "both prompts queued");
 
     // Clear queue: the removed text goes back to the editor.
@@ -210,7 +210,7 @@ async fn controls_journey_queue_clear_and_abort() {
         json!({"type":"response","command":"clear_queue","success":true,"id":frame["id"].as_str().unwrap(),"data":{"steering":[],"followUp":["first","second"]}}),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     assert!(controls.queue.get().is_empty(), "cleared queue is empty");
     assert_eq!(controls.draft.get(), "first\nsecond");
 
@@ -256,7 +256,7 @@ async fn controls_relay_surfaces_a_rejected_clear_queue() {
         }
         other => panic!("expected a command response, got {other:?}"),
     }
-    controls.apply(&message);
+    controls.reduce_controls(&message);
     assert!(controls
         .notice
         .get()
@@ -285,7 +285,7 @@ async fn controls_journey_model_picker() {
         json!({"type":"response","command":"get_available_models","success":true,"id":frame["id"].as_str().unwrap(),"data":{"models":[{"id":"claude","name":"Claude","provider":"anthropic","reasoning":true}]}}),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     assert_eq!(controls.models.get().len(), 1);
 
     command_tx
@@ -304,7 +304,7 @@ async fn controls_journey_model_picker() {
         json!({"type":"response","command":"set_model","success":true,"id":frame["id"].as_str().unwrap(),"data":{"id":"claude","name":"Claude","provider":"anthropic","reasoning":true}}),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     assert_eq!(controls.model.get().unwrap().id, "claude");
 
     // Quick toggle: an exhausted scoped cycle returns null and changes nothing.
@@ -318,7 +318,7 @@ async fn controls_journey_model_picker() {
         json!({"type":"response","command":"cycle_model","success":true,"id":frame["id"].as_str().unwrap(),"data":null}),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     assert_eq!(controls.model.get().unwrap().id, "claude");
     assert!(controls.notice.get().is_none());
 
@@ -370,7 +370,7 @@ async fn controls_journey_inline_shell_streams_by_id() {
     )
     .await;
     for _ in 0..3 {
-        controls.apply(&next_message(&mut received).await);
+        controls.reduce_controls(&next_message(&mut received).await);
     }
     let logs = controls.bash.get();
     assert_eq!(logs.get("b1").unwrap().lines(), &["hello"]);
@@ -431,7 +431,7 @@ async fn controls_journey_stats_and_retry_banner() {
         }),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     let stats = controls.stats.get().unwrap();
     assert_eq!(stats.tokens.total, 12);
     assert_eq!(stats.cost, 0.45);
@@ -442,7 +442,7 @@ async fn controls_journey_stats_and_retry_banner() {
         json!({"type":"auto_retry_start","attempt":1,"maxAttempts":3,"delayMs":2000,"errorMessage":"529"}),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     assert_eq!(controls.retry.get().unwrap().max_attempts, 3);
 
     write_record(
@@ -450,7 +450,7 @@ async fn controls_journey_stats_and_retry_banner() {
         json!({"type":"auto_retry_end","success":true,"attempt":2}),
     )
     .await;
-    controls.apply(&next_message(&mut received).await);
+    controls.reduce_controls(&next_message(&mut received).await);
     assert!(controls.retry.get().is_none());
 
     drop(command_tx);
@@ -642,8 +642,8 @@ async fn widgets_journey_tool_compaction_retry_in_one_session() {
             matches!(&message, ServerMessage::Event { .. }),
             "the relay forwards {event} as an event"
         );
-        chat.apply(&message);
-        controls.apply(&message);
+        chat.reduce_transcript(&message);
+        controls.reduce_controls(&message);
     }
     chat.flush_now();
 

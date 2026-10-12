@@ -100,7 +100,7 @@ impl ExtensionUiState {
     }
 
     /// Reduce one server message. Returns whether anything visible changed.
-    pub fn apply(&self, message: &ServerMessage) -> bool {
+    pub fn reduce_chrome(&self, message: &ServerMessage) -> bool {
         match message {
             ServerMessage::ExtensionUi { request } => self.apply_request(request),
             // AC3: the reconnect header re-shows the session's pending dialog,
@@ -110,15 +110,6 @@ impl ExtensionUiState {
                 None => false,
             },
             _ => false,
-        }
-    }
-
-    /// Decode and reduce one WS frame. A malformed frame is left to the
-    /// transcript state; it must not blank the chrome.
-    pub fn ingest_frame(&self, text: &str) -> bool {
-        match serde_json::from_str::<ServerMessage>(text) {
-            Ok(message) => self.apply(&message),
-            Err(_) => false,
         }
     }
 

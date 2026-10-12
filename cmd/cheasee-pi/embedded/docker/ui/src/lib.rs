@@ -10,10 +10,16 @@ pub mod bridge;
 pub mod components;
 pub mod controls;
 pub mod extension_ui;
+pub mod frame;
 pub mod protocol;
 pub mod retry;
 pub mod stream;
 pub mod tool_card;
+
+// Test-only fixtures (unique temp dirs). Gated so it is unreachable from any
+// production, hydrate, or wasm build.
+#[cfg(all(test, feature = "ssr"))]
+pub mod test_support;
 
 // Server-only (ssr): auth.json resolution and the spawned `pi` RPC child.
 // Gated on `ssr` because both use `tokio::process`/`std`, which the wasm32
