@@ -59,7 +59,7 @@ function rotatedJsonlPath(projectDir: string, index: number): string {
 const ARCHIVE_RE = /^qna_(\d+)\.jsonl$/;
 
 /**
- * Scan context dir for all qna_XXXX.jsonl archives, return sorted indices.
+ * Scan context dir for all qna_<NNNN>.jsonl archives, return sorted indices.
  * Returns empty array if dir doesn't exist.
  */
 function listArchiveIndices(projectDir: string): number[] {
