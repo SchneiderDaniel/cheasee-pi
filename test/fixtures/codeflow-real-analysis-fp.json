@@ -5,25 +5,25 @@
 		"snapshot": "git archive HEAD"
 	},
 	"stats": {
-		"files": 929,
-		"functions": 3564,
-		"connections": 3596,
+		"files": 931,
+		"functions": 3576,
+		"connections": 3607,
 		"dead": 44,
 		"patterns": 10,
 		"security": 9,
 		"duplicates": 9,
-		"violations": 358,
+		"violations": 363,
 		"skipped": 0,
-		"loc": 156133,
+		"loc": 156654,
 		"languages": [
 			{
 				"ext": "ts",
-				"lines": 61277,
+				"lines": 61348,
 				"pct": 39
 			},
 			{
 				"ext": "go",
-				"lines": 37056,
+				"lines": 37071,
 				"pct": 24
 			},
 			{
@@ -38,12 +38,12 @@
 			},
 			{
 				"ext": "json",
-				"lines": 12638,
+				"lines": 12858,
 				"pct": 8
 			},
 			{
 				"ext": "py",
-				"lines": 5639,
+				"lines": 5645,
 				"pct": 4
 			},
 			{
@@ -57,13 +57,13 @@
 				"pct": 1
 			},
 			{
-				"ext": "mjs",
-				"lines": 712,
-				"pct": 0
+				"ext": "js",
+				"lines": 844,
+				"pct": 1
 			},
 			{
-				"ext": "js",
-				"lines": 641,
+				"ext": "mjs",
+				"lines": 718,
 				"pct": 0
 			},
 			{
@@ -140,7 +140,7 @@
 		"parserModes": [
 			{
 				"mode": "heuristic-regex",
-				"files": 700
+				"files": 702
 			},
 			{
 				"mode": "text",
@@ -169,7 +169,7 @@
 			"title": "6 Similar Code Blocks"
 		},
 		{
-			"title": "358 Architecture Violations"
+			"title": "363 Architecture Violations"
 		},
 		{
 			"title": "193 High Complexity Files"
@@ -234,6 +234,12 @@
 			"title": "Command Execution",
 			"severity": "medium",
 			"path": ".pi/extensions/context-info/codeflow.ts",
+			"code": ""
+		},
+		{
+			"title": "Command Execution",
+			"severity": "medium",
+			"path": ".pi/extensions/lib/exec-env.ts",
 			"code": ""
 		},
 		{
@@ -517,6 +523,24 @@
 		{
 			"from": ".pi/extensions/lib/diagnostics-format.ts",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/exec-env.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/exec-env.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": ".pi/extensions/lib/exec-env.ts",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
 			"fromLayer": "utils",
 			"toLayer": "ui"
 		},
@@ -1296,12 +1320,6 @@
 		},
 		{
 			"from": ".pi/extensions/supervisor/github/gh-client.ts",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
-			"fromLayer": "utils",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/supervisor/github/gh-client.ts",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
 			"fromLayer": "utils",
 			"toLayer": "ui"
@@ -2063,6 +2081,24 @@
 			"toLayer": "ui"
 		},
 		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/tool_card.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
+			"from": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"fromLayer": "utils",
+			"toLayer": "ui"
+		},
+		{
 			"from": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
 			"fromLayer": "utils",
@@ -2441,6 +2477,184 @@
 			"toLayer": "ui"
 		}
 	],
+	"deadFunctions": [
+		{
+			"name": "askUser",
+			"file": ".pi/extensions/ask-user/index.ts"
+		},
+		{
+			"name": "setSupervisorIssueData",
+			"file": ".pi/extensions/context-info/index.ts"
+		},
+		{
+			"name": "clearSupervisorIssueData",
+			"file": ".pi/extensions/context-info/index.ts"
+		},
+		{
+			"name": "unlock",
+			"file": ".pi/extensions/lib/proper-lockfile-ambient.ts"
+		},
+		{
+			"name": "lockSync",
+			"file": ".pi/extensions/lib/proper-lockfile-ambient.ts"
+		},
+		{
+			"name": "unlockSync",
+			"file": ".pi/extensions/lib/proper-lockfile-ambient.ts"
+		},
+		{
+			"name": "checkSync",
+			"file": ".pi/extensions/lib/proper-lockfile-ambient.ts"
+		},
+		{
+			"name": "lspAuditor",
+			"file": ".pi/extensions/lsp-auditor/index.ts"
+		},
+		{
+			"name": "ponytailExtension",
+			"file": ".pi/extensions/ponytail/index.js"
+		},
+		{
+			"name": "ripgrepSearch",
+			"file": ".pi/extensions/ripgrep-search/index.ts"
+		},
+		{
+			"name": "searches",
+			"file": ".pi/extensions/ripgrep-search/internal.ts"
+		},
+		{
+			"name": "defaultIsWritable",
+			"file": ".pi/extensions/scrapling/browser-setup.ts"
+		},
+		{
+			"name": "structuralAnalyzer",
+			"file": ".pi/extensions/structural-analyzer/index.ts"
+		},
+		{
+			"name": "classifyKillReason",
+			"file": ".pi/extensions/supervisor/agent/runner/budget.ts"
+		},
+		{
+			"name": "renderWidgetFromDetails",
+			"file": ".pi/extensions/supervisor/session/widget.ts"
+		},
+		{
+			"name": "dumpContextExtension",
+			"file": ".pi/extensions/zzz-dump-context/index.ts"
+		},
+		{
+			"name": "setFetchFactory",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts"
+		},
+		{
+			"name": "setWriteFileFactory",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts"
+		},
+		{
+			"name": "resetReportCache",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts"
+		},
+		{
+			"name": "parseBestReport",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/report.ts"
+		},
+		{
+			"name": "dedupeIssues",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/report.ts"
+		},
+		{
+			"name": "reportUnparsedItems",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/report.ts"
+		},
+		{
+			"name": "reportSectionCoverage",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/report.ts"
+		},
+		{
+			"name": "classifyFinding",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/report.ts"
+		},
+		{
+			"name": "groupIssues",
+			"file": ".pi/skills/audit-codeflow-analysis/lib/report.ts"
+		},
+		{
+			"name": "opened",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "stable_elapsed",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "transport_closed",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "on_close",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "is_open",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "send_text",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "on_message",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "on_close",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "reconnect_delay",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs"
+		},
+		{
+			"name": "read_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs"
+		},
+		{
+			"name": "write_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs"
+		},
+		{
+			"name": "read_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs"
+		},
+		{
+			"name": "write_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs"
+		},
+		{
+			"name": "read_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs"
+		},
+		{
+			"name": "write_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs"
+		},
+		{
+			"name": "read_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs"
+		},
+		{
+			"name": "write_cursor",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs"
+		},
+		{
+			"name": "on_message",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs"
+		},
+		{
+			"name": "on_close",
+			"file": "cmd/cheasee-pi/embedded/docker/ui/src/ws.rs"
+		}
+	],
 	"connections": [],
 	"files": [
 		{
@@ -2749,6 +2963,14 @@
 		},
 		{
 			"path": ".pi/extensions/lib/ensureVenv.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/exec-env.test.ts",
+			"layer": "utils"
+		},
+		{
+			"path": ".pi/extensions/lib/exec-env.ts",
 			"layer": "utils"
 		},
 		{
