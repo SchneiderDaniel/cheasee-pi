@@ -32,12 +32,8 @@
  * wrapping is owned by the footer renderer.
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-import { fnv32, repoSlug, resolveWorkspaceRoot, validPort } from "./codeflow.ts";
+import { fnv32, readDockerPortSetting, repoSlug, resolveWorkspaceRoot, validPort } from "./codeflow.ts";
 
-/** Workspace marker — the "initialized" gate both CLI and extension share. */
-const SETTINGS_FILE = "cheasee-settings.json";
 /** Low end of the derived port range, must match uiPortBase (Go). */
 const UI_PORT_BASE = 9500;
 /** Span of the derived range, must match uiPortRange (Go). */
@@ -48,23 +44,6 @@ const UI_PORT_RANGE = 1024;
  *  replicated from inside the container (wrong loopback namespace). */
 export function uiPortFromSlug(slug: string): number {
 	return UI_PORT_BASE + (fnv32(slug) % UI_PORT_RANGE);
-}
-
-/** Reads docker.uiPort from the workspace settings; null when absent or
- *  malformed (fall through to derived, mirroring the CLI's error-ignored
- *  settings read). */
-function readSettingsUIPort(root: string): string | null {
-	try {
-		const parsed = JSON.parse(readFileSync(join(root, SETTINGS_FILE), "utf-8")) as {
-			docker?: { uiPort?: unknown };
-		};
-		const port = parsed?.docker?.uiPort;
-		// Invalid settings fall through to env/derivation; validPort blocks
-		// control-char payloads before they reach a URL/OSC 8 sequence.
-		return validPort(typeof port === "string" ? port : null);
-	} catch {
-		return null;
-	}
 }
 
 /**
@@ -88,7 +67,7 @@ export async function uiHostPort(cwd: string): Promise<string | null> {
 	// printed `ℹ UI:` hint uses the forwarded value. Settings/derived are the
 	// fallback for sessions started outside the CLI.
 	if (process.env.PI_UI_PORT !== undefined) return validPort(process.env.PI_UI_PORT);
-	const settings = readSettingsUIPort(root);
+	const settings = readDockerPortSetting(root, "uiPort");
 	if (settings !== null) return settings;
 	return String(uiPortFromSlug(await repoSlug(root)));
 }

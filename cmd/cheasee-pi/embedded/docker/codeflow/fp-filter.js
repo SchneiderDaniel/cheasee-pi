@@ -2,7 +2,7 @@
 //
 // Applied to the structured `data` the analyzer produced, *before* any report
 // artifact is built, so the health score, the markdown export, the JSON export
-// and the stats all agree. Four categories:
+// and the stats all agree. Five categories:
 //
 //   1. security findings that cite no real code — an empty or comment-only
 //      snippet, a string-literal type union, a value the environment resolves
@@ -17,7 +17,10 @@
 //      graph misses function-as-value references (`opts.fetchFn ?? defaultFetch`)
 //      and cross-file trait dispatch (`Socket::on_message` called in retry.rs),
 //      so a symbol that still appears call- or value-shaped outside its own
-//      definition is not dead.
+//      definition is not dead;
+//   5. aggregate code-clone groups whose `name` lists more than a small number
+//      of distinct member symbols — a genuine pairwise clone names one or two,
+//      while the dozen-member aggregates are repo-wide shape coincidences.
 //
 // Security suppression considers HIGH severity only: the LOW/MEDIUM shapes
 // (argv-array spawns) are left in the report for the audit skill to triage.
@@ -40,9 +43,11 @@
 
 	// A value read from the environment (or from the `gh` CLI's own hosts file)
 	// is not a hardcoded secret.
-	var ENV_READ = /\bprocess\.env\b|\benv::var\s*\(|\bstd::env::var\b|\bDeno\.env\b|\bimport\.meta\.env\b|\bos\.environ\b|\bgetenv\s*\(/;
+	var ENV_READ =
+		/\bprocess\.env\b|\benv::var\s*\(|\bstd::env::var\b|\bDeno\.env\b|\bimport\.meta\.env\b|\bos\.environ\b|\bgetenv\s*\(/;
 	// The env-var *name* passed to a lookup is not the flagged value.
-	var ENV_LOOKUP_ARG = /(?:env::var|std::env::var|getenv|environ(?:\.get)?)\s*\(\s*["'][^"']*["']\s*\)/g;
+	var ENV_LOOKUP_ARG =
+		/(?:env::var|std::env::var|getenv|environ(?:\.get)?)\s*\(\s*["'][^"']*["']\s*\)/g;
 	var ENV_HELPER_HINT = /hosts\.yml|\.config\/gh\b/;
 	// How far past a helper's definition head its body is scanned for an env
 	// read. shortcut: fixed window, not brace balancing — a helper whose env
@@ -71,10 +76,12 @@
 
 	// A snippet that carries nothing but comments cannot contain executable code.
 	function isCommentOnly(code) {
-		return code
-			.replace(/\/\*[\s\S]*?\*\//g, " ")
-			.replace(/\/\/[^\n]*/g, " ")
-			.trim() === "";
+		return (
+			code
+				.replace(/\/\*[\s\S]*?\*\//g, " ")
+				.replace(/\/\/[^\n]*/g, " ")
+				.trim() === ""
+		);
 	}
 
 	// `export type UsageColorToken = "success" | "warning" | "error";` declares
@@ -86,7 +93,7 @@
 				literal +
 				"(\\s*\\|\\s*" +
 				literal +
-				")+\\s*;?\\s*$"
+				")+\\s*;?\\s*$",
 		).test(code);
 	}
 
@@ -94,17 +101,18 @@
 	// Such a literal is the value that was flagged, so the finding stands even
 	// if the surrounding block reads the environment for something else.
 	function hasLiteralAssignment(code) {
-		var stripped = code
-			.replace(/`(?:[^`\\]|\\.)*`/g, "``")
-			.replace(ENV_LOOKUP_ARG, "envRef()");
+		var stripped = code.replace(/`(?:[^`\\]|\\.)*`/g, "``").replace(ENV_LOOKUP_ARG, "envRef()");
 		return /[=:(,]\s*["'][^"'\n]{4,}["']/.test(stripped);
 	}
 
 	// The definition head of a helper binding: a declaration or a const arrow.
 	function helperReadsEnv(name, content) {
 		var head = new RegExp(
-			"(?:function\\s+" + escapeRe(name) + "\\b|\\b" + escapeRe(name) +
-				"\\s*=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|\\b[A-Za-z_$][\\w$]*\\s*=>))"
+			"(?:function\\s+" +
+				escapeRe(name) +
+				"\\b|\\b" +
+				escapeRe(name) +
+				"\\s*=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|\\b[A-Za-z_$][\\w$]*\\s*=>))",
 		);
 		var m = head.exec(content);
 		if (!m) return false;
@@ -114,9 +122,9 @@
 
 	// `const ghToken = resolveGitHubToken();` — the value comes from a helper.
 	function bindingReadsEnv(name, content) {
-		var m = new RegExp(
-			"\\b(?:const|let|var)\\s+" + escapeRe(name) + "\\s*=\\s*([^;\\n]*)"
-		).exec(content);
+		var m = new RegExp("\\b(?:const|let|var)\\s+" + escapeRe(name) + "\\s*=\\s*([^;\\n]*)").exec(
+			content,
+		);
 		if (!m) return false;
 		var rhs = m[1];
 		if (ENV_READ.test(rhs)) return true;
@@ -191,7 +199,8 @@
 		var segments = path.split("/");
 		var last = segments.length - 1;
 		for (var i = 0; i < last; i++) {
-			if (segments[i] === "test" || segments[i] === "tests" || segments[i] === "__tests__") return true;
+			if (segments[i] === "test" || segments[i] === "tests" || segments[i] === "__tests__")
+				return true;
 		}
 		return TEST_FILE.test(segments[last]);
 	}
@@ -275,7 +284,8 @@
 		var toFile = index.byPath[to];
 		if (!fromFile || !toFile) return true;
 		if (violation.fromLayer !== fromFile.layer || violation.toLayer !== toFile.layer) return true;
-		if (!layerGroundsPath(violation.fromLayer, from) || !layerGroundsPath(violation.toLayer, to)) return true;
+		if (!layerGroundsPath(violation.fromLayer, from) || !layerGroundsPath(violation.toLayer, to))
+			return true;
 		return index.connections[from + "\u0000" + to] !== true;
 	}
 
@@ -329,11 +339,21 @@
 	function definitionHead(name, flags) {
 		var n = escapeRe(name);
 		return new RegExp(
-			"(?:function\\s+" + n + "\\b|\\bfn\\s+" + n + "\\b|\\bfunc\\s+(?:\\([^)\\n]*\\)\\s*)?" + n +
-				"\\b|\\bdef\\s+" + n +
-				"\\b|\\b" + n + "\\s*(?::[^=;\\n]*)?=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[\\w$]+\\s*=>)" +
-				"|(?:^|[;{}\\n])\\s*(?:[A-Za-z_$][\\w$]*\\s+)*\\*?\\b" + n + "\\b\\s*(?:<[^>\\n]*>)?\\([^)\\n]*\\)(?=\\s*[:{]))",
-			flags
+			"(?:function\\s+" +
+				n +
+				"\\b|\\bfn\\s+" +
+				n +
+				"\\b|\\bfunc\\s+(?:\\([^)\\n]*\\)\\s*)?" +
+				n +
+				"\\b|\\bdef\\s+" +
+				n +
+				"\\b|\\b" +
+				n +
+				"\\s*(?::[^=;\\n]*)?=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[\\w$]+\\s*=>)" +
+				"|(?:^|[;{}\\n])\\s*(?:[A-Za-z_$][\\w$]*\\s+)*\\*?\\b" +
+				n +
+				"\\b\\s*(?:<[^>\\n]*>)?\\([^)\\n]*\\)(?=\\s*[:{]))",
+			flags,
 		);
 	}
 
@@ -359,7 +379,8 @@
 			else if (ch === ")" && parens > 0) parens--;
 			else if (parens === 0 && ch === ";") return i + 1;
 			else if (parens === 0 && ch === "{") {
-				if (!/[:|&<,]\s*$|\b(?:extends|implements)\s+$/.test(content.slice(0, i))) return braceEnd(content, i);
+				if (!/[:|&<,]\s*$|\b(?:extends|implements)\s+$/.test(content.slice(0, i)))
+					return braceEnd(content, i);
 				i = braceEnd(content, i) - 1; // signature/type brace: keep scanning for the body
 			}
 		}
@@ -414,14 +435,16 @@
 	// text); upgrade this when the analyzer records call targets.
 	function buildReferenceIndex(data, readFile) {
 		var files = data && Array.isArray(data.files) ? data.files : [];
-		var cleaned = Object.create(null), complete = true;
+		var cleaned = Object.create(null),
+			complete = true;
 		for (var i = 0; i < files.length; i++) {
 			var path = files[i] && typeof files[i].path === "string" ? files[i].path : null;
 			var raw = path !== null && readFile ? readFile(path) : null;
 			if (typeof raw === "string") cleaned[path] = stripNoise(raw, path);
 			else complete = false;
 		}
-		var known = Object.create(null), defines = Object.create(null);
+		var known = Object.create(null),
+			defines = Object.create(null);
 		// shortcut: definition sites are matched textually, so a declaration form
 		// `definitionHead` misses reads as an extra owner and keeps the finding.
 		function definesLocally(name, file) {
@@ -462,7 +485,12 @@
 
 	// An entry that names no symbol or no file cannot be disproved, so it stays.
 	function isFalsePositiveUnusedFunction(finding, index) {
-		if (!finding || typeof finding !== "object" || typeof finding.name !== "string" || !finding.name) {
+		if (
+			!finding ||
+			typeof finding !== "object" ||
+			typeof finding.name !== "string" ||
+			!finding.name
+		) {
 			return false;
 		}
 		if (typeof finding.file !== "string" || !finding.file) return false;
@@ -487,24 +515,58 @@
 		var out = [];
 		for (var i = 0; i < issues.length; i++) {
 			var issue = issues[i];
-			var isDeadList = !!issue && typeof issue === "object" &&
-				/^\d+ Unused Functions$/.test(String(issue.title));
+			var isDeadList =
+				!!issue && typeof issue === "object" && /^\d+ Unused Functions$/.test(String(issue.title));
 			if (!isDeadList) {
 				out.push(issue);
 				continue;
 			}
 			if (Array.isArray(issue.items)) {
 				var kept = partitionDead(issue.items, index).kept;
-				if (kept.length) out.push(Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }));
+				if (kept.length)
+					out.push(
+						Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }),
+					);
 				continue;
 			}
 			// A count-only summary: the filtered list is the only honest source for
 			// it, so it restates the surviving count or goes with the list. With no
 			// reportable list the count is unknown, so it stands (fail open).
 			if (deadCount === null) out.push(issue);
-			else if (deadCount > 0) out.push(Object.assign({}, issue, { title: deadCount + " Unused Functions" }));
+			else if (deadCount > 0)
+				out.push(Object.assign({}, issue, { title: deadCount + " Unused Functions" }));
 		}
 		return out;
+	}
+
+	// --- duplicate code groups ------------------------------------------------
+
+	// A clone GROUP CodeFlow reports with `type:'code'`. A genuine pairwise clone
+	// names one or two symbols; the aggregates CodeFlow emits (dozens of members)
+	// are repo-wide shape coincidences that hide no actionable duplication.
+	var DUPLICATE_MEMBER_LIMIT = 2;
+
+	// Distinct comma-separated member names, or null when the name is unusable
+	// (unknown is never suppression evidence).
+	function distinctMembers(name) {
+		if (typeof name !== "string") return null;
+		var parts = name.split(",");
+		var seen = Object.create(null);
+		var count = 0;
+		for (var i = 0; i < parts.length; i++) {
+			var member = parts[i].trim();
+			if (member === "" || seen[member]) continue;
+			seen[member] = true;
+			count++;
+		}
+		return count;
+	}
+
+	/** True when an aggregate code-clone group must not be emitted. */
+	function isFalsePositiveDuplicate(dup) {
+		if (!dup || typeof dup !== "object" || dup.type !== "code") return false;
+		var members = distinctMembers(dup.name);
+		return members !== null && members > DUPLICATE_MEMBER_LIMIT;
 	}
 
 	// --- entry point ---------------------------------------------------------
@@ -534,12 +596,18 @@
 
 	/**
 	 * Filter `data.securityIssues` / `data.layerViolations` / the dead-function
-	 * lists in place-free fashion. Returns a new `data` object plus the findings
-	 * that were dropped, so a caller can report the suppression instead of
-	 * silently shrinking the report.
+	 * lists / `data.duplicates` in place-free fashion. Returns a new `data` object
+	 * plus the findings that were dropped, so a caller can report the suppression
+	 * instead of silently shrinking the report.
 	 */
 	function sanitizeAnalysisData(data, readFile) {
-		var suppressed = { security: [], layerViolations: [], hygiene: [], deadCode: [] };
+		var suppressed = {
+			security: [],
+			layerViolations: [],
+			hygiene: [],
+			deadCode: [],
+			duplicates: [],
+		};
 		if (!data || typeof data !== "object") return { data: data, suppressed: suppressed };
 
 		var out = {};
@@ -562,7 +630,8 @@
 			out.layerViolations = [];
 			for (var j = 0; j < data.layerViolations.length; j++) {
 				var violation = data.layerViolations[j];
-				if (isFalsePositiveLayerViolation(violation, index)) suppressed.layerViolations.push(violation);
+				if (isFalsePositiveLayerViolation(violation, index))
+					suppressed.layerViolations.push(violation);
 				else out.layerViolations.push(violation);
 			}
 		}
@@ -581,14 +650,45 @@
 				var partition = partitionDead(data[deadKeys[k]], referenceIndex);
 				out[deadKeys[k]] = partition.kept;
 				suppressed.deadCode = suppressed.deadCode.concat(partition.dropped);
-				if (deadKeys[k] === "deadFunctions" || deadCount === null) deadCount = partition.kept.length;
+				if (deadKeys[k] === "deadFunctions" || deadCount === null)
+					deadCount = partition.kept.length;
 			}
-			if (Array.isArray(data.issues)) out.issues = filterUnusedIssues(data.issues, referenceIndex, deadCount);
+			if (Array.isArray(data.issues))
+				out.issues = filterUnusedIssues(data.issues, referenceIndex, deadCount);
+		}
+
+		if (Array.isArray(data.duplicates)) {
+			out.duplicates = [];
+			for (var d = 0; d < data.duplicates.length; d++) {
+				var dup = data.duplicates[d];
+				if (isFalsePositiveDuplicate(dup)) suppressed.duplicates.push(dup);
+				else out.duplicates.push(dup);
+			}
+			// The aggregate "N Similar Code Blocks" item must name the surviving
+			// count, and disappear once no group survives; otherwise the report
+			// advertises groups the filter just dropped. The dead-function rewrite
+			// above may already have replaced `out.issues`.
+			var items = Array.isArray(out.issues) ? out.issues : data.issues;
+			if (Array.isArray(items)) {
+				out.issues = items
+					.map(function (item) {
+						if (!item || typeof item !== "object" || typeof item.title !== "string") return item;
+						if (!/^\d+ Similar Code Blocks$/.test(item.title)) return item;
+						if (out.duplicates.length === 0) return null;
+						return Object.assign({}, item, {
+							title: out.duplicates.length + " Similar Code Blocks",
+						});
+					})
+					.filter(function (item) {
+						return item !== null;
+					});
+			}
 		}
 
 		// `data.stats.security` / `data.stats.violations` are the same counts the
 		// report summary and the UI tab badge read, so they must move with the
 		// arrays or the report contradicts its own score ("9 high" under an A).
+		// `data.stats.duplicates` is the count the architecture item names.
 		if (data.stats && typeof data.stats === "object") {
 			var stats = (out.stats = Object.assign({}, data.stats));
 			if (typeof stats.security === "number" && Array.isArray(out.securityIssues)) {
@@ -598,6 +698,9 @@
 				stats.violations = out.layerViolations.length;
 			}
 			if (typeof stats.dead === "number" && deadCount !== null) stats.dead = deadCount;
+			if (typeof stats.duplicates === "number" && Array.isArray(out.duplicates)) {
+				stats.duplicates = out.duplicates.length;
+			}
 		}
 
 		return { data: out, suppressed: suppressed };
@@ -608,6 +711,7 @@
 		isFalsePositiveSecurity: isFalsePositiveSecurity,
 		isFalsePositiveLayerViolation: isFalsePositiveLayerViolation,
 		isFalsePositiveHygiene: isFalsePositiveHygiene,
+		isFalsePositiveDuplicate: isFalsePositiveDuplicate,
 		readFileFrom: readFileFrom,
 	};
 });

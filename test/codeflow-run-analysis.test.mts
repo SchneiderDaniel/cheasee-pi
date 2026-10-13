@@ -30,15 +30,13 @@ import { measureWorktree } from "./fixtures/long-file-mirror.mts";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const RUNNER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs");
 
-const ANALYZER_BLOCK = `
-// ===== CODEFLOW_ANALYZER_START =====
-const Parser = { functionKey: function (fn) { return fn.name; } };
-function buildAnalysisData(opts) { return { files: [], stats: {}, marker: "FIXTURE" }; }
-// ===== CODEFLOW_ANALYZER_END =====
-// ===== CODEFLOW_METRICS_START =====
-function calcHealth(data) { return { score: 100, grade: "A" }; }
-// ===== CODEFLOW_METRICS_END =====
-`;
+// The analyzer stand-in the fixture index.html embeds. Kept in a .txt fixture
+// so CodeFlow's analyzer does not parse `buildAnalysisData` / `calcHealth` as
+// production functions and flag them as cross-file duplicates.
+const ANALYZER_BLOCK = readFileSync(
+	resolve(HERE, "fixtures", "codeflow-analyzer-block.txt"),
+	"utf-8",
+);
 
 // generateReport mirrors the UI export seam: it builds a Blob and hands it to
 // URL.createObjectURL, which the runner stubs to capture the bytes.
@@ -46,7 +44,7 @@ function generateReportBody(emitJson = true, emitDead = false): string {
 	return `
 function generateReport(format) {
   if (format === "json"${emitJson ? "" : " && false"}) {
-    var blob = new Blob([JSON.stringify({ architectureIssues: data.architectureIssues || [], duplicates: [{ files: ["a", "b"] }], layerViolations: data.layerViolations || [{ from: "UI", to: "DB" }], suggestions: [{ text: "split" }], marker: data.marker, securityIssues: data.securityIssues || null${emitDead ? ", unusedFunctions: data.deadFunctions || null, stats: data.stats || null" : ""}})], { type: "application/json" });
+    var blob = new Blob([JSON.stringify({ architectureIssues: data.architectureIssues || [], duplicates: data.duplicates || [{ files: ["a", "b"] }], layerViolations: data.layerViolations || [{ from: "UI", to: "DB" }], suggestions: [{ text: "split" }], marker: data.marker, securityIssues: data.securityIssues || null${emitDead ? ", unusedFunctions: data.deadFunctions || null, stats: data.stats || null" : ""}})], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
@@ -302,7 +300,7 @@ describe("run-analysis.mjs headless producer", () => {
 		assert.deepStrictEqual(json.layerViolations, [], "the layer category is noise here");
 		assert.match(
 			stderr,
-			/fp-filter: suppressed 2 security issue\(s\), 2 layer violation\(s\), 1 hygiene finding\(s\), 0 unused function\(s\)\n/,
+			/fp-filter: suppressed 2 security issue\(s\), 2 layer violation\(s\), 1 hygiene finding\(s\), 0 unused function\(s\), 0 duplicate group\(s\)\n/,
 			"suppression must be observable, never silent",
 		);
 	});
@@ -324,13 +322,16 @@ describe("run-analysis.mjs headless producer", () => {
 			}),
 		});
 		writeFileSync(join(fx.sourceDir, "def.ts"), "export function liveCall() { return 1; }\n");
-		writeFileSync(join(fx.sourceDir, "use.ts"), "import { liveCall } from './def.ts';\nliveCall();\n");
+		writeFileSync(
+			join(fx.sourceDir, "use.ts"),
+			"import { liveCall } from './def.ts';\nliveCall();\n",
+		);
 		const { code, stderr } = runRunner(fx);
 
 		assert.strictEqual(code, 0, `stderr: ${stderr}`);
 		assert.match(
 			stderr,
-			/fp-filter: suppressed 1 security issue\(s\), 0 layer violation\(s\), 0 hygiene finding\(s\), 1 unused function\(s\)\n/,
+			/fp-filter: suppressed 1 security issue\(s\), 0 layer violation\(s\), 0 hygiene finding\(s\), 1 unused function\(s\), 0 duplicate group\(s\)\n/,
 			"the dead count rides alongside the others, which keep their own",
 		);
 		const json = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
@@ -339,7 +340,11 @@ describe("run-analysis.mjs headless producer", () => {
 			["ghost"],
 			"only the symbol no snapshot file references may be reported as unused",
 		);
-		assert.strictEqual(json.stats.dead, json.unusedFunctions.length, "the summary count must agree");
+		assert.strictEqual(
+			json.stats.dead,
+			json.unusedFunctions.length,
+			"the summary count must agree",
+		);
 	});
 
 	it("drops LOW hygiene findings only on non-shipping artifacts and reports them", () => {
@@ -387,7 +392,39 @@ describe("run-analysis.mjs headless producer", () => {
 		);
 		assert.strictEqual(
 			stderr,
-			"fp-filter: suppressed 0 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 0 unused function(s)\n",
+			"fp-filter: suppressed 0 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 0 unused function(s), 0 duplicate group(s)\n",
+		);
+	});
+
+	it("suppresses aggregate duplicate groups before the export and reports the count", () => {
+		const pairwise = {
+			type: "code",
+			name: "readSettingsCodeflowPort, readSettingsUIPort",
+			files: [{ file: "b.ts" }],
+		};
+		const fx = makeFixture({
+			analysisJs: analysisJs({
+				marker: "DUPES",
+				stats: { files: 2, functions: 1, loc: 2, duplicates: 2 },
+				duplicates: [
+					{ type: "code", name: "withEnv, exec, cacheGet", files: [{ file: "a.ts" }] },
+					pairwise,
+				],
+			}),
+		});
+		const { code, stdout, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		const json = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
+		assert.deepStrictEqual(json.duplicates, [pairwise], "only the pairwise group may survive");
+		assert.strictEqual(
+			envelope(stdout).stats?.duplicates,
+			1,
+			"stats.duplicates moves with the survivors",
+		);
+		assert.match(
+			stderr,
+			/fp-filter: suppressed 0 security issue\(s\), 0 layer violation\(s\), 0 hygiene finding\(s\), 0 unused function\(s\), 1 duplicate group\(s\)\n/,
 		);
 	});
 
@@ -971,9 +1008,7 @@ describe("long file metric oracle (issue #2005)", () => {
 			measured.codeFiles >= LONG_FILE_BASELINE.after.codeFiles,
 			"the delivered tree must still carry the recorded scored files",
 		);
-		const recordedDeferrals = LONG_FILE_BASELINE.deferred
-			.flatMap((d) => d.files ?? [])
-			.sort();
+		const recordedDeferrals = LONG_FILE_BASELINE.deferred.flatMap((d) => d.files ?? []).sort();
 		assert.deepStrictEqual(
 			measured.flagged,
 			recordedDeferrals,

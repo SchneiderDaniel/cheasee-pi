@@ -723,15 +723,17 @@ _FP_WRAPPER_BODY = (
     b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
     b' if ("deadFunctions" in __piFp.data) data.deadFunctions = __piFp.data.deadFunctions;'
     b' if ("unusedFunctions" in __piFp.data) data.unusedFunctions = __piFp.data.unusedFunctions;'
+    b' if ("duplicates" in __piFp.data) data.duplicates = __piFp.data.duplicates;'
     b' if ("issues" in __piFp.data) data.issues = __piFp.data.issues;'
     b' if ("stats" in __piFp.data) data.stats = __piFp.data.stats;'
     b" } catch (e) { var m = String((e && e.message) || e);"
     b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
     b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
     b" var __piFpDead = (__piFp.suppressed.deadCode || []).length;"
-    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length || __piFpDead) { try {"
+    b" var __piFpDup = (__piFp.suppressed.duplicates || []).length;"
+    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length || __piFpDead || __piFpDup) { try {"
     b' console.info("fp-filter: suppressed " + __piFp.suppressed.security.length +'
-    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s), " + __piFpDead + " unused function(s)");'
+    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s), " + __piFpDead + " unused function(s), " + __piFpDup + " duplicate group(s)");'
     b" } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("
