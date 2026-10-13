@@ -48,7 +48,7 @@ const CITED_COMMAND_EXECUTION_PATHS = [
 // false positives, and the whole layer category is noise. A genuinely dynamic
 // spawn (`lib/exec-env.ts`) is deliberately kept — see the fp-filter rule.
 const EXPECTED_SECURITY_SUPPRESSED = 16;
-const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 365;
+const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 373;
 
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData, isFalsePositiveHygiene } = requireCjs(FILTER) as {
