@@ -43,12 +43,14 @@ const CITED_COMMAND_EXECUTION_PATHS = [
 	".pi/extensions/supervisor/agent/runner/spawn.ts",
 ];
 
-// Suppression counts measured on the fixed tree with the pinned analyzer: every
-// HIGH security hit plus the cited MEDIUM `Command Execution` findings are
-// false positives, and the whole layer category is noise. A genuinely dynamic
-// spawn (`lib/exec-env.ts`) is deliberately kept — see the fp-filter rule.
-const EXPECTED_SECURITY_SUPPRESSED = 16;
-const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 373;
+// Suppression counts on the fixed tree with the pinned analyzer are not pinned
+// numerically: the analyzer runs over `git archive HEAD`, so every commit that
+// lands on the branch moves the raw layer count. The contract is asserted
+// instead — the layer category is wholly noise (no layer violation survives),
+// and at least the recording's HIGH + cited-MEDIUM findings are suppressed
+// (9 HIGH + 4 MEDIUM = 13). See `codeflow-fp-filter.test.mts` for the offline
+// exact-count assertions against the pinned recording.
+const MIN_SECURITY_SUPPRESSED = 13;
 
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData, isFalsePositiveHygiene } = requireCjs(FILTER) as {
@@ -295,15 +297,13 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 			run.stderr,
 		);
 		assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
-		assert.strictEqual(
-			Number(suppressed![1]),
-			EXPECTED_SECURITY_SUPPRESSED,
+		assert.ok(
+			Number(suppressed![1]) >= MIN_SECURITY_SUPPRESSED,
 			"HIGH + MEDIUM security false positives must be suppressed on the fixed tree",
 		);
-		assert.strictEqual(
-			Number(suppressed![2]),
-			EXPECTED_LAYER_VIOLATIONS_SUPPRESSED,
-			"the whole layer-violation category must be suppressed on the fixed tree",
+		assert.ok(
+			Number(suppressed![2]) > 0,
+			"the layer-violation category must be suppressed on the fixed tree",
 		);
 		assert.ok(
 			Number(suppressed![3]) > 0,
@@ -316,6 +316,7 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 			[],
 			"the four cited MEDIUM Command Execution hits must be resolved on the fixed tree",
 		);
+		assert.deepStrictEqual(report.layerViolations, [], "no layer violation may survive the filter");
 		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
 		assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
 		assert.strictEqual(report.summary.healthGrade, "A");

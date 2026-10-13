@@ -381,7 +381,7 @@
 			else if (!star && /^\s*\w+\s*$/.test(clause)) namespaces[clause.trim()] = true;
 		}
 
-		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*(?:\.\s*(\w+))?/g;
+		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
 		while ((m = re.exec(code)) !== null) {
 			var lhs = m[1].trim();
 			if (m[2]) {
@@ -393,7 +393,7 @@
 		// The dynamic-import form of the same binding: `const cp = await
 		// import("node:child_process")` (and its destructured/`.member` variants)
 		// resolves to the same namespace, so `cp.spawn(...)` must be scanned.
-		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*(?:await\s+)?import\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*(?:\.\s*(\w+))?/g;
+		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*import\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
 		while ((m = re.exec(code)) !== null) {
 			var dlhs = m[1].trim();
 			if (m[2]) {
@@ -404,7 +404,16 @@
 
 		// Assignment to a name declared elsewhere (`let cp; cp = require(...)`):
 		// the declaration scans above miss it, so register the receiver too.
-		re = /(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
+		re = /(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*\(*\s*(?:await\s+)?\(*\s*(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
+		while ((m = re.exec(code)) !== null) namespaces[m[1]] = true;
+
+		// Fail closed on any other one-line binding of a module result the
+		// structured scans above do not enumerate — a nested paren group, a
+		// ternary, a helper call (`const cp = ((await import(...)))`, `const cp =
+		// cond ? require(...) : null`). Registering the receiver as a namespace
+		// only ever makes more call sites visible, so an unrecognised shape
+		// denies a suppression rather than hiding a genuine shell-out.
+		re = /(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*[^;=\n]*?(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
 		while ((m = re.exec(code)) !== null) namespaces[m[1]] = true;
 
 		// Assignment and destructuring aliases, iterated to a fixpoint.

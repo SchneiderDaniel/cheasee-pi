@@ -155,6 +155,32 @@ const SOURCES: Record<string, string> = {
 		'  const cp = await import("node:child_process");\n' +
 		'  return cp.spawn("/usr/bin/pi", ["--version"], { shell: false });\n' +
 		"}\n",
+	// Regression (audit): the module result is bound through a parenthesised
+	// `await import(...)` group; a safe static spawn beside it must not buy the
+	// file a suppression when `cp["spawn"]` hides a dynamic call.
+	"src/dynamic-import-paren-bound.ts":
+		'import { spawn } from "node:child_process";\n' +
+		"export async function go(request: { command: string; args: string[] }) {\n" +
+		'  spawn("/usr/bin/pi", ["--version"], { shell: false });\n' +
+		'  const cp = (await import("node:child_process"));\n' +
+		'  return cp["spawn"](request.command, request.args, { shell: false });\n' +
+		"}\n",
+	// Positive control: the same parenthesised binding, spawn called with a
+	// literal program and argv, so it must still be suppressed.
+	"src/dynamic-import-nested-paren-safe.ts":
+		"export async function go() {\n" +
+		'  const cp = ((await import("node:child_process")));\n' +
+		'  return cp.spawn("/usr/bin/pi", ["--version"], { shell: false });\n' +
+		"}\n",
+	// Regression (audit): an unenumerated one-line binding (ternary, helper
+	// call) is still a child-process source; fail closed rather than hide it.
+	"src/ternary-namespace.ts":
+		'import { spawn } from "node:child_process";\n' +
+		"export function go(flag: boolean, request: { command: string }) {\n" +
+		'  spawn("/usr/bin/pi", ["--version"], { shell: false });\n' +
+		'  const cp = flag ? require("node:child_process") : null;\n' +
+		'  return cp["ex" + "ec"](request.command);\n' +
+		"}\n",
 	// Regression (audit): the module result assigned to a name declared earlier
 	// (`let cp; cp = require(...)`) is the same source shape.
 	"src/assigned-namespace.ts":
@@ -657,6 +683,30 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/dynamic-import-safe.ts")),
 			false,
 			"a resolved namespace call with a literal program and argv is safe",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with a computed member through a parenthesised dynamic import (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/dynamic-import-paren-bound.ts")),
+			true,
+			'const cp = (await import("node:child_process")) then cp["spawn"](dynamic) must survive',
+		);
+	});
+
+	it("drops a MEDIUM Command Execution whose nested-paren dynamic import spawns a literal argv (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/dynamic-import-nested-paren-safe.ts")),
+			false,
+			"a parenthesised binding with a literal program and argv is safe",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose namespace binding is an unenumerated expression (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/ternary-namespace.ts")),
+			true,
+			'a ternary binding of the module result is unproveable — fail closed',
 		);
 	});
 
