@@ -266,12 +266,19 @@ async function main() {
 		data,
 		makeReadFile(sourceDir),
 	);
-	if (suppressed.security.length || suppressed.layerViolations.length || suppressed.hygiene.length || suppressed.deadCode.length) {
+	if (
+		suppressed.security.length ||
+		suppressed.layerViolations.length ||
+		suppressed.hygiene.length ||
+		suppressed.deadCode.length ||
+		suppressed.duplicates.length
+	) {
 		process.stderr.write(
 			`fp-filter: suppressed ${suppressed.security.length} security issue(s), ` +
 				`${suppressed.layerViolations.length} layer violation(s), ` +
 				`${suppressed.hygiene.length} hygiene finding(s), ` +
-				`${suppressed.deadCode.length} unused function(s)\n`,
+				`${suppressed.deadCode.length} unused function(s), ` +
+				`${suppressed.duplicates.length} duplicate group(s)\n`,
 		);
 	}
 

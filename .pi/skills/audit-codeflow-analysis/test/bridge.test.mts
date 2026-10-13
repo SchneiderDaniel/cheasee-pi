@@ -349,9 +349,22 @@ describe("codeflow bridge capture", () => {
 		assert.match(py, /__codeflowBridgeReportError\('false-positive filter failed/);
 		// The wrapper copies the dead-function list (and the architecture entry that
 		// repeats it) back too, and reports the dead-code count like the headless runner.
-		assert.match(py, /b' if \("deadFunctions" in __piFp\.data\) data\.deadFunctions = __piFp\.data\.deadFunctions;'/);
+		assert.match(
+			py,
+			/b' if \("deadFunctions" in __piFp\.data\) data\.deadFunctions = __piFp\.data\.deadFunctions;'/,
+		);
+		assert.match(
+			py,
+			/b' if \("unusedFunctions" in __piFp\.data\) data\.unusedFunctions = __piFp\.data\.unusedFunctions;'/,
+		);
 		assert.match(py, /b' if \("issues" in __piFp\.data\) data\.issues = __piFp\.data\.issues;'/);
-		assert.match(py, /__piFpDead \+ " unused function\(s\)"/);
+		assert.match(py, /__piFpDead \+ " unused function\(s\), "/);
+		// The duplicate groups ride the same wrapper and log line.
+		assert.match(
+			py,
+			/b' if \("duplicates" in __piFp\.data\) data\.duplicates = __piFp\.data\.duplicates;'/,
+		);
+		assert.match(py, /__piFpDup \+ " duplicate group\(s\)"/);
 		// Browser parity needs source: the analyzer frees `f.content`, so the served
 		// index.html keeps the text on `piFpSource` for the in-page filter.
 		assert.match(py, /f\.piFpSource=f\.content;f\.content=null;/);
@@ -431,7 +444,11 @@ describe("codeflow bridge capture", () => {
 			"the served wrapper must copy the filtered dead list back",
 		);
 		assert.strictEqual(sandbox.__out.stats.dead, 0, "the served stats must agree with the list");
-		assert.deepStrictEqual(sandbox.__out.issues, [], "the architecture entry must not outlive its items");
+		assert.deepStrictEqual(
+			sandbox.__out.issues,
+			[],
+			"the architecture entry must not outlive its items",
+		);
 		// Upstream frees each file's source on purpose; the wrapper must release the
 		// text it retained for the filter once the filter has read it.
 		assert.ok(
@@ -440,7 +457,7 @@ describe("codeflow bridge capture", () => {
 		);
 		// Byte-parity with the headless stderr line (see codeflow-run-analysis.test.mts).
 		assert.deepStrictEqual(logs, [
-			"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 1 unused function(s)",
+			"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 1 unused function(s), 0 duplicate group(s)",
 		]);
 
 		// A sanitizer error must fail closed, never fall through to unfiltered data,

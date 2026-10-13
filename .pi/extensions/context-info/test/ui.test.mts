@@ -7,63 +7,21 @@
  */
 
 import assert from "node:assert";
-import { execSync } from "node:child_process";
 import { afterEach, describe, it } from "node:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fnv32 } from "../codeflow.ts";
 import { uiHostPort, uiPortFromSlug, uiUrl } from "../ui.ts";
+import { makeBareWithRemote, makeWorkspace as makeWorkspaceFor, withEnvVar } from "./helpers.ts";
 
 // ── Fixtures ────────────────────────────────────
 
-/** Temp workspace root with an optional cheasee-settings.json (always written
- * — the file IS the workspace marker; `{}` when not specified). */
-function makeWorkspace(settingsContent?: string): { root: string; parent: string } {
-	const parent = mkdtempSync(join(tmpdir(), "ui-test-"));
-	const root = join(parent, "ws");
-	mkdirSync(root, { recursive: true });
-	writeFileSync(join(root, "cheasee-settings.json"), settingsContent ?? "{}");
-	return { root, parent };
-}
-
-/** Creates the sibling <parent>/.bare bare clone with a remote URL. */
-function makeBareWithRemote(parent: string, url: string): void {
-	const bare = join(parent, ".bare");
-	mkdirSync(bare, { recursive: true });
-	execSync(`git --git-dir "${bare}" init --bare`, { stdio: "ignore" });
-	execSync(`git --git-dir "${bare}" config remote.origin.url "${url}"`, { stdio: "ignore" });
-}
-
-/** Removes a process.env.PI_UI_PORT set by a test, in all exits. */
-function withEnv(port: string | undefined, fn: () => Promise<void>): Promise<void> {
-	const saved = process.env.PI_UI_PORT;
-	return (async () => {
-		try {
-			if (port === undefined) delete process.env.PI_UI_PORT;
-			else process.env.PI_UI_PORT = port;
-			await fn();
-		} finally {
-			if (saved === undefined) delete process.env.PI_UI_PORT;
-			else process.env.PI_UI_PORT = saved;
-		}
-	})();
-}
-
-/** Sets/clears the CLI failure marker (CHEASEE_UI_PORT_UNRESOLVED) for fn. */
-function withUnresolved(flag: string | undefined, fn: () => Promise<void>): Promise<void> {
-	const saved = process.env.CHEASEE_UI_PORT_UNRESOLVED;
-	return (async () => {
-		try {
-			if (flag === undefined) delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
-			else process.env.CHEASEE_UI_PORT_UNRESOLVED = flag;
-			await fn();
-		} finally {
-			if (saved === undefined) delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
-			else process.env.CHEASEE_UI_PORT_UNRESOLVED = saved;
-		}
-	})();
-}
+/** ui-test- workspace fixture bound to this suite's temp prefix. */
+const makeWorkspace = (settingsContent?: string) => makeWorkspaceFor("ui-test-", settingsContent);
+const withEnv = (port: string | undefined, fn: () => Promise<void>) => withEnvVar("PI_UI_PORT", port, fn);
+const withUnresolved = (flag: string | undefined, fn: () => Promise<void>) =>
+	withEnvVar("CHEASEE_UI_PORT_UNRESOLVED", flag, fn);
 
 afterEach(() => {
 	delete process.env.PI_UI_PORT;

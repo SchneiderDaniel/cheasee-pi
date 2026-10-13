@@ -1,0 +1,8 @@
+
+// ===== CODEFLOW_ANALYZER_START =====
+const Parser = { functionKey: function (fn) { return fn.name; } };
+function buildAnalysisData(opts) { return { files: [], stats: {}, marker: "FIXTURE" }; }
+// ===== CODEFLOW_ANALYZER_END =====
+// ===== CODEFLOW_METRICS_START =====
+function calcHealth(data) { return { score: 100, grade: "A" }; }
+// ===== CODEFLOW_METRICS_END =====

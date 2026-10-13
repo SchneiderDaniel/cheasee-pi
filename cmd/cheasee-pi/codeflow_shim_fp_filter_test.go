@@ -45,7 +45,11 @@ assert b"data = piFpFilter" not in out, "must not rebind data (const-safe): %r" 
 assert b'"fp-filter: suppressed "' in out, "suppression log must keep the headless wording: %r" % out
 assert b"__piFp.suppressed.hygiene.length" in out, "the hygiene count must be reported: %r" % out
 assert b'" hygiene finding(s), "' in out, out
-assert b"__piFpDead + \" unused function(s)\"" in out, "the dead-function count must be reported: %r" % out
+assert b"__piFpDead + \" unused function(s), \"" in out, "the dead-function count must be reported: %r" % out
+assert b"__piFp.suppressed.duplicates" in out, "the duplicate count must be reported: %r" % out
+assert b'" duplicate group(s)");' in out, out
+assert b'if ("duplicates" in __piFp.data) data.duplicates = __piFp.data.duplicates;' in out, out
+assert b'if ("issues" in __piFp.data) data.issues = __piFp.data.issues;' in out, out
 assert b"data.files.forEach(function (f) { if (f) f.piFpSource = null; })" in out, "the retained source must be released: %r" % out
 assert b'"use strict"' in out, out
 assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
