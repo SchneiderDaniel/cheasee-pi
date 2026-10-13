@@ -678,6 +678,19 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 			}),
 			false,
 		);
+		// Two modules define `helper`, and a third only calls one of them: the
+		// target is ambiguous from text, so neither copy may be called live by it.
+		const thirdCaller = {
+			"src/a.ts": "export function helper() { return 1; }\n",
+			"src/b.ts": "export function helper() { return 2; }\n",
+			"src/c.ts": "import { helper } from './a';\nexport function run() { helper(); }\n",
+		};
+		assert.strictEqual(
+			keepsDead("helper", "src/a.ts", thirdCaller),
+			true,
+			"a bare call from a third module cannot be attributed to one of two same-named owners",
+		);
+		assert.strictEqual(keepsDead("helper", "src/b.ts", thirdCaller), true);
 	});
 
 	it("drops an entry its own file references outside the definition", () => {

@@ -404,11 +404,11 @@
 	// finding stands — fail open. shortcut: only the analyzer's own file set is
 	// scanned (it skips e.g. `.mts` tests), so a test-only use reads as unreferenced.
 	//
-	// A mention in another file only refutes the listed definition when it can be
-	// attributed to it: a receiver call dispatches through the receiver's type,
-	// and a file that does not define the name at all has nothing local to resolve
-	// a mention to. Any other mention may target a same-named `helper` in its own
-	// module, so it keeps the finding instead of hiding dead code.
+	// A bare mention in another file only refutes the listed definition when that
+	// file is the name's sole scanned owner (nothing else it could resolve to);
+	// with a second same-named definition the target is ambiguous, so the finding
+	// stands. A receiver call dispatches through the receiver's type, so it is
+	// attributed regardless of a same-named local definition.
 	// shortcut: a dot-call in a file that defines the same name is still
 	// attributed to the listed definition (the receiver's type is not known from
 	// text); upgrade this when the analyzer records call targets.
@@ -432,12 +432,20 @@
 			}
 			return defines[name][file] === true;
 		}
+		// The listed file is the only scanned owner of the name. A bare mention
+		// elsewhere then has nothing else to resolve to; with a second same-named
+		// definition the target is ambiguous from text, so the finding stands.
+		function soleOwner(name, file) {
+			for (var key in cleaned) if (key !== file && definesLocally(name, key)) return false;
+			return definesLocally(name, file);
+		}
 		function referencedElsewhere(name, file) {
+			var sole = soleOwner(name, file);
 			for (var key in cleaned) {
 				if (key === file) continue;
 				var shape = referenceShape(cleaned[key], name);
 				if (shape === "dispatch") return true;
-				if (shape !== null && !definesLocally(name, key)) return true;
+				if (shape !== null && sole) return true;
 			}
 			return false;
 		}
