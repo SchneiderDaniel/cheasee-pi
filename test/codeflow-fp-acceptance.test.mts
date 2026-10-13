@@ -37,10 +37,13 @@ const CHECKOUT_URL = "https://github.com/braedonsaunders/codeflow";
 // (not HEAD) means the assertions reproduce the affected report rather than
 // whatever the branch happens to be.
 const ISSUE_SNAPSHOT = "17c991c033073dccdd549c335abe6c594643b009";
-// Measured on that snapshot with the pinned analyzer: every HIGH security hit
-// (the reported nine) and the entire layer category (357 edges) is a false
-// positive. Deterministic for a fixed revision plus fixed analyzer pin.
-const EXPECTED_SECURITY_SUPPRESSED = 9;
+// Measured on that snapshot with the pinned analyzer: the reported nine HIGH
+// security hits, the entire layer category (357 edges), and one MEDIUM
+// `Command Execution` (#2023's file-scoped argv-safety rule — the snapshot's
+// `audit-group.ts` imports `ChildProcess` as a type and spawns through a runtime
+// seam, so its own text carries no child-process call to disprove).
+// Deterministic for a fixed revision plus fixed analyzer pin.
+const EXPECTED_SECURITY_SUPPRESSED = 10;
 const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
 // The dead-code report on that snapshot: 45 entries, of which the 20 the issue
 // lists in the Rust/TS sources are referenced by the snapshot (trait-impl
@@ -391,7 +394,7 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 		assert.strictEqual(
 			Number(suppressed![1]),
 			EXPECTED_SECURITY_SUPPRESSED,
-			"all nine HIGH security hits must be suppressed on the issue snapshot",
+			"the snapshot's HIGH hits and the type-only-import MEDIUM hit must be suppressed",
 		);
 		assert.strictEqual(
 			Number(suppressed![2]),
