@@ -390,6 +390,23 @@
 			else if (/^\w+$/.test(lhs)) namespaces[lhs] = true;
 		}
 
+		// The dynamic-import form of the same binding: `const cp = await
+		// import("node:child_process")` (and its destructured/`.member` variants)
+		// resolves to the same namespace, so `cp.spawn(...)` must be scanned.
+		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*(?:await\s+)?import\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*(?:\.\s*(\w+))?/g;
+		while ((m = re.exec(code)) !== null) {
+			var dlhs = m[1].trim();
+			if (m[2]) {
+				if (CP_MEMBERS[m[2]]) members[dlhs] = m[2];
+			} else if (/^\{/.test(dlhs)) addNamed(dlhs.replace(/^\{/, "").replace(/\}$/, ""));
+			else if (/^\w+$/.test(dlhs)) namespaces[dlhs] = true;
+		}
+
+		// Assignment to a name declared elsewhere (`let cp; cp = require(...)`):
+		// the declaration scans above miss it, so register the receiver too.
+		re = /(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*(?:await\s+)?(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
+		while ((m = re.exec(code)) !== null) namespaces[m[1]] = true;
+
 		// Assignment and destructuring aliases, iterated to a fixpoint.
 		for (var pass = 0; pass < 3; pass++) {
 			re = /(?:const|let|var)\s+(\w+)\s*=\s*(?:promisify\s*\(\s*(\w+)\s*\)|(\w+)\s*\.\s*(\w+)|(\w+))/g;
@@ -467,9 +484,12 @@
 
 	// A computed member access names a child-process function the name-based scan
 	// can never see: `cp["ex" + "ec"](cmd)`, `cp[method]`, or
-	// `require("node:child_process")["exec"](cmd)`. Reaching a member through
-	// `.call`/`.apply` (`cp.spawn.call(...)`) likewise escapes the argument scan.
-	// Both are unproveable, so the file keeps its finding (fail closed).
+	// `require("node:child_process")["exec"](cmd)`. So does an inline module
+	// result called directly — `require("node:child_process").spawn(cmd)`,
+	// `(await import("node:child_process")).spawn(cmd)` — where there is no bound
+	// name to follow. Reaching a member through `.call`/`.apply`
+	// (`cp.spawn.call(...)`) likewise escapes the argument scan. All are
+	// unproveable, so the file keeps its finding (fail closed).
 	// Over-detection only ever denies a suppression.
 	function hasComputedChildProcessAccess(code, cp) {
 		var i;
@@ -482,7 +502,9 @@
 			)
 				return true;
 		}
-		if (/(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*(?:\?\.)?\s*\[/.test(code))
+		// `\\)*` follows the module call through a wrapping paren group, so the
+		// `(await import(...)).member` form is denied as well as the bare one.
+		if (/(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\?\.)?\s*[.\[]/.test(code))
 			return true;
 		var members = Object.keys(cp.members);
 		for (i = 0; i < CP_NAMES.length; i++) members.push(CP_NAMES[i]);

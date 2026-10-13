@@ -179,6 +179,20 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		assert.strictEqual(after.grade, "A");
 	});
 
+	it("keeps the four cited files free of any shell-executing construct", () => {
+		// Positive controls: the patterns must catch a real shell-out, so the file
+		// assertions below cannot pass vacuously.
+		assert.match("spawn(x, y, { shell: true });", /\bshell\s*:\s*(?!false\b)/);
+		assert.match("execSync(cmd);", /\bexecSync\b/);
+		// A future edit that reintroduces a shell would make the whole-file finding
+		// true again; pin the seam shut at the source level.
+		for (const rel of CITED_COMMAND_EXECUTION_PATHS) {
+			const source = repoFile(rel);
+			assert.doesNotMatch(source, /\bshell\s*:\s*(?!false\b)/, `${rel} must not ask for a shell`);
+			assert.doesNotMatch(source, /\bexecSync\b/, `${rel} must not call execSync`);
+		}
+	});
+
 	it("suppresses every LOW hygiene finding the recording carries", () => {
 		const recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
 		const lows = lowsOf(recorded);

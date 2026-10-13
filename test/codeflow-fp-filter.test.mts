@@ -130,6 +130,39 @@ const SOURCES: Record<string, string> = {
 	// Regression (audit): a require result indexed directly, with no bound name.
 	"src/computed-inline-require.ts":
 		'export function go(cmd: string) { require("node:child_process")["ex" + "ec"](cmd); }\n',
+	// Regression (audit): the same inline result reached through `.` — the member
+	// call has no bound receiver, so the name-based scan never resolves it.
+	"src/dotted-inline-require.ts":
+		"export function go(request: { command: string; args: string[] }) {\n" +
+		'  require("node:child_process").spawn(request.command, request.args, { shell: false });\n' +
+		"}\n",
+	// Regression (audit): a dynamic-import namespace bound to a name is still a
+	// child-process source, so `cp.spawn(dynamic, ...)` must keep the finding.
+	"src/dynamic-import-bound.ts":
+		"export async function go(request: { command: string; args: string[] }) {\n" +
+		'  const cp = await import("node:child_process");\n' +
+		"  return cp.spawn(request.command, request.args, { shell: false });\n" +
+		"}\n",
+	// Regression (audit): a dynamic import reached inline through a paren group.
+	"src/dynamic-import-paren.ts":
+		"export async function go(cmd: string) {\n" +
+		'  return (await import("node:child_process")).spawn(cmd, [], { shell: false });\n' +
+		"}\n",
+	// Positive control: the dynamic-import namespace resolves to a literal program
+	// and a literal argv, so registering it must still allow the suppression.
+	"src/dynamic-import-safe.ts":
+		"export async function go() {\n" +
+		'  const cp = await import("node:child_process");\n' +
+		'  return cp.spawn("/usr/bin/pi", ["--version"], { shell: false });\n' +
+		"}\n",
+	// Regression (audit): the module result assigned to a name declared earlier
+	// (`let cp; cp = require(...)`) is the same source shape.
+	"src/assigned-namespace.ts":
+		"let cp: any;\n" +
+		"export function go(request: { command: string; args: string[] }) {\n" +
+		'  cp = require("node:child_process");\n' +
+		"  return cp.spawn(request.command, request.args, { shell: false });\n" +
+		"}\n",
 	// Regression (audit): the require-destructuring rename form (`exec: run`) must
 	// register the shell member, so its call site is not invisible.
 	"src/renamed-exec.ts":
@@ -584,6 +617,46 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/computed-inline-require.ts")),
 			true,
 			'require("node:child_process")["ex" + "ec"] is unproveable',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with an inline dotted require call (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/dotted-inline-require.ts")),
+			true,
+			'require("node:child_process").spawn(dynamic, ...) is unproveable',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with a dynamic-import namespace (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/dynamic-import-bound.ts")),
+			true,
+			'const cp = await import("node:child_process") is still a child-process source',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose namespace is assigned, not declared (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/assigned-namespace.ts")),
+			true,
+			'cp = require("node:child_process") is still a child-process source',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with a paren-wrapped inline dynamic import (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/dynamic-import-paren.ts")),
+			true,
+			'(await import("node:child_process")).spawn(dynamic, ...) is unproveable',
+		);
+	});
+
+	it("drops a MEDIUM Command Execution whose dynamic-import namespace spawns a literal argv (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/dynamic-import-safe.ts")),
+			false,
+			"a resolved namespace call with a literal program and argv is safe",
 		);
 	});
 
