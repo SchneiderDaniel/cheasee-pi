@@ -28,7 +28,11 @@ RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x
         nodejs \
     && rm -rf /var/lib/apt/lists/* /tmp/nodesource-setup.sh \
     && node --version | grep -q '^v22\.' \
-    && test -x /usr/bin/npm
+    && test -x /usr/bin/npm \
+    && rm -rf /usr/include/node
+# /usr/include/node (65M) is node-gyp's build-time header tree. Every dependency
+# baked here or installed by the workspace entrypoint is prebuilt or pure JS, so
+# no native compile reads it. Re-add if a workspace dependency ever needs gyp.
 
 # ---------------------------------------------------------------
 # Layer 3: Toolchain packages (Python, ctags, ripgrep, gosu, …)
@@ -96,8 +100,14 @@ RUN npm install -g --force \
         shell-quote@1.11.0 \
         typescript \
         typescript-language-server \
+    && rm -rf /usr/lib/node_modules/@ast-grep/cli/node_modules \
+              /usr/lib/node_modules/jscpd/node_modules/jscpd-linux-* \
     && npm cache clean --force \
     && rm -rf /tmp/*
+# @ast-grep/cli's postinstall copies the platform binary up to cli/ast-grep
+# (the /usr/bin symlink target); the nested platform package (51M) is a leftover
+# duplicate. jscpd-linux-* (45M) is an optional prebuilt the JS CLI does not
+# need. Both were removed and the tools re-verified.
 
 # ---------------------------------------------------------------
 # Layer 5b: LSP server binaries (rust-analyzer, gopls)
@@ -167,7 +177,11 @@ RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
         scrapling[fetchers] \
         markdownify \
         beautifulsoup4 \
+    && rm -rf /opt/venvs/scrapling-venv/lib/python*/site-packages/playwright/driver \
     && rm -rf /root/.cache/pip /tmp/*
+# scrapling imports only `playwright._impl._errors`; the stealth tier launches
+# through patchright's own driver. playwright's driver/ bundle (132M) is
+# therefore dead weight in this venv.
 
 # Pre-download Chromium for the scrapling stealth fetcher. Must use patchright,
 # NOT playwright: the stealth tier (StealthyFetcher) resolves its browser via
@@ -227,7 +241,10 @@ RUN go_asset="go${GO_VERSION}.linux-$(dpkg --print-architecture).tar.gz" && \
     curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 "https://go.dev/dl/${go_asset}" -o "/tmp/${go_asset}" && \
     tar -C /usr/local -xzf "/tmp/${go_asset}" && \
     rm -f "/tmp/${go_asset}" && \
-    /usr/local/go/bin/go version
+    /usr/local/go/bin/go version && \
+    rm -rf /usr/local/go/test /usr/local/go/api /usr/local/go/doc /usr/local/go/misc
+# test/ api/ doc/ misc/ are for Go's own test suite, API-compat tooling and
+# docs — not for `go build`/`go test` of this module. ~29M, no build input.
 
 ENV PATH=/usr/local/go/bin:${PATH}
 

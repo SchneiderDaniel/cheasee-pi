@@ -102,7 +102,11 @@ RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/* /tmp/nodesource-setup.sh \
  && node --version | grep -q '^v22\.' \
- && test -x /usr/bin/npm
+ && test -x /usr/bin/npm \
+ && rm -rf /usr/include/node
+# No native module is built in the runtime sidecar, so node-gyp's 65M header
+# tree is unused. npm itself is kept: the spawned `pi` child can install
+# configured packages through it.
 
 # pi-coding-agent — the `pi --mode rpc` child the server spawns (AC3/AC5).
 # PI_VERSION is pinned equal to the pi image's value by
