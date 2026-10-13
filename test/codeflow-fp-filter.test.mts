@@ -217,6 +217,29 @@ const SOURCES: Record<string, string> = {
 	"src/shell-program.ts":
 		'import { execFile } from "node:child_process";\n' +
 		'export function run(cmd: string) { return execFile("/bin/bash", ["-c", cmd]); }\n',
+	// Regression (audit): an escaped program literal hides a shell —
+	// `"/bin/\\u0073h"` is `/bin/sh` — and must not be taken as a literal.
+	"src/escaped-program.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("/bin/\\u0073h", ["--version"], assertNoShell({})); }\n',
+	// Regression (audit): a constructed argv element assembles a shell flag —
+	// `"-" + "c"` is `-c` — beside an otherwise clean literal program.
+	"src/constructed-flag.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go(cmd: string) { return spawn("/usr/bin/pi", ["-" + "c", cmd], assertNoShell({})); }\n',
+	// Regression (audit): the exact bypass probe — escaped executable and
+	// constructed flag together.
+	"src/escaped-constructed.ts":
+		'import { spawn } from "node:child_process";\n' +
+		"export function go(cmd: string) { return spawn(\"/bin/\\u0073h\", [\"-\" + \"c\", cmd], { shell: false }); }\n",
+	// Positive control: a plain literal argv holding dashes is still a validated
+	// source — the constructed/escaped guards must not over-reject it.
+	"src/literal-dashed-args.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("git", ["status", "--short"], assertNoShell({})); }\n',
 };
 
 const readFile = (path: unknown): string | null =>
@@ -759,6 +782,38 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 
 	it("keeps a MEDIUM Command Execution that runs a shell program with `-c` (positive control)", () => {
 		assert.strictEqual(keepsSecurity(cmd("src/shell-program.ts")), true, "bash -c must survive");
+	});
+
+	it("keeps a MEDIUM Command Execution whose program literal hides a shell behind an escape (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/escaped-program.ts")),
+			true,
+			'`"/bin/\\u0073h"` resolves to `/bin/sh` — an escaped literal is not a literal',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose argv assembles a shell flag (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/constructed-flag.ts")),
+			true,
+			'`"-" + "c"` builds `-c`; a constructed argv element is not a validated source',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with an escaped program and a constructed flag (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/escaped-constructed.ts")),
+			true,
+			'the audit bypass probe: spawn("/bin/\\u0073h", ["-" + "c", cmd], { shell: false })',
+		);
+	});
+
+	it("drops a MEDIUM Command Execution whose argv is a plain literal holding dashes (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/literal-dashed-args.ts")),
+			false,
+			"the constructed/escaped guards must not over-reject a literal argv",
+		);
 	});
 
 	it("keeps the finding when the cited file cannot be read (absence is not proof)", () => {

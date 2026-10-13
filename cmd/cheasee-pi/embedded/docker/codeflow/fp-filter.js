@@ -309,14 +309,12 @@
 		return null;
 	}
 
-	// A literal program: a quoted string, or a template with no interpolation.
+	// A literal program: a quoted string with no escape sequence and no template
+	// interpolation. An escape can hide a shell (`"/bin/\u0073h"` is `/bin/sh`),
+	// so a program carrying one is not a proven literal — the caller fails closed.
 	function isLiteralProgram(text) {
 		var a = text.trim();
-		return (
-			/^"(?:[^"\\\n]|\\.)*"$/.test(a) ||
-			/^'(?:[^'\\\n]|\\.)*'$/.test(a) ||
-			/^`[^`$\\]*`$/.test(a)
-		);
+		return /^"[^"\\\n]*"$/.test(a) || /^'[^'\\\n]*'$/.test(a) || /^`[^`$\\]*`$/.test(a);
 	}
 
 	// Names bound by `const { program, args } = argvCommand(...)`. Only a
@@ -471,9 +469,18 @@
 
 	// A literal argv array, e.g. `["--version"]` — no element can smuggle a
 	// program in, so this is a validated argv source alongside `argvCommand`.
+	// An element that is constructed (`"-" + "c"`) or escaped (`"\x2dc"`) can
+	// assemble a shell flag at runtime; the static proof cannot follow it, so
+	// such an array is not a proven source — the caller fails closed.
 	function isArrayLiteral(text) {
 		var a = text.trim();
-		return a.charAt(0) === "[" && a.charAt(a.length - 1) === "]";
+		if (a.charAt(0) !== "[" || a.charAt(a.length - 1) !== "]") return false;
+		var parts = splitTopLevel(a.slice(1, -1));
+		for (var i = 0; i < parts.length; i++) {
+			if (/["'`]\s*\+|\+\s*["'`]/.test(parts[i])) return false;
+			if (parts[i].indexOf("\\") >= 0) return false;
+		}
+		return true;
 	}
 
 	// One call is safe when its executable resolves to a literal (directly or
