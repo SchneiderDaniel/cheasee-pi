@@ -543,6 +543,7 @@ mod tests {
     use crate::auth::ChildEnv;
     use crate::pi_process::{spawn, PiChild, PiSpec};
     use crate::protocol::ExtensionUiResponse;
+    use crate::test_support::unique_temp_dir;
 
     /// A hang is a failure, not a stall: every await in these tests is bounded.
     const BOUND: Duration = Duration::from_secs(2);
@@ -599,22 +600,10 @@ mod tests {
         );
     }
 
-    fn unique_dir(tag: &str) -> PathBuf {
-        use std::sync::atomic::AtomicUsize;
-        static SEQ: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::env::temp_dir().join(format!(
-            "cheasee-pi-rpc-test-{tag}-{}-{}",
-            std::process::id(),
-            SEQ.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
     /// Spawn a `/bin/sh` shim as the `pi` stand-in and hand its pipes to a
     /// client. No real `pi` binary is needed.
     async fn spawn_shim(tag: &str, body: &str) -> (PiChild, RpcClient) {
-        let dir = unique_dir(tag);
+        let dir = unique_temp_dir(&format!("cheasee-pi-rpc-test-{tag}"));
         let path = dir.join("shim.sh");
         std::fs::write(&path, body).unwrap();
         let spec = PiSpec {

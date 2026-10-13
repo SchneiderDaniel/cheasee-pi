@@ -25,7 +25,9 @@ import { ErrorCollector, setErrorCollector } from "../error-collector.ts";
 import { fetchIssue, readProjectBoard, checkDependencies } from "../helpers.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import { withPerChildEnv } from "../../../lib/exec-env.ts";
+import { toExecFn } from "../../../lib/port-adapters.ts";
 import type { NotifyFn } from "../helpers.ts";
+import { toNotifyFn } from "../helpers.ts";
 import { createStageState } from "../stages/index.ts";
 import type { StageState } from "../stages/index.ts";
 import { sendPipelineError } from "../notifications.ts";
@@ -108,19 +110,11 @@ export function preparePipelineContext(
 	// Mode adaptation: ctx.ui.notify is fire-and-forget (safe in all modes,
 	// silently drops in print/json mode). Dialog methods (confirm/select)
 	// need ctx.hasUI check before calling.
-	const exec: ExecFn = withPerChildEnv(pi.exec.bind(pi));
-	const notify: NotifyFn = {
-		info: (msg) => {
-			if (ctx.hasUI) {
-				ctx.ui.notify(msg, "info");
-			}
-		},
-		error: (msg) => {
-			if (ctx.hasUI) {
-				ctx.ui.notify(msg, "error");
-			}
-		},
-	};
+	const exec: ExecFn = withPerChildEnv(toExecFn(pi.exec.bind(pi)));
+	const notify: NotifyFn = toNotifyFn({
+		hasUI: ctx.hasUI,
+		notify: ctx.ui.notify.bind(ctx.ui),
+	});
 
 	// Create ErrorCollector for this pipeline run
 	const collector = new ErrorCollector();

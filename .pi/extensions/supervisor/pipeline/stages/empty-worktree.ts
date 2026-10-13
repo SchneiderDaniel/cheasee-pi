@@ -11,6 +11,7 @@ import type { SupervisorConfig } from "../../config/types.ts";
 import type { ClosingPrRef, GitHubPort } from "../../github/ports.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
+import { toExecFn } from "../../../lib/port-adapters.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import {
 	classifyEmptyWorktree,
@@ -38,12 +39,11 @@ export async function handleEmptyWorktree(
 	worktreePath: string,
 	worktreeBranch: string | undefined,
 ): Promise<EmptyWorktreeOutcome> {
-	const execFn = ((cmd: string, args: string[], opts?: Record<string, unknown>) =>
-		pi.exec(cmd, args, opts)) as ExecFn;
+	const exec = toExecFn(pi.exec.bind(pi));
 	const baseBranch = config.defaultBranch || "main";
 	const headBranch = worktreeBranch || config.branchPrefix! + issueNum;
 
-	const hasCommits = await hasBranchCommits(execFn, worktreePath, headBranch, baseBranch);
+	const hasCommits = await hasBranchCommits(exec, worktreePath, headBranch, baseBranch);
 	if (hasCommits) {
 		return { stop: false };
 	}
@@ -88,7 +88,7 @@ export async function handleEmptyWorktree(
 		collector,
 		issueNum,
 		config,
-		execFn,
+		exec,
 		worktreePath,
 		baseBranch,
 	);

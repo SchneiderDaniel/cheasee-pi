@@ -119,7 +119,7 @@ fn tool_card_output_is_bounded() {
 #[test]
 fn banners_compaction_start_sets_running_with_reason() {
     let c = controls();
-    assert!(c.apply(&event(Event::CompactionStart {
+    assert!(c.reduce_controls(&event(Event::CompactionStart {
         reason: "manual".into(),
     })));
     assert_eq!(
@@ -139,7 +139,7 @@ fn banners_compaction_end_labels_by_reason() {
         ("threshold", "Auto-compacting…"),
         ("overflow", "Context overflow detected, Auto-compacting…"),
     ] {
-        c.apply(&event(Event::CompactionEnd {
+        c.reduce_controls(&event(Event::CompactionEnd {
             reason: reason.into(),
             result: json!({}),
             aborted: false,
@@ -162,7 +162,7 @@ fn banners_compaction_end_labels_by_reason() {
 #[test]
 fn banners_compaction_unknown_reason_is_generic() {
     let c = controls();
-    c.apply(&event(Event::CompactionStart {
+    c.reduce_controls(&event(Event::CompactionStart {
         reason: "future".into(),
     }));
     let state = c.compaction.get().unwrap();
@@ -173,7 +173,7 @@ fn banners_compaction_unknown_reason_is_generic() {
 #[test]
 fn banners_compaction_restores_without_reason() {
     let c = controls();
-    c.apply(&ServerMessage::CommandResponse {
+    c.reduce_controls(&ServerMessage::CommandResponse {
         id: None,
         command: "get_state".into(),
         success: true,
@@ -192,7 +192,7 @@ fn banners_compaction_restores_without_reason() {
 #[test]
 fn banners_retry_pill_from_auto_retry_start() {
     let c = controls();
-    assert!(c.apply(&event(Event::AutoRetryStart {
+    assert!(c.reduce_controls(&event(Event::AutoRetryStart {
         attempt: 1,
         max_attempts: 3,
         delay_ms: 2000,
@@ -213,13 +213,13 @@ fn banners_retry_pill_from_auto_retry_start() {
 #[test]
 fn banners_retry_pill_clears_on_success() {
     let c = controls();
-    c.apply(&event(Event::AutoRetryStart {
+    c.reduce_controls(&event(Event::AutoRetryStart {
         attempt: 1,
         max_attempts: 3,
         delay_ms: 1000,
         error_message: "e".into(),
     }));
-    assert!(c.apply(&event(Event::AutoRetryEnd {
+    assert!(c.reduce_controls(&event(Event::AutoRetryEnd {
         success: true,
         attempt: 2,
         final_error: None,
@@ -230,13 +230,13 @@ fn banners_retry_pill_clears_on_success() {
 #[test]
 fn banners_retry_final_failure_surfaces_notice() {
     let c = controls();
-    c.apply(&event(Event::AutoRetryStart {
+    c.reduce_controls(&event(Event::AutoRetryStart {
         attempt: 1,
         max_attempts: 3,
         delay_ms: 1000,
         error_message: "e".into(),
     }));
-    assert!(c.apply(&event(Event::AutoRetryEnd {
+    assert!(c.reduce_controls(&event(Event::AutoRetryEnd {
         success: false,
         attempt: 3,
         final_error: Some("gave up".into()),
@@ -250,7 +250,7 @@ fn banners_retry_final_failure_surfaces_notice() {
 #[test]
 fn banners_summarization_pill_from_synthesized_events() {
     let c = controls();
-    c.apply(&event(Event::SummarizationRetryScheduled {
+    c.reduce_controls(&event(Event::SummarizationRetryScheduled {
         attempt: 1,
         max_attempts: 2,
         delay_ms: 500,
@@ -261,7 +261,7 @@ fn banners_summarization_pill_from_synthesized_events() {
     assert_eq!(pill.attempt, 1);
     assert_eq!(pill.max_attempts, 2);
 
-    c.apply(&event(Event::SummarizationRetryAttemptStart {
+    c.reduce_controls(&event(Event::SummarizationRetryAttemptStart {
         attempt: 2,
         max_attempts: 2,
         delay_ms: 500,
@@ -269,7 +269,7 @@ fn banners_summarization_pill_from_synthesized_events() {
     }));
     assert_eq!(c.retry.get().unwrap().attempt, 2);
 
-    c.apply(&event(Event::SummarizationRetryFinished {
+    c.reduce_controls(&event(Event::SummarizationRetryFinished {
         success: true,
         attempt: 2,
         final_error: None,
@@ -280,13 +280,13 @@ fn banners_summarization_pill_from_synthesized_events() {
 #[test]
 fn banners_only_one_retry_pill_is_active() {
     let c = controls();
-    c.apply(&event(Event::AutoRetryStart {
+    c.reduce_controls(&event(Event::AutoRetryStart {
         attempt: 1,
         max_attempts: 3,
         delay_ms: 1000,
         error_message: "auto".into(),
     }));
-    c.apply(&event(Event::SummarizationRetryScheduled {
+    c.reduce_controls(&event(Event::SummarizationRetryScheduled {
         attempt: 1,
         max_attempts: 2,
         delay_ms: 500,
@@ -301,13 +301,13 @@ fn banners_only_one_retry_pill_is_active() {
 fn banners_retry_end_ignores_foreign_source() {
     let c = controls();
     // A summarization retry is active; an auto-retry ending must not clear it.
-    c.apply(&event(Event::SummarizationRetryScheduled {
+    c.reduce_controls(&event(Event::SummarizationRetryScheduled {
         attempt: 1,
         max_attempts: 2,
         delay_ms: 500,
         error_message: "sum".into(),
     }));
-    assert!(!c.apply(&event(Event::AutoRetryEnd {
+    assert!(!c.reduce_controls(&event(Event::AutoRetryEnd {
         success: true,
         attempt: 1,
         final_error: None,
@@ -319,13 +319,13 @@ fn banners_retry_end_ignores_foreign_source() {
     );
 
     // ...and the reverse: auto active, summarization ending is ignored.
-    c.apply(&event(Event::AutoRetryStart {
+    c.reduce_controls(&event(Event::AutoRetryStart {
         attempt: 1,
         max_attempts: 3,
         delay_ms: 1000,
         error_message: "auto".into(),
     }));
-    c.apply(&event(Event::SummarizationRetryFinished {
+    c.reduce_controls(&event(Event::SummarizationRetryFinished {
         success: true,
         attempt: 1,
         final_error: None,
@@ -336,13 +336,13 @@ fn banners_retry_end_ignores_foreign_source() {
 #[test]
 fn banners_retry_failure_without_error_still_notices() {
     let c = controls();
-    c.apply(&event(Event::AutoRetryStart {
+    c.reduce_controls(&event(Event::AutoRetryStart {
         attempt: 1,
         max_attempts: 3,
         delay_ms: 1000,
         error_message: "e".into(),
     }));
-    assert!(c.apply(&event(Event::AutoRetryEnd {
+    assert!(c.reduce_controls(&event(Event::AutoRetryEnd {
         success: false,
         attempt: 3,
         final_error: None,
@@ -401,8 +401,8 @@ fn renderer_same_id_text_update_reaches_row_signal() {
     let owner = Owner::new();
     owner.set();
     let mut a = Assembler::default();
-    a.apply(&Event::MessageStart { message: json!({}) });
-    a.apply(&delta(0, "Hel"));
+    a.reduce_event(&Event::MessageStart { message: json!({}) });
+    a.reduce_event(&delta(0, "Hel"));
     let first = reconcile_row_views(&[], a.rows());
     assert_eq!(first.len(), 1);
     assert_eq!(
@@ -410,7 +410,7 @@ fn renderer_same_id_text_update_reaches_row_signal() {
         "Hel"
     );
 
-    a.apply(&delta(0, "lo"));
+    a.reduce_event(&delta(0, "lo"));
     let second = reconcile_row_views(&first, a.rows());
     assert_eq!(second[0].id, first[0].id, "stable key");
     assert_eq!(
@@ -427,7 +427,7 @@ fn renderer_same_id_tool_update_reaches_row_signal() {
     let owner = Owner::new();
     owner.set();
     let mut a = Assembler::default();
-    a.apply(&Event::ToolExecutionStart {
+    a.reduce_event(&Event::ToolExecutionStart {
         tool_call_id: "call_1".into(),
         tool_name: "bash".into(),
         args: json!({"command": "ls"}),
@@ -435,13 +435,13 @@ fn renderer_same_id_tool_update_reaches_row_signal() {
     let first = reconcile_row_views(&[], a.rows());
     assert_eq!(first.len(), 1);
 
-    a.apply(&Event::ToolExecutionUpdate {
+    a.reduce_event(&Event::ToolExecutionUpdate {
         tool_call_id: "call_1".into(),
         tool_name: "bash".into(),
         args: json!({"command": "ls"}),
         partial_result: json!({"content": [{"type": "text", "text": "partial"}]}),
     });
-    a.apply(&Event::ToolExecutionEnd {
+    a.reduce_event(&Event::ToolExecutionEnd {
         tool_call_id: "call_1".into(),
         tool_name: "bash".into(),
         result: json!({"content": [{"type": "text", "text": "boom"}], "isError": true}),

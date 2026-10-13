@@ -31,7 +31,7 @@ impl SessionListState {
     }
 
     /// Reduce one server frame. Returns whether anything changed.
-    pub fn apply(&self, message: &ServerMessage) -> bool {
+    pub fn reduce_sessions(&self, message: &ServerMessage) -> bool {
         match message {
             ServerMessage::SessionList { sessions, .. } => {
                 self.rows.set(sessions.clone());
@@ -55,14 +55,6 @@ impl SessionListState {
                 true
             }
             _ => false,
-        }
-    }
-
-    /// Decode and reduce one WS text frame; a non-session frame is a no-op.
-    pub fn ingest_frame(&self, text: &str) -> bool {
-        match serde_json::from_str::<ServerMessage>(text) {
-            Ok(message) => self.apply(&message),
-            Err(_) => false,
         }
     }
 }

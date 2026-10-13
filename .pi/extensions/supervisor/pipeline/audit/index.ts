@@ -16,6 +16,7 @@ import { getDebugLogger } from "../../lib/debug.ts";
 import { generateBranchName } from "../../agent/task.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import { withPerChildEnv } from "../../../lib/exec-env.ts";
+import { toExecFn } from "../../../lib/port-adapters.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import { writeCheckpointFile, type CheckpointName } from "../state-checkpoint.ts";
 import {
@@ -139,7 +140,7 @@ export async function runTscAndLspAudit(
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
 	// Shared exec function for running shell commands via pi.exec
-	const execFn: ExecFn = withPerChildEnv((cmd, args, opts) => pi.exec(cmd, args, opts));
+	const exec: ExecFn = withPerChildEnv(toExecFn(pi.exec.bind(pi)));
 
 	// Collect ALL gate failures across every blocking gate.
 	// Gates run to completion regardless of individual failures.
@@ -148,7 +149,7 @@ export async function runTscAndLspAudit(
 
 	const preGateDeps: PreGateDeps = {
 		pi,
-		execFn,
+		execFn: exec,
 		ui: ctx.ui,
 		repo: config.repo,
 		branch,
@@ -188,7 +189,7 @@ export async function runTscAndLspAudit(
 		// After ALL gates: if any blocking failure, uncommit once so the
 		// developer resumes with context intact, then return combined context
 		if (gateFailures.length > 0) {
-			await uncommitDeveloperWork(execFn, worktreePath);
+			await uncommitDeveloperWork(exec, worktreePath);
 		}
 		return decideAudit(gateFailures, lspResult.note, {
 			duplicateCodeResult: dupGate.dupResult,
@@ -212,9 +213,9 @@ export async function runTscAndLspAudit(
  * Fail-safe: if no commit exists (e.g., developer made no changes), the error
  * is silently caught — the worktree is already in the desired state.
  */
-async function uncommitDeveloperWork(execFn: ExecFn, worktreePath: string): Promise<void> {
+async function uncommitDeveloperWork(exec: ExecFn, worktreePath: string): Promise<void> {
 	try {
-		await execFn("git", ["reset", "--soft", "HEAD~1"], {
+		await exec("git", ["reset", "--soft", "HEAD~1"], {
 			cwd: worktreePath,
 			timeout: 10_000,
 		});

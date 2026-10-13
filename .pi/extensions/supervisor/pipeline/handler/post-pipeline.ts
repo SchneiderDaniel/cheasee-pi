@@ -14,6 +14,7 @@ import type {
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
+import { nullNotify } from "../helpers.ts";
 import { isDoneStatus } from "../stages/index.ts";
 import { handlePostPipelineMerge } from "../merge.ts";
 import { cleanupWorktree } from "../worktree.ts";
@@ -162,11 +163,7 @@ export async function handlePostPipeline(
 					ctx.cwd,
 					worktreePath,
 					worktreeBranch,
-					notify ||
-						({
-							info: () => {},
-							error: () => {},
-						} as NotifyFn),
+					notify || nullNotify(),
 				);
 				if (!cleanResult.ok) {
 					getDebugLogger().warn("handler", `Worktree cleanup failed: ${cleanResult.error}`);
