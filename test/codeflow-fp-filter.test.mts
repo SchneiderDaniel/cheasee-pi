@@ -1016,6 +1016,46 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 		assert.deepStrictEqual(data.issues, []);
 	});
 
+	// The exported report cites the analyzer's count-only architecture summary
+	// (`{title: "44 Unused Functions"}`, no `items`), so it must restate the
+	// filtered count or the report contradicts its own list and `stats.dead`.
+	it("restates the title-only Unused Functions summary to the surviving count", () => {
+		const input = {
+			files: deadFiles,
+			issues: [{ title: "3 Unused Functions" }, { title: "1 Large Files" }],
+			deadFunctions: [
+				{ name: "hit", file: "src/use.ts" },
+				{ name: "keep", file: "src/use.ts" },
+				{ name: "ghost", file: "src/other.ts" },
+			],
+			stats: { dead: 3 },
+		};
+		const before = structuredClone(input);
+
+		const { data } = sanitizeAnalysisData(input, deadRead);
+
+		assert.deepStrictEqual(input, before, "input must not be touched");
+		assert.strictEqual(data.issues[0].title, "1 Unused Functions");
+		assert.strictEqual(data.issues[0].title, `${data.stats.dead} Unused Functions`, "summary must agree with stats.dead");
+		assert.deepStrictEqual(data.issues[1], input.issues[1], "unrelated issues must pass through");
+	});
+
+	it("drops the title-only Unused Functions summary when nothing survives", () => {
+		const input = {
+			files: deadFiles,
+			issues: [{ title: "1 Unused Functions" }],
+			deadFunctions: [{ name: "hit", file: "src/use.ts" }],
+		};
+		const { data } = sanitizeAnalysisData(input, deadRead);
+		assert.deepStrictEqual(data.issues, []);
+	});
+
+	it("keeps a title-only Unused Functions summary when no dead list is reportable", () => {
+		const entry = { title: "3 Unused Functions" };
+		const { data } = sanitizeAnalysisData({ files: deadFiles, issues: [entry] }, deadRead);
+		assert.deepStrictEqual(data.issues, [entry]);
+	});
+
 	it("recounts stats.dead to the surviving list", () => {
 		const input = {
 			files: deadFiles,

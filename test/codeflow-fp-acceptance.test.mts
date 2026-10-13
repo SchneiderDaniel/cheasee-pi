@@ -83,6 +83,9 @@ const highsOf = (data: { securityIssues: Array<{ severity: string }> }) =>
 	data.securityIssues.filter((s) => String(s.severity).toLowerCase() === "high");
 const deadNames = (data: { deadFunctions?: Array<{ name: string }> }): string[] =>
 	(Array.isArray(data.deadFunctions) ? data.deadFunctions : []).map((f) => f.name);
+// The analyzer's architecture summary names the dead list as a bare count.
+const deadTitle = (data: { issues?: Array<{ title?: string }> }): string | undefined =>
+	(Array.isArray(data.issues) ? data.issues : []).map((i) => String(i.title)).find((t) => /^\d+ Unused Functions$/.test(t));
 
 // The LOW hygiene heuristics (`Code Comments` / `Debug Statements`).
 const HYGIENE_TITLES = new Set(["Code Comments", "Debug Statements"]);
@@ -144,6 +147,11 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		for (const name of CITED_DEAD) {
 			assert.ok(deadNames(recorded).includes(name), `recording must carry the cited dead function ${name}`);
 		}
+		assert.strictEqual(
+			deadTitle(recorded),
+			"44 Unused Functions",
+			"recording must carry the analyzer's count-only architecture summary",
+		);
 
 		const before = calcHealth(recorded);
 		assert.ok(before.score < 90, `before-filter score should not already pass: ${before.score}`);
@@ -174,6 +182,11 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 			data.stats.dead,
 			data.deadFunctions.length,
 			"the summary count must agree with the surviving list",
+		);
+		assert.strictEqual(
+			deadTitle(data),
+			`${data.stats.dead} Unused Functions`,
+			"the count-only architecture summary must restate the surviving list",
 		);
 
 		const after = calcHealth(data);

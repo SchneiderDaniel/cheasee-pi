@@ -480,19 +480,29 @@
 		return { kept: kept, dropped: dropped };
 	}
 
-	// The architecture list repeats the dead functions under an `N Unused
-	// Functions` heading, so it must move with them.
-	function filterUnusedIssues(issues, index) {
+	// The architecture summary repeats the dead functions under an `N Unused
+	// Functions` heading — either carrying the entries, or (as the exported report
+	// records it) as a bare count — so both must move with the filtered list.
+	function filterUnusedIssues(issues, index, deadCount) {
 		var out = [];
 		for (var i = 0; i < issues.length; i++) {
 			var issue = issues[i];
-			var isDeadList = !!issue && typeof issue === "object" && Array.isArray(issue.items) &&
+			var isDeadList = !!issue && typeof issue === "object" &&
 				/^\d+ Unused Functions$/.test(String(issue.title));
-			var kept = isDeadList ? partitionDead(issue.items, index).kept : null;
-			if (!kept) out.push(issue);
-			else if (kept.length) {
-				out.push(Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }));
+			if (!isDeadList) {
+				out.push(issue);
+				continue;
 			}
+			if (Array.isArray(issue.items)) {
+				var kept = partitionDead(issue.items, index).kept;
+				if (kept.length) out.push(Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }));
+				continue;
+			}
+			// A count-only summary: the filtered list is the only honest source for
+			// it, so it restates the surviving count or goes with the list. With no
+			// reportable list the count is unknown, so it stands (fail open).
+			if (deadCount === null) out.push(issue);
+			else if (deadCount > 0) out.push(Object.assign({}, issue, { title: deadCount + " Unused Functions" }));
 		}
 		return out;
 	}
@@ -573,7 +583,7 @@
 				suppressed.deadCode = suppressed.deadCode.concat(partition.dropped);
 				if (deadKeys[k] === "deadFunctions" || deadCount === null) deadCount = partition.kept.length;
 			}
-			if (Array.isArray(data.issues)) out.issues = filterUnusedIssues(data.issues, referenceIndex);
+			if (Array.isArray(data.issues)) out.issues = filterUnusedIssues(data.issues, referenceIndex, deadCount);
 		}
 
 		// `data.stats.security` / `data.stats.violations` are the same counts the
