@@ -44,7 +44,9 @@ assert b'if ("stats" in __piFp.data) data.stats = __piFp.data.stats;' in out, ou
 assert b"data = piFpFilter" not in out, "must not rebind data (const-safe): %r" % out
 assert b'"fp-filter: suppressed "' in out, "suppression log must keep the headless wording: %r" % out
 assert b"__piFp.suppressed.hygiene.length" in out, "the hygiene count must be reported: %r" % out
-assert b'" hygiene finding(s)")' in out, out
+assert b'" hygiene finding(s), "' in out, out
+assert b"__piFpDead + \" unused function(s)\"" in out, "the dead-function count must be reported: %r" % out
+assert b"data.files.forEach(function (f) { if (f) f.piFpSource = null; })" in out, "the retained source must be released: %r" % out
 assert b'"use strict"' in out, out
 assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
 assert b"__codeflowBridgeReportError" in out, "sanitizer failure must be visible: %r" % out
@@ -54,6 +56,17 @@ assert pat.sub(lambda _: repl, out) == out, "not idempotent"
 
 raw = b"<script>no report function here</script>"
 assert pat.sub(lambda _: repl, raw) == raw, "anchor-free bytes altered: %r" % pat.sub(lambda _: repl, raw)
+
+# The analyzer frees each file's source before generateReport; the served page
+# must keep it on piFpSource so the in-page filter can resolve references.
+src_keep = [rw for rw in m["_UI_REWRITES"] if b"f.piFpSource=f.content" in rw[1]]
+assert len(src_keep) == 1, src_keep
+keep_pat, keep_repl = src_keep[0]
+freed = b"analyzed.forEach(function(f){f.content=null;});"
+kept = keep_pat.sub(lambda _: keep_repl, freed)
+assert kept == b"analyzed.forEach(function(f){f.piFpSource=f.content;f.content=null;});", kept
+assert keep_pat.sub(lambda _: keep_repl, kept) == kept, "source-keep rewrite not idempotent"
+assert keep_pat.sub(lambda _: keep_repl, b"nothing to keep here") == b"nothing to keep here", "anchor-free bytes altered"
 
 bridge = m["_BRIDGE_SCRIPT"]
 assert bridge.count(b"fp-filter.js") == 1, bridge

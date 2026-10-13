@@ -347,6 +347,14 @@ describe("codeflow bridge capture", () => {
 		// The wrapper reports a sanitizer failure through the bridge's visible banner.
 		assert.match(py, /window\.__codeflowBridgeReportError = reportError/);
 		assert.match(py, /__codeflowBridgeReportError\('false-positive filter failed/);
+		// The wrapper copies the dead-function list (and the architecture entry that
+		// repeats it) back too, and reports the dead-code count like the headless runner.
+		assert.match(py, /b' if \("deadFunctions" in __piFp\.data\) data\.deadFunctions = __piFp\.data\.deadFunctions;'/);
+		assert.match(py, /b' if \("issues" in __piFp\.data\) data\.issues = __piFp\.data\.issues;'/);
+		assert.match(py, /__piFpDead \+ " unused function\(s\)"/);
+		// Browser parity needs source: the analyzer frees `f.content`, so the served
+		// index.html keeps the text on `piFpSource` for the in-page filter.
+		assert.match(py, /f\.piFpSource=f\.content;f\.content=null;/);
 
 		const filterPath = resolve(SERVER_PY, "..", "fp-filter.js");
 		assert.ok(existsSync(filterPath), "fp-filter.js must sit next to server.py");
@@ -402,7 +410,11 @@ describe("codeflow bridge capture", () => {
 				"{ severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' }, " +
 				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/widget.test.ts' }, " +
 				"{ severity: 'low', title: 'Debug Statements', code: '', path: 'docs/guide.md' }, " +
-				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/keep.ts' } ], layerViolations: [] };\n" +
+				"{ severity: 'low', title: 'Code Comments', code: '', path: 'src/keep.ts' } ], layerViolations: [], " +
+				"stats: { dead: 1 }, " +
+				"files: [ { path: 'def.ts', content: null, piFpSource: 'export function deadCall() {}' }, { path: 'use.ts', content: null, piFpSource: 'function run() { deadCall(); }' } ], " +
+				"deadFunctions: [ { name: 'deadCall', file: 'def.ts' } ], " +
+				"issues: [ { type: 'warning', title: '1 Unused Functions', items: [ { name: 'deadCall', file: 'def.ts' } ] } ] };\n" +
 				rewritten +
 				"\n;globalThis.__out = generateReport('md');",
 			sandbox,
@@ -413,9 +425,22 @@ describe("codeflow bridge capture", () => {
 			"const `data` must be filtered in place: only the shipping-source marker survives",
 		);
 		assert.strictEqual(sandbox.__out.layerViolations.length, 0);
+		assert.deepStrictEqual(
+			sandbox.__out.deadFunctions,
+			[],
+			"the served wrapper must copy the filtered dead list back",
+		);
+		assert.strictEqual(sandbox.__out.stats.dead, 0, "the served stats must agree with the list");
+		assert.deepStrictEqual(sandbox.__out.issues, [], "the architecture entry must not outlive its items");
+		// Upstream frees each file's source on purpose; the wrapper must release the
+		// text it retained for the filter once the filter has read it.
+		assert.ok(
+			sandbox.__out.files.every((f: { piFpSource: unknown }) => f.piFpSource === null),
+			"the served report must not retain the analyzed source",
+		);
 		// Byte-parity with the headless stderr line (see codeflow-run-analysis.test.mts).
 		assert.deepStrictEqual(logs, [
-			"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 2 hygiene finding(s)",
+			"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 1 unused function(s)",
 		]);
 
 		// A sanitizer error must fail closed, never fall through to unfiltered data,

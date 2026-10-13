@@ -42,11 +42,11 @@ function calcHealth(data) { return { score: 100, grade: "A" }; }
 
 // generateReport mirrors the UI export seam: it builds a Blob and hands it to
 // URL.createObjectURL, which the runner stubs to capture the bytes.
-function generateReportBody(emitJson = true): string {
+function generateReportBody(emitJson = true, emitDead = false): string {
 	return `
 function generateReport(format) {
   if (format === "json"${emitJson ? "" : " && false"}) {
-    var blob = new Blob([JSON.stringify({ architectureIssues: data.architectureIssues || [], duplicates: [{ files: ["a", "b"] }], layerViolations: data.layerViolations || [{ from: "UI", to: "DB" }], suggestions: [{ text: "split" }], marker: data.marker, securityIssues: data.securityIssues || null })], { type: "application/json" });
+    var blob = new Blob([JSON.stringify({ architectureIssues: data.architectureIssues || [], duplicates: [{ files: ["a", "b"] }], layerViolations: data.layerViolations || [{ from: "UI", to: "DB" }], suggestions: [{ text: "split" }], marker: data.marker, securityIssues: data.securityIssues || null${emitDead ? ", unusedFunctions: data.deadFunctions || null, stats: data.stats || null" : ""}})], { type: "application/json" });
     var url = URL.createObjectURL(blob);
     var a = document.createElement("a");
     a.href = url;
@@ -94,6 +94,7 @@ const CANON_STATS = { files: 1026, functions: 4890, connections: 5006, dead: 24,
 function makeFixture(
 	opts: {
 		emitJson?: boolean;
+		emitDead?: boolean;
 		analyzerBlock?: string;
 		analysisJs?: string | null;
 		stats?: unknown;
@@ -110,7 +111,7 @@ function makeFixture(
 	const block = opts.analyzerBlock ?? ANALYZER_BLOCK;
 	writeFileSync(
 		join(uiDir, "index.html"),
-		`<html><body><script type="text/babel">${block}${generateReportBody(opts.emitJson !== false)}</script></body></html>`,
+		`<html><body><script type="text/babel">${block}${generateReportBody(opts.emitJson !== false, opts.emitDead === true)}</script></body></html>`,
 	);
 	if (opts.analysisJs !== null) {
 		writeFileSync(
@@ -301,9 +302,44 @@ describe("run-analysis.mjs headless producer", () => {
 		assert.deepStrictEqual(json.layerViolations, [], "the layer category is noise here");
 		assert.match(
 			stderr,
-			/fp-filter: suppressed 2 security issue\(s\), 2 layer violation\(s\), 1 hygiene finding\(s\)\n/,
+			/fp-filter: suppressed 2 security issue\(s\), 2 layer violation\(s\), 1 hygiene finding\(s\), 0 unused function\(s\)\n/,
 			"suppression must be observable, never silent",
 		);
+	});
+
+	it("drops dead functions the snapshot still references and recounts stats.dead", () => {
+		const fx = makeFixture({
+			emitDead: true,
+			analysisJs: analysisJs({
+				marker: "DEAD",
+				files: [{ path: "use.ts" }, { path: "def.ts" }],
+				stats: { files: 2, functions: 3, dead: 2 },
+				securityIssues: [
+					{ severity: "high", title: "Shell Command Execution", code: "", path: "def.ts" },
+				],
+				deadFunctions: [
+					{ name: "liveCall", file: "def.ts", line: 1 },
+					{ name: "ghost", file: "def.ts", line: 9 },
+				],
+			}),
+		});
+		writeFileSync(join(fx.sourceDir, "def.ts"), "export function liveCall() { return 1; }\n");
+		writeFileSync(join(fx.sourceDir, "use.ts"), "import { liveCall } from './def.ts';\nliveCall();\n");
+		const { code, stderr } = runRunner(fx);
+
+		assert.strictEqual(code, 0, `stderr: ${stderr}`);
+		assert.match(
+			stderr,
+			/fp-filter: suppressed 1 security issue\(s\), 0 layer violation\(s\), 0 hygiene finding\(s\), 1 unused function\(s\)\n/,
+			"the dead count rides alongside the others, which keep their own",
+		);
+		const json = JSON.parse(readFileSync(join(fx.outDir, "report.json"), "utf-8"));
+		assert.deepStrictEqual(
+			json.unusedFunctions.map((f: { name: string }) => f.name),
+			["ghost"],
+			"only the symbol no snapshot file references may be reported as unused",
+		);
+		assert.strictEqual(json.stats.dead, json.unusedFunctions.length, "the summary count must agree");
 	});
 
 	it("drops LOW hygiene findings only on non-shipping artifacts and reports them", () => {
@@ -351,7 +387,7 @@ describe("run-analysis.mjs headless producer", () => {
 		);
 		assert.strictEqual(
 			stderr,
-			"fp-filter: suppressed 0 security issue(s), 0 layer violation(s), 2 hygiene finding(s)\n",
+			"fp-filter: suppressed 0 security issue(s), 0 layer violation(s), 2 hygiene finding(s), 0 unused function(s)\n",
 		);
 	});
 

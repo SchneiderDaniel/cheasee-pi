@@ -2,7 +2,7 @@
 //
 // Applied to the structured `data` the analyzer produced, *before* any report
 // artifact is built, so the health score, the markdown export, the JSON export
-// and the stats all agree. Three categories:
+// and the stats all agree. Four categories:
 //
 //   1. security findings that cite no real code — an empty or comment-only
 //      snippet, a string-literal type union, a value the environment resolves
@@ -12,7 +12,12 @@
 //      one the report itself assigns the file;
 //   3. LOW hygiene findings (`Code Comments` / `Debug Statements`) whose cited
 //      path is a non-shipping artifact — a test or a document, where the
-//      flagged token is fixture data or a worked example, not deferred work.
+//      flagged token is fixture data or a worked example, not deferred work;
+//   4. unused functions that the snapshot does reference. The analyzer's call
+//      graph misses function-as-value references (`opts.fetchFn ?? defaultFetch`)
+//      and cross-file trait dispatch (`Socket::on_message` called in retry.rs),
+//      so a symbol that still appears call- or value-shaped outside its own
+//      definition is not dead.
 //
 // Security suppression considers HIGH severity only: the LOW/MEDIUM shapes
 // (argv-array spawns) are left in the report for the audit skill to triage.
@@ -274,16 +279,253 @@
 		return index.connections[from + "\u0000" + to] !== true;
 	}
 
+	// --- unused functions ----------------------------------------------------
+
+	// Rust `'` opens a lifetime (`&'a str`), not a string: reading it as one
+	// would swallow everything up to the next apostrophe.
+	var APOSTROPHE_IS_CODE = { ".rs": true };
+
+	function skipQuoted(content, i, quote) {
+		i++;
+		while (i < content.length) {
+			if (content[i] === "\\") i += 2;
+			else if (content[i] === quote) return i + 1;
+			else i++;
+		}
+		return i;
+	}
+
+	// Blank comments and string bodies so a name mentioned there cannot read as a
+	// reference while the code keeps its shape. shortcut: template interpolations
+	// are treated as literal text, which only ever keeps a finding.
+	function stripNoise(content, path) {
+		var apostropheIsCode = APOSTROPHE_IS_CODE[extensionOf(path)] === true;
+		var out = "";
+		var i = 0;
+		while (i < content.length) {
+			var ch = content[i];
+			if (ch === "/" && content[i + 1] === "/") {
+				var line = content.indexOf("\n", i);
+				out += " ";
+				i = line < 0 ? content.length : line;
+			} else if (ch === "/" && content[i + 1] === "*") {
+				var end = content.indexOf("*/", i + 2);
+				out += " ";
+				i = end < 0 ? content.length : end + 2;
+			} else if (ch === '"' || ch === "`" || (ch === "'" && !apostropheIsCode)) {
+				i = skipQuoted(content, i, ch);
+				out += ch + ch;
+			} else {
+				out += ch;
+				i++;
+			}
+		}
+		return out;
+	}
+
+	// Definition heads: a declaration (`function`, `fn`, Go's `func`, `def`), an
+	// assignment of a function or arrow, or a keyword-less member (`ghost() {}`):
+	// a bare `name(...)` counts only when a body/return type follows it.
+	function definitionHead(name, flags) {
+		var n = escapeRe(name);
+		return new RegExp(
+			"(?:function\\s+" + n + "\\b|\\bfn\\s+" + n + "\\b|\\bfunc\\s+(?:\\([^)\\n]*\\)\\s*)?" + n +
+				"\\b|\\bdef\\s+" + n +
+				"\\b|\\b" + n + "\\s*(?::[^=;\\n]*)?=\\s*(?:async\\s+)?(?:function\\b|\\([^)]*\\)\\s*=>|[\\w$]+\\s*=>)" +
+				"|(?:^|[;{}\\n])\\s*(?:[A-Za-z_$][\\w$]*\\s+)*\\*?\\b" + n + "\\b\\s*(?:<[^>\\n]*>)?\\([^)\\n]*\\)(?=\\s*[:{]))",
+			flags
+		);
+	}
+
+	// Skip a balanced `{...}` block from its opening brace (or the file end).
+	function braceEnd(content, open) {
+		for (var depth = 0, i = open; i < content.length; i++) {
+			if (content[i] === "{") depth++;
+			else if (content[i] === "}" && --depth === 0) return i + 1;
+		}
+		return content.length;
+	}
+
+	// A definition ends at its closing brace, or at the `;` of a bodyless
+	// declaration (a Rust trait method). The parameter list and a `:`-introduced
+	// return type (`: {...}`, `extends {...}`) are signature, not body, so a
+	// recursive body is not mistaken for an external use. An unbalanced body runs
+	// to the end of the file, which only hides references: the finding is then kept.
+	function bodyEnd(content, from) {
+		var parens = 0;
+		for (var i = from; i < content.length; i++) {
+			var ch = content[i];
+			if (ch === "(") parens++;
+			else if (ch === ")" && parens > 0) parens--;
+			else if (parens === 0 && ch === ";") return i + 1;
+			else if (parens === 0 && ch === "{") {
+				if (!/[:|&<,]\s*$|\b(?:extends|implements)\s+$/.test(content.slice(0, i))) return braceEnd(content, i);
+				i = braceEnd(content, i) - 1; // signature/type brace: keep scanning for the body
+			}
+		}
+		return content.length;
+	}
+
+	function inSpans(spans, at) {
+		for (var i = 0; i < spans.length; i++) {
+			if (at >= spans[i][0] && at < spans[i][1]) return true;
+		}
+		return false;
+	}
+
+	// How a file mentions a name outside its own definitions: a receiver call
+	// (`.name(`), a plain call (`name(`) or a value mention (`?? name`, `= name`,
+	// `, name`). Null when it does not mention it. A recursive body is not a use.
+	function referenceShape(content, name) {
+		var spans = [];
+		var head = definitionHead(name, "g");
+		var m;
+		while ((m = head.exec(content)) !== null) {
+			spans.push([m.index, bodyEnd(content, m.index + m[0].length)]);
+		}
+		var scan = new RegExp("\\b" + escapeRe(name) + "\\b", "g");
+		var shape = null;
+		while ((m = scan.exec(content)) !== null) {
+			if (inSpans(spans, m.index)) continue;
+			var before = content.slice(Math.max(0, m.index - 64), m.index);
+			if (/^\s*\(/.test(content.slice(m.index + name.length, m.index + name.length + 32))) {
+				if (/\.[\w$]*\s*$/.test(before)) return "dispatch";
+				shape = "call";
+			} else if (shape === null && /(?:\?\?|=|,)\s*$/.test(before)) {
+				shape = "value";
+			}
+		}
+		return shape;
+	}
+
+	// Every symbol the analyzed files still reference: any unreadable file (the
+	// definition's own included, else a same-named call elsewhere cannot be
+	// attributed to it) leaves the index incomplete, so nothing resolves and every
+	// finding stands — fail open. shortcut: only the analyzer's own file set is
+	// scanned (it skips e.g. `.mts` tests), so a test-only use reads as unreferenced.
+	//
+	// A bare mention in another file only refutes the listed definition when that
+	// file is the name's sole scanned owner (nothing else it could resolve to);
+	// with a second same-named definition the target is ambiguous, so the finding
+	// stands. A receiver call dispatches through the receiver's type, so it is
+	// attributed regardless of a same-named local definition.
+	// shortcut: a dot-call in a file that defines the same name is still
+	// attributed to the listed definition (the receiver's type is not known from
+	// text); upgrade this when the analyzer records call targets.
+	function buildReferenceIndex(data, readFile) {
+		var files = data && Array.isArray(data.files) ? data.files : [];
+		var cleaned = Object.create(null), complete = true;
+		for (var i = 0; i < files.length; i++) {
+			var path = files[i] && typeof files[i].path === "string" ? files[i].path : null;
+			var raw = path !== null && readFile ? readFile(path) : null;
+			if (typeof raw === "string") cleaned[path] = stripNoise(raw, path);
+			else complete = false;
+		}
+		var known = Object.create(null), defines = Object.create(null);
+		// shortcut: definition sites are matched textually, so a declaration form
+		// `definitionHead` misses reads as an extra owner and keeps the finding.
+		function definesLocally(name, file) {
+			if (!(name in defines)) {
+				var paths = Object.create(null);
+				for (var key in cleaned) paths[key] = definitionHead(name).test(cleaned[key]);
+				defines[name] = paths;
+			}
+			return defines[name][file] === true;
+		}
+		// The listed file is the only scanned owner of the name. A bare mention
+		// elsewhere then has nothing else to resolve to; with a second same-named
+		// definition the target is ambiguous from text, so the finding stands.
+		function soleOwner(name, file) {
+			for (var key in cleaned) if (key !== file && definesLocally(name, key)) return false;
+			return definesLocally(name, file);
+		}
+		function referencedElsewhere(name, file) {
+			var sole = soleOwner(name, file);
+			for (var key in cleaned) {
+				if (key === file) continue;
+				var shape = referenceShape(cleaned[key], name);
+				if (shape === "dispatch") return true;
+				if (shape !== null && sole) return true;
+			}
+			return false;
+		}
+		return {
+			isReferenced: function (name, file) {
+				if (!complete || !(file in cleaned)) return false;
+				var key = file + "\u0000" + name;
+				if (key in known) return known[key];
+				var found = referenceShape(cleaned[file], name) !== null || referencedElsewhere(name, file);
+				return (known[key] = found);
+			},
+		};
+	}
+
+	// An entry that names no symbol or no file cannot be disproved, so it stays.
+	function isFalsePositiveUnusedFunction(finding, index) {
+		if (!finding || typeof finding !== "object" || typeof finding.name !== "string" || !finding.name) {
+			return false;
+		}
+		if (typeof finding.file !== "string" || !finding.file) return false;
+		return index.isReferenced(finding.name, finding.file);
+	}
+
+	/** Partition a dead-function list into surviving and refuted entries. */
+	function partitionDead(list, index) {
+		var kept = [];
+		var dropped = [];
+		for (var i = 0; i < list.length; i++) {
+			if (isFalsePositiveUnusedFunction(list[i], index)) dropped.push(list[i]);
+			else kept.push(list[i]);
+		}
+		return { kept: kept, dropped: dropped };
+	}
+
+	// The architecture summary repeats the dead functions under an `N Unused
+	// Functions` heading — either carrying the entries, or (as the exported report
+	// records it) as a bare count — so both must move with the filtered list.
+	function filterUnusedIssues(issues, index, deadCount) {
+		var out = [];
+		for (var i = 0; i < issues.length; i++) {
+			var issue = issues[i];
+			var isDeadList = !!issue && typeof issue === "object" &&
+				/^\d+ Unused Functions$/.test(String(issue.title));
+			if (!isDeadList) {
+				out.push(issue);
+				continue;
+			}
+			if (Array.isArray(issue.items)) {
+				var kept = partitionDead(issue.items, index).kept;
+				if (kept.length) out.push(Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }));
+				continue;
+			}
+			// A count-only summary: the filtered list is the only honest source for
+			// it, so it restates the surviving count or goes with the list. With no
+			// reportable list the count is unknown, so it stands (fail open).
+			if (deadCount === null) out.push(issue);
+			else if (deadCount > 0) out.push(Object.assign({}, issue, { title: deadCount + " Unused Functions" }));
+		}
+		return out;
+	}
+
 	// --- entry point ---------------------------------------------------------
 
-	/** `readFile(path) -> content|null` over `files[].content`, for the browser. */
+	/**
+	 * `readFile(path) -> content|null` over the analyzer's retained file text, for
+	 * the browser. The analyzer frees each file's source (`f.content=null`) before
+	 * `generateReport` runs, so the served index.html is rewritten to stash the same
+	 * text on `files[].piFpSource` (see _UI_REWRITES in server.py); without it the
+	 * in-page filter has nothing to resolve references against and keeps every
+	 * finding. A path with neither field is absent, so the index stays incomplete
+	 * and the filter keeps the finding rather than guessing.
+	 */
 	function readFileFrom(data) {
 		var byPath = Object.create(null);
 		var files = data && Array.isArray(data.files) ? data.files : [];
 		for (var i = 0; i < files.length; i++) {
-			if (files[i] && typeof files[i].path === "string" && typeof files[i].content === "string") {
-				byPath[files[i].path] = files[i].content;
-			}
+			var file = files[i];
+			if (!file || typeof file.path !== "string") continue;
+			if (typeof file.content === "string") byPath[file.path] = file.content;
+			else if (typeof file.piFpSource === "string") byPath[file.path] = file.piFpSource;
 		}
 		return function (path) {
 			return typeof path === "string" && path in byPath ? byPath[path] : null;
@@ -291,12 +533,13 @@
 	}
 
 	/**
-	 * Filter `data.securityIssues` / `data.layerViolations` in place-free fashion.
-	 * Returns a new `data` object plus the findings that were dropped, so a
-	 * caller can report the suppression instead of silently shrinking the report.
+	 * Filter `data.securityIssues` / `data.layerViolations` / the dead-function
+	 * lists in place-free fashion. Returns a new `data` object plus the findings
+	 * that were dropped, so a caller can report the suppression instead of
+	 * silently shrinking the report.
 	 */
 	function sanitizeAnalysisData(data, readFile) {
-		var suppressed = { security: [], layerViolations: [], hygiene: [] };
+		var suppressed = { security: [], layerViolations: [], hygiene: [], deadCode: [] };
 		if (!data || typeof data !== "object") return { data: data, suppressed: suppressed };
 
 		var out = {};
@@ -324,17 +567,37 @@
 			}
 		}
 
+		// The reported dead-function lists are `deadFunctions` in the analyzer's own
+		// data and `unusedFunctions` in the exported report; both are re-checked
+		// against the snapshot, and `stats.dead` moves with them because the health
+		// dead-code term and the summary count read it.
+		var deadCount = null;
+		var deadKeys = ["deadFunctions", "unusedFunctions"].filter(function (key) {
+			return Array.isArray(data[key]);
+		});
+		if (deadKeys.length || Array.isArray(data.issues)) {
+			var referenceIndex = buildReferenceIndex(data, readFile);
+			for (var k = 0; k < deadKeys.length; k++) {
+				var partition = partitionDead(data[deadKeys[k]], referenceIndex);
+				out[deadKeys[k]] = partition.kept;
+				suppressed.deadCode = suppressed.deadCode.concat(partition.dropped);
+				if (deadKeys[k] === "deadFunctions" || deadCount === null) deadCount = partition.kept.length;
+			}
+			if (Array.isArray(data.issues)) out.issues = filterUnusedIssues(data.issues, referenceIndex, deadCount);
+		}
+
 		// `data.stats.security` / `data.stats.violations` are the same counts the
 		// report summary and the UI tab badge read, so they must move with the
 		// arrays or the report contradicts its own score ("9 high" under an A).
 		if (data.stats && typeof data.stats === "object") {
-			var stats = out.stats = Object.assign({}, data.stats);
+			var stats = (out.stats = Object.assign({}, data.stats));
 			if (typeof stats.security === "number" && Array.isArray(out.securityIssues)) {
 				stats.security = countHigh(out.securityIssues);
 			}
 			if (typeof stats.violations === "number" && Array.isArray(out.layerViolations)) {
 				stats.violations = out.layerViolations.length;
 			}
+			if (typeof stats.dead === "number" && deadCount !== null) stats.dead = deadCount;
 		}
 
 		return { data: out, suppressed: suppressed };

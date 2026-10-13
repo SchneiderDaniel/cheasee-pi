@@ -76,7 +76,10 @@ oracle block) plus `39e62d9e`'s EOF whitespace strips in nine split files — al
 `.md`/`.json`/`.mts` for the artifacts, and blank-line-only removals for the
 strips, which never add a segment. Every split file still lands `<= 500`
 segments, so the count and the flagged set are unchanged on every post-split
-commit.
+commit. The #2026 dead-code reference rule later took
+`cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js` past 500 segments, so the
+delivered tree flags **17** and that file is recorded as a deferral next to
+`server.py`.
 
 The issue was filed with **61** files at `analyzedAt 1791738325602`. The number
 had already fallen to 35 on the immutable base, because #2001 (Large Files),
@@ -146,6 +149,11 @@ import-graph edge was added.
   inline `_BRIDGE_JS`/`_UI_REWRITES` string literals and the Dockerfile `COPY`
   set form one boundary; moving code out of the file changes that copy-set in
   the same commit. Deferred to the change that owns the boundary guard.
+- **`cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js` (553 segments).** The
+  same boundary: one Dockerfile `COPY`ed asset served as the single
+  `<script src="fp-filter.js">` tag pinned by the Go and bridge suites. The
+  #2026 dead-code reference rule is what took it past 500; a split belongs to
+  the change that owns the served-asset contract, not to that rule.
 - **Renaming or re-homing code into non-scored extensions to dodge the metric.**
   The oracle guards `reducedBy` against `.mts` paths and against any path that is
   also listed under `deferred`.

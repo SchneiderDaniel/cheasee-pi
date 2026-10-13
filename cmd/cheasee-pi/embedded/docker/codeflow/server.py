@@ -698,7 +698,12 @@ def _ts_rewrite(anchor, tail=b""):
 # (renamed) function, and logs the same suppression line the headless runner
 # writes to stderr (byte-identical wording, so the two paths cannot drift).
 #
-# It overwrites the two array *properties* of `data` instead of rebinding `data`:
+# The wrapper also releases the retained source (`files[].piFpSource`) once the
+# filter has read it: upstream frees that text on purpose, and a large scan must
+# not pin it in the tab after the report is built.
+#
+# It overwrites the *properties* of `data` (the finding arrays, the dead-function
+# list and the stats counts) instead of rebinding `data`:
 # a page that declares `data` as a constant cannot be reassigned, and the former
 # reassignment threw, was swallowed, and exported the unfiltered report. The
 # assignments sit inside the same try as the filter call, so a write that a
@@ -713,15 +718,20 @@ _FP_WRAPPER_BODY = (
     b" var __piFp;"
     b" try {"
     b" __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data));"
+    b' if ("files" in data && Array.isArray(data.files)) data.files.forEach(function (f) { if (f) f.piFpSource = null; });'
     b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
     b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
+    b' if ("deadFunctions" in __piFp.data) data.deadFunctions = __piFp.data.deadFunctions;'
+    b' if ("unusedFunctions" in __piFp.data) data.unusedFunctions = __piFp.data.unusedFunctions;'
+    b' if ("issues" in __piFp.data) data.issues = __piFp.data.issues;'
     b' if ("stats" in __piFp.data) data.stats = __piFp.data.stats;'
     b" } catch (e) { var m = String((e && e.message) || e);"
     b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
     b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
-    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length) { try {"
+    b" var __piFpDead = (__piFp.suppressed.deadCode || []).length;"
+    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length || __piFpDead) { try {"
     b' console.info("fp-filter: suppressed " + __piFp.suppressed.security.length +'
-    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s)");'
+    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s), " + __piFpDead + " unused function(s)");'
     b" } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("
@@ -743,6 +753,16 @@ _UI_REWRITES = (
     # Browser parity for the headless false-positive filter. A silent no-op when
     # upstream renames generateReport.
     _fp_rewrite(),
+    # The analyzer frees every file's source (`f.content=null`) before
+    # `generateReport` runs, leaving the in-page filter nothing to resolve
+    # references against (so it kept every dead-code finding). Keep the text under
+    # a private key; fp-filter.js::readFileFrom reads it. A silent no-op when
+    # upstream changes that line, in which case the filter fails open (keeps
+    # findings) rather than suppressing anything it cannot disprove.
+    (
+        re.compile(re.escape(b"analyzed.forEach(function(f){f.content=null;});")),
+        b"analyzed.forEach(function(f){f.piFpSource=f.content;f.content=null;});",
+    ),
     (re.compile(re.escape(b"repoSoft:300,repoMax:750")), b"repoSoft:10000,repoMax:10000"),
     # Hard-limit dialog: "Analyze a GitHub API sample?" — reachable only when a
     # workspace exceeds repoMax (>10000 files).
