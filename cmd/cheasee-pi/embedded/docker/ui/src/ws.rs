@@ -23,6 +23,7 @@ use crate::bridge::{ClientMessage, ServerMessage};
 use crate::components::session_list::SessionListState;
 use crate::controls::ControlsState;
 use crate::extension_ui::ExtensionUiState;
+use crate::frame::{fan_out, UiSlice};
 use crate::retry::{deliver, send_status, wire, Adapter, SendOutcome, SessionEffect, Socket, Timer};
 use crate::stream::ChatState;
 
@@ -302,11 +303,13 @@ fn open(
             }
         },
         move |text| {
-            state.ingest_frame(&text);
-            controls.ingest_frame(&text);
-            extension_ui.ingest_frame(&text);
-            session_list.ingest_frame(&text);
-            if let Ok(message) = serde_json::from_str::<ServerMessage>(&text) {
+            let slices = [
+                UiSlice::Transcript(&state),
+                UiSlice::Controls(&controls),
+                UiSlice::Chrome(&extension_ui),
+                UiSlice::Sessions(&session_list),
+            ];
+            if let Some(message) = fan_out(&slices, &text) {
                 handle_reconnect_frame(&message, set_status);
             }
         },

@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { SupervisorConfig } from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
+import { nullNotify, toNotifyFn } from "../helpers.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import { withPerChildEnv } from "../../../lib/exec-env.ts";
@@ -136,11 +137,9 @@ export async function handleDeveloperCommit(
 	notify?: NotifyFn,
 ): Promise<boolean> {
 	const commitMsg = `feat(#${issueNum}): ${issueTitle}`;
-	// Use provided notify or create a null-safe fallback
-	const pushNotify: NotifyFn = notify || {
-		info: (msg) => ctx.ui.notify(msg, "info"),
-		error: (msg) => ctx.ui.notify(msg, "error"),
-	};
+	// Use provided notify or adapt ctx.ui.notify to the NotifyFn port
+	const pushNotify: NotifyFn =
+		notify || toNotifyFn({ hasUI: true, notify: ctx.ui.notify.bind(ctx.ui) });
 	const commitResult = await commitAndPush(
 		withPerChildEnv(pi.exec.bind(pi)),
 		worktreePath,
@@ -262,7 +261,7 @@ export async function preserveTimedOutWork(
 	notify?: NotifyFn,
 	baseBranch = "main",
 ): Promise<PreservedWork> {
-	const pushNotify: NotifyFn = notify || { info: () => {}, error: () => {} };
+	const pushNotify: NotifyFn = notify || nullNotify();
 	// Bound every preservation git call (see PRESERVATION_GIT_TIMEOUT_MS). Explicit
 	// per-call timeouts win; untimed calls (notably the inner `git push`) inherit
 	// the bound so a stalled remote cannot hang the timeout path indefinitely.
