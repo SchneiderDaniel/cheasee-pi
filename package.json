@@ -6,6 +6,7 @@
 	"scripts": {
 		"test": "node --experimental-strip-types --test '.pi/extensions/**/*.test.mts' '.pi/extensions/**/*.test.ts' '.pi/skills/**/*.test.mts' '.pi/skills/**/*.test.ts' 'test/**/*.test.mts'",
 		"tsc:extensions": "tsc --noEmit --project .pi/tsconfig.json",
+		"format:check": "prettier --check .",
 		"pi": "pi"
 	},
 	"keywords": [],
