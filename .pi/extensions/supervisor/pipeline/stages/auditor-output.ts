@@ -207,15 +207,37 @@ async function postOrUpdateAuditRejection(
 		// catch stops the pipeline and reports the error.
 		throw new Error(`Failed to ${action} audit rejection: ${msg}`);
 	}
+	// Fail closed on the counter (issue #2044 audit finding #2): a read or add
+	// failure that returned normally would let the loop exceed `maxRejections`
+	// with an unpersisted count. The stale-label removal below is cosmetic and
+	// must not block the transition.
+	let labels: string[];
 	try {
-		const labels = await port.getIssueLabels(issueNum, config.repo);
-		const current = countAuditRejections(labels, loopFilteredData?.comments ?? []);
-		const next = current + 1;
-		await port.addIssueLabel(issueNum, config.repo, rejectLabel(next));
-		if (current > 0) await port.removeIssueLabel(issueNum, config.repo, rejectLabel(current));
+		labels = await port.getIssueLabels(issueNum, config.repo);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
-		collector?.push("stages", "error", `Failed to bump reject label: ${msg}`);
+		collector?.push("stages", "error", `Failed to read reject labels: ${msg}`);
+		throw new Error(`Failed to read reject labels: ${msg}`);
+	}
+	const current = countAuditRejections(
+		labels,
+		loopFilteredData?.rejectionCommentCount ?? 0,
+	);
+	const next = current + 1;
+	try {
+		await port.addIssueLabel(issueNum, config.repo, rejectLabel(next));
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		collector?.push("stages", "error", `Failed to record reject label: ${msg}`);
+		throw new Error(`Failed to record reject label: ${msg}`);
+	}
+	if (current > 0) {
+		try {
+			await port.removeIssueLabel(issueNum, config.repo, rejectLabel(current));
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			collector?.push("stages", "warn", `Failed to remove stale reject label: ${msg}`);
+		}
 	}
 }
 

@@ -44,12 +44,18 @@ export interface FilteredIssueData {
 	/** Only comments from trusted codeowners */
 	comments: Array<{ author: string; body: string; id?: string }>;
 	/**
-	 * Supervisor-authored audit rejection comments (marker-tagged), kept
-	 * independently of the codeowner trust gate so the pipeline can find and
-	 * update its own prior rejection even when the automation account is not a
-	 * codeowner (issue #2044). Never surfaced to agents as trusted comments.
+	 * Supervisor-authored audit rejection comments (marker-tagged and authored
+	 * by the authenticated automation account), kept independently of the
+	 * codeowner trust gate so the pipeline can find and update its own prior
+	 * rejection even when the automation account is not a codeowner (issue
+	 * #2044). Never surfaced to agents as trusted comments.
 	 */
 	auditRejections?: Array<{ id?: string; body: string }>;
+	/**
+	 * Count-only total of ALL raw position-0 rejection comments (marked or not),
+	 * used as the legacy loop-count fallback. Bodies are withheld from agents.
+	 */
+	rejectionCommentCount?: number;
 }
 
 /**

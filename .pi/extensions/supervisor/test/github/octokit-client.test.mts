@@ -514,3 +514,46 @@ describe("OctokitClient label CRUD (issue #2044)", () => {
 		await assert.rejects(() => client.removeIssueLabel(42, "owner/repo", "reject-1"), /forbidden/);
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// issue #2044 audit finding #4 — paginated comment discovery + identity
+// ═══════════════════════════════════════════════════════════════════════
+
+describe("OctokitClient.listComments (issue #2044 audit finding #4)", () => {
+	it("paginates until a short page", async () => {
+		const fullPage = Array.from({ length: 100 }, (_, i) => ({
+			id: i + 1,
+			user: { login: "u" },
+			body: `c${i}`,
+		}));
+		const listComments = mock.fn(async (params: Record<string, unknown>) =>
+			(params as { page: number }).page === 1
+				? { data: fullPage }
+				: { data: [{ id: 101, user: null, body: "tail" }] },
+		);
+		const client = new OctokitClient("fake-token", createMockLogger() as any);
+		(client as any).octokit = { issues: { listComments } };
+
+		const comments = await client.listComments(42, "owner/repo");
+		assert.equal(comments.length, 101);
+		assert.deepEqual(comments[0], { id: "1", author: { login: "u" }, body: "c0" });
+		assert.deepEqual(comments[100], { id: "101", author: undefined, body: "tail" });
+		assert.equal(listComments.mock.callCount(), 2);
+	});
+
+	it("invalid repo format throws", async () => {
+		const client = new OctokitClient("fake-token", createMockLogger() as any);
+		await assert.rejects(() => client.listComments(1, "invalid"), /Invalid repo format/);
+	});
+});
+
+describe("OctokitClient.getAuthenticatedLogin (issue #2044)", () => {
+	it("returns the authenticated user's login", async () => {
+		const getAuthenticated = mock.fn(async () => ({ data: { login: "automation" } }));
+		const client = new OctokitClient("fake-token", createMockLogger() as any);
+		(client as any).octokit = { users: { getAuthenticated } };
+
+		assert.equal(await client.getAuthenticatedLogin(), "automation");
+		assert.equal(getAuthenticated.mock.callCount(), 1);
+	});
+});

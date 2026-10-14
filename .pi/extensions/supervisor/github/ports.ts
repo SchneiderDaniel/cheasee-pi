@@ -33,6 +33,12 @@ export interface GitHubPort {
 	/** Fetch issue including all comments (with authors). */
 	getIssueWithComments(issueNum: number, repo: string): Promise<RawIssueData | null>;
 
+	/** List every issue comment, auto-paginated (issue #2044 audit finding #4). */
+	listComments(issueNum: number, repo: string): Promise<NonNullable<RawIssueData["comments"]>>;
+
+	/** Login of the token owner — identifies supervisor-authored comments. */
+	getAuthenticatedLogin(): Promise<string>;
+
 	/** Close an issue. */
 	closeIssue(issueNum: number, repo: string): Promise<void>;
 

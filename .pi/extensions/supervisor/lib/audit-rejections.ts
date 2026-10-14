@@ -50,12 +50,11 @@ export function rejectLabel(n: number): string {
 /**
  * Loop count after in-place rejection updates: `reject-N` labels are the
  * source of truth, with the legacy position-0 rejection comments as a
- * fallback so pre-label issues self-heal on the next bump.
+ * fallback so pre-label issues self-heal on the next bump. `legacyCount` is a
+ * count-only total computed from RAW comments (see `filterIssueData`), so it
+ * still counts unmarked legacy rejections whose bodies never reach agents
+ * (issue #2044 audit finding #3).
  */
-export function countAuditRejections(
-	labels: string[],
-	comments: Array<{ body?: string | null }>,
-): number {
-	const legacyCount = comments.filter((c) => isAuditRejectionComment(c.body)).length;
+export function countAuditRejections(labels: string[], legacyCount: number): number {
 	return Math.max(parseRejectCount(labels), legacyCount);
 }

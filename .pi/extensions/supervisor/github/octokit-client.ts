@@ -89,14 +89,9 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 
 		this.log.debug("octokit", `getIssueWithComments #${issueNum}`);
 		try {
-			const [issueResp, commentsResp] = await Promise.all([
+			const [issueResp, comments] = await Promise.all([
 				this.octokit.issues.get({ owner, repo: name, issue_number: issueNum }),
-				this.octokit.issues.listComments({
-					owner,
-					repo: name,
-					issue_number: issueNum,
-					per_page: 100,
-				}),
+				this.listComments(issueNum, repo),
 			]);
 			const issue = issueResp.data;
 			return {
@@ -104,11 +99,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 				title: issue.title || undefined,
 				body: issue.body || undefined,
 				author: issue.user ? { login: issue.user.login } : undefined,
-				comments: commentsResp.data.map((c) => ({
-					author: c.user ? { login: c.user.login } : undefined,
-					body: c.body || undefined,
-					id: c.id != null ? String(c.id) : undefined,
-				})),
+				comments,
 			};
 		} catch (err: unknown) {
 			if (isNotFound(err)) return null;

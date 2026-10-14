@@ -136,6 +136,7 @@ export async function loadLoopIssue(
 		issueNum,
 		issueData,
 		collector,
+		port,
 	);
 
 	// Loop counter lives on `reject-N` labels now that rejections update in
@@ -160,7 +161,14 @@ export async function loadLoopIssue(
 		collector?.push("handler", "warn", `Failed to fetch issue labels: ${msg}`);
 		labels = [];
 	}
-	const rejectionCount = countAuditRejections(labels, loopFilteredData.comments);
+	// Legacy fallback is a count-only total over RAW position-0 rejection
+	// comments (issue #2044 audit finding #3): the in-place upsert leaves one
+	// comment, so the bodies alone undercount; the count covers unmarked
+	// rejections whose content stays out of the agent-visible `comments`.
+	const rejectionCount = countAuditRejections(
+		labels,
+		loopFilteredData.rejectionCommentCount ?? 0,
+	);
 
 	// Rejection limit check (issue #1668: reports the real count, not the
 	// threshold).

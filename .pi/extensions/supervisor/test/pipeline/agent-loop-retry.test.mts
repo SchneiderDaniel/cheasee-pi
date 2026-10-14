@@ -203,6 +203,12 @@ function buildRetryRunContext(opts: {
 			postIssueComment: async () => {},
 			closeIssue: async () => {},
 			setItemStatusField: async () => {},
+			listComments: async () =>
+				(opts.comments ?? []).map((c) => ({
+					author: c.author?.login ? { login: c.author.login } : undefined,
+					body: c.body ?? undefined,
+				})),
+			getAuthenticatedLogin: async () => "user1",
 		},
 		opts.portCalls,
 	);

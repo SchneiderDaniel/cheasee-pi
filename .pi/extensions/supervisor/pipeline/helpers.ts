@@ -10,7 +10,7 @@ import type {
 	ProjectField,
 	ProjectItem,
 } from "../config/types.ts";
-import { filterIssueData } from "../lib/issue-filter.ts";
+import { filterIssueData, type RawIssueData } from "../lib/issue-filter.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
@@ -160,7 +160,9 @@ export async function fetchFreshIssueData(
 	issueNum: number,
 	fallbackData: Record<string, unknown>,
 	collector?: ErrorCollector,
+	port?: GitHubPort,
 ): Promise<FilteredIssueData> {
+	let rawIssue: RawIssueData;
 	try {
 		const raw = await exec("gh", [
 			"issue",
@@ -171,14 +173,52 @@ export async function fetchFreshIssueData(
 			"--json",
 			"number,title,body,author,comments",
 		]);
-		return filterIssueData(JSON.parse(raw.stdout || "{}"), config.codeowners);
+		rawIssue = JSON.parse(raw.stdout || "{}");
 	} catch {
 		collector?.push(
 			"helpers",
 			"warn",
 			`Failed to fetch fresh data for issue #${issueNum}, using cached data`,
 		);
-		return filterIssueData(fallbackData, config.codeowners);
+		rawIssue = fallbackData as RawIssueData;
+	}
+
+	// Paginate comment discovery via the port (issue #2044 audit finding #4);
+	// the prior rejection can sit beyond the page `gh issue view` returns. The
+	// gh page is only the degraded fallback when the port is absent or the
+	// paginated request fails.
+	if (port) {
+		try {
+			rawIssue = { ...rawIssue, comments: await port.listComments(issueNum, config.repo) };
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			collector?.push(
+				"helpers",
+				"warn",
+				`Failed to list all comments for issue #${issueNum}, using the fetched page: ${msg}`,
+			);
+		}
+	}
+
+	const automationLogin = port ? await resolveAutomationLogin(port, collector) : undefined;
+	return filterIssueData(rawIssue, config.codeowners, automationLogin);
+}
+
+/**
+ * Login of the token owner, used to verify that rejection comments are the
+ * supervisor's own. Unresolved → undefined, which withholds audit rejections
+ * (fail closed: the pipeline posts a fresh rejection instead of updating).
+ */
+export async function resolveAutomationLogin(
+	port: GitHubPort,
+	collector?: ErrorCollector,
+): Promise<string | undefined> {
+	try {
+		return await port.getAuthenticatedLogin();
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		collector?.push("helpers", "warn", `Failed to resolve authenticated login: ${msg}`);
+		return undefined;
 	}
 }
 

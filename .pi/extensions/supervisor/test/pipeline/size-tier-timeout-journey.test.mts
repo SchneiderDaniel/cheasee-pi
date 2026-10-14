@@ -120,6 +120,7 @@ function buildJourneyContext(opts: {
 			postIssueComment: async () => {},
 			closeIssue: async () => {},
 			setItemStatusField: async () => {},
+			listComments: async () => opts.comments,
 		},
 		opts.portCalls,
 	);

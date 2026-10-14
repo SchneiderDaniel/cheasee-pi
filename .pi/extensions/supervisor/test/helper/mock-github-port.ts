@@ -19,6 +19,11 @@ export interface PortCall {
 export interface MockGitHubPortOptions {
 	getIssue?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
 	getIssueWithComments?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
+	listComments?: (
+		issueNum: number,
+		repo: string,
+	) => Promise<NonNullable<RawIssueData["comments"]>>;
+	getAuthenticatedLogin?: () => Promise<string>;
 	closeIssue?: (issueNum: number, repo: string) => Promise<void>;
 	postIssueComment?: (issueNum: number, repo: string, body: string) => Promise<void>;
 	updateIssueComment?: (commentId: string, repo: string, body: string) => Promise<void>;
@@ -88,6 +93,8 @@ export function createMockGitHubPort(
 	const defaults = {
 		getIssue: null as RawIssueData | null,
 		getIssueWithComments: null as RawIssueData | null,
+		listComments: [] as NonNullable<RawIssueData["comments"]>,
+		getAuthenticatedLogin: "automation",
 		closeIssue: undefined as void,
 		postIssueComment: undefined as void,
 		updateIssueComment: undefined as void,
@@ -122,6 +129,22 @@ export function createMockGitHubPort(
 						record("getIssueWithComments", [issueNum, repo]);
 						return defaults.getIssueWithComments;
 					}) as GitHubPort["getIssueWithComments"],
+
+		listComments:
+			opts?.listComments
+				? wrap("listComments", opts.listComments)
+				: (async (issueNum: number, repo: string) => {
+						record("listComments", [issueNum, repo]);
+						return defaults.listComments;
+					}) as GitHubPort["listComments"],
+
+		getAuthenticatedLogin:
+			opts?.getAuthenticatedLogin
+				? wrap("getAuthenticatedLogin", opts.getAuthenticatedLogin)
+				: (async () => {
+						record("getAuthenticatedLogin", []);
+						return defaults.getAuthenticatedLogin;
+					}) as GitHubPort["getAuthenticatedLogin"],
 
 		closeIssue:
 			opts?.closeIssue

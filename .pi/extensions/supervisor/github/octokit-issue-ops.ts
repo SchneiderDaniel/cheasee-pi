@@ -58,6 +58,44 @@ export abstract class IssueOpsBase {
 		await this.graphqlQuery(UPDATE_ISSUE_COMMENT_MUTATION(commentId, truncated));
 	}
 
+	// List every comment, auto-paginated (issue #2044 audit finding #4): the
+	// prior rejection can sit beyond the first page that `gh issue view` returns.
+	async listComments(
+		issueNum: number,
+		repo: string,
+	): Promise<Array<{ id?: string; author?: { login: string }; body?: string }>> {
+		const [owner, name] = repo.split("/");
+		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+
+		this.log.debug("octokit", `listComments #${issueNum}`);
+		const comments: Array<{ id?: string; author?: { login: string }; body?: string }> = [];
+		for (let page = 1; ; page++) {
+			const resp = await this.octokit.issues.listComments({
+				owner,
+				repo: name,
+				issue_number: issueNum,
+				per_page: 100,
+				page,
+			});
+			for (const c of resp.data) {
+				comments.push({
+					id: c.id != null ? String(c.id) : undefined,
+					author: c.user ? { login: c.user.login } : undefined,
+					body: c.body || undefined,
+				});
+			}
+			if (resp.data.length < 100) break;
+		}
+		return comments;
+	}
+
+	// Login of the authenticated token owner — used to verify that a
+	// marker-tagged rejection was authored by this automation account.
+	async getAuthenticatedLogin(): Promise<string> {
+		const resp = await this.octokit.users.getAuthenticated();
+		return resp.data.login;
+	}
+
 	async getIssueLabels(issueNum: number, repo: string): Promise<string[]> {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);

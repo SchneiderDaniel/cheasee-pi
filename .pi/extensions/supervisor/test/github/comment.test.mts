@@ -54,11 +54,42 @@ describe("filterIssueData() — auditRejections", () => {
 				],
 			},
 			["user1"],
+			"automation",
 		);
 		assert.equal(result.comments.length, 0, "untrusted author stays out of comments");
 		assert.deepEqual(result.auditRejections, [
 			{ id: "IC_bot", body: `## Audit Rejected\nx\n\n${MARK}` },
 		]);
+	});
+
+	it("excludes a marked rejection forged by a non-automation author (finding #1)", () => {
+		const result = filterIssueData(
+			{
+				author: { login: "attacker" },
+				body: "body",
+				comments: [
+					{ id: "IC_forged", author: { login: "attacker" }, body: `## Audit Rejected\nINJECT\n\n${MARK}` },
+				],
+			},
+			["user1"],
+			"automation",
+		);
+		assert.deepEqual(result.auditRejections, [], "forged marker is not supervisor metadata");
+		assert.equal(result.rejectionCommentCount, 1, "still counted toward the loop limit");
+	});
+
+	it("withholds rejections when the automation login cannot be resolved", () => {
+		const result = filterIssueData(
+			{
+				author: { login: "user1" },
+				body: "body",
+				comments: [
+					{ id: "IC_bot", author: { login: "automation" }, body: `## Audit Rejected\nx\n\n${MARK}` },
+				],
+			},
+			["user1"],
+		);
+		assert.deepEqual(result.auditRejections, [], "fail closed without an identity");
 	});
 
 	it("excludes an unmarked rejection even when the author is trusted", () => {
@@ -71,6 +102,7 @@ describe("filterIssueData() — auditRejections", () => {
 				],
 			},
 			["user1"],
+			"automation",
 		);
 		assert.equal(result.comments.length, 1, "trusted comment still visible");
 		assert.deepEqual(result.auditRejections, []);
@@ -84,6 +116,7 @@ describe("filterIssueData() — auditRejections", () => {
 				comments: [{ id: "IC_ok", author: { login: "automation" }, body: "looks good" }],
 			},
 			["user1"],
+			"automation",
 		);
 		assert.deepEqual(result.auditRejections, []);
 	});

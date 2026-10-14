@@ -12,6 +12,8 @@ describe("createMockGitHubPort — port method contract", () => {
 		const port = createMockGitHubPort();
 		assert.equal(typeof port.postIssueComment, "function");
 		assert.equal(typeof port.updateIssueComment, "function");
+		assert.equal(typeof port.listComments, "function");
+		assert.equal(typeof port.getAuthenticatedLogin, "function");
 		assert.equal(typeof port.getIssueLabels, "function");
 		assert.equal(typeof port.addIssueLabel, "function");
 		assert.equal(typeof port.removeIssueLabel, "function");
@@ -36,6 +38,12 @@ describe("createMockGitHubPort — port method contract", () => {
 		const port = createMockGitHubPort();
 		const result = await port.updateIssueComment("123", "owner/repo", "hello");
 		assert.equal(result, undefined);
+	});
+
+	it("listComments returns [] and getAuthenticatedLogin returns a login by default", async () => {
+		const port = createMockGitHubPort();
+		assert.deepEqual(await port.listComments(1, "owner/repo"), []);
+		assert.equal(await port.getAuthenticatedLogin(), "automation");
 	});
 
 	it("getIssueLabels returns [] by default", async () => {

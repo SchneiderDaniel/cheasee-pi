@@ -153,17 +153,61 @@ describe("audit rejection upsert (issue #2044)", () => {
 	it("falls back to the legacy comment count on the first bump", async () => {
 		const calls: PortCall[] = [];
 		const port = createMockGitHubPort({}, calls);
-		const data: FilteredIssueData = {
-			body: "",
-			comments: [
-				{ author: "user1", body: "## Audit Rejected\n1" },
-				{ author: "user1", body: "## Audit Rejected\n2" },
-			],
-		};
+		const data: FilteredIssueData = { body: "", comments: [], rejectionCommentCount: 2 };
 		await run(port, data);
 
 		const add = calls.find((c) => c.method === "addIssueLabel");
-		assert.equal(add!.args[2], "reject-3", "max(labels, comments) + 1");
+		assert.equal(add!.args[2], "reject-3", "max(labels, raw rejection count) + 1");
+	});
+
+	it("fails closed when reading the reject labels fails (audit finding #2)", async () => {
+		const calls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				getIssueLabels: async () => {
+					throw new Error("503 Service Unavailable");
+				},
+			},
+			calls,
+		);
+		await assert.rejects(() => run(port, { body: "", comments: [] }), /Failed to read reject labels/);
+		assert.equal(
+			calls.find((c) => c.method === "addIssueLabel"),
+			undefined,
+			"must not advance a counter it could not read",
+		);
+	});
+
+	it("fails closed when adding the reject label fails (audit finding #2)", async () => {
+		const calls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				addIssueLabel: async () => {
+					throw new Error("403 Forbidden");
+				},
+			},
+			calls,
+		);
+		await assert.rejects(
+			() => run(port, { body: "", comments: [] }),
+			/Failed to record reject label/,
+		);
+	});
+
+	it("does not block the transition when removing the stale label fails", async () => {
+		const calls: PortCall[] = [];
+		const port = createMockGitHubPort(
+			{
+				getIssueLabels: async () => ["reject-1"],
+				removeIssueLabel: async () => {
+					throw new Error("boom");
+				},
+			},
+			calls,
+		);
+		await run(port, { body: "", comments: [] });
+		const add = calls.find((c) => c.method === "addIssueLabel");
+		assert.equal(add!.args[2], "reject-2");
 	});
 
 	it("fails closed when the comment write fails: no label bump, error surfaced (audit finding #2)", async () => {

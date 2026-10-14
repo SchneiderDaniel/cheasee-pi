@@ -98,27 +98,18 @@ describe("findPriorAuditRejection()", () => {
 
 describe("countAuditRejections()", () => {
 	it("uses the label count when labels are ahead", () => {
-		assert.equal(countAuditRejections(["reject-5"], [{ body: "## Audit Rejected" }]), 5);
+		assert.equal(countAuditRejections(["reject-5"], 1), 5);
 	});
 
-	it("falls back to legacy comment count for pre-label issues", () => {
-		const comments = [
-			{ body: "## Audit Rejected\n1" },
-			{ body: "## Audit Rejected\n2" },
-		];
-		assert.equal(countAuditRejections([], comments), 2);
+	it("falls back to the legacy count for pre-label issues", () => {
+		assert.equal(countAuditRejections([], 2), 2);
 	});
 
-	it("counts gate rejections in the legacy fallback", () => {
-		const comments = [
-			{ body: "## Audit Rejected\n1" },
-			{ body: "## Audit Score Gate Rejected\n2" },
-		];
-		assert.equal(countAuditRejections([], comments), 2);
+	it("uses the label count when the legacy count is higher", () => {
+		assert.equal(countAuditRejections(["reject-7"], 2), 7);
 	});
 
-	it("ignores quoted headings in comment bodies", () => {
-		const comments = [{ body: 'no "## Audit Rejected"/"## Audit Approved" verdict comment' }];
-		assert.equal(countAuditRejections([], comments), 0);
+	it("returns 0 with no labels and no legacy count", () => {
+		assert.equal(countAuditRejections([], 0), 0);
 	});
 });
