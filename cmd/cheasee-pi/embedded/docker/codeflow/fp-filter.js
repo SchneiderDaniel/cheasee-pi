@@ -12,7 +12,8 @@
 //      taxonomy, a same-or-reversed rank order, or no recorded import edge. The
 //      analyzer infers layers from loose path substrings and falls back to
 //      `utils`, so its `files[].layer` labels are advisory; REPO_LAYERS below is
-//      the single source of which path is which layer;
+//      the single source of which path is which layer, and this repository
+//      declares none, so the whole category collapses;
 //   3. LOW hygiene findings (`Code Comments` / `Debug Statements`) whose cited
 //      path is a non-shipping artifact — a test or a document, where the
 //      flagged token is fixture data or a worked example, not deferred work;
@@ -241,36 +242,39 @@
 		return dot <= slash + 1 ? "" : path.slice(dot).toLowerCase();
 	}
 
-	// The layers this repository actually has, lowest rank first. CodeFlow infers
-	// layers from loose path substrings and falls back to `utils` for everything
-	// it does not recognise, so its labels are advisory only. An edge is a real
-	// architecture violation only when both endpoints sit under a declared prefix
-	// and the lower-ranked one imports the strictly higher-ranked one.
-	var REPO_LAYERS = [
-		{ prefix: "scripts/", layer: "scripts", rank: 0 },
-		{ prefix: "cmd/cheasee-pi/embedded/docker/ui/", layer: "ui", rank: 1 },
-		{ prefix: "cmd/cheasee-pi/", layer: "cli", rank: 2 },
-		{ prefix: ".pi/extensions/", layer: "extensions", rank: 3 },
-		{ prefix: "test/", layer: "test", rank: 4 },
-	];
+	// This repository's declared import-layer taxonomy, lowest rank first. It is
+	// empty on purpose: docs/architecture.md declares no ordered lower/higher
+	// boundary, and CodeFlow infers layers from loose path substrings (falling
+	// back to `utils`), so its `files[].layer` labels are advisory only. A bare
+	// source root (`scripts/`, `cmd/`, `.pi/extensions/`, `test/`) is a directory,
+	// not a declared layer. With nothing declared no path resolves, so every edge
+	// the analyzer emits is suppressed. Add an entry only for a boundary the repo
+	// actually documents, with a rank order that means "may be imported by".
+	var REPO_LAYERS = [];
 
-	// The declared layer a path belongs to, or null. The most specific (longest)
-	// matching prefix wins, so a nested root (`.../ui/`) beats its parent. A path
-	// with no extension is a directory or a bare name, never a layered source.
-	function resolveLayer(path) {
+	// The declared layer a path belongs to under `layers`, or null. The most
+	// specific (longest) matching prefix wins, so a nested root beats its parent.
+	// A path with no extension is a directory or a bare name, never a layered
+	// source.
+	function resolveLayerIn(layers, path) {
 		if (typeof path !== "string" || path === "" || extensionOf(path) === "") return null;
 		var best = null;
-		for (var i = 0; i < REPO_LAYERS.length; i++) {
-			var entry = REPO_LAYERS[i];
+		for (var i = 0; i < layers.length; i++) {
+			var entry = layers[i];
 			if (path.indexOf(entry.prefix) === 0 && (!best || entry.prefix.length > best.prefix.length))
 				best = entry;
 		}
 		return best ? { layer: best.layer, rank: best.rank } : null;
 	}
 
+	// The layer this repository's declared taxonomy assigns a path, or null.
+	function resolveLayer(path) {
+		return resolveLayerIn(REPO_LAYERS, path);
+	}
+
 	// The recorded import edges, keyed by `source\0target`. The analyzer's
-	// `files[].layer` is deliberately not read: REPO_LAYERS is the single source
-	// of the layer a path belongs to.
+	// `files[].layer` is deliberately not read: the declared taxonomy is the
+	// single source of the layer a path belongs to.
 	function buildIndex(data) {
 		var connections = Object.create(null);
 		var conns = data && Array.isArray(data.connections) ? data.connections : [];
@@ -284,7 +288,10 @@
 
 	// A violation is real only when both endpoints are the same language, both
 	// resolve to declared layers, the import runs from a lower rank to a strictly
-	// higher one (the inversion), and the analyzer recorded that edge.
+	// higher one (the inversion), and the analyzer recorded that edge. `index`
+	// carries the taxonomy to apply; production supplies the repo's declared
+	// `REPO_LAYERS` (via `buildIndex`, which leaves `layers` unset). The tests
+	// inject one to exercise the order rule, since production declares none.
 	function isFalsePositiveLayerViolation(violation, index) {
 		if (!violation || typeof violation !== "object") return true;
 		var from = violation.from;
@@ -292,10 +299,11 @@
 		if (typeof from !== "string" || typeof to !== "string" || !from || !to) return true;
 		var fromExt = extensionOf(from);
 		if (!fromExt || fromExt !== extensionOf(to)) return true;
-		var fromLayer = resolveLayer(from);
-		var toLayer = resolveLayer(to);
+		var layers = index && Array.isArray(index.layers) ? index.layers : REPO_LAYERS;
+		var fromLayer = resolveLayerIn(layers, from);
+		var toLayer = resolveLayerIn(layers, to);
 		if (!fromLayer || !toLayer || fromLayer.rank >= toLayer.rank) return true;
-		return index.connections[from + "\u0000" + to] !== true;
+		return !index.connections || index.connections[from + "\u0000" + to] !== true;
 	}
 
 	// --- unused functions ----------------------------------------------------

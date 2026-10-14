@@ -12,14 +12,12 @@
  */
 
 import assert from "node:assert";
-import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(HERE, "..");
 const requireCjs = createRequire(import.meta.url);
 const FILTER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js");
 
@@ -31,20 +29,30 @@ type Suppressed = {
 	duplicates: any[];
 };
 
-const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom, REPO_LAYERS, resolveLayer } =
-	requireCjs(FILTER) as {
-		sanitizeAnalysisData: (
-			data: unknown,
-			readFile?: (path: unknown) => string | null,
-		) => { data: any; suppressed: Suppressed };
-		isFalsePositiveHygiene: (
-			issue: unknown,
-			readFile?: (path: unknown) => string | null,
-		) => boolean;
-		readFileFrom: (data: unknown) => (path: unknown) => string | null;
-		REPO_LAYERS: Array<{ prefix: string; layer: string; rank: number }>;
-		resolveLayer: (path: unknown) => { layer: string; rank: number } | null;
-	};
+const {
+	sanitizeAnalysisData,
+	isFalsePositiveHygiene,
+	isFalsePositiveLayerViolation,
+	readFileFrom,
+	REPO_LAYERS,
+	resolveLayer,
+} = requireCjs(FILTER) as {
+	sanitizeAnalysisData: (
+		data: unknown,
+		readFile?: (path: unknown) => string | null,
+	) => { data: any; suppressed: Suppressed };
+	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
+	isFalsePositiveLayerViolation: (
+		violation: unknown,
+		index: {
+			connections: Record<string, boolean>;
+			layers?: Array<{ prefix: string; layer: string; rank: number }>;
+		},
+	) => boolean;
+	readFileFrom: (data: unknown) => (path: unknown) => string | null;
+	REPO_LAYERS: Array<{ prefix: string; layer: string; rank: number }>;
+	resolveLayer: (path: unknown) => { layer: string; rank: number } | null;
+};
 
 // The real upstream health score (see the fixture header), so the acceptance
 // arithmetic below is upstream's, not a re-implementation.
@@ -105,7 +113,9 @@ function hyg(over: Record<string, unknown> = {}): Record<string, unknown> {
 
 const nullReadFile = () => null;
 
-// Paths under the filter's declared taxonomy (REPO_LAYERS in fp-filter.js).
+// The analyzer's file table carries inferred `layer` labels — advisory only,
+// since the repo declares no ordered layer taxonomy (see fp-filter.js REPO_LAYERS).
+// The paths still end under the source roots CodeFlow mislabels as layers.
 const EXT = ".pi/extensions/";
 const TEST = "test/";
 const UI = "cmd/cheasee-pi/embedded/docker/ui/";
@@ -522,10 +532,10 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 		assert.deepStrictEqual(data.stats, { files: 3, functions: 9, loc: 40 });
 		assert.deepStrictEqual(data.unusedFunctions, [{ name: "dead" }]);
 		assert.strictEqual(suppressed.security.length, 1);
-		assert.strictEqual(suppressed.layerViolations.length, 1);
+		assert.strictEqual(suppressed.layerViolations.length, 2);
 		assert.strictEqual(suppressed.hygiene.length, 0);
 		assert.strictEqual(data.securityIssues.length, 1);
-		assert.strictEqual(data.layerViolations.length, 1);
+		assert.strictEqual(data.layerViolations.length, 0);
 	});
 
 	it("is idempotent: a second pass changes nothing and suppresses nothing", () => {
@@ -578,7 +588,9 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 
 		assert.deepStrictEqual(input.stats, before.stats, "input stats must not be touched");
 		assert.notStrictEqual(data.stats, input.stats, "output stats must be a new object");
-		assert.deepStrictEqual(data.stats, { files: 3, security: 1, violations: 1 });
+		// No layer is declared, so both layer violations are suppressed and the
+		// summary count moves to zero with the list.
+		assert.deepStrictEqual(data.stats, { files: 3, security: 1, violations: 0 });
 
 		const second = sanitizeAnalysisData(data, readFile);
 		assert.deepStrictEqual(second.data.stats, data.stats, "the corrected counts are stable");
@@ -586,17 +598,56 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 });
 
 describe("fp-filter — layer violations (Phase 2)", () => {
-	it("resolves a declared root to its layer and rank, longest prefix first", () => {
-		assert.deepStrictEqual(resolveLayer(`${EXT}from.ts`), { layer: "extensions", rank: 3 });
-		assert.deepStrictEqual(resolveLayer(`${TEST}to.ts`), { layer: "test", rank: 4 });
-		assert.deepStrictEqual(resolveLayer("cmd/cheasee-pi/build.go"), { layer: "cli", rank: 2 });
-		assert.deepStrictEqual(resolveLayer("scripts/install.sh"), { layer: "scripts", rank: 0 });
-		// The nested ui root beats its parent `cmd/cheasee-pi/` prefix.
-		assert.deepStrictEqual(resolveLayer(`${UI}src/retry.rs`), { layer: "ui", rank: 1 });
+	// The order-aware rule is the policy engine. Production supplies the repo's
+	// declared taxonomy — empty, because docs/architecture.md declares no ordered
+	// layer boundary — so the rule is exercised here with an injected taxonomy.
+	// This is the positive control: a genuine lower-ranked -> higher-ranked import
+	// is kept, not blanket-suppressed.
+	const SYNTHETIC_LAYERS = [
+		{ prefix: "app/deep/", layer: "deep", rank: 0 },
+		{ prefix: "app/", layer: "app", rank: 1 },
+		{ prefix: "app/top/", layer: "top", rank: 2 },
+	];
+	const SYNTH_CONNECTIONS = [
+		{ source: "app/from.ts", target: "app/top/to.ts" },
+		{ source: "app/deep/from.ts", target: "app/from.ts" },
+		{ source: "app/deep/from.ts", target: "app/deep/to.ts" },
+	];
+
+	/** The order rule with an injected taxonomy; production declares none. */
+	function keepsWithTaxonomy(
+		v: unknown,
+		connections: Array<{ source: string; target: string }> = SYNTH_CONNECTIONS,
+	): boolean {
+		const idx: Record<string, boolean> = Object.create(null);
+		for (const c of connections) idx[`${c.source}\u0000${c.target}`] = true;
+		return !isFalsePositiveLayerViolation(v, { connections: idx, layers: SYNTHETIC_LAYERS });
+	}
+
+	const synth = (over: Record<string, unknown> = {}) => ({
+		from: "app/from.ts",
+		to: "app/top/to.ts",
+		fromLayer: "app",
+		toLayer: "top",
+		...over,
 	});
 
-	it("resolves nothing for a path outside the declared roots", () => {
-		for (const path of ["README.md", ".pi/skills/audit/SKILL.md", "docker/x.yml", "Makefile"]) {
+	it("declares no ordered layer taxonomy: this repo has none", () => {
+		// docs/architecture.md declares no lower/higher boundary, so a source root
+		// (`scripts/`, `cmd/`, `.pi/extensions/`, `test/`) is not a layer.
+		assert.deepStrictEqual(REPO_LAYERS, [], "a source root is not a declared layer");
+	});
+
+	it("resolves nothing — no path maps to a layer", () => {
+		for (const path of [
+			`${EXT}from.ts`,
+			`${TEST}to.ts`,
+			"cmd/cheasee-pi/build.go",
+			"scripts/install.sh",
+			`${UI}src/retry.rs`,
+			"README.md",
+			".pi/skills/audit/SKILL.md",
+		]) {
 			assert.strictEqual(resolveLayer(path), null, path);
 		}
 	});
@@ -607,37 +658,34 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 		}
 	});
 
-	it("declares a real, non-overlapping, uniquely ranked taxonomy", () => {
-		const ranks = REPO_LAYERS.map((entry) => entry.rank);
-		assert.strictEqual(new Set(ranks).size, ranks.length, "ranks must be unique");
-		const prefixes = REPO_LAYERS.map((entry) => entry.prefix);
-		assert.strictEqual(new Set(prefixes).size, prefixes.length, "prefixes must be distinct");
-		for (const entry of REPO_LAYERS) {
-			// A trailing slash means any string-prefix relation is a directory
-			// boundary, so two prefixes can only nest or stay disjoint — never
-			// overlap at an ambiguous partial segment.
-			assert.ok(entry.prefix.endsWith("/"), `${entry.prefix} must be a directory prefix`);
-			assert.ok(
-				existsSync(join(REPO_ROOT, entry.prefix)),
-				`${entry.prefix} must name a real repo location`,
-			);
+	it("suppresses every analyzer layer edge while the taxonomy is empty", () => {
+		for (const v of [
+			violation(),
+			violation({ from: `${TEST}from.ts`, to: `${EXT}to.ts` }),
+			violation({ to: `${UI}src/retry.rs` }),
+			violation({ from: "cmd/cheasee-pi/build.go", to: `${UI}src/retry.rs` }),
+		]) {
+			assert.strictEqual(keepsViolation(v), false, JSON.stringify(v));
 		}
 	});
 
-	it("keeps an inverting same-language edge between declared layers", () => {
-		assert.strictEqual(keepsViolation(violation()), true);
+	it("keeps a genuine inverting same-language edge (positive control)", () => {
+		assert.strictEqual(keepsWithTaxonomy(synth()), true);
 	});
 
-	it("drops a same-rank edge (the repointed ui -> ui case)", () => {
+	it("resolves the most specific declared prefix (nested root beats its parent)", () => {
+		// app/deep/from.ts is `deep` (rank 0), app/from.ts is `app` (rank 1): the
+		// inversion holds. If the nested prefix were ignored both would resolve to
+		// `app` (same rank) and the edge would be suppressed.
 		assert.strictEqual(
-			keepsViolation(
-				violation({
-					from: `${UI}src/from.rs`,
-					to: `${UI}src/to.rs`,
-					fromLayer: "ui",
-					toLayer: "ui",
-				}),
-			),
+			keepsWithTaxonomy(synth({ from: "app/deep/from.ts", to: "app/from.ts" })),
+			true,
+		);
+	});
+
+	it("drops a same-rank edge", () => {
+		assert.strictEqual(
+			keepsWithTaxonomy(synth({ from: "app/deep/from.ts", to: "app/deep/to.ts" })),
 			false,
 			"two files in the same layer cannot invert it",
 		);
@@ -645,85 +693,51 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 
 	it("drops a reverse-direction edge", () => {
 		assert.strictEqual(
-			keepsViolation(violation({ from: `${TEST}from.ts`, to: `${EXT}to.ts` })),
+			keepsWithTaxonomy(synth({ from: "app/top/from.ts", to: "app/from.ts" })),
 			false,
 			"higher rank -> lower rank is the intended direction",
 		);
 	});
 
 	it("drops an endpoint under an undeclared root", () => {
-		assert.strictEqual(
-			keepsViolation(violation({ from: ".pi/skills/from.ts", to: `${TEST}to.ts` })),
-			false,
-		);
+		assert.strictEqual(keepsWithTaxonomy(synth({ from: "other/from.ts" })), false);
 	});
 
 	it("drops cross-language pairs", () => {
-		for (const to of [`${UI}src/retry.rs`, `${UI}src/main.rs`]) {
-			assert.strictEqual(
-				keepsViolation(violation({ to })),
-				false,
-				`.ts -> ${to.slice(to.lastIndexOf("."))} cannot be an import edge`,
-			);
-		}
+		assert.strictEqual(keepsWithTaxonomy(synth({ to: "app/top/to.rs" })), false);
+	});
+
+	it("drops a pair with no recorded connection (or only the reverse one)", () => {
+		assert.strictEqual(keepsWithTaxonomy(synth(), []), false);
 		assert.strictEqual(
-			keepsViolation(violation({ from: "cmd/cheasee-pi/build.go", to: `${UI}src/retry.rs` })),
+			keepsWithTaxonomy(synth(), [{ source: "app/top/to.ts", target: "app/from.ts" }]),
 			false,
 		);
 	});
 
-	it("drops a same-language, both-declared pair with no recorded connection", () => {
-		const noEdge = {
-			files: LAYER_FILES,
-			connections: [],
-			layerViolations: [violation()],
-		};
-		assert.deepStrictEqual(sanitizeAnalysisData(noEdge, readFile).data.layerViolations, []);
-		// The reverse edge alone must not count either.
-		const reversed = {
-			files: LAYER_FILES,
-			connections: [{ source: `${TEST}to.ts`, target: `${EXT}from.ts` }],
-			layerViolations: [violation()],
-		};
-		assert.deepStrictEqual(sanitizeAnalysisData(reversed, readFile).data.layerViolations, []);
-	});
-
 	it("decides by the declared taxonomy, never the analyzer's files[].layer", () => {
-		// Same paths and connection as the kept case, but the report's own labels
-		// disagree: REPO_LAYERS still keeps the edge.
-		const mislabeled = {
-			files: [
-				{ path: `${EXT}from.ts`, layer: "utils" },
-				{ path: `${TEST}to.ts`, layer: "utils" },
-			],
-			connections: CONNECTIONS,
-			layerViolations: [violation({ fromLayer: "utils", toLayer: "services" })],
-		};
-		assert.strictEqual(sanitizeAnalysisData(mislabeled, readFile).data.layerViolations.length, 1);
-		// Conversely, an inversion-looking label pair cannot rescue a same-rank edge.
-		const rescued = {
-			files: [
-				{ path: `${UI}src/from.rs`, layer: "utils" },
-				{ path: `${UI}src/to.rs`, layer: "services" },
-			],
-			connections: [{ source: `${UI}src/from.rs`, target: `${UI}src/to.rs` }],
-			layerViolations: [
-				violation({
-					from: `${UI}src/from.rs`,
-					to: `${UI}src/to.rs`,
+		// The report's own labels are inverted and wrong; the taxonomy still keeps
+		// the genuine edge.
+		assert.strictEqual(keepsWithTaxonomy(synth({ fromLayer: "utils", toLayer: "services" })), true);
+		// An inversion-looking label pair cannot rescue a genuinely reversed edge.
+		assert.strictEqual(
+			keepsWithTaxonomy(
+				synth({
+					from: "app/top/from.ts",
+					to: "app/from.ts",
 					fromLayer: "utils",
 					toLayer: "services",
 				}),
-			],
-		};
-		assert.deepStrictEqual(sanitizeAnalysisData(rescued, readFile).data.layerViolations, []);
+			),
+			false,
+		);
 	});
 
-	it("drops malformed and extensionless endpoints", () => {
-		for (const bad of [null, "x", {}, violation({ from: "" }), violation({ to: undefined })]) {
-			assert.strictEqual(keepsViolation(bad), false, JSON.stringify(bad));
+	it("drops malformed and extensionless endpoints (positive control intact)", () => {
+		for (const bad of [null, "x", {}, synth({ from: "" }), synth({ to: undefined })]) {
+			assert.strictEqual(keepsWithTaxonomy(bad), false, JSON.stringify(bad));
 		}
-		assert.strictEqual(keepsViolation(violation({ from: "Makefile", to: "Makefile" })), false);
+		assert.strictEqual(keepsWithTaxonomy(synth({ from: "Makefile", to: "Makefile" })), false);
 	});
 
 	it("accounts for every input entry as kept or suppressed", () => {
@@ -738,7 +752,7 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 			data.layerViolations.length + suppressed.layerViolations.length,
 			layerViolations.length,
 		);
-		assert.deepStrictEqual(suppressed.layerViolations, [layerViolations[1], layerViolations[2]]);
+		assert.deepStrictEqual(suppressed.layerViolations, layerViolations);
 	});
 });
 
