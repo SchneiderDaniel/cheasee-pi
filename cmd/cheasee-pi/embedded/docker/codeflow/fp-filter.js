@@ -562,24 +562,30 @@
 		return segments.join("/");
 	}
 
-	// The one shared argv-policy module lives at `<root>/lib/safe-argv.ts`. A
-	// trusted import must *resolve* here — a specifier that merely contains
-	// `safe-argv` (`./attacker-safe-argv.ts`) is a different module.
+	// The one shared argv-policy module lives at the *canonical* repo path
+	// `.pi/extensions/lib/safe-argv.ts`. Matching any path that merely ends in
+	// `/lib/safe-argv.ts` would let a counterfeit at `src/attacker/lib/safe-argv.ts`
+	// (or any other nested path) forge the provenance this whole rule rests on, so
+	// the resolved path must equal the canonical module exactly.
+	var POLICY_MODULE_PATH = ".pi/extensions/lib/safe-argv.ts";
 	function isPolicyModulePath(path) {
-		return /(?:^|\/)lib\/safe-argv(?:\.(?:ts|mts|cts|js|mjs|cjs))?$/.test(path);
+		return path === POLICY_MODULE_PATH;
 	}
 
-	// Provenance proof: the resolved module must be readable and declare the
-	// policy's own helpers. A same-named helper from a module that does not export
-	// `argvCommand`/`assertNoShell` is not proof, and an unreadable module keeps
-	// the finding — absence is never evidence.
+	// Provenance proof: the canonical module must be readable and *implement* the
+	// policy — the two exports, a forced `shell: false`, and a NUL rejection — not
+	// merely share the exported names. A module that cannot be read or does not
+	// carry the invariant keeps the finding: absence is never evidence.
 	function moduleDeclaresPolicy(readFile, path) {
+		if (path !== POLICY_MODULE_PATH) return false;
 		var text = readFile && typeof path === "string" ? readFile(path) : null;
 		if (typeof text !== "string") return false;
 		var body = stripComments(text);
 		return (
 			/export\s+(?:async\s+)?function\s+argvCommand\b/.test(body) &&
-			/export\s+(?:async\s+)?function\s+assertNoShell\b/.test(body)
+			/export\s+(?:async\s+)?function\s+assertNoShell\b/.test(body) &&
+			/\bshell\s*:\s*false\b/.test(body) &&
+			/\\u0000/.test(body)
 		);
 	}
 
@@ -638,13 +644,14 @@
 	var COMMAND_RUNNER =
 		/(?:^|[\\/])(?:env|nohup|nice|timeout|stdbuf|sudo|doas|xargs|npx|pnpm|yarn|npm|bunx)(?:\.exe)?$/i;
 	// The interpreter flags that make it run code from argv — the eval forms
-	// (`-e`/`--eval`, `-c`/`--command`, `-p`/`--print`) and the module-loading
-	// forms that run a file the flag points at (`--require`/`-r`, `--import`,
-	// `--loader`, `--preload`, `-m`), plus the `eval` subcommand of
+	// (`-e`/`--eval`, `-c`/`--command`, `-p`/`--print`), the module-loading forms
+	// that run a file the flag points at (`--require`/`-r`, `--import`, `--loader`,
+	// `--preload`, `-m`), and the *attached* single-letter forms Perl and friends
+	// accept (`-Mmodule`, `-mmodule`, `-ecode`), plus the `eval` subcommand of
 	// `deno`/`bun` and a lone `-` (script from stdin). Matched against a
 	// quote-stripped element.
 	var CODE_EVAL_TOKEN =
-		/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?)$/i;
+		/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?|-[meErRpP]\S*)$/i;
 
 	/** The bare name of a quoted program literal, or null when it is not one. */
 	function programNameText(program) {

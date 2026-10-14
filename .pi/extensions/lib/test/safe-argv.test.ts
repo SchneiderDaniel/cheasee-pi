@@ -92,6 +92,16 @@ describe("argvCommand", () => {
 		assert.throws(() => argvCommand("python3", ["-m", "attacker_module"]), UnsafeArgvError);
 	});
 
+	it("rejects an interpreter's attached module-loading flags (`-Mmodule`, `-mmodule`, `-ecode`) — regression", () => {
+		// Perl attaches the module name to the flag; `-MAttacker` runs its init code.
+		assert.throws(() => argvCommand("perl", ["-I/tmp/attacker", "-MAttacker"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("perl", ["-MAttacker"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("python3", ["-mattacker_module"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("ruby", ["-r./hook.rb"]), UnsafeArgvError);
+		// Positive control: `-I` only extends the module search path, it runs nothing.
+		assert.doesNotThrow(() => argvCommand("perl", ["-I/tmp/lib", "script.pl"]));
+	});
+
 	it("accepts an interpreter invocation without a code flag (positive control)", () => {
 		assert.doesNotThrow(() => argvCommand("node", ["server.js", "--stdio"]));
 		assert.doesNotThrow(() => argvCommand("python3", ["server.py", "--port", "8080"]));

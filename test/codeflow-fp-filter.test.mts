@@ -22,7 +22,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 // The shared argv-policy module, read off disk so a fixture's import provenance
 // can be verified exactly as the production readFile verifies it.
 const POLICY_SRC = readFileSync(resolve(HERE, "..", ".pi/extensions/lib/safe-argv.ts"), "utf8");
-const SHARED_POLICY_PATHS = new Set(["lib/safe-argv.ts", ".pi/extensions/lib/safe-argv.ts"]);
+const SHARED_POLICY_PATHS = new Set([".pi/extensions/lib/safe-argv.ts"]);
 const requireCjs = createRequire(import.meta.url);
 const FILTER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js");
 
@@ -90,7 +90,7 @@ const SOURCES: Record<string, string> = {
 	// and the options are forced by `assertNoShell` — suppressed.
 	"src/safe-wrapper.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function run(args: string[]) {\n' +
 		'  const { program, args: safeArgs } = argvCommand("/usr/bin/pi", args);\n' +
 		'  return spawn(program, safeArgs as string[], assertNoShell({ stdio: "ignore" }));\n' +
@@ -98,7 +98,7 @@ const SOURCES: Record<string, string> = {
 	"src/safe-promisified.ts":
 		'import { execFile } from "node:child_process";\n' +
 		'import { promisify } from "node:util";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"const execFileAsync = promisify(execFile);\n" +
 		"export async function run() {\n" +
 		'  const { program, args } = argvCommand("git", ["status"]);\n' +
@@ -119,7 +119,7 @@ const SOURCES: Record<string, string> = {
 	// The destructured name must stay unbound so the finding survives.
 	"src/wrapped-dynamic.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function run(request: { command: string; args: string[] }) {\n" +
 		"  const { program, args } = argvCommand(request.command, request.args);\n" +
 		'  return spawn(program, args, assertNoShell({ stdio: "ignore" }));\n' +
@@ -128,7 +128,7 @@ const SOURCES: Record<string, string> = {
 	// a wrapper is not a literal — the finding must survive.
 	"src/wrapper-passthrough.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function run(program: string, args: string[]) {\n" +
 		"  return spawn(program, args, assertNoShell({}));\n" +
 		"}\n",
@@ -136,7 +136,7 @@ const SOURCES: Record<string, string> = {
 	// never passed through `argvCommand` must keep the finding.
 	"src/unvalidated-args.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function run(args: string[]) {\n" +
 		'  return spawn("/usr/bin/pi", args, assertNoShell({}));\n' +
 		"}\n",
@@ -181,7 +181,7 @@ const SOURCES: Record<string, string> = {
 	// and a literal argv, with the options routed through the policy's
 	// `assertNoShell`, so registering it must still allow the suppression.
 	"src/dynamic-import-safe.ts":
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export async function go() {\n" +
 		'  const cp = await import("node:child_process");\n' +
 		'  return cp.spawn("/usr/bin/pi", ["--version"], assertNoShell({}));\n' +
@@ -199,7 +199,7 @@ const SOURCES: Record<string, string> = {
 	// Positive control: the same parenthesised binding, spawn called with a
 	// literal program and argv through the policy, so it must still be suppressed.
 	"src/dynamic-import-nested-paren-safe.ts":
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export async function go() {\n" +
 		'  const cp = ((await import("node:child_process")));\n' +
 		'  return cp.spawn("/usr/bin/pi", ["--version"], assertNoShell({}));\n' +
@@ -251,13 +251,13 @@ const SOURCES: Record<string, string> = {
 	// `"/bin/\\u0073h"` is `/bin/sh` — and must not be taken as a literal.
 	"src/escaped-program.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("/bin/\\u0073h", ["--version"], assertNoShell({})); }\n',
 	// Regression (audit): a constructed argv element assembles a shell flag —
 	// `"-" + "c"` is `-c` — beside an otherwise clean literal program.
 	"src/constructed-flag.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go(cmd: string) { return spawn("/usr/bin/pi", ["-" + "c", cmd], assertNoShell({})); }\n',
 	// Regression (audit): the exact bypass probe — escaped executable and
 	// constructed flag together.
@@ -268,14 +268,14 @@ const SOURCES: Record<string, string> = {
 	// source — the constructed/escaped guards must not over-reject it.
 	"src/literal-dashed-args.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("git", ["status", "--short"], assertNoShell({})); }\n',
 	// Regression (audit): an interpolated template hole in an argv element can
 	// assemble a shell flag at runtime (`--x=${y}`); it is not a literal element,
 	// so the finding must survive even though the options are policy-forced.
 	"src/interpolated-argv.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(x: string) { return spawn(\"/usr/bin/pi\", [`--flag${x}`], assertNoShell({})); }\n",
 	// Regression (audit): `{ shell: false, ...opts }` reads as shell-disabled only
 	// until `opts` spreads a truthy `shell` over it; only the policy's runtime
@@ -292,33 +292,33 @@ const SOURCES: Record<string, string> = {
 	// the effective options — argv position 3 is — so the finding survives.
 	"src/shadowed-options.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(opts: object) { return spawn(\"/usr/bin/pi\", [\"--version\"], opts, assertNoShell({})); }\n",
 	// Regression (audit): a parameter named `assertNoShell` shadows the import, so
 	// the call resolves to the parameter — which can return shell-enabled options
 	// — not the policy. The name match is not proof, so the finding survives.
 	"src/shadowed-helper.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(opts: object, assertNoShell: (o: object) => object) { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell(opts)); }\n",
 	// Regression (audit): the shadowing parameter may also sit first, untyped —
 	// the name is bound, not the import.
 	"src/shadowed-param-first.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(assertNoShell, opts) { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell(opts)); }\n",
 	// Regression (audit): a function declaration of the same name shadows the
 	// import just as a parameter does.
 	"src/shadowed-function.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"function assertNoShell(opts: object) { return opts; }\n" +
 		"export function go() { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell({})); }\n",
 	// Regression (audit): a shadowed `argvCommand` proves nothing either — its
 	// output never passed through the policy, so the finding survives.
 	"src/shadowed-command.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"function argvCommand(program: string, args: string[]) { return { program, args }; }\n" +
 		"export function go(args: string[]) { const { program, args: safe } = argvCommand(\"/usr/bin/pi\", args); return spawn(program, safe, assertNoShell({})); }\n",
 	// Positive control: the policy import lists `assertNoShell` between two other
@@ -326,14 +326,14 @@ const SOURCES: Record<string, string> = {
 	// shadowing declaration.
 	"src/mid-import.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell, assertSafeEnv } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell, assertSafeEnv } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(args: string[]) { const { program, args: safe } = argvCommand(\"/usr/bin/pi\", args); return spawn(program, safe, assertNoShell({})); }\n",
 	// Regression (audit): executable-aware validation — an interpreter turns a
 	// policy-validated argv back into code. `argvCommand("node", ["-e", code])`
 	// hands the interpreter attacker-controlled code, so the finding must stay.
 	"src/interpreter-eval-binding.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(code: string) {\n" +
 		'  const { program, args } = argvCommand("node", ["-e", code]);\n' +
 		"  return spawn(program, args, assertNoShell({}));\n" +
@@ -341,13 +341,13 @@ const SOURCES: Record<string, string> = {
 	// Regression (audit): the same code flag on a direct literal argv array.
 	"src/interpreter-eval-direct.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("node", ["-e", "console.log(1)"], assertNoShell({})); }\n',
 	// Regression (audit): a dynamic argv for an interpreter cannot be proven free
 	// of the code flag, so the finding must survive.
 	"src/interpreter-dynamic-argv.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(args: string[]) {\n" +
 		'  const { program, args: safe } = argvCommand("node", args);\n' +
 		"  return spawn(program, safe, assertNoShell({}));\n" +
@@ -355,7 +355,7 @@ const SOURCES: Record<string, string> = {
 	// Regression (audit): the `--eval=` long form is caught too.
 	"src/interpreter-eval-long.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go() {\n" +
 		'  const { program, args } = argvCommand("node", ["--eval=1+1"]);\n' +
 		"  return spawn(program, args, assertNoShell({}));\n" +
@@ -364,13 +364,13 @@ const SOURCES: Record<string, string> = {
 	// blanket-denied, so the interpreter guard cannot over-reject.
 	"src/interpreter-safe-flags.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("node", ["--version"], assertNoShell({})); }\n',
 	// Regression (audit): a command runner delegates to an interpreter named in
 	// argv, so the code flag sits one level down (`env node -e code`).
 	"src/runner-delegates-eval.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"export function go(code: string) {\n" +
 		'  const { program, args } = argvCommand("env", ["node", "-e", code]);\n' +
 		"  return spawn(program, args, assertNoShell({}));\n" +
@@ -379,32 +379,38 @@ const SOURCES: Record<string, string> = {
 	// interpreter and its code flag.
 	"src/runner-literal-eval.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("npx", ["node", "-e", "1"], assertNoShell({})); }\n',
 	// Positive control: a runner with a plain literal argv is not blanket-denied.
 	"src/runner-safe.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("npx", ["--version"], assertNoShell({})); }\n',
 	// Regression (audit): the interpreter's module-loading flags run code the
 	// flag points at, so a policy-validated argv is still arbitrary execution.
 	"src/interpreter-require.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("node", ["--require", "./hook.cjs"], assertNoShell({})); }\n',
 	"src/interpreter-import.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("node", ["--import", "./hook.mjs"], assertNoShell({})); }\n',
 	"src/interpreter-loader.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("node", ["--loader", "./hook.mjs"], assertNoShell({})); }\n',
+	// Regression (audit): Perl's *attached* module-loading flag (`-MAttacker`) runs
+	// the module's init code, so a policy-validated argv is still execution.
+	"src/interpreter-perl-m.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("perl", ["-I/tmp/attacker", "-MAttacker"], assertNoShell({})); }\n',
 	// Positive control: an interpreter call naming a script file (no code flag)
 	// stays suppressible, so the module-loading guard cannot over-reject.
 	"src/interpreter-script.ts":
 		'import { spawn } from "node:child_process";\n' +
-		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("node", ["server.js", "--port", "8080"], assertNoShell({})); }\n',
 	// Regression (audit): the imported helper must resolve to the *shared* policy
 	// module. A same-named module of another path (`./attacker-safe-argv.ts`) is
@@ -425,6 +431,20 @@ const SOURCES: Record<string, string> = {
 		"export function go() {\n" +
 		'  const { program, args } = argvCommand("/usr/bin/pi", ["--version"]);\n' +
 		"  return spawn(program, args, assertNoShell({}));\n" +
+		"}\n",
+	// Regression (audit): a *readable* counterfeit that merely ends in
+	// `lib/safe-argv.ts` must not forge provenance. The resolved path is not the
+	// canonical shared module, so the finding survives even though the module
+	// declares the exported names and a `shell: false`.
+	"src/attacker/lib/safe-argv.ts":
+		"export function argvCommand(program, args) { return { program, args }; }\n" +
+		"export function assertNoShell(options) { return { ...options, shell: false }; }\n",
+	"src/counterfeit-policy.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "./attacker/lib/safe-argv.ts";\n' +
+		"export function go(args) {\n" +
+		'  const { program, args: safe } = argvCommand("git", args);\n' +
+		"  return spawn(program, safe, assertNoShell({}));\n" +
 		"}\n",
 };
 
@@ -1201,6 +1221,7 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			["src/interpreter-require.ts", "--require"],
 			["src/interpreter-import.ts", "--import"],
 			["src/interpreter-loader.ts", "--loader"],
+			["src/interpreter-perl-m.ts", "-MAttacker"],
 		] as const) {
 			assert.strictEqual(
 				keepsSecurity(cmd(path)),
@@ -1232,6 +1253,16 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/local-lib-fake.ts")),
 			true,
 			"the resolved module must be the shared policy, and absent is not proven",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose policy import is a readable counterfeit ending in lib/safe-argv.ts (regression)", () => {
+		// `src/attacker/lib/safe-argv.ts` is readable and exports the names, but it
+		// is not the canonical shared module — a suffix match would forge provenance.
+		assert.strictEqual(
+			keepsSecurity(cmd("src/counterfeit-policy.ts")),
+			true,
+			"only the exact canonical policy path is trusted",
 		);
 	});
 

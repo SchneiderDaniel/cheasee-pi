@@ -30,12 +30,14 @@ const INTERPRETER_PROGRAM =
 	/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd)(?:\.exe)?$/i;
 /**
  * An interpreter flag that makes the interpreter execute code from argv:
- * the eval/print forms (`node -e`, `python -c`) and the module-loading forms
- * that run a file the flag points at (`node --require`, `--import`, `--loader`,
- * `python -m`, `perl -M`), plus a lone `-` (read the script from stdin).
+ * the eval/print forms (`node -e`, `python -c`), the module-loading forms that
+ * run a file the flag points at (`node --require`, `--import`, `--loader`,
+ * `python -m`), and the attached single-letter forms `perl -Mmodule`,
+ * `python -mmodule`, `perl -ecode` carry, plus a lone `-` (read the script from
+ * stdin). Kept in sync with the CodeFlow fp-filter's `CODE_EVAL_TOKEN`.
  */
 const CODE_EVAL_FLAG =
-	/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?)$/i;
+	/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?|-[meErRpP]\S*)$/i;
 
 export interface ArgvCommand {
 	readonly program: string;
