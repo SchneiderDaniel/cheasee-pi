@@ -12,8 +12,9 @@
 //      finding is dropped only when the cited file's own text proves *every*
 //      child-process call is an argv-array invocation whose program resolves to
 //      a literal and whose argv is a literal array or a `argvCommand`-validated
-//      binding, with the shell forced off. An unreadable file, a dynamic
-//      program, unvalidated argv, or any shell call keeps it (fail closed).
+//      binding free of an interpreter's code flag (`node -e`, `python -c`),
+//      with the shell forced off. An unreadable file, a dynamic program,
+//      unvalidated argv, or any shell call keeps it (fail closed).
 //   3. layer violations whose two endpoints cannot reference each other at all
 //      (different languages, no import edge) or whose claimed layer is not the
 //      one the report itself assigns the file;
@@ -328,8 +329,9 @@
 	// Names bound by `const { program, args } = argvCommand(...)`. Only a
 	// destructured `program` whose argvCommand first argument is *itself a
 	// literal* proves a later call's executable; `argvCommand(request.command,
-	// ...)` binds nothing, so a dynamic program keeps its finding. Destructured
-	// `args` names are recorded as validated argv sources.
+	// ...)` binds nothing, so a dynamic program keeps its finding. A destructured
+	// `args` name records the argv expression the policy was handed, so the call
+	// site can still inspect it for an interpreter's code flag.
 	function argvCommandBindings(code, policy) {
 		var programs = Object.create(null);
 		var argsNames = Object.create(null);
@@ -341,6 +343,7 @@
 			var callArgs = argumentText(code, open);
 			var parts = callArgs === null ? [] : splitTopLevel(callArgs);
 			var programLiteral = parts.length >= 1 && isLiteralProgram(parts[0]) ? parts[0].trim() : null;
+			var argvExpr = parts.length >= 2 ? stripAssertion(parts[1]) : null;
 			var fields = m[1].split(",");
 			for (var i = 0; i < fields.length; i++) {
 				var seg = fields[i].trim();
@@ -353,7 +356,7 @@
 				if (field === "program") {
 					if (programLiteral !== null) programs[id[0]] = programLiteral;
 				} else if (field === "args") {
-					argsNames[id[0]] = true;
+					argsNames[id[0]] = argvExpr;
 				}
 			}
 		}
@@ -571,6 +574,76 @@
 		return names;
 	}
 
+	// Executables that run a program handed to them through argv (`node -e`,
+	// `python -c`, `sh -c`, `perl -e`, `php -r`, …). An argv-array spawn of one
+	// of these with the interpreter's code flag is arbitrary code execution, not
+	// a shell-free command, so the argv-array proof of safety does not hold.
+	var INTERPRETER_PROGRAM =
+		/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd)(?:\.exe)?$/i;
+	// Programs that run another program named in their argv, so the interpreter
+	// and its code flag can sit one level down (`env node -e code`,
+	// `npm exec -- node -e code`). Treated like an interpreter: their argv must be
+	// a literal array to be proven safe.
+	var COMMAND_RUNNER =
+		/(?:^|[\\/])(?:env|nohup|nice|timeout|stdbuf|sudo|doas|xargs|npx|pnpm|yarn|npm|bunx)(?:\.exe)?$/i;
+	// The interpreter flags that take the code to execute as their value
+	// (`-e`/`--eval`, `-c`/`--command`, `-p`/`--print`, `-r`/`-E`), plus the
+	// `eval` subcommand of `deno`/`bun`. Matched against a quote-stripped element.
+	var CODE_EVAL_TOKEN = /^(?:eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r)(?:=.*)?)$/i;
+
+	/** The bare name of a quoted program literal, or null when it is not one. */
+	function programNameText(program) {
+		var a = program.trim();
+		if (a.length < 2) return null;
+		var q = a.charAt(0);
+		if ((q !== '"' && q !== "'" && q !== "`") || a.charAt(a.length - 1) !== q) return null;
+		return a.slice(1, -1).trim();
+	}
+
+	/** The quote-stripped text of a literal argv element, or null. */
+	function elementText(text) {
+		var lit = /^["'`]([^"'`\\]*)["'`]$/.exec(stripAssertion(text).trim());
+		return lit ? lit[1].trim() : null;
+	}
+
+	/** True when a program literal names an interpreter. */
+	function isInterpreterProgram(program) {
+		var name = programNameText(program);
+		return name !== null && INTERPRETER_PROGRAM.test(name);
+	}
+
+	/** True when a literal argv array carries an interpreter's code flag. */
+	function argvCarriesCodeToken(argvText) {
+		if (!isArrayLiteral(argvText)) return false;
+		var parts = splitTopLevel(argvText.slice(1, -1));
+		for (var i = 0; i < parts.length; i++) {
+			var val = elementText(parts[i]);
+			if (val !== null && CODE_EVAL_TOKEN.test(val)) return true;
+		}
+		return false;
+	}
+
+	/** True when a literal argv array names an interpreter itself. */
+	function argvNamesInterpreter(argvText) {
+		if (!isArrayLiteral(argvText)) return false;
+		var parts = splitTopLevel(argvText.slice(1, -1));
+		for (var i = 0; i < parts.length; i++) {
+			var val = elementText(parts[i]);
+			if (val !== null && INTERPRETER_PROGRAM.test(val)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Programs whose argv can hold the code to run: an interpreter, or a runner
+	 * that delegates to one. They cannot be proven safe with a dynamic argv.
+	 */
+	function needsLiteralArgv(program) {
+		if (isInterpreterProgram(program)) return true;
+		var name = programNameText(program);
+		return name !== null && COMMAND_RUNNER.test(name);
+	}
+
 	// One call is safe when its executable resolves to a literal (directly or
 	// through `argvCommand(<literal>, ...)`), its argv is a literal array or an
 	// `argvCommand`-validated binding, and its options route through the policy's
@@ -583,9 +656,19 @@
 		var parts = splitTopLevel(args);
 		if (parts.length < 2) return false;
 		var program = stripAssertion(parts[0]);
-		if (!isLiteralProgram(program) && typeof bindings.programs[program] !== "string") return false;
+		var programLiteral = isLiteralProgram(program) ? program : bindings.programs[program];
+		if (typeof programLiteral !== "string") return false;
 		var argvExpr = stripAssertion(parts[1]);
-		if (!isArrayLiteral(argvExpr) && bindings.args[argvExpr] !== true) return false;
+		var argvSource = isArrayLiteral(argvExpr) ? argvExpr : bindings.args[argvExpr];
+		if (typeof argvSource !== "string") return false;
+		// Executable-aware: an interpreter (or a runner that delegates to one in
+		// argv) turns a validated argv back into code. An interpreter program needs
+		// a literal argv free of its code flag; a runner needs an argv that does not
+		// name an interpreter plus a code flag; and either cannot be proven safe
+		// with a dynamic argv.
+		if (isInterpreterProgram(programLiteral) && argvCarriesCodeToken(argvSource)) return false;
+		if (argvCarriesCodeToken(argvSource) && argvNamesInterpreter(argvSource)) return false;
+		if (needsLiteralArgv(programLiteral) && !isArrayLiteral(argvSource)) return false;
 		// The options are argv position 3. Requiring the *actual* options argument
 		// to be the `assertNoShell` call rejects a call that shadows it behind an
 		// ignored extra argument (`spawn(p, a, opts, assertNoShell({}))`).

@@ -307,6 +307,64 @@ const SOURCES: Record<string, string> = {
 		'import { spawn } from "node:child_process";\n' +
 		'import { argvCommand, assertNoShell, assertSafeEnv } from "../lib/safe-argv.ts";\n' +
 		"export function go(args: string[]) { const { program, args: safe } = argvCommand(\"/usr/bin/pi\", args); return spawn(program, safe, assertNoShell({})); }\n",
+	// Regression (audit): executable-aware validation — an interpreter turns a
+	// policy-validated argv back into code. `argvCommand("node", ["-e", code])`
+	// hands the interpreter attacker-controlled code, so the finding must stay.
+	"src/interpreter-eval-binding.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go(code: string) {\n" +
+		'  const { program, args } = argvCommand("node", ["-e", code]);\n' +
+		"  return spawn(program, args, assertNoShell({}));\n" +
+		"}\n",
+	// Regression (audit): the same code flag on a direct literal argv array.
+	"src/interpreter-eval-direct.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("node", ["-e", "console.log(1)"], assertNoShell({})); }\n',
+	// Regression (audit): a dynamic argv for an interpreter cannot be proven free
+	// of the code flag, so the finding must survive.
+	"src/interpreter-dynamic-argv.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go(args: string[]) {\n" +
+		'  const { program, args: safe } = argvCommand("node", args);\n' +
+		"  return spawn(program, safe, assertNoShell({}));\n" +
+		"}\n",
+	// Regression (audit): the `--eval=` long form is caught too.
+	"src/interpreter-eval-long.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go() {\n" +
+		'  const { program, args } = argvCommand("node", ["--eval=1+1"]);\n' +
+		"  return spawn(program, args, assertNoShell({}));\n" +
+		"}\n",
+	// Positive control: an interpreter invocation without a code flag is not
+	// blanket-denied, so the interpreter guard cannot over-reject.
+	"src/interpreter-safe-flags.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("node", ["--version"], assertNoShell({})); }\n',
+	// Regression (audit): a command runner delegates to an interpreter named in
+	// argv, so the code flag sits one level down (`env node -e code`).
+	"src/runner-delegates-eval.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go(code: string) {\n" +
+		'  const { program, args } = argvCommand("env", ["node", "-e", code]);\n' +
+		"  return spawn(program, args, assertNoShell({}));\n" +
+		"}\n",
+	// Regression (audit): the runner's argv is a literal array that names an
+	// interpreter and its code flag.
+	"src/runner-literal-eval.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("npx", ["node", "-e", "1"], assertNoShell({})); }\n',
+	// Positive control: a runner with a plain literal argv is not blanket-denied.
+	"src/runner-safe.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("npx", ["--version"], assertNoShell({})); }\n',
 };
 
 const readFile = (path: unknown): string | null =>
@@ -1006,6 +1064,62 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/mid-import.ts")),
 			false,
 			"the import list separator is not a shadowing declaration",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose argvCommand hands an interpreter its code flag (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/interpreter-eval-binding.ts")),
+			true,
+			'argvCommand("node", ["-e", code]) runs attacker-supplied code',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose interpreter argv array carries the code flag (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/interpreter-eval-direct.ts")),
+			true,
+			"node -e is arbitrary code execution, not a shell-free command",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution with a dynamic argv for an interpreter (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/interpreter-dynamic-argv.ts")),
+			true,
+			"a bound argv cannot be proven free of the interpreter's code flag",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose interpreter argv uses the `--eval=` form (regression)", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/interpreter-eval-long.ts")), true);
+	});
+
+	it("drops a MEDIUM Command Execution whose interpreter call carries no code flag (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/interpreter-safe-flags.ts")),
+			false,
+			"node --version must not be blanket-denied",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution where a runner delegates to an interpreter in argv (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/runner-delegates-eval.ts")),
+			true,
+			'argvCommand("env", ["node", "-e", code]) runs code through the runner',
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose literal argv names an interpreter plus its code flag (regression)", () => {
+		assert.strictEqual(keepsSecurity(cmd("src/runner-literal-eval.ts")), true);
+	});
+
+	it("drops a MEDIUM Command Execution whose runner argv carries no interpreter code flag (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/runner-safe.ts")),
+			false,
+			"npx --version must not be blanket-denied",
 		);
 	});
 

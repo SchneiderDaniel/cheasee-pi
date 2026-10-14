@@ -20,6 +20,17 @@ export class UnsafeArgvError extends Error {
 /** NUL is the only byte an argv entry or env value cannot carry. */
 const NUL = /\u0000/;
 
+/**
+ * Interpreters that run a program handed to them through argv (`node -e`,
+ * `python -c`, `sh -c`, `perl -e`, `php -r`, …). Kept in sync with the
+ * CodeFlow fp-filter's `INTERPRETER_PROGRAM`. The regex is tested against the
+ * bare program name (no quotes, no directory).
+ */
+const INTERPRETER_PROGRAM =
+	/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd)(?:\.exe)?$/i;
+/** An interpreter flag that makes the interpreter execute code from argv. */
+const CODE_EVAL_FLAG = /^(?:eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r)(?:=.*)?)$/i;
+
 export interface ArgvCommand {
 	readonly program: string;
 	readonly args: readonly string[];
@@ -27,6 +38,17 @@ export interface ArgvCommand {
 
 function fail(field: string, reason: string): never {
 	throw new UnsafeArgvError(field, reason);
+}
+
+/**
+ * True when `program` is an interpreter and `args` carry its code flag, i.e.
+ * the argv runs attacker-supplied code even without a shell (`node -e code`).
+ * The static argv-safety proof in the CodeFlow fp-filter relies on this
+ * rejection, so the two must agree.
+ */
+function isInterpreterCodeExecution(program: string, args: readonly string[]): boolean {
+	if (!INTERPRETER_PROGRAM.test(program)) return false;
+	return args.some((arg) => CODE_EVAL_FLAG.test(arg.trim()));
 }
 
 /** Validate a program + argv pair; returns a frozen copy safe to hand to spawn. */
@@ -39,6 +61,9 @@ export function argvCommand(program: string, args: readonly string[]): ArgvComma
 	for (const arg of args) {
 		if (typeof arg !== "string") fail("arg", "must be a string");
 		if (NUL.test(arg)) fail("arg", "must not contain NUL");
+	}
+	if (isInterpreterCodeExecution(program, args)) {
+		fail("args", "must not hand an interpreter its code flag (e.g. `node -e`)");
 	}
 	return Object.freeze({ program, args: Object.freeze([...args]) });
 }

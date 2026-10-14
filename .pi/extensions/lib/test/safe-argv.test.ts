@@ -74,6 +74,20 @@ describe("argvCommand", () => {
 		assert.deepStrictEqual(args.slice(3, 4), [task]);
 		assert.deepStrictEqual(args.slice(5, 6), [systemPrompt]);
 	});
+
+	it("rejects an interpreter that would run argv code (`node -e`, `python -c`) — executable-aware", () => {
+		assert.throws(() => argvCommand("node", ["-e", "console.log(1)"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("/usr/bin/node", ["--eval=1+1"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("python3", ["-c", "print(1)"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("perl", ["-e", "1"]), UnsafeArgvError);
+	});
+
+	it("accepts an interpreter invocation without a code flag (positive control)", () => {
+		assert.doesNotThrow(() => argvCommand("node", ["server.js", "--stdio"]));
+		assert.doesNotThrow(() => argvCommand("python3", ["-m", "http.server"]));
+		// A `-e`-looking arg on a non-interpreter program is not an eval flag.
+		assert.doesNotThrow(() => argvCommand("git", ["-e"]));
+	});
 });
 
 describe("assertNoShell", () => {
