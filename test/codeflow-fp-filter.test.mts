@@ -273,6 +273,40 @@ const SOURCES: Record<string, string> = {
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
 		"export function go(opts: object) { return spawn(\"/usr/bin/pi\", [\"--version\"], opts, assertNoShell({})); }\n",
+	// Regression (audit): a parameter named `assertNoShell` shadows the import, so
+	// the call resolves to the parameter — which can return shell-enabled options
+	// — not the policy. The name match is not proof, so the finding survives.
+	"src/shadowed-helper.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go(opts: object, assertNoShell: (o: object) => object) { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell(opts)); }\n",
+	// Regression (audit): the shadowing parameter may also sit first, untyped —
+	// the name is bound, not the import.
+	"src/shadowed-param-first.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go(assertNoShell, opts) { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell(opts)); }\n",
+	// Regression (audit): a function declaration of the same name shadows the
+	// import just as a parameter does.
+	"src/shadowed-function.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"function assertNoShell(opts: object) { return opts; }\n" +
+		"export function go() { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell({})); }\n",
+	// Regression (audit): a shadowed `argvCommand` proves nothing either — its
+	// output never passed through the policy, so the finding survives.
+	"src/shadowed-command.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"function argvCommand(program: string, args: string[]) { return { program, args }; }\n" +
+		"export function go(args: string[]) { const { program, args: safe } = argvCommand(\"/usr/bin/pi\", args); return spawn(program, safe, assertNoShell({})); }\n",
+	// Positive control: the policy import lists `assertNoShell` between two other
+	// names, so blanking the import clause must not read the list separator as a
+	// shadowing declaration.
+	"src/mid-import.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell, assertSafeEnv } from "../lib/safe-argv.ts";\n' +
+		"export function go(args: string[]) { const { program, args: safe } = argvCommand(\"/usr/bin/pi\", args); return spawn(program, safe, assertNoShell({})); }\n",
 };
 
 const readFile = (path: unknown): string | null =>
@@ -932,6 +966,46 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/shadowed-options.ts")),
 			true,
 			"argv position 3 is the effective options; a trailing assertNoShell does not prove them",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose `assertNoShell` is a shadowing parameter (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/shadowed-helper.ts")),
+			true,
+			"a parameter bound to the policy's name can return shell-enabled options",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose `assertNoShell` is a shadowing function declaration (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/shadowed-function.ts")),
+			true,
+			"a local function of the same name shadows the import",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose shadowing parameter sits first (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/shadowed-param-first.ts")),
+			true,
+			"the name is a parameter binding, not the imported helper",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose `argvCommand` is shadowed by a local declaration (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/shadowed-command.ts")),
+			true,
+			"a shadowed `argvCommand` never validated the argv",
+		);
+	});
+
+	it("drops a MEDIUM Command Execution whose policy import lists a third name after `assertNoShell` (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/mid-import.ts")),
+			false,
+			"the import list separator is not a shadowing declaration",
 		);
 	});
 

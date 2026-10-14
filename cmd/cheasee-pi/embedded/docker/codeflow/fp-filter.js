@@ -506,15 +506,45 @@
 		return true;
 	}
 
+	// The imported policy helper must resolve to the module's own export. A local
+	// re-declaration of the same name — a function, class, variable, enum,
+	// namespace, destructuring, parameter or catch binding — shadows the import,
+	// so a call spelled `assertNoShell(...)` / `argvCommand(...)` may run code
+	// other than the policy. The name-based proof cannot follow the binding, so a
+	// shadowed name is not proof (fail closed).
+	function policyNameIsShadowed(code, name) {
+		var n = escapeRe(name);
+		// Any occurrence that is not a direct call — optionally through a type
+		// argument list — is not the imported helper: a parameter, a variable
+		// binding, a destructuring, a value reference, a property or a member
+		// call. (The import clause is blanked out before this runs.)
+		var re = new RegExp("\\b" + n + "\\b", "g");
+		var m;
+		while ((m = re.exec(code)) !== null) {
+			if (!/^\s*(?:<[^<>]*>\s*)?\(/.test(code.slice(m.index + m[0].length))) return true;
+		}
+		// A function declaration also reads as a call at its name; reject it by the
+		// keyword that precedes it. Class, enum and namespace declarations bind the
+		// name too.
+		return new RegExp(
+			"(?:^|[^\\w$.])(?:(?:async\\s+)?function\\s*\\*?\\s*|class\\s+|enum\\s+|namespace\\s+)" +
+				n +
+				"\\b",
+		).test(code);
+	}
+
 	// Names imported from the shared argv-policy module (`safe-argv`). A bare name
-	// match is not proof — the file must bind the policy's own helpers, so the
-	// forced `shell:false` is enforced at runtime and cannot be forged by a
-	// reshaped options literal (a spread, a duplicate key, a shadowing local).
+	// match is not proof — the file must bind the policy's own helpers, and no
+	// local re-declaration may shadow them, so the forced `shell:false` is
+	// enforced at runtime and cannot be forged by a reshaped options literal (a
+	// spread, a duplicate key, a shadowing local).
 	function safeArgvPolicyNames(code) {
 		var names = Object.create(null);
+		var spans = [];
 		var re = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']*safe-argv[^"']*["']/g;
 		var m;
 		while ((m = re.exec(code)) !== null) {
+			spans.push([m.index, m.index + m[0].length]);
 			var parts = m[1].split(",");
 			for (var i = 0; i < parts.length; i++) {
 				var seg = parts[i].trim();
@@ -522,6 +552,20 @@
 				var asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(seg);
 				if (asMatch) names[asMatch[2]] = true;
 				else if (/^\w+$/.test(seg)) names[seg] = true;
+			}
+		}
+		if (spans.length) {
+			// The import clause itself declares each name; blank it out so a name in
+			// the list is never read as a shadowing re-declaration.
+			var remainder = "";
+			var at = 0;
+			for (var s = 0; s < spans.length; s++) {
+				remainder += code.slice(at, spans[s][0]) + " ";
+				at = spans[s][1];
+			}
+			remainder += code.slice(at);
+			for (var name in names) {
+				if (policyNameIsShadowed(remainder, name)) delete names[name];
 			}
 		}
 		return names;
