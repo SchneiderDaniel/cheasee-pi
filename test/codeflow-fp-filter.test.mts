@@ -157,11 +157,13 @@ const SOURCES: Record<string, string> = {
 		'  return (await import("node:child_process")).spawn(cmd, [], { shell: false });\n' +
 		"}\n",
 	// Positive control: the dynamic-import namespace resolves to a literal program
-	// and a literal argv, so registering it must still allow the suppression.
+	// and a literal argv, with the options routed through the policy's
+	// `assertNoShell`, so registering it must still allow the suppression.
 	"src/dynamic-import-safe.ts":
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
 		"export async function go() {\n" +
 		'  const cp = await import("node:child_process");\n' +
-		'  return cp.spawn("/usr/bin/pi", ["--version"], { shell: false });\n' +
+		'  return cp.spawn("/usr/bin/pi", ["--version"], assertNoShell({}));\n' +
 		"}\n",
 	// Regression (audit): the module result is bound through a parenthesised
 	// `await import(...)` group; a safe static spawn beside it must not buy the
@@ -174,11 +176,12 @@ const SOURCES: Record<string, string> = {
 		'  return cp["spawn"](request.command, request.args, { shell: false });\n' +
 		"}\n",
 	// Positive control: the same parenthesised binding, spawn called with a
-	// literal program and argv, so it must still be suppressed.
+	// literal program and argv through the policy, so it must still be suppressed.
 	"src/dynamic-import-nested-paren-safe.ts":
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
 		"export async function go() {\n" +
 		'  const cp = ((await import("node:child_process")));\n' +
-		'  return cp.spawn("/usr/bin/pi", ["--version"], { shell: false });\n' +
+		'  return cp.spawn("/usr/bin/pi", ["--version"], assertNoShell({}));\n' +
 		"}\n",
 	// Regression (audit): an unenumerated one-line binding (ternary, helper
 	// call) is still a child-process source; fail closed rather than hide it.
@@ -246,6 +249,30 @@ const SOURCES: Record<string, string> = {
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("git", ["status", "--short"], assertNoShell({})); }\n',
+	// Regression (audit): an interpolated template hole in an argv element can
+	// assemble a shell flag at runtime (`--x=${y}`); it is not a literal element,
+	// so the finding must survive even though the options are policy-forced.
+	"src/interpolated-argv.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go(x: string) { return spawn(\"/usr/bin/pi\", [`--flag${x}`], assertNoShell({})); }\n",
+	// Regression (audit): `{ shell: false, ...opts }` reads as shell-disabled only
+	// until `opts` spreads a truthy `shell` over it; only the policy's runtime
+	// `assertNoShell` proves the shell is off, so this probe must keep the finding.
+	"src/spread-options.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'export function go(opts: object) { return spawn("/usr/bin/pi", ["--version"], { shell: false, ...opts }); }\n',
+	// Regression (audit): a bare `shell: false` object literal is not proof — a
+	// shadowing local or a duplicate key can defeat it, so the finding survives.
+	"src/bare-shell-false.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'export function go() { return spawn("git", ["status"], { shell: false }); }\n',
+	// Regression (audit): `assertNoShell` behind an ignored extra argument is not
+	// the effective options — argv position 3 is — so the finding survives.
+	"src/shadowed-options.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		"export function go(opts: object) { return spawn(\"/usr/bin/pi\", [\"--version\"], opts, assertNoShell({})); }\n",
 };
 
 const readFile = (path: unknown): string | null =>
@@ -873,6 +900,38 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/literal-dashed-args.ts")),
 			false,
 			"the constructed/escaped guards must not over-reject a literal argv",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose argv element interpolates a template (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/interpolated-argv.ts")),
+			true,
+			"`--flag${x}` can assemble a shell flag; a template hole is not a literal element",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose options spread over `shell: false` (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/spread-options.ts")),
+			true,
+			"{ shell: false, ...opts } can be overridden at runtime — not a proven shell-off",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose shell is disabled only by a bare literal (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/bare-shell-false.ts")),
+			true,
+			"only the policy's runtime-enforced `assertNoShell` proves the shell is off",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose `assertNoShell` sits behind an ignored argument (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/shadowed-options.ts")),
+			true,
+			"argv position 3 is the effective options; a trailing assertNoShell does not prove them",
 		);
 	});
 

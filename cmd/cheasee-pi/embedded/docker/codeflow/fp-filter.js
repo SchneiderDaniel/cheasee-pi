@@ -330,9 +330,10 @@
 	// literal* proves a later call's executable; `argvCommand(request.command,
 	// ...)` binds nothing, so a dynamic program keeps its finding. Destructured
 	// `args` names are recorded as validated argv sources.
-	function argvCommandBindings(code) {
+	function argvCommandBindings(code, policy) {
 		var programs = Object.create(null);
 		var argsNames = Object.create(null);
+		if (policy.argvCommand !== true) return { programs: programs, args: argsNames };
 		var re = /(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]*)?=\s*argvCommand\s*(?:<[^<>]*>)?\s*\(/g;
 		var m;
 		while ((m = re.exec(code)) !== null) {
@@ -475,40 +476,77 @@
 		return m ? a.slice(0, m.index).trim() : a;
 	}
 
-	// A literal argv array, e.g. `["--version"]` — no element can smuggle a
-	// program in, so this is a validated argv source alongside `argvCommand`.
-	// An element that is constructed (`"-" + "c"`) or escaped (`"\x2dc"`) can
-	// assemble a shell flag at runtime; the static proof cannot follow it, so
-	// such an array is not a proven source — the caller fails closed.
+	// A plain literal argv element: a quoted string with no escape and no
+	// interpolation, a number, or a boolean/null keyword. A constructed element
+	// (`"-" + "c"`), a template hole (`` `--x=${y}` ``), a bare identifier or an
+	// escaped byte (`"\x2dc"`) can assemble a shell flag at runtime; the static
+	// proof cannot follow it, so it is not a proven element — the caller fails
+	// closed.
+	function isLiteralElement(text) {
+		var a = text.trim();
+		return (
+			/^"[^"\\\n]*"$/.test(a) ||
+			/^'[^'\\\n]*'$/.test(a) ||
+			/^-?(?:\d+\.?\d*|\.\d+)$/.test(a) ||
+			/^(?:true|false|null|undefined)$/.test(a)
+		);
+	}
+
+	// A literal argv array — every element a plain literal, so nothing can smuggle
+	// a shell string or flag in at runtime (`["-" + "c", cmd]`, `` [`--x=${y}`] ``).
 	function isArrayLiteral(text) {
 		var a = text.trim();
 		if (a.charAt(0) !== "[" || a.charAt(a.length - 1) !== "]") return false;
-		var parts = splitTopLevel(a.slice(1, -1));
+		var body = a.slice(1, -1).trim();
+		if (body === "") return true;
+		var parts = splitTopLevel(body);
 		for (var i = 0; i < parts.length; i++) {
-			if (/["'`]\s*\+|\+\s*["'`]/.test(parts[i])) return false;
-			if (parts[i].indexOf("\\") >= 0) return false;
+			if (!isLiteralElement(parts[i])) return false;
 		}
 		return true;
 	}
 
+	// Names imported from the shared argv-policy module (`safe-argv`). A bare name
+	// match is not proof — the file must bind the policy's own helpers, so the
+	// forced `shell:false` is enforced at runtime and cannot be forged by a
+	// reshaped options literal (a spread, a duplicate key, a shadowing local).
+	function safeArgvPolicyNames(code) {
+		var names = Object.create(null);
+		var re = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']*safe-argv[^"']*["']/g;
+		var m;
+		while ((m = re.exec(code)) !== null) {
+			var parts = m[1].split(",");
+			for (var i = 0; i < parts.length; i++) {
+				var seg = parts[i].trim();
+				if (!seg) continue;
+				var asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(seg);
+				if (asMatch) names[asMatch[2]] = true;
+				else if (/^\w+$/.test(seg)) names[seg] = true;
+			}
+		}
+		return names;
+	}
+
 	// One call is safe when its executable resolves to a literal (directly or
 	// through `argvCommand(<literal>, ...)`), its argv is a literal array or an
-	// `argvCommand`-validated binding, and its options force the shell off.
-	// Anything else — a dynamic program or an unvalidated argv array — fails
-	// closed so a genuine command-execution finding is never hidden.
-	function isSafeArgvCall(member, args, bindings) {
+	// `argvCommand`-validated binding, and its options route through the policy's
+	// `assertNoShell` — which throws on a truthy `shell`, so the `shell:false` is
+	// effective at runtime rather than text-proven. Anything else fails closed so
+	// a genuine command-execution finding is never hidden.
+	function isSafeArgvCall(member, args, bindings, policy) {
 		if (CP_MEMBERS[member] !== "argv") return false;
+		if (policy.assertNoShell !== true) return false;
 		var parts = splitTopLevel(args);
 		if (parts.length < 2) return false;
 		var program = stripAssertion(parts[0]);
 		if (!isLiteralProgram(program) && typeof bindings.programs[program] !== "string") return false;
 		var argvExpr = stripAssertion(parts[1]);
 		if (!isArrayLiteral(argvExpr) && bindings.args[argvExpr] !== true) return false;
-		var options = parts.slice(1).join(",");
-		return (
-			/assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(options) ||
-			/(?:^|[^\w$])shell\s*:\s*false\b/.test(options)
-		);
+		// The options are argv position 3. Requiring the *actual* options argument
+		// to be the `assertNoShell` call rejects a call that shadows it behind an
+		// ignored extra argument (`spawn(p, a, opts, assertNoShell({}))`).
+		if (parts.length < 3) return false;
+		return /(?:^|[^\w$.])assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(stripAssertion(parts[2]));
 	}
 
 	// A computed member access names a child-process function the name-based scan
@@ -550,7 +588,7 @@
 
 	// Every child-process call in the file must prove argv-safe; a bare name, a
 	// registered alias, or a known namespace member all count as a call site.
-	function everyChildProcessCallIsSafe(code, bindings) {
+	function everyChildProcessCallIsSafe(code, bindings, policy) {
 		var cp = childProcessBindings(code);
 		if (hasComputedChildProcessAccess(code, cp)) return false;
 		var names = Object.create(null);
@@ -567,7 +605,7 @@
 			while ((m = re.exec(code)) !== null) {
 				var open = code.indexOf("(", m.index + m[0].length - 1);
 				var args = argumentText(code, open);
-				if (args === null || !isSafeArgvCall(member, args, bindings)) {
+				if (args === null || !isSafeArgvCall(member, args, bindings, policy)) {
 					safe = false;
 					return;
 				}
@@ -585,7 +623,7 @@
 			while ((mm = nsRe.exec(code)) !== null) {
 				var openNs = code.indexOf("(", mm.index + mm[0].length - 1);
 				var argsNs = argumentText(code, openNs);
-				if (argsNs === null || !isSafeArgvCall(mm[1], argsNs, bindings)) {
+				if (argsNs === null || !isSafeArgvCall(mm[1], argsNs, bindings, policy)) {
 					safe = false;
 					break;
 				}
@@ -601,7 +639,8 @@
 		if (typeof content !== "string") return false;
 		var code = stripComments(content);
 		if (hasShellExecution(code)) return false;
-		return everyChildProcessCallIsSafe(code, argvCommandBindings(code));
+		var policy = safeArgvPolicyNames(code);
+		return everyChildProcessCallIsSafe(code, argvCommandBindings(code, policy), policy);
 	}
 
 	function isFalsePositiveHighSecurity(issue, readFile) {
