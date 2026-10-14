@@ -12,7 +12,7 @@ export interface RawIssueData {
 	title?: string;
 	body?: string;
 	author?: { login: string };
-	comments?: Array<{ author?: { login: string }; body?: string }>;
+	comments?: Array<{ id?: string; author?: { login: string }; body?: string }>;
 }
 
 // ─── Filter Issue Data (Security) ─────────────────────────────────
@@ -34,6 +34,7 @@ export function filterIssueData(rawIssue: RawIssueData, codeowners: string[]): F
 		.map((c) => ({
 			author: c?.author?.login || "unknown",
 			body: c?.body || "",
+			id: c?.id,
 		}));
 
 	return {

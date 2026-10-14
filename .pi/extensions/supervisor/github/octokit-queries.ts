@@ -97,6 +97,17 @@ export const SET_STATUS_MUTATION = (
 		) { clientMutationId }
 	}`;
 
+/**
+ * Update an issue comment by its GraphQL node id (opaque `IC_…` handle).
+ * JSON.stringify produces a valid GraphQL string literal for both id and body.
+ */
+export const UPDATE_ISSUE_COMMENT_MUTATION = (commentId: string, body: string) => `
+	mutation {
+		updateIssueComment(input: { id: ${JSON.stringify(commentId)}, body: ${JSON.stringify(body)} }) {
+			issueComment { id }
+		}
+	}`;
+
 // ─── GraphQL Response Types ──────────────────────────────────────
 
 export interface ProjectFieldsResponse {

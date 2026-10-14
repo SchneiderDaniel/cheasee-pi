@@ -5,7 +5,6 @@
 import { Octokit } from "@octokit/rest";
 import { graphql } from "@octokit/graphql";
 import type { DebugLogger } from "../lib/debug.ts";
-import { normalizeEscapes } from "../agent/output.ts";
 import type {
 	ProjectField,
 	ProjectItem,
@@ -14,6 +13,7 @@ import type {
 	ProjectFieldValueNode,
 } from "../config/types.ts";
 import type { RawIssueData, GitHubPort, ClosingPrRef } from "./ports.ts";
+import { IssueOpsBase, normalizeAndTruncateComment } from "./octokit-issue-ops.ts";
 import {
 	parseDepsTimeline,
 	extractProjectItemFields,
@@ -32,10 +32,6 @@ import {
 	type DepsTimelineResponse,
 } from "./octokit-queries.ts";
 
-// ─── Hard safety limit (migrated from comment.ts) ────────────────
-
-const MAX_COMMENT_CHARS = 50_000;
-
 // ─── Public re-exports (issue #2001 split) ──────────────────────
 // mapRestPrToConflictInfo and its response-reading helper live in parsers.ts;
 // re-exported here so existing importers keep their path.
@@ -44,12 +40,9 @@ export { mapRestPrToConflictInfo } from "./parsers.ts";
 
 // ─── OctokitClient ──────────────────────────────────────────────
 
-export class OctokitClient implements GitHubPort {
-	private octokit: Octokit;
-	private _graphql: typeof graphql;
-	private log: DebugLogger;
-
+export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	constructor(token: string, debugLogger: DebugLogger) {
+		super();
 		this.octokit = new Octokit({ auth: token, headers: { "X-GitHub-Api-Version": "2026-03-10" } });
 		this._graphql = graphql.defaults({
 			headers: { authorization: `token ${token}` },
@@ -114,6 +107,7 @@ export class OctokitClient implements GitHubPort {
 				comments: commentsResp.data.map((c) => ({
 					author: c.user ? { login: c.user.login } : undefined,
 					body: c.body || undefined,
+					id: c.id != null ? String(c.id) : undefined,
 				})),
 			};
 		} catch (err: unknown) {
@@ -139,25 +133,8 @@ export class OctokitClient implements GitHubPort {
 		const [owner, name] = repo.split("/");
 		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
 
-		// Normalize escaped newlines as final safety net (regression fix #1663).
-		// The pre-#1207 gh-CLI postIssueComment (comment.ts) normalized literal
-		// \\n sequences here; the Octokit migration kept only truncation, so
-		// extraction paths that leak raw escapes (heading fallback,
-		// COMMENT_BODY marker, audit output fallback) posted unreadable
-		// one-line comments with non-rendering markdown headers.
-		const normalized = normalizeEscapes(body);
-
-		// Hard safety limit — migrated from comment.ts
-		const truncated =
-			normalized.length > MAX_COMMENT_CHARS
-				? normalized.slice(0, MAX_COMMENT_CHARS) +
-					"\n\n---\n⚠️ **Comment truncated at 50,000 character safety limit** — a bug likely caused the full agent execution log to be included. Please report this."
-				: normalized;
-
-		this.log.debug("octokit", `postIssueComment #${issueNum}`, {
-			bodyLen: normalized.length,
-			truncated: normalized.length > MAX_COMMENT_CHARS,
-		});
+		const truncated = normalizeAndTruncateComment(body);
+		this.log.debug("octokit", `postIssueComment #${issueNum}`, { bodyLen: truncated.length });
 		await this.octokit.issues.createComment({
 			owner,
 			repo: name,
@@ -403,7 +380,7 @@ export class OctokitClient implements GitHubPort {
 
 	// ─── GraphQL helper ─────────────────────────────────────────
 
-	private async graphqlQuery<T>(query: string): Promise<T> {
+	protected async graphqlQuery<T>(query: string): Promise<T> {
 		try {
 			return await (this._graphql as (q: string) => Promise<T>)(query);
 		} catch (err: unknown) {

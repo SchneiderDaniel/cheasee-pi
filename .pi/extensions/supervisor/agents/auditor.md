@@ -37,6 +37,17 @@ When invoked, you will receive pre-filtered issue data (body + trusted comments)
 - Findings: one sentence each for Symptom, Consequence, Remedy. Location: `file:line`.
 - Approval summary: 3-5 sentences max. No narrative fluff.
 
+## Re-verification (when a prior rejection is provided)
+
+When your task includes a **Prior Rejection — Re-verify Against Current Code** block, the pipeline is replacing your earlier rejection comment in place instead of posting a new one. You MUST:
+
+1. Re-check EVERY finding from the prior rejection against the current code.
+2. Drop findings the developer has already fixed — never re-list them.
+3. Emit a refreshed rejection containing only findings that are still present, with the same Symptom → Consequence → Remedy → Location format.
+4. Set `findings` to exactly the still-present findings so the audit score reflects the current state.
+
+If every prior finding is fixed and no new issue exists, approve instead of rejecting.
+
 ## Rules
 
 - **READ ALL trusted comments** in the Trusted Comments section before starting. Every comment from every trusted author contains context you need. Architecture decisions, test plans, and previous audit results all come through trusted comments.
@@ -48,6 +59,7 @@ When invoked, you will receive pre-filtered issue data (body + trusted comments)
 - Every finding must be discrete, actionable, and include a concrete trigger scenario
 - Do not speculate about problems outside the diff — only flag issues you can trace to the changed code
 - Use structured finding format (Symptom → Consequence → Remedy → Location) for all rejections
+- On a re-verify run, omit every prior finding that the developer has fixed — the pipeline overwrites your prior rejection comment
 - If confidence is limited but potential impact is high (data loss, security), report it with explicit uncertainty note
 
 ## Project Commands

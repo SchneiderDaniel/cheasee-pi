@@ -21,6 +21,10 @@ export interface MockGitHubPortOptions {
 	getIssueWithComments?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
 	closeIssue?: (issueNum: number, repo: string) => Promise<void>;
 	postIssueComment?: (issueNum: number, repo: string, body: string) => Promise<void>;
+	updateIssueComment?: (commentId: string, repo: string, body: string) => Promise<void>;
+	getIssueLabels?: (issueNum: number, repo: string) => Promise<string[]>;
+	addIssueLabel?: (issueNum: number, repo: string, label: string) => Promise<void>;
+	removeIssueLabel?: (issueNum: number, repo: string, label: string) => Promise<void>;
 	compareBranches?: (base: string, head: string, repo: string) => Promise<number>;
 	listPullRequestsForBranch?: (
 		branch: string,
@@ -86,6 +90,10 @@ export function createMockGitHubPort(
 		getIssueWithComments: null as RawIssueData | null,
 		closeIssue: undefined as void,
 		postIssueComment: undefined as void,
+		updateIssueComment: undefined as void,
+		getIssueLabels: [] as string[],
+		addIssueLabel: undefined as void,
+		removeIssueLabel: undefined as void,
 		compareBranches: 0,
 		listPullRequestsForBranch: null as PrConflictInfo | null,
 		createPullRequest: { number: 123 },
@@ -130,6 +138,38 @@ export function createMockGitHubPort(
 						record("postIssueComment", [issueNum, repo, body]);
 						return defaults.postIssueComment;
 					}) as GitHubPort["postIssueComment"],
+
+		updateIssueComment:
+			opts?.updateIssueComment
+				? wrap("updateIssueComment", opts.updateIssueComment)
+				: (async (commentId: string, repo: string, body: string) => {
+						record("updateIssueComment", [commentId, repo, body]);
+						return defaults.updateIssueComment;
+					}) as GitHubPort["updateIssueComment"],
+
+		getIssueLabels:
+			opts?.getIssueLabels
+				? wrap("getIssueLabels", opts.getIssueLabels)
+				: (async (issueNum: number, repo: string) => {
+						record("getIssueLabels", [issueNum, repo]);
+						return defaults.getIssueLabels;
+					}) as GitHubPort["getIssueLabels"],
+
+		addIssueLabel:
+			opts?.addIssueLabel
+				? wrap("addIssueLabel", opts.addIssueLabel)
+				: (async (issueNum: number, repo: string, label: string) => {
+						record("addIssueLabel", [issueNum, repo, label]);
+						return defaults.addIssueLabel;
+					}) as GitHubPort["addIssueLabel"],
+
+		removeIssueLabel:
+			opts?.removeIssueLabel
+				? wrap("removeIssueLabel", opts.removeIssueLabel)
+				: (async (issueNum: number, repo: string, label: string) => {
+						record("removeIssueLabel", [issueNum, repo, label]);
+						return defaults.removeIssueLabel;
+					}) as GitHubPort["removeIssueLabel"],
 
 		compareBranches:
 			opts?.compareBranches

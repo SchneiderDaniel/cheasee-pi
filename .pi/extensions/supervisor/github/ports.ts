@@ -39,6 +39,18 @@ export interface GitHubPort {
 	/** Post a comment on an issue. Body must be < 50K chars. */
 	postIssueComment(issueNum: number, repo: string, body: string): Promise<void>;
 
+	/** Update an existing issue comment in place (issue #2044). */
+	updateIssueComment(commentId: string, repo: string, body: string): Promise<void>;
+
+	/** List an issue's labels. */
+	getIssueLabels(issueNum: number, repo: string): Promise<string[]>;
+
+	/** Add a label to an issue (existing labels are preserved). */
+	addIssueLabel(issueNum: number, repo: string, label: string): Promise<void>;
+
+	/** Remove a label from an issue. A missing label (404) is a no-op. */
+	removeIssueLabel(issueNum: number, repo: string, label: string): Promise<void>;
+
 	/** Compare two branches. Returns ahead_by count. */
 	compareBranches(base: string, head: string, repo: string): Promise<number>;
 

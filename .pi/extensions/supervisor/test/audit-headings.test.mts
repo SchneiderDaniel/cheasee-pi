@@ -7,9 +7,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
 	AUDIT_APPROVED_HEADING,
+	AUDIT_GATE_REJECTED_HEADING,
 	AUDIT_REJECTED_HEADING,
 	isAuditApprovedComment,
 	isAuditRejectedComment,
+	isAuditRejectionComment,
 	lastLineHeadingIndex,
 } from "../lib/audit-headings.ts";
 
@@ -53,6 +55,35 @@ describe("isAuditRejectedComment()", () => {
 
 	it("does not match the approval heading", () => {
 		assert.equal(isAuditRejectedComment(`## Audit Approved`), false);
+	});
+});
+
+// ─── Tests: isAuditRejectionComment() ───────────────────────────
+// Issue #2044: the audit-rejection identity spans both the normal
+// rejection heading and the score-gate rejection heading.
+
+describe("isAuditRejectionComment()", () => {
+	it("matches a normal rejection and a gate rejection", () => {
+		assert.equal(isAuditRejectionComment("## Audit Rejected\nx"), true);
+		assert.equal(isAuditRejectionComment("## Audit Score Gate Rejected\nx"), true);
+	});
+
+	it("is case-insensitive", () => {
+		assert.equal(isAuditRejectionComment("## audit score gate rejected\nx"), true);
+	});
+
+	it("rejects the #1618 Test Plan quote and mid-body occurrences", () => {
+		assert.equal(isAuditRejectionComment(TEST_PLAN_QUOTE), false);
+		assert.equal(isAuditRejectionComment("intro\n\n## Audit Rejected\n..."), false);
+	});
+
+	it("does not match the approval heading", () => {
+		assert.equal(isAuditRejectionComment("## Audit Approved"), false);
+	});
+
+	it("returns false for empty bodies", () => {
+		assert.equal(isAuditRejectionComment(""), false);
+		assert.equal(isAuditRejectionComment(undefined), false);
 	});
 });
 
@@ -122,5 +153,6 @@ describe("heading constants", () => {
 	it("equal the canonical template headings", () => {
 		assert.equal(AUDIT_REJECTED_HEADING, "## Audit Rejected");
 		assert.equal(AUDIT_APPROVED_HEADING, "## Audit Approved");
+		assert.equal(AUDIT_GATE_REJECTED_HEADING, "## Audit Score Gate Rejected");
 	});
 });

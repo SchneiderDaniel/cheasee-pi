@@ -436,11 +436,11 @@ describe("Regression — gate wiring module-graph edges (Phase 5, Issue #787)", 
 		);
 	});
 
-	it("auditor rejection path consumes the shared anchored matcher — issue #1668", () => {
+	it("auditor rejection path consumes the shared anchored matcher — issue #1668/#2044", () => {
 		const graph = readGraph(HANDLER_STEPS_TS);
 		assert.ok(
-			graph.importedNames.includes("isAuditRejectedComment"),
-			"auditFeedback scan imports the shared anchored matcher",
+			graph.importedNames.includes("isAuditRejectionComment"),
+			"auditFeedback scan imports the shared anchored matcher (gate rejections included, #2044)",
 		);
 		assert.ok(
 			graph.specifiers.includes("../../lib/audit-headings.ts"),

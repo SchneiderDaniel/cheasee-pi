@@ -42,7 +42,7 @@ export interface FilteredIssueData {
 	/** Issue body (empty string if author not a trusted codeowner) */
 	body: string;
 	/** Only comments from trusted codeowners */
-	comments: Array<{ author: string; body: string }>;
+	comments: Array<{ author: string; body: string; id?: string }>;
 }
 
 /**

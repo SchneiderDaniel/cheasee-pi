@@ -35,7 +35,8 @@ import {
 import { buildDeadCodeContext } from "../../checks/dead-code.ts";
 import { buildVulnContext } from "../../checks/osv-scanner.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
+import { isAuditRejectionComment } from "../../lib/audit-headings.ts";
+import { countAuditRejections } from "../../lib/audit-rejections.ts";
 import type { RunContext } from "./shared.ts";
 
 // ─── Workflow step + agent resolution ────────────────────────────
@@ -129,7 +130,7 @@ export async function loadLoopIssue(
 	runCtx: RunContext,
 	step: WorkflowStep,
 ): Promise<IssueResolution> {
-	const { ctx, config, issueNum, exec, collector, issueData } = runCtx;
+	const { ctx, config, issueNum, exec, collector, issueData, port } = runCtx;
 	const loopFilteredData = await fetchFreshIssueData(
 		exec,
 		config,
@@ -138,9 +139,21 @@ export async function loadLoopIssue(
 		collector,
 	);
 
+	// Loop counter lives on `reject-N` labels now that rejections update in
+	// place instead of appending comments (issue #2044). Legacy rejection
+	// comments remain the fallback so pre-label issues keep counting.
+	let labels: string[] = [];
+	try {
+		labels = await port.getIssueLabels(issueNum, config.repo);
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		collector?.push("handler", "warn", `Failed to fetch issue labels: ${msg}`);
+	}
+	const rejectionCount = countAuditRejections(labels, loopFilteredData.comments);
+
 	// Rejection limit check (issue #1668: reports the real count, not the
-	// threshold; only position-0 `## Audit Rejected` comments count).
-	const rejectionLimit = isRejectionLimitReached(loopFilteredData.comments, step.maxRejections);
+	// threshold).
+	const rejectionLimit = isRejectionLimitReached(rejectionCount, step.maxRejections);
 	if (rejectionLimit.reached) {
 		ctx.ui.notify(
 			`Issue #${issueNum} rejected ${rejectionLimit.count} times. Human intervention required.`,
@@ -292,25 +305,24 @@ export async function assembleAgentTask(
 					.map((c) => c.body)
 					.find((body) => /##\s*Research\s*Findings/i.test(body))
 			: undefined;
-	// Extract latest audit rejection comment for developer feedback loop
-	// When audit rejects and pipeline loops back to Implementation, the developer
-	// needs to see EXACTLY what the auditor found wrong — not just a generic
-	// list of trusted comments where audit feedback is buried.
+	// Extract the latest audit rejection comment (position-0 heading; gate
+	// rejections included). The developer sees it as a fix-list (issue #1668);
+	// the auditor sees it as a re-verify block (issue #2044).
+	const priorRejection = (() => {
+		for (let i = loopFilteredData.comments.length - 1; i >= 0; i--) {
+			const body = loopFilteredData.comments[i]?.body || "";
+			if (isAuditRejectionComment(body)) return { index: i, body };
+		}
+		return undefined;
+	})();
 	const auditFeedback: string | undefined =
-		agentName === "developer"
-			? (() => {
-					// Find the latest comment BEGINNING with the "## Audit Rejected"
-					// heading (position-0 only — quoted occurrences must not be fed
-					// to the developer as rejection feedback, issue #1668).
-					for (let i = loopFilteredData.comments.length - 1; i >= 0; i--) {
-						const body = loopFilteredData.comments[i]?.body || "";
-						if (isAuditRejectedComment(body)) {
-							return body;
-						}
-					}
-					return undefined;
-				})()
-			: undefined;
+		agentName === "developer" || agentName === "auditor" ? priorRejection?.body : undefined;
+	// The auditor already gets the prior rejection as its re-verify block —
+	// drop it from the generic comments block to avoid duplication.
+	const commentSource =
+		agentName === "auditor" && priorRejection
+			? loopFilteredData.comments.filter((_, i) => i !== priorRejection.index)
+			: loopFilteredData.comments;
 	// Build dead code context for auditor
 	const deadContext: string | undefined =
 		agentName === "auditor"
@@ -335,7 +347,7 @@ export async function assembleAgentTask(
 		ctx.cwd, // mainRepoPrefix
 		worktreePath,
 		worktreeBranch,
-		summarizeComments(loopFilteredData.comments),
+		summarizeComments(commentSource),
 		dupContext,
 		researchFindings,
 		auditFeedback,
