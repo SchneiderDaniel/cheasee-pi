@@ -12,12 +12,14 @@
  */
 
 import assert from "node:assert";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+const REPO_ROOT = resolve(HERE, "..");
 const requireCjs = createRequire(import.meta.url);
 const FILTER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js");
 
@@ -29,14 +31,20 @@ type Suppressed = {
 	duplicates: any[];
 };
 
-const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCjs(FILTER) as {
-	sanitizeAnalysisData: (
-		data: unknown,
-		readFile?: (path: unknown) => string | null,
-	) => { data: any; suppressed: Suppressed };
-	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
-	readFileFrom: (data: unknown) => (path: unknown) => string | null;
-};
+const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom, REPO_LAYERS, resolveLayer } =
+	requireCjs(FILTER) as {
+		sanitizeAnalysisData: (
+			data: unknown,
+			readFile?: (path: unknown) => string | null,
+		) => { data: any; suppressed: Suppressed };
+		isFalsePositiveHygiene: (
+			issue: unknown,
+			readFile?: (path: unknown) => string | null,
+		) => boolean;
+		readFileFrom: (data: unknown) => (path: unknown) => string | null;
+		REPO_LAYERS: Array<{ prefix: string; layer: string; rank: number }>;
+		resolveLayer: (path: unknown) => { layer: string; rank: number } | null;
+	};
 
 // The real upstream health score (see the fixture header), so the acceptance
 // arithmetic below is upstream's, not a re-implementation.
@@ -97,20 +105,26 @@ function hyg(over: Record<string, unknown> = {}): Record<string, unknown> {
 
 const nullReadFile = () => null;
 
+// Paths under the filter's declared taxonomy (REPO_LAYERS in fp-filter.js).
+const EXT = ".pi/extensions/";
+const TEST = "test/";
+const UI = "cmd/cheasee-pi/embedded/docker/ui/";
+
 const LAYER_FILES = [
-	{ path: "src/ui/from.ts", layer: "ui" },
-	{ path: "src/ui/to.ts", layer: "ui" },
-	{ path: "cmd/build.go", layer: "cmd" },
-	{ path: "ui/src/retry.rs", layer: "ui" },
+	{ path: `${EXT}from.ts`, layer: "extensions" },
+	{ path: `${TEST}to.ts`, layer: "test" },
+	{ path: `${UI}src/retry.rs`, layer: "ui" },
+	{ path: `${UI}src/main.rs`, layer: "ui" },
+	{ path: "cmd/cheasee-pi/build.go", layer: "cli" },
 ];
-const CONNECTIONS = [{ source: "src/ui/from.ts", target: "src/ui/to.ts", fn: "render", count: 2 }];
+const CONNECTIONS = [{ source: `${EXT}from.ts`, target: `${TEST}to.ts`, fn: "render", count: 2 }];
 
 function violation(over: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
-		from: "src/ui/from.ts",
-		to: "src/ui/to.ts",
-		fromLayer: "ui",
-		toLayer: "ui",
+		from: `${EXT}from.ts`,
+		to: `${TEST}to.ts`,
+		fromLayer: "extensions",
+		toLayer: "test",
 		fn: "render",
 		suggestion: "invert",
 		...over,
@@ -129,7 +143,7 @@ function keepsSecurity(issue: Record<string, unknown>): boolean {
 }
 
 /** Sanitize one layer violation and report whether it survived. */
-function keepsViolation(v: Record<string, unknown>): boolean {
+function keepsViolation(v: unknown): boolean {
 	const input = { files: LAYER_FILES, connections: CONNECTIONS, layerViolations: [v] };
 	const { data, suppressed } = sanitizeAnalysisData(input, readFile);
 	assert.strictEqual(
@@ -572,120 +586,151 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 });
 
 describe("fp-filter — layer violations (Phase 2)", () => {
-	it("drops cross-language pairs (the 142)", () => {
-		for (const to of ["ui/src/retry.rs", "ui/src/main.rs"]) {
+	it("resolves a declared root to its layer and rank, longest prefix first", () => {
+		assert.deepStrictEqual(resolveLayer(`${EXT}from.ts`), { layer: "extensions", rank: 3 });
+		assert.deepStrictEqual(resolveLayer(`${TEST}to.ts`), { layer: "test", rank: 4 });
+		assert.deepStrictEqual(resolveLayer("cmd/cheasee-pi/build.go"), { layer: "cli", rank: 2 });
+		assert.deepStrictEqual(resolveLayer("scripts/install.sh"), { layer: "scripts", rank: 0 });
+		// The nested ui root beats its parent `cmd/cheasee-pi/` prefix.
+		assert.deepStrictEqual(resolveLayer(`${UI}src/retry.rs`), { layer: "ui", rank: 1 });
+	});
+
+	it("resolves nothing for a path outside the declared roots", () => {
+		for (const path of ["README.md", ".pi/skills/audit/SKILL.md", "docker/x.yml", "Makefile"]) {
+			assert.strictEqual(resolveLayer(path), null, path);
+		}
+	});
+
+	it("resolves nothing for empty, non-string and extensionless paths", () => {
+		for (const path of ["", "Makefile", 42, null, undefined]) {
+			assert.strictEqual(resolveLayer(path), null, JSON.stringify(path));
+		}
+	});
+
+	it("declares a real, non-overlapping, uniquely ranked taxonomy", () => {
+		const ranks = REPO_LAYERS.map((entry) => entry.rank);
+		assert.strictEqual(new Set(ranks).size, ranks.length, "ranks must be unique");
+		const prefixes = REPO_LAYERS.map((entry) => entry.prefix);
+		assert.strictEqual(new Set(prefixes).size, prefixes.length, "prefixes must be distinct");
+		for (const entry of REPO_LAYERS) {
+			// A trailing slash means any string-prefix relation is a directory
+			// boundary, so two prefixes can only nest or stay disjoint — never
+			// overlap at an ambiguous partial segment.
+			assert.ok(entry.prefix.endsWith("/"), `${entry.prefix} must be a directory prefix`);
+			assert.ok(
+				existsSync(join(REPO_ROOT, entry.prefix)),
+				`${entry.prefix} must name a real repo location`,
+			);
+		}
+	});
+
+	it("keeps an inverting same-language edge between declared layers", () => {
+		assert.strictEqual(keepsViolation(violation()), true);
+	});
+
+	it("drops a same-rank edge (the repointed ui -> ui case)", () => {
+		assert.strictEqual(
+			keepsViolation(
+				violation({
+					from: `${UI}src/from.rs`,
+					to: `${UI}src/to.rs`,
+					fromLayer: "ui",
+					toLayer: "ui",
+				}),
+			),
+			false,
+			"two files in the same layer cannot invert it",
+		);
+	});
+
+	it("drops a reverse-direction edge", () => {
+		assert.strictEqual(
+			keepsViolation(violation({ from: `${TEST}from.ts`, to: `${EXT}to.ts` })),
+			false,
+			"higher rank -> lower rank is the intended direction",
+		);
+	});
+
+	it("drops an endpoint under an undeclared root", () => {
+		assert.strictEqual(
+			keepsViolation(violation({ from: ".pi/skills/from.ts", to: `${TEST}to.ts` })),
+			false,
+		);
+	});
+
+	it("drops cross-language pairs", () => {
+		for (const to of [`${UI}src/retry.rs`, `${UI}src/main.rs`]) {
 			assert.strictEqual(
-				keepsViolation(
-					violation({ from: "src/layer/from.ts", to, fromLayer: "ui", toLayer: "ui" }),
-				),
+				keepsViolation(violation({ to })),
 				false,
 				`.ts -> ${to.slice(to.lastIndexOf("."))} cannot be an import edge`,
 			);
 		}
 		assert.strictEqual(
-			keepsViolation(
-				violation({ from: "cmd/build.go", to: "ui/src/retry.rs", fromLayer: "cmd", toLayer: "ui" }),
-			),
+			keepsViolation(violation({ from: "cmd/cheasee-pi/build.go", to: `${UI}src/retry.rs` })),
 			false,
 		);
 	});
 
-	it("drops an invented layer taxonomy even for same-language endpoints (the 15)", () => {
-		assert.strictEqual(
-			keepsViolation(violation({ fromLayer: "utils", toLayer: "services" })),
-			false,
-			"the repo defines no utils/services layer",
-		);
-		assert.strictEqual(keepsViolation(violation({ toLayer: "shop" })), false, "one-sided mismatch");
+	it("drops a same-language, both-declared pair with no recorded connection", () => {
+		const noEdge = {
+			files: LAYER_FILES,
+			connections: [],
+			layerViolations: [violation()],
+		};
+		assert.deepStrictEqual(sanitizeAnalysisData(noEdge, readFile).data.layerViolations, []);
+		// The reverse edge alone must not count either.
+		const reversed = {
+			files: LAYER_FILES,
+			connections: [{ source: `${TEST}to.ts`, target: `${EXT}from.ts` }],
+			layerViolations: [violation()],
+		};
+		assert.deepStrictEqual(sanitizeAnalysisData(reversed, readFile).data.layerViolations, []);
 	});
 
-	it("drops an invented taxonomy the file table itself repeats (the 3 survivors)", () => {
-		// The pinned analyzer falls back to `utils` and matches `/handler` ->
-		// `services`, then repeats those labels in `files[].layer`, so the file-table
-		// check alone keeps the edge; neither path carries the label as a directory.
-		const from = ".pi/extensions/supervisor/pipeline/execute-agent.ts";
-		const to = ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts";
-		const edge = {
-			from,
-			fromLayer: "utils",
-			to,
-			toLayer: "services",
-			fn: "result",
-			suggestion: "invert",
-		};
-		const input = {
+	it("decides by the declared taxonomy, never the analyzer's files[].layer", () => {
+		// Same paths and connection as the kept case, but the report's own labels
+		// disagree: REPO_LAYERS still keeps the edge.
+		const mislabeled = {
 			files: [
-				{ path: from, layer: "utils" },
-				{ path: to, layer: "services" },
+				{ path: `${EXT}from.ts`, layer: "utils" },
+				{ path: `${TEST}to.ts`, layer: "utils" },
 			],
-			connections: [{ source: to, target: from, fn: "result", count: 1 }],
-			layerViolations: [edge],
+			connections: CONNECTIONS,
+			layerViolations: [violation({ fromLayer: "utils", toLayer: "services" })],
 		};
-		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
-		assert.deepStrictEqual(suppressed.layerViolations, [edge]);
-		assert.deepStrictEqual(data.layerViolations, []);
-	});
-
-	it("drops a same-language edge whose layer label the path does not name", () => {
-		// Matching file-table labels are not enough: the paths name no layer folder.
-		const input = {
+		assert.strictEqual(sanitizeAnalysisData(mislabeled, readFile).data.layerViolations.length, 1);
+		// Conversely, an inversion-looking label pair cannot rescue a same-rank edge.
+		const rescued = {
 			files: [
-				{ path: "src/layer/from.ts", layer: "utils" },
-				{ path: "src/layer/to.ts", layer: "services" },
+				{ path: `${UI}src/from.rs`, layer: "utils" },
+				{ path: `${UI}src/to.rs`, layer: "services" },
 			],
-			connections: [
-				{ source: "src/layer/from.ts", target: "src/layer/to.ts", fn: "render", count: 1 },
-			],
+			connections: [{ source: `${UI}src/from.rs`, target: `${UI}src/to.rs` }],
 			layerViolations: [
 				violation({
-					from: "src/layer/from.ts",
-					to: "src/layer/to.ts",
+					from: `${UI}src/from.rs`,
+					to: `${UI}src/to.rs`,
 					fromLayer: "utils",
 					toLayer: "services",
 				}),
 			],
 		};
-		const { data } = sanitizeAnalysisData(input, readFile);
-		assert.deepStrictEqual(data.layerViolations, []);
+		assert.deepStrictEqual(sanitizeAnalysisData(rescued, readFile).data.layerViolations, []);
 	});
 
-	it("keeps a same-language edge the report itself recorded between matching layers", () => {
-		assert.strictEqual(keepsViolation(violation()), true);
-	});
-
-	it("drops a same-language pair with no recorded connection", () => {
-		assert.strictEqual(
-			keepsViolation(violation({ from: "src/ui/to.ts", to: "src/ui/from.ts" })),
-			false,
-			"to -> from is not an import edge",
-		);
-	});
-
-	it("drops endpoints that resolve to no file entry (bare identifiers)", () => {
-		assert.strictEqual(
-			keepsViolation(
-				violation({
-					from: "cmd/cheasee-pi/build.go",
-					to: "cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
-					fromLayer: "dir",
-					toLayer: "dir",
-				}),
-			),
-			false,
-		);
-	});
-
-	it("drops empty, missing and extensionless endpoints", () => {
-		assert.strictEqual(keepsViolation(violation({ from: "" })), false);
-		assert.strictEqual(keepsViolation(violation({ to: undefined })), false);
+	it("drops malformed and extensionless endpoints", () => {
+		for (const bad of [null, "x", {}, violation({ from: "" }), violation({ to: undefined })]) {
+			assert.strictEqual(keepsViolation(bad), false, JSON.stringify(bad));
+		}
 		assert.strictEqual(keepsViolation(violation({ from: "Makefile", to: "Makefile" })), false);
 	});
 
 	it("accounts for every input entry as kept or suppressed", () => {
 		const layerViolations = [
 			violation(),
-			violation({ from: "cmd/build.go", to: "ui/src/retry.rs" }),
-			violation({ fromLayer: "utils" }),
+			violation({ from: "cmd/cheasee-pi/build.go", to: `${UI}src/retry.rs` }),
+			violation({ from: `${TEST}from.ts`, to: `${EXT}to.ts` }),
 		];
 		const input = { files: LAYER_FILES, connections: CONNECTIONS, layerViolations };
 		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
