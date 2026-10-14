@@ -97,7 +97,25 @@ describe("filterIssueData() — auditRejections", () => {
 		assert.equal(result.rejectionCommentCount, 0, "unverifiable rejections are not counted");
 	});
 
-	it("excludes an unmarked rejection even when the author is trusted", () => {
+	it("retains a pre-marker (unmarked) rejection from the automation account", () => {
+		const result = filterIssueData(
+			{
+				author: { login: "user1" },
+				body: "body",
+				comments: [
+					{ id: "IC_legacy", author: { login: "automation" }, body: "## Audit Rejected\nlegacy" },
+				],
+			},
+			["user1"],
+			"automation",
+		);
+		assert.deepEqual(result.auditRejections, [
+			{ id: "IC_legacy", body: "## Audit Rejected\nlegacy" },
+		]);
+		assert.equal(result.rejectionCommentCount, 1);
+	});
+
+	it("excludes an unmarked rejection from a non-automation author", () => {
 		const result = filterIssueData(
 			{
 				author: { login: "user1" },

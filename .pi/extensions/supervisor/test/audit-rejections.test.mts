@@ -77,12 +77,15 @@ describe("findPriorAuditRejection()", () => {
 		});
 	});
 
-	it("never selects an unmarked comment, even with a rejection heading", () => {
+	it("selects a pre-marker (unmarked) rejection — author check happens upstream", () => {
 		const comments = [
-			{ id: "1", body: "## Audit Rejected\ncodeowner wrote this" },
-			{ id: "2", body: "## Audit Score Gate Rejected\nunmarked gate" },
+			{ id: "1", body: "## Audit Rejected\nlegacy rejection before the marker existed" },
+			{ id: "2", body: "## Audit Score Gate Rejected\nlegacy gate" },
 		];
-		assert.equal(findPriorAuditRejection(comments), undefined);
+		assert.deepEqual(findPriorAuditRejection(comments), {
+			id: "2",
+			body: "## Audit Score Gate Rejected\nlegacy gate",
+		});
 	});
 
 	it("ignores id-less rejection comments and quoted headings", () => {

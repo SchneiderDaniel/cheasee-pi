@@ -166,12 +166,11 @@ async function handleStructuredVerdict(
 /**
  * Post a new audit rejection, or update the auditor's prior rejection in place
  * (issue #2044) so later loops do not pile up stale rejection comments. The
- * prior rejection is discovered from `auditRejections` — supervisor-marked
- * comments retained outside the codeowner trust gate (audit finding #1) — and
- * only updated when it carries the supervisor marker (audit finding #4). The
- * `reject-N` label is bumped only AFTER the comment write succeeds (audit
- * finding #2): a failed write must not advance the loop counter while the
- * issue still shows stale feedback.
+ * prior rejection is discovered from `auditRejections` — supervisor-authored
+ * comments retained outside the codeowner trust gate and selected by author,
+ * so pre-marker rejections are updated too. The `reject-N` label is bumped only
+ * AFTER the comment write succeeds (audit finding #2): a failed write must not
+ * advance the loop counter while the issue still shows stale feedback.
  */
 async function postOrUpdateAuditRejection(
 	issueNum: number,

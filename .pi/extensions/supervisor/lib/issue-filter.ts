@@ -4,7 +4,7 @@
 // for review isolation. No Octokit or ExecFn dependency.
 
 import type { FilteredIssueData, ProjectItem } from "../config/types.ts";
-import { hasAuditRejectionMarker, isAuditRejectionComment } from "./audit-headings.ts";
+import { isAuditRejectionComment } from "./audit-headings.ts";
 
 // ─── Raw Issue Data (from Octokit) ───────────────────────────────
 
@@ -45,34 +45,29 @@ export function filterIssueData(
 	// Supervisor rejections are the pipeline's own output — retrieve them from
 	// the RAW comments regardless of codeowner trust (issue #2044 audit finding
 	// #1), so the upsert finds its prior comment even when the automation
-	// account is not a codeowner. Ownership is verified against the
-	// authenticated automation login (this round's finding #1): the marker is
-	// public, so a non-codeowner could otherwise forge it and inject untrusted
-	// content into the auditor/developer feedback block. Untrusted content stays
-	// out of `comments`; with no resolved login the rejections are withheld
-	// (fail closed → a new rejection is posted instead of an update).
+	// account is not a codeowner. Ownership is verified by AUTHOR, not by the
+	// hidden marker (this round's finding): rejections posted before the marker
+	// existed must still be re-verified and updated in place, and the public
+	// marker could be forged. Authoring account is the authenticated automation
+	// login, so other users' comments are never selected; with no resolved login
+	// the rejections are withheld (fail closed → a new rejection is posted
+	// instead of an update). Bodies of selected rejections are supervisor-owned
+	// and stay out of the trust-filtered `comments` list.
 	const auditRejections = rawComments
 		.filter(
 			(c) =>
 				!!automationLogin &&
 				isAuditRejectionComment(c?.body) &&
-				hasAuditRejectionMarker(c?.body) &&
 				(c?.author?.login || "") === automationLogin,
 		)
 		.map((c) => ({ id: c?.id, body: c?.body || "" }));
 
-	// Count-only legacy fallback: position-0 rejection comments authored by the
-	// authenticated automation account, including unmarked ones whose body is
-	// withheld (issue #2044 audit finding #3). Filtering by author stops a
-	// non-automation commenter from faking rejections to trip `maxRejections`;
-	// with no resolved identity nothing counts (callers stop instead of using
-	// an unverifiable count). The bodies never reach an agent.
-	const rejectionCommentCount = rawComments.filter(
-		(c) =>
-			!!automationLogin &&
-			isAuditRejectionComment(c?.body) &&
-			(c?.author?.login || "") === automationLogin,
-	).length;
+	// Legacy loop-count fallback: total position-0 rejection comments authored
+	// by the authenticated automation account, marked or pre-marker. Filtering
+	// by author stops a non-automation commenter from faking rejections to trip
+	// `maxRejections`; with no resolved identity nothing counts (callers stop
+	// instead of using an unverifiable count).
+	const rejectionCommentCount = auditRejections.length;
 
 	return {
 		body,

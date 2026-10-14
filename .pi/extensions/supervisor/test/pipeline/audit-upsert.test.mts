@@ -139,6 +139,25 @@ describe("audit rejection upsert (issue #2044)", () => {
 		assert.equal(update!.args[0], "IC_bot");
 	});
 
+	it("updates a pre-marker (unmarked) prior rejection in place", async () => {
+		// Upgrade path (issue #2044 audit finding): issues rejected before the
+		// marker existed still carry an automation-authored rejection comment that
+		// must be re-verified and updated, not duplicated.
+		const calls: PortCall[] = [];
+		const port = createMockGitHubPort({}, calls);
+		const data: FilteredIssueData = {
+			body: "",
+			comments: [],
+			auditRejections: [{ id: "IC_legacy", body: "## Audit Rejected\n\nold" }],
+		};
+		await run(port, data);
+
+		const update = calls.find((c) => c.method === "updateIssueComment");
+		assert.ok(update, "updates the pre-marker rejection");
+		assert.equal(update!.args[0], "IC_legacy");
+		assert.equal(calls.find((c) => c.method === "postIssueComment"), undefined);
+	});
+
 	it("bumps reject-N from the existing label, removing the previous one", async () => {
 		const calls: PortCall[] = [];
 		const port = createMockGitHubPort({ getIssueLabels: async () => ["reject-4"] }, calls);

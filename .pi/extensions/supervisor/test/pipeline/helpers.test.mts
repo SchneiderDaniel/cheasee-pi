@@ -316,6 +316,36 @@ describe("fetchFreshIssueData()", () => {
 		);
 	});
 
+	it("carries a pre-marker (unmarked) automation rejection into auditRejections", async () => {
+		const exec = makeExec([
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					number: 42,
+					title: "Test",
+					body: "issue body",
+					author: { login: "user1" },
+					comments: [],
+				}),
+				stderr: "",
+			},
+		]);
+		const rejectBody = "## Audit Rejected\nlegacy before the marker";
+		const port = createMockGitHubPort({
+			listComments: async () => [
+				{ id: "IC_bot", author: { login: "automation" }, body: rejectBody },
+				{ id: "IC_forged", author: { login: "attacker" }, body: rejectBody },
+			],
+			getAuthenticatedLogin: async () => "automation",
+		});
+
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "loaded");
+		const result = resolution.kind === "loaded" ? resolution.data : undefined;
+		assert.deepEqual(result?.auditRejections, [{ id: "IC_bot", body: rejectBody }]);
+		assert.equal(result?.rejectionCommentCount, 1, "only automation-authored rejections count");
+	});
+
 	it("fails closed when paginated comment listing fails (finding #1)", async () => {
 		const exec = makeExec([
 			{

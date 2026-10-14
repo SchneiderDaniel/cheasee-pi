@@ -138,6 +138,19 @@ describe("assembleAgentTask() — trust-independent prior rejection (finding #1)
 		assert.ok(task.includes("still broken"));
 	});
 
+	it("injects an unmarked pre-marker rejection into the auditor re-verify block", async () => {
+		// Upgrade path (issue #2044 audit finding): a rejection posted before the
+		// marker existed is still the prior rejection the auditor must re-verify.
+		const data: FilteredIssueData = {
+			body: "body",
+			comments: [],
+			auditRejections: [{ id: "IC_legacy", body: "## Audit Rejected\n\nlegacy finding" }],
+		};
+		const task = await assembleAgentTask(buildRunContext({}), "auditor", data, undefined);
+		assert.ok(task.includes("Prior Rejection — Re-verify Against Current Code"));
+		assert.ok(task.includes("legacy finding"));
+	});
+
 	it("does not treat an unmarked comment heading as audit feedback", async () => {
 		const data: FilteredIssueData = {
 			body: "body",

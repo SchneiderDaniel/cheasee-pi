@@ -296,8 +296,8 @@ export async function loadLoopAgentFile(
  * block, plus the comment list with that rejection removed (the supervisor
  * account may also be a codeowner, so the same comment can appear in both
  * lists). Rejections come from `auditRejections` — retained outside the
- * codeowner trust gate (issue #2044 audit finding #1) — and only marker-tagged
- * comments qualify (audit finding #4).
+ * codeowner trust gate and selected by author, so pre-marker rejections are
+ * included (issue #2044).
  */
 function resolveAuditFeedback(
 	loopFilteredData: FilteredIssueData,
@@ -359,10 +359,9 @@ export async function assembleAgentTask(
 					.find((body) => /##\s*Research\s*Findings/i.test(body))
 			: undefined;
 	// Extract the latest supervisor rejection from `auditRejections` — retrieved
-	// independently of the codeowner trust gate (issue #2044 audit finding #1) so
-	// the loop still finds its prior rejection when the automation account is not
-	// a codeowner. The developer sees it as a fix-list (issue #1668); the auditor
-	// as a re-verify block (issue #2044). Only marker-tagged comments qualify.
+	// independently of the codeowner trust gate and selected by author, so
+	// pre-marker rejections are found too (issue #2044). The developer sees it as
+	// a fix-list (issue #1668); the auditor as a re-verify block.
 	const { auditFeedback, commentSource } = resolveAuditFeedback(loopFilteredData, agentName);
 	// Build dead code context for auditor
 	const deadContext: string | undefined =

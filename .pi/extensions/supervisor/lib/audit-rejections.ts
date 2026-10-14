@@ -3,7 +3,7 @@
 // loop counting (issue #2044). No I/O — the pipeline wires the GitHub
 // port around these decisions.
 
-import { hasAuditRejectionMarker, isAuditRejectionComment } from "./audit-headings.ts";
+import { isAuditRejectionComment } from "./audit-headings.ts";
 
 export const REJECT_LABEL_PREFIX = "reject-";
 
@@ -14,18 +14,18 @@ export interface PriorAuditRejection {
 }
 
 /**
- * Newest supervisor-authored rejection comment that carries an id we can
- * update. The marker gates ownership (issue #2044 audit finding #4): an
- * unmarked comment with a rejection heading — e.g. a codeowner's manual note —
- * is never selected, and id-less comments are skipped (the upsert falls back
- * to posting).
+ * Newest rejection comment that carries an id we can update. Ownership is
+ * already verified upstream (`filterIssueData` keeps only comments whose author
+ * is the authenticated automation account), so no marker is required —
+ * rejections posted before the marker existed must still be found and updated
+ * in place. Id-less comments are skipped (the upsert falls back to posting).
  */
 export function findPriorAuditRejection(
 	comments: Array<{ id?: string; body: string }>,
 ): PriorAuditRejection | undefined {
 	for (let i = comments.length - 1; i >= 0; i--) {
 		const comment = comments[i];
-		if (comment?.id && isAuditRejectionComment(comment.body) && hasAuditRejectionMarker(comment.body)) {
+		if (comment?.id && isAuditRejectionComment(comment.body)) {
 			return { id: comment.id, body: comment.body };
 		}
 	}
