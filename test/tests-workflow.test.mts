@@ -11,6 +11,9 @@
  *   - Toolchain + invocations: setup-node@v5 (22, npm cache), npm ci,
  *     npm test, go test ./cmd/cheasee-pi/ -count=1, tsc --noEmit
  *   - setup-go@v6 with go-version 1.25
+ *   - Prettier format gate: `format:check` script (`prettier --check .`, check-only,
+ *     directory scan) and a read-only `format-check` job that installs via `npm ci`
+ *     before invoking the script, with no path filter
  *   - Failure propagation: no test step swallows failures
  *   - Non-vacuous green: scrapling venv/chromium provisioned and skip-gated;
  *     docker daemon reachability ordered before the dogfooding run
@@ -18,11 +21,16 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { readFileSync, existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { load } from "js-yaml";
 
-const WORKFLOW_PATH = resolve(import.meta.dirname, "..", ".github", "workflows", "tests.yml");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
+const WORKFLOW_PATH = resolve(REPO_ROOT, ".github", "workflows", "tests.yml");
+const PACKAGE_JSON_PATH = resolve(REPO_ROOT, "package.json");
+const PRETTIER_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "prettier");
 
 interface Step {
 	uses?: string;
@@ -39,6 +47,7 @@ interface Job {
 	needs?: string | string[];
 	env?: Record<string, string>;
 	services?: Record<string, unknown>;
+	permissions?: Record<string, string>;
 	steps?: Step[];
 }
 
@@ -236,6 +245,203 @@ describe(".github/workflows/tests.yml", () => {
 					),
 				"no step references the cheasee-pi:test-1497 image tag",
 			);
+		});
+	});
+});
+
+describe("Prettier format gate", () => {
+	describe("format:check port is present and check-only (package.json)", () => {
+		function script(): string {
+			const pkg = JSON.parse(readFileSync(PACKAGE_JSON_PATH, "utf-8")) as {
+				scripts?: Record<string, string>;
+			};
+			const value = pkg.scripts?.["format:check"];
+			assert.ok(
+				typeof value === "string" && value.length > 0,
+				'package.json scripts["format:check"] must be a non-empty string',
+			);
+			return value;
+		}
+
+		it("declares format:check as exactly `prettier --check .`", () => {
+			assert.strictEqual(script(), "prettier --check .");
+		});
+
+		it("runs in check mode only and never --write", () => {
+			const value = script();
+			assert.ok(value.includes("--check"), "format:check must pass --check");
+			assert.ok(!value.includes("--write"), "format:check must not pass --write");
+		});
+
+		it("scans the directory rather than enumerating non-JS language globs", () => {
+			const value = script();
+			for (const glob of [".go", ".py", ".txt", ".md"]) {
+				assert.ok(
+					!value.includes(glob),
+					`format:check must not enumerate ${glob} (prettier exits 2 with no inferable parser)`,
+				);
+			}
+			assert.ok(value.trim().endsWith("."), "format:check must scan the directory '.'");
+		});
+	});
+
+	describe("format-check job is wired into tests.yml", () => {
+		function job(): Job {
+			const value = (parseWorkflow().jobs ?? {})["format-check"];
+			assert.ok(value, 'tests.yml jobs["format-check"] must exist');
+			return value;
+		}
+
+		it("runs on ubuntu-latest with a positive timeout-minutes", () => {
+			const value = job();
+			assert.strictEqual(value["runs-on"], "ubuntu-latest");
+			assert.ok(
+				typeof value["timeout-minutes"] === "number" && value["timeout-minutes"] > 0,
+				"format-check must set a positive timeout-minutes",
+			);
+		});
+
+		it("checks out the repo and sets up Node 22 with npm cache", () => {
+			const steps = job().steps ?? [];
+			assert.ok(
+				steps.some((s) => s.uses?.startsWith("actions/checkout@v5")),
+				"format-check must check out the repo via actions/checkout@v5",
+			);
+			const setupNode = steps.find((s) => s.uses?.startsWith("actions/setup-node@v5"));
+			assert.ok(setupNode, "format-check missing actions/setup-node@v5");
+			assert.strictEqual(setupNode.with?.["node-version"], "22");
+			assert.strictEqual(setupNode.with?.cache, "npm");
+		});
+
+		it("installs with `npm ci --ignore-scripts` before running the port", () => {
+			const steps = job().steps ?? [];
+			const installIdx = steps.findIndex((s) => s.run?.includes("npm ci --ignore-scripts"));
+			const checkIdx = steps.findIndex((s) => s.run?.includes("npm run format:check"));
+			assert.ok(installIdx >= 0, "format-check must install via `npm ci --ignore-scripts`");
+			assert.ok(checkIdx >= 0, "format-check must run `npm run format:check`");
+			assert.ok(installIdx < checkIdx, "install must precede the format check");
+		});
+
+		it("uses the port, never an inlined npx prettier", () => {
+			for (const step of job().steps ?? []) {
+				assert.ok(
+					!(step.run ?? "").includes("npx prettier"),
+					"format-check must invoke the format:check port, not npx prettier",
+				);
+			}
+		});
+
+		it("reports on every PR to main (no path-filter hole)", () => {
+			const workflow = parseWorkflow();
+			assert.strictEqual(workflow.on?.pull_request?.paths, undefined);
+			assert.ok(workflow.on?.pull_request?.branches?.includes("main"));
+		});
+	});
+
+	describe("format-check failure propagation and read-only guarantees", () => {
+		function steps(): Step[] {
+			const value = (parseWorkflow().jobs ?? {})["format-check"];
+			assert.ok(value, 'tests.yml jobs["format-check"] must exist');
+			return value.steps ?? [];
+		}
+
+		it("does not set continue-on-error on the format step", () => {
+			const formatStep = steps().find((s) => s.run?.includes("npm run format:check"));
+			assert.ok(formatStep, "format step missing");
+			assert.notStrictEqual(formatStep["continue-on-error"], true);
+		});
+
+		it("does not swallow failures with || true / || exit 0", () => {
+			for (const step of steps()) {
+				const run = step.run ?? "";
+				assert.ok(
+					!run.includes("|| true") && !run.includes("|| exit 0"),
+					`format-check step masks failures: ${step.name ?? run.slice(0, 40)}`,
+				);
+			}
+		});
+
+		it("is read-only: no --write, no git commit/push/add", () => {
+			const forbidden = ["--write", "git commit", "git push", "git add"];
+			for (const step of steps()) {
+				const run = step.run ?? "";
+				for (const needle of forbidden) {
+					assert.ok(
+						!run.includes(needle),
+						`format-check must not contain '${needle}': ${step.name ?? run.slice(0, 40)}`,
+					);
+				}
+			}
+		});
+
+		it("keeps permissions at contents: read", () => {
+			const workflow = parseWorkflow();
+			assert.strictEqual(workflow.permissions?.contents, "read");
+			const jobPermissions = (workflow.jobs ?? {})["format-check"]?.permissions;
+			if (jobPermissions?.contents !== undefined) {
+				assert.strictEqual(jobPermissions.contents, "read");
+			}
+		});
+	});
+
+	describe("Prettier CLI exit-code contract", () => {
+		function withTempDir(files: Record<string, string>, fn: (dir: string) => void): void {
+			assert.ok(existsSync(PRETTIER_BIN), "prettier binary missing — run `npm ci` first");
+			const dir = mkdtempSync(join(tmpdir(), "prettier-contract-"));
+			try {
+				for (const [name, content] of Object.entries(files)) {
+					writeFileSync(join(dir, name), content);
+				}
+				fn(dir);
+			} finally {
+				rmSync(dir, { recursive: true, force: true });
+			}
+		}
+
+		function check(dir: string, args: string[] = ["."]): { status: number; output: string } {
+			const result = spawnSync(PRETTIER_BIN, ["--check", ...args], {
+				cwd: dir,
+				encoding: "utf-8",
+			});
+			return { status: result.status ?? -1, output: `${result.stdout}${result.stderr}` };
+		}
+
+		it("exits 0 on a well-formatted tree", () => {
+			withTempDir({ "a.ts": "const x = 1;\n" }, (dir) => {
+				assert.strictEqual(check(dir).status, 0);
+			});
+		});
+
+		it("exits 1 and reports code style issues on a misformatted file", () => {
+			withTempDir({ "a.ts": "const    x=1\n" }, (dir) => {
+				const { status, output } = check(dir);
+				assert.strictEqual(status, 1);
+				assert.match(output, /Code style issues/);
+			});
+		});
+
+		it("leaves the misformatted fixture byte-identical (read-only)", () => {
+			withTempDir({ "a.ts": "const    x=1\n" }, (dir) => {
+				const before = readFileSync(join(dir, "a.ts"));
+				check(dir);
+				assert.deepStrictEqual(readFileSync(join(dir, "a.ts")), before);
+			});
+		});
+
+		it("exits 0 on a non-JS-only tree (no exit 2 on unknown languages)", () => {
+			withTempDir({ "x.go": "package main\n", "y.py": "x = 1\n", "note.txt": "hi\n" }, (dir) => {
+				const { status, output } = check(dir);
+				assert.strictEqual(status, 0);
+				assert.ok(!output.includes("No parser could be inferred"));
+			});
+		});
+
+		it("pins the characterization: an explicit .go path exits 2", () => {
+			withTempDir({ "x.go": "package main\n" }, (dir) => {
+				const { status, output } = check(dir, ["x.go"]);
+				assert.strictEqual(status, 2);
+				assert.match(output, /No parser could be inferred/);
+			});
 		});
 	});
 });

@@ -5,18 +5,19 @@
 #   - `npm test` (the node:test suite enumerated in package.json)
 #   - `go test ./cmd/cheasee-pi/ -count=1`
 #   - the extensions type-check (`tsc --noEmit --project .pi/tsconfig.json`)
+#   - the Prettier format check (`prettier --check .`, check mode only)
 #   - every standalone test under test/ and docker/test/ that no other workflow
 #     covers (.mts via node --experimental-strip-types, .sh via bash,
 #     .py via python3, plus the Docker image dogfooding test)
 #
-# Six parallel jobs so total wall time ≈ the slowest job. The two expensive
+# Seven parallel jobs so total wall time ≈ the slowest job. The two expensive
 # path-filtered workflows (`cli-install-smoke.yml`, `dependency-existence.yml`)
 # stay as-is; their unique tests (cli-install-smoke.test.mts, the live registry
 # scan) are not duplicated here.
 #
 # Budget: target under 15 minutes with warm caches — node-suite ~5-8 min ·
 # go ~1 min · docker ~3-6 min · shell-python <1 min · hygiene ~2-5 min ·
-# scrapling-e2e ~3-5 min.
+# scrapling-e2e ~3-5 min · format-check <1 min.
 # Cold caches exceed the target for the docker job only (its image build is
 # 15-30 min cold, 2-5 min warm) — `workflow_dispatch` re-runs warm the cache.
 
@@ -118,6 +119,28 @@ jobs:
         run: |
           python3 test/dependency-existence-check.test.py
           python3 test/dependency-existence-check-refactor.test.py
+
+  # Formatting violations block a PR the same way type errors and failing tests
+  # do. Check mode only — the fixing path is `.pi/extensions/format-on-save/`,
+  # never CI. `npm run format:check` is the port, so the scan scope stays in
+  # `.prettierignore` rather than duplicated here.
+  format-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Check formatting
+        run: npm run format:check
 
   hygiene:
     runs-on: ubuntu-latest
