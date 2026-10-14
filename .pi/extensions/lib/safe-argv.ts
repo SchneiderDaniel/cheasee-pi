@@ -28,8 +28,14 @@ const NUL = /\u0000/;
  */
 const INTERPRETER_PROGRAM =
 	/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd)(?:\.exe)?$/i;
-/** An interpreter flag that makes the interpreter execute code from argv. */
-const CODE_EVAL_FLAG = /^(?:eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r)(?:=.*)?)$/i;
+/**
+ * An interpreter flag that makes the interpreter execute code from argv:
+ * the eval/print forms (`node -e`, `python -c`) and the module-loading forms
+ * that run a file the flag points at (`node --require`, `--import`, `--loader`,
+ * `python -m`, `perl -M`), plus a lone `-` (read the script from stdin).
+ */
+const CODE_EVAL_FLAG =
+	/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?)$/i;
 
 export interface ArgvCommand {
 	readonly program: string;

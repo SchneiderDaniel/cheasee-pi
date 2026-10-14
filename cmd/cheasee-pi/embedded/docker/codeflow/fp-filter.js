@@ -540,17 +540,64 @@
 		).test(code);
 	}
 
+	// Resolve a relative import specifier against the cited file's own directory,
+	// purely (no node:path — the served page loads this file too). A bare or
+	// absolute specifier, or one that climbs past the root, resolves to null.
+	function resolveRelative(fromPath, specifier) {
+		if (typeof fromPath !== "string" || typeof specifier !== "string") return null;
+		if (!/^\.\.?\//.test(specifier)) return null;
+		var segments = fromPath.split("/");
+		segments.pop();
+		var parts = specifier.split("/");
+		for (var i = 0; i < parts.length; i++) {
+			var part = parts[i];
+			if (part === "" || part === ".") continue;
+			if (part === "..") {
+				if (segments.length === 0) return null;
+				segments.pop();
+				continue;
+			}
+			segments.push(part);
+		}
+		return segments.join("/");
+	}
+
+	// The one shared argv-policy module lives at `<root>/lib/safe-argv.ts`. A
+	// trusted import must *resolve* here — a specifier that merely contains
+	// `safe-argv` (`./attacker-safe-argv.ts`) is a different module.
+	function isPolicyModulePath(path) {
+		return /(?:^|\/)lib\/safe-argv(?:\.(?:ts|mts|cts|js|mjs|cjs))?$/.test(path);
+	}
+
+	// Provenance proof: the resolved module must be readable and declare the
+	// policy's own helpers. A same-named helper from a module that does not export
+	// `argvCommand`/`assertNoShell` is not proof, and an unreadable module keeps
+	// the finding — absence is never evidence.
+	function moduleDeclaresPolicy(readFile, path) {
+		var text = readFile && typeof path === "string" ? readFile(path) : null;
+		if (typeof text !== "string") return false;
+		var body = stripComments(text);
+		return (
+			/export\s+(?:async\s+)?function\s+argvCommand\b/.test(body) &&
+			/export\s+(?:async\s+)?function\s+assertNoShell\b/.test(body)
+		);
+	}
+
 	// Names imported from the shared argv-policy module (`safe-argv`). A bare name
-	// match is not proof — the file must bind the policy's own helpers, and no
-	// local re-declaration may shadow them, so the forced `shell:false` is
-	// enforced at runtime and cannot be forged by a reshaped options literal (a
-	// spread, a duplicate key, a shadowing local).
-	function safeArgvPolicyNames(code) {
+	// match is not proof — the import must resolve to the policy module *and* that
+	// module must export the helpers, and no local re-declaration may shadow them,
+	// so the forced `shell:false` is enforced at runtime and cannot be forged by a
+	// reshaped options literal (a spread, a duplicate key, a shadowing local) or by
+	// a same-named helper from a module of another name.
+	function safeArgvPolicyNames(code, citedPath, readFile) {
 		var names = Object.create(null);
 		var spans = [];
-		var re = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["'][^"']*safe-argv[^"']*["']/g;
+		var re = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
 		var m;
 		while ((m = re.exec(code)) !== null) {
+			var resolved = resolveRelative(citedPath, m[2]);
+			if (resolved === null || !isPolicyModulePath(resolved)) continue;
+			if (!moduleDeclaresPolicy(readFile, resolved)) continue;
 			spans.push([m.index, m.index + m[0].length]);
 			var parts = m[1].split(",");
 			for (var i = 0; i < parts.length; i++) {
@@ -590,10 +637,14 @@
 	// a literal array to be proven safe.
 	var COMMAND_RUNNER =
 		/(?:^|[\\/])(?:env|nohup|nice|timeout|stdbuf|sudo|doas|xargs|npx|pnpm|yarn|npm|bunx)(?:\.exe)?$/i;
-	// The interpreter flags that take the code to execute as their value
-	// (`-e`/`--eval`, `-c`/`--command`, `-p`/`--print`, `-r`/`-E`), plus the
-	// `eval` subcommand of `deno`/`bun`. Matched against a quote-stripped element.
-	var CODE_EVAL_TOKEN = /^(?:eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r)(?:=.*)?)$/i;
+	// The interpreter flags that make it run code from argv — the eval forms
+	// (`-e`/`--eval`, `-c`/`--command`, `-p`/`--print`) and the module-loading
+	// forms that run a file the flag points at (`--require`/`-r`, `--import`,
+	// `--loader`, `--preload`, `-m`), plus the `eval` subcommand of
+	// `deno`/`bun` and a lone `-` (script from stdin). Matched against a
+	// quote-stripped element.
+	var CODE_EVAL_TOKEN =
+		/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?)$/i;
 
 	/** The bare name of a quoted program literal, or null when it is not one. */
 	function programNameText(program) {
@@ -770,7 +821,7 @@
 		if (typeof content !== "string") return false;
 		var code = stripComments(content);
 		if (hasShellExecution(code)) return false;
-		var policy = safeArgvPolicyNames(code);
+		var policy = safeArgvPolicyNames(code, issue.path, readFile);
 		return everyChildProcessCallIsSafe(code, argvCommandBindings(code, policy), policy);
 	}
 

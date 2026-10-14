@@ -82,9 +82,19 @@ describe("argvCommand", () => {
 		assert.throws(() => argvCommand("perl", ["-e", "1"]), UnsafeArgvError);
 	});
 
+	it("rejects an interpreter's module-loading flags (`--require`, `--import`, `--loader`, `-m`)", () => {
+		// Each loads and runs attacker-named code without a shell.
+		assert.throws(() => argvCommand("node", ["--require", "./hook.cjs"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("node", ["-r", "./hook.cjs"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("node", ["--import", "./hook.mjs"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("node", ["--loader", "./hook.mjs"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("node", ["--experimental-loader", "./hook.mjs"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("python3", ["-m", "attacker_module"]), UnsafeArgvError);
+	});
+
 	it("accepts an interpreter invocation without a code flag (positive control)", () => {
 		assert.doesNotThrow(() => argvCommand("node", ["server.js", "--stdio"]));
-		assert.doesNotThrow(() => argvCommand("python3", ["-m", "http.server"]));
+		assert.doesNotThrow(() => argvCommand("python3", ["server.py", "--port", "8080"]));
 		// A `-e`-looking arg on a non-interpreter program is not an eval flag.
 		assert.doesNotThrow(() => argvCommand("git", ["-e"]));
 	});

@@ -12,12 +12,17 @@
  */
 
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// The shared argv-policy module, read off disk so a fixture's import provenance
+// can be verified exactly as the production readFile verifies it.
+const POLICY_SRC = readFileSync(resolve(HERE, "..", ".pi/extensions/lib/safe-argv.ts"), "utf8");
+const SHARED_POLICY_PATHS = new Set(["lib/safe-argv.ts", ".pi/extensions/lib/safe-argv.ts"]);
 const requireCjs = createRequire(import.meta.url);
 const FILTER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js");
 
@@ -381,10 +386,54 @@ const SOURCES: Record<string, string> = {
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("npx", ["--version"], assertNoShell({})); }\n',
+	// Regression (audit): the interpreter's module-loading flags run code the
+	// flag points at, so a policy-validated argv is still arbitrary execution.
+	"src/interpreter-require.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("node", ["--require", "./hook.cjs"], assertNoShell({})); }\n',
+	"src/interpreter-import.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("node", ["--import", "./hook.mjs"], assertNoShell({})); }\n',
+	"src/interpreter-loader.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("node", ["--loader", "./hook.mjs"], assertNoShell({})); }\n',
+	// Positive control: an interpreter call naming a script file (no code flag)
+	// stays suppressible, so the module-loading guard cannot over-reject.
+	"src/interpreter-script.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("node", ["server.js", "--port", "8080"], assertNoShell({})); }\n',
+	// Regression (audit): the imported helper must resolve to the *shared* policy
+	// module. A same-named module of another path (`./attacker-safe-argv.ts`) is
+	// not provenance, so the finding survives.
+	"src/fake-policy-module.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "./attacker-safe-argv.ts";\n' +
+		"export function go() {\n" +
+		'  const { program, args } = argvCommand("/usr/bin/pi", ["--version"]);\n' +
+		"  return spawn(program, args, assertNoShell({}));\n" +
+		"}\n",
+	// Regression (audit): a path that only *ends* in `lib/safe-argv.ts` but does
+	// not resolve to the shared module (`src/lib/safe-argv.ts`) must keep the
+	// finding — the module is unreadable, and absence is not proof.
+	"src/local-lib-fake.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "./lib/safe-argv.ts";\n' +
+		"export function go() {\n" +
+		'  const { program, args } = argvCommand("/usr/bin/pi", ["--version"]);\n' +
+		"  return spawn(program, args, assertNoShell({}));\n" +
+		"}\n",
 };
 
-const readFile = (path: unknown): string | null =>
-	typeof path === "string" && path in SOURCES ? SOURCES[path] : null;
+const readFile = (path: unknown): string | null => {
+	if (typeof path !== "string") return null;
+	if (path in SOURCES) return SOURCES[path];
+	if (SHARED_POLICY_PATHS.has(path)) return POLICY_SRC;
+	return null;
+};
 
 function sec(over: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
@@ -1144,6 +1193,45 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/runner-safe.ts")),
 			false,
 			"npx --version must not be blanket-denied",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose interpreter argv uses a module-loading flag (regression)", () => {
+		for (const [path, flag] of [
+			["src/interpreter-require.ts", "--require"],
+			["src/interpreter-import.ts", "--import"],
+			["src/interpreter-loader.ts", "--loader"],
+		] as const) {
+			assert.strictEqual(
+				keepsSecurity(cmd(path)),
+				true,
+				`${flag} loads and runs attacker-named code — not a shell-free command`,
+			);
+		}
+	});
+
+	it("drops a MEDIUM Command Execution whose interpreter call names a script file (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/interpreter-script.ts")),
+			false,
+			"node server.js must not be blanket-denied",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution importing the policy from a same-named module of another path (regression)", () => {
+		// `./attacker-safe-argv.ts` contains `safe-argv` but is not the shared module.
+		assert.strictEqual(
+			keepsSecurity(cmd("src/fake-policy-module.ts")),
+			true,
+			"a same-named helper is not import provenance",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose policy import resolves to an unreadable module (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/local-lib-fake.ts")),
+			true,
+			"the resolved module must be the shared policy, and absent is not proven",
 		);
 	});
 
