@@ -130,7 +130,7 @@ export async function loadLoopIssue(
 	step: WorkflowStep,
 ): Promise<IssueResolution> {
 	const { ctx, config, issueNum, exec, collector, issueData, port } = runCtx;
-	const loopFilteredData = await fetchFreshIssueData(
+	const fresh = await fetchFreshIssueData(
 		exec,
 		config,
 		issueNum,
@@ -138,6 +138,16 @@ export async function loadLoopIssue(
 		collector,
 		port,
 	);
+	// Fail closed on incomplete discovery when this step enforces the rejection
+	// limit (issue #2044 audit findings #1/#2): without every comment and a
+	// verified identity the prior rejection could be missed, and the next
+	// rejection would be posted as a duplicate. Steps without a limit keep the
+	// best-effort data so a non-audit stage still runs.
+	if (fresh.kind === "failed" && step.maxRejections && step.maxRejections > 0) {
+		ctx.ui.notify(`Issue #${issueNum}: ${fresh.reason}`, "error");
+		return { kind: "terminal", stopReason: fresh.reason };
+	}
+	const loopFilteredData = fresh.data;
 
 	// Loop counter lives on `reject-N` labels now that rejections update in
 	// place instead of appending comments (issue #2044). Legacy rejection

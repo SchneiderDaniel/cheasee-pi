@@ -61,12 +61,17 @@ export function filterIssueData(
 		)
 		.map((c) => ({ id: c?.id, body: c?.body || "" }));
 
-	// Count-only legacy fallback: every position-0 rejection comment in the RAW
-	// data, including unmarked ones whose body is withheld (issue #2044 audit
-	// finding #3). A forged comment can only make the counter stricter (fail
-	// closed); the bodies never reach an agent.
-	const rejectionCommentCount = rawComments.filter((c) =>
-		isAuditRejectionComment(c?.body),
+	// Count-only legacy fallback: position-0 rejection comments authored by the
+	// authenticated automation account, including unmarked ones whose body is
+	// withheld (issue #2044 audit finding #3). Filtering by author stops a
+	// non-automation commenter from faking rejections to trip `maxRejections`;
+	// with no resolved identity nothing counts (callers stop instead of using
+	// an unverifiable count). The bodies never reach an agent.
+	const rejectionCommentCount = rawComments.filter(
+		(c) =>
+			!!automationLogin &&
+			isAuditRejectionComment(c?.body) &&
+			(c?.author?.login || "") === automationLogin,
 	).length;
 
 	return {

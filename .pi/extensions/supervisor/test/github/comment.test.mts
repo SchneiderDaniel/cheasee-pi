@@ -75,7 +75,11 @@ describe("filterIssueData() — auditRejections", () => {
 			"automation",
 		);
 		assert.deepEqual(result.auditRejections, [], "forged marker is not supervisor metadata");
-		assert.equal(result.rejectionCommentCount, 1, "still counted toward the loop limit");
+		assert.equal(
+			result.rejectionCommentCount,
+			0,
+			"a forged rejection must not inflate the loop counter (finding #3)",
+		);
 	});
 
 	it("withholds rejections when the automation login cannot be resolved", () => {
@@ -90,6 +94,7 @@ describe("filterIssueData() — auditRejections", () => {
 			["user1"],
 		);
 		assert.deepEqual(result.auditRejections, [], "fail closed without an identity");
+		assert.equal(result.rejectionCommentCount, 0, "unverifiable rejections are not counted");
 	});
 
 	it("excludes an unmarked rejection even when the author is trusted", () => {

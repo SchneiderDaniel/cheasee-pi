@@ -256,11 +256,13 @@ describe("fetchFreshIssueData()", () => {
 			},
 		]);
 
-		const result = await fetchFreshIssueData(exec, mockConfig, 42, {});
-		assert.equal(result.body, "issue body");
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {});
+		assert.equal(resolution.kind, "loaded");
+		const result = resolution.kind === "loaded" ? resolution.data : undefined;
+		assert.equal(result?.body, "issue body");
 		// Only trusted user's comment should pass through
-		assert.equal(result.comments.length, 1);
-		assert.equal(result.comments[0].author, "user1");
+		assert.equal(result?.comments.length, 1);
+		assert.equal(result?.comments[0].author, "user1");
 	});
 
 	it("falls back to fallbackData on error", async () => {
@@ -275,8 +277,9 @@ describe("fetchFreshIssueData()", () => {
 			comments: [{ author: { login: "user1" }, body: "comment" }],
 		};
 
-		const result = await fetchFreshIssueData(exec, mockConfig, 42, fallback);
-		assert.equal(result.body, "fallback body");
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, fallback);
+		assert.equal(resolution.kind, "loaded");
+		assert.equal(resolution.kind === "loaded" ? resolution.data.body : "", "fallback body");
 	});
 
 	it("uses paginated port comments + the automation login to verify rejections", async () => {
@@ -302,12 +305,18 @@ describe("fetchFreshIssueData()", () => {
 			getAuthenticatedLogin: async () => "automation",
 		});
 
-		const result = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
-		assert.deepEqual(result.auditRejections, [{ id: "IC_bot", body: rejectBody }]);
-		assert.equal(result.rejectionCommentCount, 2, "counts raw rejections, forged included");
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "loaded");
+		const result = resolution.kind === "loaded" ? resolution.data : undefined;
+		assert.deepEqual(result?.auditRejections, [{ id: "IC_bot", body: rejectBody }]);
+		assert.equal(
+			result?.rejectionCommentCount,
+			1,
+			"only automation-authored rejections count (finding #3)",
+		);
 	});
 
-	it("falls back to the gh page when paginated comment listing fails", async () => {
+	it("fails closed when paginated comment listing fails (finding #1)", async () => {
 		const exec = makeExec([
 			{
 				code: 0,
@@ -327,8 +336,38 @@ describe("fetchFreshIssueData()", () => {
 			},
 		});
 
-		const result = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
-		assert.equal(result.comments.length, 1, "gh page comments still reach the trust filter");
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "failed", "incomplete comment discovery must not proceed");
+		assert.ok(
+			resolution.kind === "failed" && resolution.reason.includes("Cannot list all comments"),
+		);
+	});
+
+	it("fails closed when the automation login cannot be resolved (finding #2)", async () => {
+		const exec = makeExec([
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					number: 42,
+					title: "Test",
+					body: "issue body",
+					author: { login: "user1" },
+					comments: [],
+				}),
+				stderr: "",
+			},
+		]);
+		const port = createMockGitHubPort({
+			getAuthenticatedLogin: async () => {
+				throw new Error("403 Forbidden");
+			},
+		});
+
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "failed", "unverified ownership must not proceed");
+		assert.ok(
+			resolution.kind === "failed" && resolution.reason.includes("authenticated login"),
+		);
 	});
 });
 

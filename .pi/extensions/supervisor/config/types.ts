@@ -52,8 +52,9 @@ export interface FilteredIssueData {
 	 */
 	auditRejections?: Array<{ id?: string; body: string }>;
 	/**
-	 * Count-only total of ALL raw position-0 rejection comments (marked or not),
-	 * used as the legacy loop-count fallback. Bodies are withheld from agents.
+	 * Count-only total of position-0 rejection comments authored by the
+	 * authenticated automation account (marked or not), used as the legacy
+	 * loop-count fallback. Bodies are withheld from agents.
 	 */
 	rejectionCommentCount?: number;
 }

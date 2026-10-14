@@ -154,6 +154,17 @@ export async function checkDependencies(
 
 // ─── Fetch Fresh Issue Data ──────────────────────────────────────
 
+/**
+ * Fresh issue data, plus a degraded variant when complete comment discovery or
+ * the automation identity is unavailable. The audit-rejection upsert must not
+ * proceed on degraded data (issue #2044 audit findings #1/#2): an incomplete
+ * page or an unknown identity could hide the prior rejection. Callers decide
+ * whether the step needs the verified data; `data` stays usable best-effort.
+ */
+export type FreshIssueResolution =
+	| { kind: "loaded"; data: FilteredIssueData }
+	| { kind: "failed"; reason: string; data: FilteredIssueData };
+
 export async function fetchFreshIssueData(
 	exec: ExecFn,
 	config: SupervisorConfig,
@@ -161,7 +172,7 @@ export async function fetchFreshIssueData(
 	fallbackData: Record<string, unknown>,
 	collector?: ErrorCollector,
 	port?: GitHubPort,
-): Promise<FilteredIssueData> {
+): Promise<FreshIssueResolution> {
 	let rawIssue: RawIssueData;
 	try {
 		const raw = await exec("gh", [
@@ -184,9 +195,9 @@ export async function fetchFreshIssueData(
 	}
 
 	// Paginate comment discovery via the port (issue #2044 audit finding #4);
-	// the prior rejection can sit beyond the page `gh issue view` returns. The
-	// gh page is only the degraded fallback when the port is absent or the
-	// paginated request fails.
+	// the prior rejection can sit beyond the page `gh issue view` returns. A
+	// failed paginated request must stop the loop: the single gh page is not
+	// proof that no prior rejection exists (issue #2044 audit finding #1).
 	if (port) {
 		try {
 			rawIssue = { ...rawIssue, comments: await port.listComments(issueNum, config.repo) };
@@ -194,20 +205,38 @@ export async function fetchFreshIssueData(
 			const msg = err instanceof Error ? err.message : String(err);
 			collector?.push(
 				"helpers",
-				"warn",
-				`Failed to list all comments for issue #${issueNum}, using the fetched page: ${msg}`,
+				"error",
+				`Failed to list all comments for issue #${issueNum}: ${msg}`,
 			);
+			return {
+				kind: "failed",
+				reason: `Cannot list all comments for issue #${issueNum}: ${msg}`,
+				data: filterIssueData(rawIssue, config.codeowners),
+			};
 		}
 	}
 
-	const automationLogin = port ? await resolveAutomationLogin(port, collector) : undefined;
-	return filterIssueData(rawIssue, config.codeowners, automationLogin);
+	if (!port) return { kind: "loaded", data: filterIssueData(rawIssue, config.codeowners) };
+
+	// Without a verified identity the prior rejection cannot be told apart from
+	// a forgery, so rejection processing stops instead of posting a duplicate
+	// (issue #2044 audit finding #2).
+	const automationLogin = await resolveAutomationLogin(port, collector);
+	if (!automationLogin) {
+		return {
+			kind: "failed",
+			reason: `Cannot resolve authenticated login for issue #${issueNum}`,
+			data: filterIssueData(rawIssue, config.codeowners),
+		};
+	}
+	return { kind: "loaded", data: filterIssueData(rawIssue, config.codeowners, automationLogin) };
 }
 
 /**
  * Login of the token owner, used to verify that rejection comments are the
- * supervisor's own. Unresolved → undefined, which withholds audit rejections
- * (fail closed: the pipeline posts a fresh rejection instead of updating).
+ * supervisor's own. Unresolved → undefined, which callers must treat as a stop
+ * (fail closed: without a verified identity, prior rejections cannot be told
+ * apart from forged ones — issue #2044 audit findings #2/#3).
  */
 export async function resolveAutomationLogin(
 	port: GitHubPort,
@@ -217,7 +246,7 @@ export async function resolveAutomationLogin(
 		return await port.getAuthenticatedLogin();
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
-		collector?.push("helpers", "warn", `Failed to resolve authenticated login: ${msg}`);
+		collector?.push("helpers", "error", `Failed to resolve authenticated login: ${msg}`);
 		return undefined;
 	}
 }

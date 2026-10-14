@@ -13,6 +13,7 @@ import { ErrorCollector } from "../../pipeline/error-collector.ts";
 import type { RunContext } from "../../pipeline/handler/shared.ts";
 import { assembleAgentTask, loadLoopIssue } from "../../pipeline/handler/agent-loop-steps.ts";
 import type { FilteredIssueData, SupervisorConfig } from "../../config/types.ts";
+import type { RawIssueData } from "../../lib/issue-filter.ts";
 import type { WorkflowStep } from "../../config/workflow.ts";
 
 const MARK = "<!-- supervisor:audit-rejection -->";
@@ -39,6 +40,11 @@ const config: SupervisorConfig = {
 function buildRunContext(opts: {
 	comments?: Array<{ author: { login: string }; body: string; id?: string }>;
 	getIssueLabels?: (issueNum: number, repo: string) => Promise<string[]>;
+	listComments?: (
+		issueNum: number,
+		repo: string,
+	) => Promise<NonNullable<RawIssueData["comments"]>>;
+	getAuthenticatedLogin?: () => Promise<string>;
 }): RunContext {
 	const rawComments = opts.comments ?? [];
 	return {
@@ -65,7 +71,11 @@ function buildRunContext(opts: {
 		notify: { info: () => {}, error: () => {} },
 		collector: new ErrorCollector(),
 		config,
-		port: createMockGitHubPort({ getIssueLabels: opts.getIssueLabels }),
+		port: createMockGitHubPort({
+			getIssueLabels: opts.getIssueLabels,
+			listComments: opts.listComments,
+			getAuthenticatedLogin: opts.getAuthenticatedLogin,
+		}),
 		issueTitle: "Test issue",
 		filteredData: { body: "body", comments: [] },
 		issueData: { number: 42, title: "Test issue", body: "body", comments: rawComments },
@@ -164,5 +174,42 @@ describe("loadLoopIssue() — fail-closed rejection counter (finding #3)", () =>
 		});
 		const resolution = await loadLoopIssue(runCtx, { status: "Audit", agentName: "auditor" });
 		assert.equal(resolution.kind, "loaded");
+	});
+});
+
+// ─── loadLoopIssue() — fail closed on incomplete discovery ───────
+// Issue #2044 audit findings #1 and #2: an incomplete comment listing or an
+// unresolvable automation identity must stop the loop, not proceed as if no
+// prior rejection existed.
+
+describe("loadLoopIssue() — fail-closed discovery (findings #1/#2)", () => {
+	const step: WorkflowStep = { status: "Audit", agentName: "auditor", maxRejections: 3 };
+
+	it("stops the loop when comment listing fails", async () => {
+		const runCtx = buildRunContext({
+			listComments: async () => {
+				throw new Error("503 Service Unavailable");
+			},
+		});
+		const resolution = await loadLoopIssue(runCtx, step);
+		assert.equal(resolution.kind, "terminal");
+		assert.ok(
+			resolution.kind === "terminal" &&
+				resolution.stopReason.includes("Cannot list all comments"),
+		);
+	});
+
+	it("stops the loop when the automation login cannot be resolved", async () => {
+		const runCtx = buildRunContext({
+			getAuthenticatedLogin: async () => {
+				throw new Error("403 Forbidden");
+			},
+		});
+		const resolution = await loadLoopIssue(runCtx, step);
+		assert.equal(resolution.kind, "terminal");
+		assert.ok(
+			resolution.kind === "terminal" &&
+				resolution.stopReason.includes("authenticated login"),
+		);
 	});
 });
