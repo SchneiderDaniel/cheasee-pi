@@ -9,7 +9,7 @@
 import assert from "node:assert";
 import { execSync } from "node:child_process";
 import { afterEach, describe, it } from "node:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -18,46 +18,19 @@ import {
 	codeflowUrl,
 	fnv32,
 	parseGitRemote,
+	readDockerPortSetting,
 	repoSlug,
 	resolveWorkspaceRoot,
 	sanitizeSlug,
 	validPort,
 } from "../codeflow.ts";
+import { makeBareWithRemote, makeWorkspace as makeWorkspaceFor, withEnvVar } from "./helpers.ts";
 
 // ── Fixtures ────────────────────────────────────
 
-/** Temp workspace root with an optional cheasee-settings.json (always written
- * — the file IS the workspace marker; `{}` when not specified). */
-function makeWorkspace(settingsContent?: string): { root: string; parent: string } {
-	const parent = mkdtempSync(join(tmpdir(), "codeflow-test-"));
-	const root = join(parent, "ws");
-	mkdirSync(root, { recursive: true });
-	writeFileSync(join(root, "cheasee-settings.json"), settingsContent ?? "{}");
-	return { root, parent };
-}
-
-/** Creates the sibling <parent>/.bare bare clone with a remote URL. */
-function makeBareWithRemote(parent: string, url: string): void {
-	const bare = join(parent, ".bare");
-	mkdirSync(bare, { recursive: true });
-	execSync(`git --git-dir "${bare}" init --bare`, { stdio: "ignore" });
-	execSync(`git --git-dir "${bare}" config remote.origin.url "${url}"`, { stdio: "ignore" });
-}
-
-/** Removes a process.env.CODEFLOW_PORT set by a test, in all exits. */
-function withEnv(port: string | undefined, fn: () => Promise<void>): Promise<void> {
-	const saved = process.env.CODEFLOW_PORT;
-	return (async () => {
-		try {
-			if (port === undefined) delete process.env.CODEFLOW_PORT;
-			else process.env.CODEFLOW_PORT = port;
-			await fn();
-		} finally {
-			if (saved === undefined) delete process.env.CODEFLOW_PORT;
-			else process.env.CODEFLOW_PORT = saved;
-		}
-	})();
-}
+/** codeflow-test- workspace fixture bound to this suite's temp prefix. */
+const makeWorkspace = (settingsContent?: string) => makeWorkspaceFor("codeflow-test-", settingsContent);
+const withEnv = (port: string | undefined, fn: () => Promise<void>) => withEnvVar("CODEFLOW_PORT", port, fn);
 
 afterEach(() => {
 	delete process.env.CODEFLOW_PORT;
@@ -116,6 +89,50 @@ describe("validPort", () => {
 		for (const ok of ["1", "80", "9500", "65535"]) assert.strictEqual(validPort(ok), ok);
 		for (const bad of ["", "0", "65536", "abc", "12x", "-1", "1.5", "\u001b]8;;evil\u0007", null, undefined]) {
 			assert.strictEqual(validPort(bad as any), null, `validPort(${JSON.stringify(bad)}) must be null`);
+		}
+	});
+});
+
+describe("readDockerPortSetting", () => {
+	it("reads the named docker port key and isolates keys", () => {
+		const uiOnly = makeWorkspace(`{"docker":{"uiPort":"9600"}}`);
+		assert.strictEqual(readDockerPortSetting(uiOnly.root, "uiPort"), "9600");
+		assert.strictEqual(readDockerPortSetting(uiOnly.root, "codeflowPort"), null);
+		const codeflowOnly = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
+		assert.strictEqual(readDockerPortSetting(codeflowOnly.root, "codeflowPort"), "9100");
+		assert.strictEqual(readDockerPortSetting(codeflowOnly.root, "uiPort"), null);
+	});
+
+	it("returns null for absent file, malformed JSON and missing docker key", () => {
+		const absent = mkdtempSync(join(tmpdir(), "codeflow-absent-"));
+		assert.strictEqual(readDockerPortSetting(absent, "codeflowPort"), null);
+		assert.strictEqual(readDockerPortSetting(makeWorkspace(`{not valid json`).root, "codeflowPort"), null);
+		assert.strictEqual(readDockerPortSetting(makeWorkspace(`{"docker":{}}`).root, "codeflowPort"), null);
+		assert.strictEqual(readDockerPortSetting(makeWorkspace(`{}`).root, "codeflowPort"), null);
+	});
+
+	it("returns null for non-string values and the empty string", () => {
+		for (const value of [9100, { port: 1 }, true, null, []] as unknown[]) {
+			const { root } = makeWorkspace(JSON.stringify({ docker: { codeflowPort: value } }));
+			assert.strictEqual(readDockerPortSetting(root, "codeflowPort"), null, JSON.stringify(value));
+		}
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":""}}`);
+		assert.strictEqual(readDockerPortSetting(root, "codeflowPort"), null);
+	});
+
+	it("blocks control-char payloads before they reach a URL", () => {
+		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"\u001b]8;;evil\u0007"}}`);
+		assert.strictEqual(readDockerPortSetting(root, "codeflowPort"), null);
+	});
+
+	it("accepts boundary ports and rejects out-of-range/non-numeric", () => {
+		for (const ok of ["1", "65535"]) {
+			const { root } = makeWorkspace(JSON.stringify({ docker: { uiPort: ok } }));
+			assert.strictEqual(readDockerPortSetting(root, "uiPort"), ok);
+		}
+		for (const bad of ["0", "65536", "123456", "1.5", "-1"]) {
+			const { root } = makeWorkspace(JSON.stringify({ docker: { uiPort: bad } }));
+			assert.strictEqual(readDockerPortSetting(root, "uiPort"), null, bad);
 		}
 	});
 });

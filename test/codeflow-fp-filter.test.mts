@@ -21,7 +21,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const requireCjs = createRequire(import.meta.url);
 const FILTER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js");
 
-type Suppressed = { security: any[]; layerViolations: any[]; hygiene: any[]; deadCode: any[] };
+type Suppressed = {
+	security: any[];
+	layerViolations: any[];
+	hygiene: any[];
+	deadCode: any[];
+	duplicates: any[];
+};
 
 const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCjs(FILTER) as {
 	sanitizeAnalysisData: (
@@ -352,10 +358,7 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 	});
 
 	it("keeps a leading comment that precedes a real statement", () => {
-		assert.strictEqual(
-			keepsSecurity(sec({ code: '//note\nconst q = "SELECT " + id;' })),
-			true,
-		);
+		assert.strictEqual(keepsSecurity(sec({ code: '//note\nconst q = "SELECT " + id;' })), true);
 	});
 
 	it("drops a string-literal type union (the UsageColorToken hit)", () => {
@@ -386,8 +389,16 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 			description: "Possible hardcoded token.",
 			path: ".pi/extensions/supervisor/github/gh-client.ts",
 		};
-		assert.strictEqual(keepsSecurity(sec({ ...gh, code: "const KEY = process.env.GH_TOKEN;" })), false, "process.env");
-		assert.strictEqual(keepsSecurity(sec({ ...gh, code: 'let k = env::var("GH_TOKEN");' })), false, "env::var");
+		assert.strictEqual(
+			keepsSecurity(sec({ ...gh, code: "const KEY = process.env.GH_TOKEN;" })),
+			false,
+			"process.env",
+		);
+		assert.strictEqual(
+			keepsSecurity(sec({ ...gh, code: 'let k = env::var("GH_TOKEN");' })),
+			false,
+			"env::var",
+		);
 		assert.strictEqual(
 			keepsSecurity(sec({ ...gh, code: "const ghToken = resolveGitHubToken();" })),
 			false,
@@ -431,26 +442,43 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 	it("keeps a finding whose named symbol is present in the cited file", () => {
 		assert.strictEqual(
 			keepsSecurity(
-				sec({ title: "Command Execution", description: "run() invokes spawn().", path: "src/spawn.ts", code: "spawn();" }),
+				sec({
+					title: "Command Execution",
+					description: "run() invokes spawn().",
+					path: "src/spawn.ts",
+					code: "spawn();",
+				}),
 			),
 			true,
 		);
 	});
 
 	it("keeps a finding when the cited file cannot be read (absence is not proof)", () => {
-		assert.strictEqual(keepsSecurity(sec({ path: "does/not/exist.ts", code: 'const KEY = "sk-live-abc";' })), true);
+		assert.strictEqual(
+			keepsSecurity(sec({ path: "does/not/exist.ts", code: 'const KEY = "sk-live-abc";' })),
+			true,
+		);
 	});
 
 	it("leaves LOW and non-Command-Execution MEDIUM findings alone (audit triage owns them)", () => {
 		for (const severity of ["low", "medium", "LOW"]) {
 			assert.strictEqual(
-				keepsSecurity(sec({ severity, title: "Code Comments", description: "TODO", code: "// TODO: fix" })),
+				keepsSecurity(
+					sec({ severity, title: "Code Comments", description: "TODO", code: "// TODO: fix" }),
+				),
 				true,
 				`${severity} must not be filtered here`,
 			);
 		}
 		assert.strictEqual(
-			keepsSecurity(sec({ severity: "low", title: "Code Comments", code: "// TODO: fix", path: "src/config.ts" })),
+			keepsSecurity(
+				sec({
+					severity: "low",
+					title: "Code Comments",
+					code: "// TODO: fix",
+					path: "src/config.ts",
+				}),
+			),
 			true,
 			"a LOW TODO marker in shipping source is real work",
 		);
@@ -460,22 +488,37 @@ describe("fp-filter — security false positives (Phase 1)", () => {
 describe("fp-filter — LOW hygiene false positives (Phase 1)", () => {
 	it("suppresses LOW Code Comments on a test-directory path", () => {
 		assert.strictEqual(
-			isFalsePositiveHygiene(hyg({ path: ".pi/extensions/agent-harness/test/index.test.ts" }), nullReadFile),
+			isFalsePositiveHygiene(
+				hyg({ path: ".pi/extensions/agent-harness/test/index.test.ts" }),
+				nullReadFile,
+			),
 			true,
 		);
 	});
 
 	it("suppresses test/spec files outside any test directory", () => {
-		for (const path of ["src/widget.test.ts", "src/widget.test.mts", "src/widget.spec.ts", "src/widget.spec.tsx"]) {
+		for (const path of [
+			"src/widget.test.ts",
+			"src/widget.test.mts",
+			"src/widget.spec.ts",
+			"src/widget.spec.tsx",
+		]) {
 			assert.strictEqual(isFalsePositiveHygiene(hyg({ path }), nullReadFile), true, path);
 		}
-		assert.strictEqual(isFalsePositiveHygiene(hyg({ path: "src/latest.ts" }), nullReadFile), false, "not a .test.* file");
+		assert.strictEqual(
+			isFalsePositiveHygiene(hyg({ path: "src/latest.ts" }), nullReadFile),
+			false,
+			"not a .test.* file",
+		);
 	});
 
 	it("suppresses LOW Debug Statements on a test path (the console fixtures)", () => {
 		assert.strictEqual(
 			isFalsePositiveHygiene(
-				hyg({ title: "Debug Statements", path: ".pi/extensions/structural-analyzer/test/index.test.mts" }),
+				hyg({
+					title: "Debug Statements",
+					path: ".pi/extensions/structural-analyzer/test/index.test.mts",
+				}),
 				nullReadFile,
 			),
 			true,
@@ -509,10 +552,23 @@ describe("fp-filter — LOW hygiene false positives (Phase 1)", () => {
 
 	it("is severity- and title-gated", () => {
 		for (const severity of ["medium", "high", "MEDIUM"]) {
-			assert.strictEqual(isFalsePositiveHygiene(hyg({ severity, path: "src/widget.test.ts" }), nullReadFile), false, severity);
+			assert.strictEqual(
+				isFalsePositiveHygiene(hyg({ severity, path: "src/widget.test.ts" }), nullReadFile),
+				false,
+				severity,
+			);
 		}
-		for (const title of ["Shell Command Execution", "Code Comment", "code comments", "code comments "]) {
-			assert.strictEqual(isFalsePositiveHygiene(hyg({ title, path: "src/widget.test.ts" }), nullReadFile), false, title);
+		for (const title of [
+			"Shell Command Execution",
+			"Code Comment",
+			"code comments",
+			"code comments ",
+		]) {
+			assert.strictEqual(
+				isFalsePositiveHygiene(hyg({ title, path: "src/widget.test.ts" }), nullReadFile),
+				false,
+				title,
+			);
 		}
 	});
 
@@ -544,7 +600,7 @@ describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
 			const { suppressed } = sanitizeAnalysisData(input, readFile);
 			assert.deepStrictEqual(
 				Object.keys(suppressed).sort(),
-				["deadCode", "hygiene", "layerViolations", "security"],
+				["deadCode", "duplicates", "hygiene", "layerViolations", "security"],
 				JSON.stringify(input),
 			);
 		}
@@ -581,7 +637,10 @@ describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
 			data.securityIssues.length + suppressed.security.length + suppressed.hygiene.length,
 			issues.length,
 		);
-		assert.strictEqual(data.layerViolations.length + suppressed.layerViolations.length, violations.length);
+		assert.strictEqual(
+			data.layerViolations.length + suppressed.layerViolations.length,
+			violations.length,
+		);
 	});
 
 	it("leaves stats.security alone when only hygiene findings are dropped", () => {
@@ -604,6 +663,7 @@ describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
 			layerViolations: [],
 			hygiene: [],
 			deadCode: [],
+			duplicates: [],
 		});
 	});
 });
@@ -869,6 +929,7 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 			layerViolations: [],
 			hygiene: [],
 			deadCode: [],
+			duplicates: [],
 		});
 	});
 
@@ -882,6 +943,7 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 			layerViolations: [],
 			hygiene: [],
 			deadCode: [],
+			duplicates: [],
 		});
 	});
 
@@ -912,13 +974,17 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 	it("drops cross-language pairs (the 142)", () => {
 		for (const to of ["ui/src/retry.rs", "ui/src/main.rs"]) {
 			assert.strictEqual(
-				keepsViolation(violation({ from: "src/layer/from.ts", to, fromLayer: "ui", toLayer: "ui" })),
+				keepsViolation(
+					violation({ from: "src/layer/from.ts", to, fromLayer: "ui", toLayer: "ui" }),
+				),
 				false,
 				`.ts -> ${to.slice(to.lastIndexOf("."))} cannot be an import edge`,
 			);
 		}
 		assert.strictEqual(
-			keepsViolation(violation({ from: "cmd/build.go", to: "ui/src/retry.rs", fromLayer: "cmd", toLayer: "ui" })),
+			keepsViolation(
+				violation({ from: "cmd/build.go", to: "ui/src/retry.rs", fromLayer: "cmd", toLayer: "ui" }),
+			),
 			false,
 		);
 	});
@@ -938,7 +1004,14 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 		// check alone keeps the edge; neither path carries the label as a directory.
 		const from = ".pi/extensions/supervisor/pipeline/execute-agent.ts";
 		const to = ".pi/extensions/supervisor/pipeline/handler/agent-loop.ts";
-		const edge = { from, fromLayer: "utils", to, toLayer: "services", fn: "result", suggestion: "invert" };
+		const edge = {
+			from,
+			fromLayer: "utils",
+			to,
+			toLayer: "services",
+			fn: "result",
+			suggestion: "invert",
+		};
 		const input = {
 			files: [
 				{ path: from, layer: "utils" },
@@ -959,7 +1032,9 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 				{ path: "src/layer/from.ts", layer: "utils" },
 				{ path: "src/layer/to.ts", layer: "services" },
 			],
-			connections: [{ source: "src/layer/from.ts", target: "src/layer/to.ts", fn: "render", count: 1 }],
+			connections: [
+				{ source: "src/layer/from.ts", target: "src/layer/to.ts", fn: "render", count: 1 },
+			],
 			layerViolations: [
 				violation({
 					from: "src/layer/from.ts",
@@ -1013,7 +1088,10 @@ describe("fp-filter — layer violations (Phase 2)", () => {
 		];
 		const input = { files: LAYER_FILES, connections: CONNECTIONS, layerViolations };
 		const { data, suppressed } = sanitizeAnalysisData(input, readFile);
-		assert.strictEqual(data.layerViolations.length + suppressed.layerViolations.length, layerViolations.length);
+		assert.strictEqual(
+			data.layerViolations.length + suppressed.layerViolations.length,
+			layerViolations.length,
+		);
 		assert.deepStrictEqual(suppressed.layerViolations, [layerViolations[1], layerViolations[2]]);
 	});
 });
@@ -1028,14 +1106,19 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 		const read = (p: unknown): string | null =>
 			typeof p === "string" && p in sources ? sources[p] : null;
 		const { data, suppressed } = sanitizeAnalysisData(input, read);
-		assert.strictEqual(suppressed.deadCode.length + data.deadFunctions.length, 1, "no entry may vanish");
+		assert.strictEqual(
+			suppressed.deadCode.length + data.deadFunctions.length,
+			1,
+			"no entry may vanish",
+		);
 		return data.deadFunctions.length === 1;
 	}
 
 	it("drops an entry a different file calls (the trait-impl methods)", () => {
 		assert.strictEqual(
 			keepsDead("on_message", "ui/src/ws.rs", {
-				"ui/src/ws.rs": "pub trait Socket {\n    fn on_message<F: FnMut(String)>(&self, handler: F);\n}\n",
+				"ui/src/ws.rs":
+					"pub trait Socket {\n    fn on_message<F: FnMut(String)>(&self, handler: F);\n}\n",
 				"ui/src/retry.rs": "fn pump() {\n    socket.on_message(|text| echo(text));\n}\n",
 			}),
 			false,
@@ -1049,7 +1132,11 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 			"src/a.ts": "export function helper() { return 1; }\nexport function run() { helper(); }\n",
 			"src/b.ts": "export function helper() { return 2; }\n",
 		};
-		assert.strictEqual(keepsDead("helper", "src/a.ts", shared), false, "a same-file use refutes it");
+		assert.strictEqual(
+			keepsDead("helper", "src/a.ts", shared),
+			false,
+			"a same-file use refutes it",
+		);
 		assert.strictEqual(
 			keepsDead("helper", "src/b.ts", shared),
 			true,
@@ -1214,15 +1301,17 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 	it("still detects an external use after a typed signature", () => {
 		assert.strictEqual(
 			keepsDead("foo", "src/d4.ts", {
-				"src/d4.ts":
-					"function foo(opts: { x: number }) { return 1; }\nconst v = foo({ x: 1 });\n",
+				"src/d4.ts": "function foo(opts: { x: number }) { return 1; }\nconst v = foo({ x: 1 });\n",
 			}),
 			false,
 		);
 	});
 
 	it("keeps an entry no file mentions", () => {
-		assert.strictEqual(keepsDead("ghost", "src/e.ts", { "src/e.ts": "export const a = 1;\n" }), true);
+		assert.strictEqual(
+			keepsDead("ghost", "src/e.ts", { "src/e.ts": "export const a = 1;\n" }),
+			true,
+		);
 	});
 
 	it("keeps an entry that only a comment mentions", () => {
@@ -1236,7 +1325,9 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 
 	it("keeps an entry that only a string or template literal mentions", () => {
 		assert.strictEqual(
-			keepsDead("foo", "src/g.ts", { "src/g.ts": 'const label = "foo()";\nconst t = `foo(bar)`;\n' }),
+			keepsDead("foo", "src/g.ts", {
+				"src/g.ts": 'const label = "foo()";\nconst t = `foo(bar)`;\n',
+			}),
 			true,
 		);
 	});
@@ -1250,7 +1341,9 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 			"alreadyRead( must not read as a use of read",
 		);
 		assert.strictEqual(
-			keepsDead("on_message", "src/i.rs", { "src/i.rs": "fn main() { socket.on_message_handler(1); }\n" }),
+			keepsDead("on_message", "src/i.rs", {
+				"src/i.rs": "fn main() { socket.on_message_handler(1); }\n",
+			}),
 			true,
 		);
 	});
@@ -1301,11 +1394,7 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 			typeof p === "string" && p in sources ? sources[p] : null;
 		const entry = { name: "on_message", file: "ui/src/ws.rs" };
 		const input = {
-			files: [
-				{ path: "ui/src/ws.rs" },
-				{ path: "ui/src/retry.rs" },
-				{ path: "ui/src/missing.ts" },
-			],
+			files: [{ path: "ui/src/ws.rs" }, { path: "ui/src/retry.rs" }, { path: "ui/src/missing.ts" }],
 			deadFunctions: [entry],
 			stats: { dead: 1 },
 		};
@@ -1329,9 +1418,17 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 	});
 
 	it("survives malformed input without throwing", () => {
-		for (const input of [{}, { files: null }, { files: "nope" }, { files: [null, 1], deadFunctions: [] }]) {
+		for (const input of [
+			{},
+			{ files: null },
+			{ files: "nope" },
+			{ files: [null, 1], deadFunctions: [] },
+		]) {
 			assert.doesNotThrow(() =>
-				sanitizeAnalysisData({ ...input, deadFunctions: [{ name: "foo", file: "a.ts" }] }, readFile),
+				sanitizeAnalysisData(
+					{ ...input, deadFunctions: [{ name: "foo", file: "a.ts" }] },
+					readFile,
+				),
 			);
 		}
 	});
@@ -1352,7 +1449,10 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 			{ name: "keep", file: "src/use.ts" },
 			{ name: "ghost", file: "src/other.ts" },
 		];
-		const { data, suppressed } = sanitizeAnalysisData({ files: deadFiles, deadFunctions }, deadRead);
+		const { data, suppressed } = sanitizeAnalysisData(
+			{ files: deadFiles, deadFunctions },
+			deadRead,
+		);
 
 		assert.deepStrictEqual(suppressed.deadCode, [deadFunctions[0], deadFunctions[2]]);
 		assert.deepStrictEqual(data.deadFunctions, [deadFunctions[1]]);
@@ -1368,7 +1468,10 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 			{ name: "hit", file: "src/use.ts" },
 			{ name: "keep", file: "src/use.ts" },
 		];
-		const { data, suppressed } = sanitizeAnalysisData({ files: deadFiles, unusedFunctions }, deadRead);
+		const { data, suppressed } = sanitizeAnalysisData(
+			{ files: deadFiles, unusedFunctions },
+			deadRead,
+		);
 		assert.deepStrictEqual(data.unusedFunctions, [unusedFunctions[1]]);
 		assert.deepStrictEqual(suppressed.deadCode, [unusedFunctions[0]]);
 	});
@@ -1398,7 +1501,11 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 		const { data } = sanitizeAnalysisData(input, deadRead);
 
 		assert.deepStrictEqual(input, before, "input must not be touched");
-		assert.strictEqual(data.issues[0].title, "1 Unused Functions", "the header must match the list");
+		assert.strictEqual(
+			data.issues[0].title,
+			"1 Unused Functions",
+			"the header must match the list",
+		);
 		assert.deepStrictEqual(
 			data.issues[0].items.map((i: { name: string }) => i.name),
 			["keep"],
@@ -1409,7 +1516,13 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 	it("drops the architecture entry when no dead function survives", () => {
 		const input = {
 			files: deadFiles,
-			issues: [{ type: "warning", title: "1 Unused Functions", items: [{ name: "hit", file: "src/use.ts" }] }],
+			issues: [
+				{
+					type: "warning",
+					title: "1 Unused Functions",
+					items: [{ name: "hit", file: "src/use.ts" }],
+				},
+			],
 		};
 		const { data } = sanitizeAnalysisData(input, deadRead);
 		assert.deepStrictEqual(data.issues, []);
@@ -1435,7 +1548,11 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 
 		assert.deepStrictEqual(input, before, "input must not be touched");
 		assert.strictEqual(data.issues[0].title, "1 Unused Functions");
-		assert.strictEqual(data.issues[0].title, `${data.stats.dead} Unused Functions`, "summary must agree with stats.dead");
+		assert.strictEqual(
+			data.issues[0].title,
+			`${data.stats.dead} Unused Functions`,
+			"summary must agree with stats.dead",
+		);
 		assert.deepStrictEqual(data.issues[1], input.issues[1], "unrelated issues must pass through");
 	});
 
@@ -1489,7 +1606,115 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 			layerViolations: [],
 			hygiene: [],
 			deadCode: [],
+			duplicates: [],
 		});
+	});
+});
+
+describe("fp-filter — duplicate group suppression (Phase 5)", () => {
+	const dup = (over: Record<string, unknown> = {}) => ({
+		type: "code",
+		name: "makePi",
+		files: [{ file: "a.ts" }],
+		...over,
+	});
+
+	/** Sanitize one duplicate group and report whether it survived. */
+	function keepsDuplicate(entry: Record<string, unknown>): boolean {
+		const { data, suppressed } = sanitizeAnalysisData({ duplicates: [entry] }, readFile);
+		assert.strictEqual(
+			suppressed.duplicates.length + data.duplicates.length,
+			1,
+			"no duplicate group may vanish",
+		);
+		return data.duplicates.length === 1;
+	}
+
+	it("suppresses a code aggregate naming 3+ distinct members", () => {
+		const aggregate = dup({ name: "withEnv, exec, cacheGet" });
+		const pair = dup({ name: "readSettingsCodeflowPort, readSettingsUIPort" });
+		const { data, suppressed } = sanitizeAnalysisData({ duplicates: [aggregate, pair] }, readFile);
+		assert.deepStrictEqual(suppressed.duplicates, [aggregate]);
+		assert.deepStrictEqual(data.duplicates, [pair]);
+	});
+
+	it("keeps pairwise, singleton and empty-name groups", () => {
+		assert.strictEqual(
+			keepsDuplicate(dup({ name: "readSettingsCodeflowPort, readSettingsUIPort" })),
+			true,
+		);
+		assert.strictEqual(keepsDuplicate(dup({ name: "solo" })), true);
+		assert.strictEqual(keepsDuplicate(dup({ name: "" })), true, "an empty name is no evidence");
+	});
+
+	it("counts a repeated member once ('makePi, makePi' survives)", () => {
+		assert.strictEqual(keepsDuplicate(dup({ name: "makePi, makePi" })), true);
+	});
+
+	it("suppresses only when the distinct member count exceeds 2 (boundary)", () => {
+		assert.strictEqual(keepsDuplicate(dup({ name: "a, b" })), true);
+		assert.strictEqual(keepsDuplicate(dup({ name: "a, a, b" })), true, "2 distinct");
+		assert.strictEqual(keepsDuplicate(dup({ name: "a, b, c" })), false);
+		assert.strictEqual(
+			keepsDuplicate(dup({ name: "a, a, b, b, c, c" })),
+			false,
+			"3 distinct after dedup",
+		);
+	});
+
+	it("leaves non-code duplicate types alone", () => {
+		assert.strictEqual(keepsDuplicate(dup({ type: "name", name: "a, b, c, d" })), true);
+	});
+
+	it("keeps a missing or non-string name (unknown is not suppression evidence)", () => {
+		assert.strictEqual(keepsDuplicate({ type: "code", files: [] }), true);
+		assert.strictEqual(keepsDuplicate(dup({ name: 42 })), true);
+		assert.strictEqual(keepsDuplicate(dup({ name: null })), true);
+	});
+
+	it("defines suppressed.duplicates as [] and adds no key when data.duplicates is absent", () => {
+		const { data, suppressed } = sanitizeAnalysisData({ marker: "x" }, readFile);
+		assert.deepStrictEqual(suppressed.duplicates, []);
+		assert.strictEqual("duplicates" in data, false, "no key is added when none existed");
+	});
+
+	it("moves stats.duplicates with the surviving array", () => {
+		const input = {
+			stats: { files: 1, duplicates: 2 },
+			duplicates: [dup({ name: "a, b, c" }), dup({ name: "a, b" })],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.strictEqual(data.stats.duplicates, 1);
+	});
+
+	it("retitles the N Similar Code Blocks item to the surviving count", () => {
+		const input = {
+			duplicates: [dup({ name: "a, b, c" }), dup({ name: "x" })],
+			issues: [
+				{ type: "warning", title: "9 Similar Code Blocks", desc: "", items: [] },
+				{ title: "Other" },
+			],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.strictEqual(data.issues[0].title, "1 Similar Code Blocks");
+		assert.strictEqual(data.issues[1].title, "Other");
+	});
+
+	it("removes the Similar Code Blocks item when every group is suppressed", () => {
+		const input = {
+			duplicates: [dup({ name: "a, b, c" })],
+			issues: [{ title: "9 Similar Code Blocks" }, { title: "Keep" }],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(data.issues, [{ title: "Keep" }]);
+	});
+
+	it("is idempotent when a duplicate group is suppressed", () => {
+		const input = { duplicates: [dup({ name: "a, b, c" }), dup({ name: "a, b" })] };
+		const first = sanitizeAnalysisData(input, readFile);
+		const second = sanitizeAnalysisData(first.data, readFile);
+		assert.deepStrictEqual(second.data, first.data);
+		assert.deepStrictEqual(second.suppressed.duplicates, []);
 	});
 });
 
@@ -1509,8 +1734,16 @@ describe("fp-filter — browser readFile source", () => {
 			"export function c() {}\n",
 			"freed content must fall back to the served piFpSource",
 		);
-		assert.strictEqual(fromData("d.ts"), "export function d() {}\n", "a non-string content must not block the fallback");
-		assert.strictEqual(fromData("b.ts"), null, "no retained source => null, so the filter fails open");
+		assert.strictEqual(
+			fromData("d.ts"),
+			"export function d() {}\n",
+			"a non-string content must not block the fallback",
+		);
+		assert.strictEqual(
+			fromData("b.ts"),
+			null,
+			"no retained source => null, so the filter fails open",
+		);
 		assert.strictEqual(fromData("missing.ts"), null);
 		assert.strictEqual(fromData(undefined), null);
 		assert.strictEqual(fromData("toString"), null, "prototype keys must not leak");
@@ -1545,7 +1778,10 @@ describe("fp-filter — acceptance score (Phase 5)", () => {
 			path: ".pi/extensions/context-info/types.ts",
 			code: 'export type UsageColorToken = "success" | "warning" | "error";',
 		}),
-		sec({ path: ".pi/extensions/supervisor/github/gh-client.ts", code: "const ghToken = resolveGitHubToken();" }),
+		sec({
+			path: ".pi/extensions/supervisor/github/gh-client.ts",
+			code: "const ghToken = resolveGitHubToken();",
+		}),
 		sec({
 			path: ".pi/extensions/supervisor/github/gh-client.ts",
 			code: '? ["-c", `GH_TOKEN=\'${ghToken.replace(/\'/g, "")}\' gh "$@"`, "_", ...args]',
@@ -1556,7 +1792,12 @@ describe("fp-filter — acceptance score (Phase 5)", () => {
 			code: "// First execute: verify 1 (quick check) + verify 2 (double-check) fail",
 		}),
 		...["ui/src/lib.rs", "ui/src/main.rs", "ui/src/retry.rs", "ui/src/tool_card.rs"].map((path) =>
-			sec({ title: "Shell Command Execution", description: "Shell() call detected.", path, code: "" }),
+			sec({
+				title: "Shell Command Execution",
+				description: "Shell() call detected.",
+				path,
+				code: "",
+			}),
 		),
 		sec({
 			title: "Shell Command Execution",

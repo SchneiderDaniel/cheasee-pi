@@ -25,9 +25,18 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
-import factory from "../index.ts";
-import type { ExecOptions, ExecResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExecResult } from "@earendil-works/pi-coding-agent";
 import { isRegistered } from "../../../../test/lib/test-discovery.mts";
+import {
+	captureWarnings,
+	enabledPi,
+	fail,
+	fireBash,
+	killedProbe,
+	ok,
+	restoreWarnings,
+	warnings,
+} from "./harness.ts";
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..", "..");
 const DOC_PATH = join(ROOT, "docs", "extensions", "rtk.md");
@@ -37,108 +46,19 @@ const TEST_PATH_WIRING = ".pi/extensions/rtk/test/version-gate.test.ts";
 // Helpers
 // ---------------------------------------------------------------------------
 
-type Handler = (event: any, ctx: any) => any;
-type ExecImpl = (cmd: string, args: string[], opts?: ExecOptions) => Promise<ExecResult>;
-
-interface FakePi {
-	pi: ExtensionAPI;
-	handlers: Map<string, Handler[]>;
-	calls: { cmd: string; args: string[]; opts?: ExecOptions }[];
-}
-
-function makePi(execImpl: ExecImpl): FakePi {
-	const handlers = new Map<string, Handler[]>();
-	const calls: { cmd: string; args: string[]; opts?: ExecOptions }[] = [];
-	const pi = {
-		on(event: string, handler: Handler) {
-			const list = handlers.get(event) ?? [];
-			list.push(handler);
-			handlers.set(event, list);
-			return () => {};
-		},
-		async exec(cmd: string, args: string[], opts?: ExecOptions): Promise<ExecResult> {
-			calls.push({ cmd, args, opts });
-			return execImpl(cmd, args, opts);
-		},
-	};
-	return { pi: pi as unknown as ExtensionAPI, handlers, calls };
-}
-
-function ok(stdout: string): ExecResult {
-	return { stdout, stderr: "", code: 0, killed: false };
-}
-
-function fail(code: number, stdout = "", stderr = ""): ExecResult {
-	return { stdout, stderr, code, killed: false };
-}
-
-function killedProbe(): ExecResult {
-	return { stdout: "", stderr: "", code: null as unknown as number, killed: true };
-}
-
-function deferred<T>() {
-	let resolveFn!: (v: T) => void;
-	let rejectFn!: (e: unknown) => void;
-	const promise = new Promise<T>((res, rej) => {
-		resolveFn = res;
-		rejectFn = rej;
-	});
-	return { promise, resolve: resolveFn, reject: rejectFn };
-}
-
-const versionCalls = (f: FakePi) => f.calls.filter((c) => c.args[0] === "--version");
-const rewriteCalls = (f: FakePi) => f.calls.filter((c) => c.args[0] === "rewrite");
-
-async function fireSessionStart(f: FakePi): Promise<void> {
-	for (const h of f.handlers.get("session_start") ?? []) {
-		await h({ type: "session_start", reason: "startup" }, {});
-	}
-}
-
-async function fireBash(f: FakePi, command: string): Promise<any> {
-	const event: any = {
-		type: "tool_call",
-		toolCallId: "t1",
-		toolName: "bash",
-		input: { command },
-	};
-	for (const h of f.handlers.get("tool_call") ?? []) {
-		await h(event, {});
-	}
-	return event;
-}
-
-/** Fresh fake pi whose gate is probed via `session_start`. */
-async function enabledPi(execImpl: ExecImpl): Promise<FakePi> {
-	const f = makePi(execImpl);
-	await factory(f.pi);
-	await fireSessionStart(f);
-	return f;
-}
-
-let warnings: unknown[][] = [];
-let originalWarn: typeof console.warn;
 let savedDisabled: string | undefined;
 
 beforeEach(() => {
-	warnings = [];
-	originalWarn = console.warn;
-	console.warn = (...args: unknown[]) => {
-		warnings.push(args);
-	};
+	captureWarnings();
 	savedDisabled = process.env.RTK_DISABLED;
 	delete process.env.RTK_DISABLED;
 });
 
 afterEach(() => {
-	console.warn = originalWarn;
+	restoreWarnings();
 	if (savedDisabled === undefined) delete process.env.RTK_DISABLED;
 	else process.env.RTK_DISABLED = savedDisabled;
 });
-
-function warnText(): string {
-	return warnings.map((w) => w.map(String).join(" ")).join("\n");
-}
 
 // ---------------------------------------------------------------------------
 // Phase 1: Factory is registration-only (no lifecycle I/O)

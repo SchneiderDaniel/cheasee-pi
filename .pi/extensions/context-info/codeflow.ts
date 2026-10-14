@@ -213,22 +213,23 @@ export async function codeflowHostPort(cwd: string): Promise<string | null> {
 	// port that would not match the printed hint.
 	const forwarded = process.env.CODEFLOW_PORT;
 	if (forwarded) return validPort(forwarded);
-	const settings = readSettingsCodeflowPort(root);
+	const settings = readDockerPortSetting(root, "codeflowPort");
 	if (settings !== null) return settings;
 	return String(codeflowPortFromSlug(await repoSlug(root)));
 }
 
-/** Reads docker.codeflowPort from the workspace settings; null when absent
- * or malformed (fall through to env/derived, mirroring the CLI's
- * error-ignored settings read). */
-function readSettingsCodeflowPort(root: string): string | null {
+/**
+ * Reads docker.<key> from the workspace settings; null when absent or
+ * malformed (fall through to env/derived, mirroring the CLI's error-ignored
+ * settings read). validPort blocks control-char payloads before they reach a
+ * URL/OSC 8 sequence.
+ */
+export function readDockerPortSetting(root: string, key: "codeflowPort" | "uiPort"): string | null {
 	try {
 		const parsed = JSON.parse(readFileSync(join(root, SETTINGS_FILE), "utf-8")) as {
-			docker?: { codeflowPort?: unknown };
+			docker?: Record<string, unknown>;
 		};
-		const port = parsed?.docker?.codeflowPort;
-		// Invalid settings fall through to derivation (mirrors the CLI's
-		// error-ignored settings read); validPort blocks control-char payloads.
+		const port = parsed?.docker?.[key];
 		return validPort(typeof port === "string" ? port : null);
 	} catch {
 		return null;

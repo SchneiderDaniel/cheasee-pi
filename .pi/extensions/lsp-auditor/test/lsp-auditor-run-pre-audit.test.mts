@@ -12,8 +12,7 @@
 
 import assert from "node:assert";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,6 +21,10 @@ import type { LspRuntime, JsonRpcModule } from "../types.ts";
 import { setLspRuntime, resetLspRuntime } from "../lsp-client.ts";
 import { runPreAudit, mapSessionEntriesToRetryEntries } from "../run-pre-audit.ts";
 import { countRetryAttempts } from "../retry.ts";
+import { errorDiag, makeGitFixture as makeGitFixtureFor } from "./helpers.ts";
+
+/** lsp-preaudit- git fixture bound to this suite's temp prefix. */
+const makeGitFixture = () => makeGitFixtureFor("lsp-preaudit-");
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RUN_PRE_AUDIT_TS = resolvePath(__dirname, "../run-pre-audit.ts");
@@ -92,39 +95,6 @@ function setupRuntime(opts: RuntimeOpts = {}): void {
 }
 
 // ─── Fixtures ────────────────────────────────────────────────────────
-
-function errorDiag(message = "mock error") {
-	return {
-		range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
-		severity: 1,
-		message,
-	};
-}
-
-function makeGitFixture(): string {
-	const dir = mkdtempSync(join(tmpdir(), "lsp-preaudit-"));
-	execFileSync("git", ["init", "-b", "main"], { cwd: dir });
-	execFileSync("git", ["config", "user.email", "t@t.com"], { cwd: dir });
-	execFileSync("git", ["config", "user.name", "T"], { cwd: dir });
-	mkdirSync(join(dir, "src"), { recursive: true });
-	writeFileSync(join(dir, "src/app.ts"), "const x: number = 1;\n");
-	execFileSync("git", ["add", "."], { cwd: dir });
-	execFileSync("git", ["commit", "-m", "init"], { cwd: dir });
-	// Modify the tracked file so `git diff main --name-only` reports it
-	writeFileSync(join(dir, "src/app.ts"), "const x: number = 'bad';\n");
-	mkdirSync(join(dir, ".pi"), { recursive: true });
-	writeFileSync(
-		join(dir, ".pi/settings.json"),
-		JSON.stringify({
-			lspAuditor: {
-				servers: [
-					{ extensions: [".ts"], command: "mock-lsp", args: [], severityThreshold: "warning" },
-				],
-			},
-		}),
-	);
-	return dir;
-}
 
 function retryEntry(issueNum: number) {
 	return { type: "custom", customType: "lsp-audit-retry", data: { issueNum, attempt: 1 } };
