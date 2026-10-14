@@ -10,7 +10,7 @@ import type {
 	PrCreationResult,
 } from "../config/types.ts";
 
-import { generateBranchName } from "../agent/task.ts";
+import { generateBranchName } from "../lib/branch-name.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { tryRebaseOntoBase } from "./rebase.ts";
 import { buildPipelineSummary } from "../pipeline/output.ts";

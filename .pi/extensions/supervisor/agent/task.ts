@@ -5,6 +5,11 @@
 // markers, no regex fallback. Agents never run gh/git commands themselves.
 
 import type { FilteredIssueData } from "../config/types.ts";
+import { generateBranchName } from "../lib/branch-name.ts";
+
+// Re-exported so existing consumers (`pipeline/*`, tests) keep importing it
+// from the task builder.
+export { generateBranchName };
 
 // ─── Constants ─────────────────────────────────────────────────────
 
@@ -32,20 +37,6 @@ export function hasDockerfileRelevance(title: string, body: string): boolean {
  * tasks when the issue references adding/modifying external dependencies.
  */
 const DOCKERFILE_AWARENESS_BLOCK = `\n\n### Dockerfile Awareness\n\nWhen the change involves adding, removing, or modifying external software dependencies (system packages, npm global tools, Go binaries, Python packages, or any CLI tool installed via RUN commands), update the corresponding Dockerfile(s):\n\n1. **Identify** which Dockerfile(s) need updating based on where the dependency is used.\n2. **Update** the Dockerfile to install the dependency in the correct layer.\n3. **Follow conventions** — pinned versions, layer separation, apt cleanup (\`rm -rf /var/lib/apt/lists/*\`).\n\n**Determining the correct Dockerfile:**\n- Pi agent dependencies (tools, CLIs, runtimes) → \`cmd/cheasee-pi/embedded/docker/Dockerfile\`\n- Development-only dependencies → consider whether Dockerfile is appropriate\n\n**Existing Dockerfile conventions to follow:**\n- **Pinned versions** — use specific version tags for packages (apt, pip, npm)\n- **Layer separation** — group related installs in the same RUN layer (minimize layers)\n- **apt cleanup** — chain \`rm -rf /var/lib/apt/lists/*\` in same RUN as apt-get install\n- **npm cache cleanup** — chain \`npm cache clean --force && rm -rf /tmp/*\`\n- **pip --no-cache-dir** — use \`--no-cache-dir\` flag with pip install\n- **Alpine** — use \`apk add --no-cache\` for Alpine-based Dockerfiles`;
-
-export function generateBranchName(
-	issueNum: number,
-	title: string,
-	prefix: string = "worktree-git-issue-",
-): string {
-	const slug = title
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "")
-		.replace(/-+/g, "-")
-		.slice(0, 50);
-	return `${prefix}${issueNum}-${slug}`;
-}
 
 // ─── JSON Output Template ────────────────────────────────────────
 // All agents must output a JSON object as their final message.

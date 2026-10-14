@@ -17,7 +17,7 @@ import type { GitHubPort } from "../../github/ports.ts";
 import { loadConfig } from "../../config/config.ts";
 import { findIssueItem, filterIssueData } from "../../lib/issue-filter.ts";
 import { createGitHubPort } from "../../github/ports.ts";
-import { generateBranchName } from "../../agent/task.ts";
+import { generateBranchName } from "../../lib/branch-name.ts";
 import { createWorktree, installWorktreeDeps } from "../worktree.ts";
 import { cleanupStalePipelineState } from "../state-checkpoint.ts";
 import { setupCrashCleanup, shouldRetainWorktree, type CleanupOnExitDeps } from "../crash-cleanup.ts";

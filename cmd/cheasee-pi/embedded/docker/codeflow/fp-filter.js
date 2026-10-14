@@ -7,9 +7,13 @@
 //   1. security findings that cite no real code — an empty or comment-only
 //      snippet, a string-literal type union, a value the environment resolves
 //      at runtime, or a symbol that does not exist in the cited file;
-//   2. layer violations whose two endpoints cannot reference each other at all
-//      (different languages, no import edge) or whose claimed layer is not the
-//      one the report itself assigns the file;
+//   2. layer violations whose two endpoints cannot be a real lower->higher
+//      import: a different language, an endpoint off the repo's declared layer
+//      taxonomy, a same-or-reversed rank order, or no recorded import edge. The
+//      analyzer infers layers from loose path substrings and falls back to
+//      `utils`, so its `files[].layer` labels are advisory; REPO_LAYERS below is
+//      the single source of which path is which layer, and this repository
+//      declares none, so the whole category collapses;
 //   3. LOW hygiene findings (`Code Comments` / `Debug Statements`) whose cited
 //      path is a non-shipping artifact — a test or a document, where the
 //      flagged token is fixture data or a worked example, not deferred work;
@@ -238,41 +242,56 @@
 		return dot <= slash + 1 ? "" : path.slice(dot).toLowerCase();
 	}
 
-	// CodeFlow assigns a layer by loose substring match and falls back to `utils`
-	// for every path it does not recognise, so a label is only a layer this
-	// repository actually has when the endpoint path carries it as a directory
-	// (e.g. `src/ui/panel.ts`). This repo defines no layer taxonomy, so a label
-	// the path does not name — `utils` fallback, `/handler` -> `services` — is
-	// the analyzer's invention, not a violation.
-	function layerGroundsPath(layer, filePath) {
-		if (typeof layer !== "string" || layer === "" || typeof filePath !== "string") return false;
-		var wanted = layer.toLowerCase();
-		var segments = filePath.toLowerCase().split("/");
-		for (var i = 0; i < segments.length - 1; i++) {
-			if (segments[i] === wanted) return true;
+	// This repository's declared import-layer taxonomy, lowest rank first. It is
+	// empty on purpose: docs/architecture.md declares no ordered lower/higher
+	// boundary, and CodeFlow infers layers from loose path substrings (falling
+	// back to `utils`), so its `files[].layer` labels are advisory only. A bare
+	// source root (`scripts/`, `cmd/`, `.pi/extensions/`, `test/`) is a directory,
+	// not a declared layer. With nothing declared no path resolves, so every edge
+	// the analyzer emits is suppressed. Add an entry only for a boundary the repo
+	// actually documents, with a rank order that means "may be imported by".
+	var REPO_LAYERS = [];
+
+	// The declared layer a path belongs to under `layers`, or null. The most
+	// specific (longest) matching prefix wins, so a nested root beats its parent.
+	// A path with no extension is a directory or a bare name, never a layered
+	// source.
+	function resolveLayerIn(layers, path) {
+		if (typeof path !== "string" || path === "" || extensionOf(path) === "") return null;
+		var best = null;
+		for (var i = 0; i < layers.length; i++) {
+			var entry = layers[i];
+			if (path.indexOf(entry.prefix) === 0 && (!best || entry.prefix.length > best.prefix.length))
+				best = entry;
 		}
-		return false;
+		return best ? { layer: best.layer, rank: best.rank } : null;
 	}
 
-	// A violation is real only when the report's own file table agrees on both
-	// endpoints' layers, each endpoint's path actually carries that layer, and
-	// the analyzer recorded an import edge between them.
+	// The layer this repository's declared taxonomy assigns a path, or null.
+	function resolveLayer(path) {
+		return resolveLayerIn(REPO_LAYERS, path);
+	}
+
+	// The recorded import edges, keyed by `source\0target`. The analyzer's
+	// `files[].layer` is deliberately not read: the declared taxonomy is the
+	// single source of the layer a path belongs to.
 	function buildIndex(data) {
-		var byPath = Object.create(null);
-		var files = Array.isArray(data.files) ? data.files : [];
-		for (var i = 0; i < files.length; i++) {
-			if (files[i] && typeof files[i].path === "string") byPath[files[i].path] = files[i];
-		}
 		var connections = Object.create(null);
-		var conns = Array.isArray(data.connections) ? data.connections : [];
+		var conns = data && Array.isArray(data.connections) ? data.connections : [];
 		for (var j = 0; j < conns.length; j++) {
 			if (conns[j] && typeof conns[j].source === "string" && typeof conns[j].target === "string") {
 				connections[conns[j].source + "\u0000" + conns[j].target] = true;
 			}
 		}
-		return { byPath: byPath, connections: connections };
+		return { connections: connections };
 	}
 
+	// A violation is real only when both endpoints are the same language, both
+	// resolve to declared layers, the import runs from a lower rank to a strictly
+	// higher one (the inversion), and the analyzer recorded that edge. `index`
+	// carries the taxonomy to apply; production supplies the repo's declared
+	// `REPO_LAYERS` (via `buildIndex`, which leaves `layers` unset). The tests
+	// inject one to exercise the order rule, since production declares none.
 	function isFalsePositiveLayerViolation(violation, index) {
 		if (!violation || typeof violation !== "object") return true;
 		var from = violation.from;
@@ -280,13 +299,11 @@
 		if (typeof from !== "string" || typeof to !== "string" || !from || !to) return true;
 		var fromExt = extensionOf(from);
 		if (!fromExt || fromExt !== extensionOf(to)) return true;
-		var fromFile = index.byPath[from];
-		var toFile = index.byPath[to];
-		if (!fromFile || !toFile) return true;
-		if (violation.fromLayer !== fromFile.layer || violation.toLayer !== toFile.layer) return true;
-		if (!layerGroundsPath(violation.fromLayer, from) || !layerGroundsPath(violation.toLayer, to))
-			return true;
-		return index.connections[from + "\u0000" + to] !== true;
+		var layers = index && Array.isArray(index.layers) ? index.layers : REPO_LAYERS;
+		var fromLayer = resolveLayerIn(layers, from);
+		var toLayer = resolveLayerIn(layers, to);
+		if (!fromLayer || !toLayer || fromLayer.rank >= toLayer.rank) return true;
+		return !index.connections || index.connections[from + "\u0000" + to] !== true;
 	}
 
 	// --- unused functions ----------------------------------------------------
@@ -713,5 +730,7 @@
 		isFalsePositiveHygiene: isFalsePositiveHygiene,
 		isFalsePositiveDuplicate: isFalsePositiveDuplicate,
 		readFileFrom: readFileFrom,
+		REPO_LAYERS: REPO_LAYERS,
+		resolveLayer: resolveLayer,
 	};
 });
