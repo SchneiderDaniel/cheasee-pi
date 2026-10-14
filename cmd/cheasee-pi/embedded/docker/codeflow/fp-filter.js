@@ -572,21 +572,81 @@
 		return path === POLICY_MODULE_PATH;
 	}
 
-	// Provenance proof: the canonical module must be readable and *implement* the
-	// policy — the two exports, a forced `shell: false`, and a NUL rejection — not
-	// merely share the exported names. A module that cannot be read or does not
-	// carry the invariant keeps the finding: absence is never evidence.
+	// SHA-256 over a string's UTF-8 bytes, hex-encoded. Pure, so the served page
+	// and the headless runner compute the same digest; the browser has no sync
+	// crypto and `crypto.subtle` is async. Used only to pin the policy module.
+	function sha256Hex(text) {
+		var K = [
+			0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+			0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+			0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+			0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+			0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+			0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+			0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+			0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+		];
+		var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+		var bytes = [];
+		for (var i = 0; i < text.length; i++) {
+			var c = text.charCodeAt(i);
+			if (c < 0x80) bytes.push(c);
+			else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+			else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+				var cp = 0x10000 + ((c & 0x3ff) << 10) + (text.charCodeAt(++i) & 0x3ff);
+				bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+			} else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+		}
+		var bitLen = bytes.length * 8;
+		bytes.push(0x80);
+		while (bytes.length % 64 !== 56) bytes.push(0);
+		var hi = Math.floor(bitLen / 0x100000000);
+		var lo = bitLen >>> 0;
+		bytes.push((hi >>> 24) & 255, (hi >>> 16) & 255, (hi >>> 8) & 255, hi & 255);
+		bytes.push((lo >>> 24) & 255, (lo >>> 16) & 255, (lo >>> 8) & 255, lo & 255);
+		function rotr(x, n) {
+			return (x >>> n) | (x << (32 - n));
+		}
+		for (var off = 0; off < bytes.length; off += 64) {
+			var w = [];
+			for (var t = 0; t < 16; t++)
+				w[t] = (bytes[off + t * 4] << 24) | (bytes[off + t * 4 + 1] << 16) | (bytes[off + t * 4 + 2] << 8) | bytes[off + t * 4 + 3];
+			for (t = 16; t < 64; t++) {
+				var s0 = rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >>> 3);
+				var s1 = rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >>> 10);
+				w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+			}
+			var a = H[0], b = H[1], cc = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+			for (t = 0; t < 64; t++) {
+				var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+				var ch = (e & f) ^ (~e & g);
+				var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+				var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+				var maj = (a & b) ^ (a & cc) ^ (b & cc);
+				var t2 = (S0 + maj) | 0;
+				h = g; g = f; f = e; e = (d + t1) | 0; d = cc; cc = b; b = a; a = (t1 + t2) | 0;
+			}
+			H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + cc) | 0; H[3] = (H[3] + d) | 0;
+			H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+		}
+		var out = "";
+		for (var k = 0; k < 8; k++) out += ("00000000" + (H[k] >>> 0).toString(16)).slice(-8);
+		return out;
+	}
+
+	// Provenance by content identity, not by path or exported names. A counterfeit
+	// at the canonical path can declare the two exports, a `shell: false` and a
+	// NUL regex and still return `shell: true`, so no shape match can prove the
+	// policy. The filter instead pins the digest of the one reviewed module: only
+	// bytes that hash to `POLICY_MODULE_SHA256` count as provenance. Any edit to
+	// the policy — a reformat included — fails the check and keeps the finding
+	// until the digest here is re-reviewed. An unreadable module is not evidence.
+	var POLICY_MODULE_SHA256 = "478727584fa67de1b44f1ec542d27039d9cefde1f5d15a2b4ce2f4c165002e15";
 	function moduleDeclaresPolicy(readFile, path) {
 		if (path !== POLICY_MODULE_PATH) return false;
 		var text = readFile && typeof path === "string" ? readFile(path) : null;
 		if (typeof text !== "string") return false;
-		var body = stripComments(text);
-		return (
-			/export\s+(?:async\s+)?function\s+argvCommand\b/.test(body) &&
-			/export\s+(?:async\s+)?function\s+assertNoShell\b/.test(body) &&
-			/\bshell\s*:\s*false\b/.test(body) &&
-			/\\u0000/.test(body)
-		);
+		return sha256Hex(text) === POLICY_MODULE_SHA256;
 	}
 
 	// Names imported from the shared argv-policy module (`safe-argv`). A bare name
@@ -636,7 +696,7 @@
 	// of these with the interpreter's code flag is arbitrary code execution, not
 	// a shell-free command, so the argv-array proof of safety does not hold.
 	var INTERPRETER_PROGRAM =
-		/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd)(?:\.exe)?$/i;
+		/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd|sh|bash|zsh|dash)(?:\.exe)?$/i;
 	// Programs that run another program named in their argv, so the interpreter
 	// and its code flag can sit one level down (`env node -e code`,
 	// `npm exec -- node -e code`). Treated like an interpreter: their argv must be
@@ -646,12 +706,14 @@
 	// The interpreter flags that make it run code from argv — the eval forms
 	// (`-e`/`--eval`, `-c`/`--command`, `-p`/`--print`), the module-loading forms
 	// that run a file the flag points at (`--require`/`-r`, `--import`, `--loader`,
-	// `--preload`, `-m`), and the *attached* single-letter forms Perl and friends
-	// accept (`-Mmodule`, `-mmodule`, `-ecode`), plus the `eval` subcommand of
-	// `deno`/`bun` and a lone `-` (script from stdin). Matched against a
-	// quote-stripped element.
+	// `--preload`, `-m`), and the *attached* or *combined* short forms the
+	// interpreters accept (`-Mmodule`, `-mmodule`, `-ecode`, Python/shell
+	// `-cprint(1)`, and `bash -lc cmd`, where the code letter is not first), plus
+	// the `eval` subcommand of `deno`/`bun` and a lone `-` (script from stdin).
+	// Matched against a quote-stripped element. The letter class covers every
+	// code flag (`c`/`C` plus `e`/`E`/`m`/`M`/`r`/`R`/`p`/`P`).
 	var CODE_EVAL_TOKEN =
-		/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?|-[meErRpP]\S*)$/i;
+		/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?|-[a-zA-Z]*[cCeEmMrRpP][\s\S]*)$/i;
 
 	/** The bare name of a quoted program literal, or null when it is not one. */
 	function programNameText(program) {

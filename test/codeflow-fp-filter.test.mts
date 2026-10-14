@@ -406,6 +406,17 @@ const SOURCES: Record<string, string> = {
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("perl", ["-I/tmp/attacker", "-MAttacker"], assertNoShell({})); }\n',
+	// Regression (audit): Python attaches the program to `-c` (`python3 -cprint(1)`)
+	// and a shell combines `-l`/`-c` (`bash -lc id`); both run argv code, so the
+	// policy-validated argv is still execution and the finding must stay.
+	"src/interpreter-python-attached-c.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("python3", ["-cprint(1)"], assertNoShell({})); }\n',
+	"src/interpreter-shell-attached-c.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("bash", ["-lc", "id"], assertNoShell({})); }\n',
 	// Positive control: an interpreter call naming a script file (no code flag)
 	// stays suppressible, so the module-loading guard cannot over-reject.
 	"src/interpreter-script.ts":
@@ -1231,6 +1242,19 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 		}
 	});
 
+	it("keeps a MEDIUM Command Execution whose interpreter argv uses an attached or combined code flag (regression)", () => {
+		for (const [path, flag] of [
+			["src/interpreter-python-attached-c.ts", "-cprint(1)"],
+			["src/interpreter-shell-attached-c.ts", "-lc"],
+		] as const) {
+			assert.strictEqual(
+				keepsSecurity(cmd(path)),
+				true,
+				`${flag} runs argv code — not a shell-free command`,
+			);
+		}
+	});
+
 	it("drops a MEDIUM Command Execution whose interpreter call names a script file (positive control)", () => {
 		assert.strictEqual(
 			keepsSecurity(cmd("src/interpreter-script.ts")),
@@ -1264,6 +1288,50 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			true,
 			"only the exact canonical policy path is trusted",
 		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose policy import is a counterfeit at the exact canonical path (regression)", () => {
+		// The audit probe: a module at `.pi/extensions/lib/safe-argv.ts` that exports
+		// the helpers but returns `shell: true`. Names are not proof — only the
+		// reviewed module's content is, so the counterfeit must not forge provenance.
+		const counterfeit =
+			"export function argvCommand(program, args) { return { program, args }; }\n" +
+			"export function assertNoShell(options) { return { ...options, shell: true }; }\n";
+		const cite =
+			'import { spawn } from "node:child_process";\n' +
+			'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+			"export function go(args) {\n" +
+			'  const { program, args: safe } = argvCommand("git", args);\n' +
+			"  return spawn(program, safe, assertNoShell({}));\n" +
+			"}\n";
+		const readCounterfeit = (path: unknown): string | null =>
+			path === ".pi/extensions/lib/safe-argv.ts"
+				? counterfeit
+				: path === "src/canonical-counterfeit.ts"
+					? cite
+					: null;
+		const { data } = sanitizeAnalysisData(
+			{ securityIssues: [cmd("src/canonical-counterfeit.ts")] },
+			readCounterfeit,
+		);
+		assert.strictEqual(
+			data.securityIssues.length,
+			1,
+			"a counterfeit at the canonical path is not provenance",
+		);
+	});
+
+	it("keeps the finding when the canonical module differs by one byte (content-identity provenance)", () => {
+		// Editing the policy (even a trailing comment) invalidates the pinned digest,
+		// so provenance fails closed until the digest is re-reviewed.
+		const tampered = `${POLICY_SRC}\n// tampered\n`;
+		const readTampered = (path: unknown): string | null =>
+			path === ".pi/extensions/lib/safe-argv.ts" ? tampered : readFile(path);
+		const { data } = sanitizeAnalysisData(
+			{ securityIssues: [cmd("src/safe-wrapper.ts")] },
+			readTampered,
+		);
+		assert.strictEqual(data.securityIssues.length, 1, "a changed policy module is not the reviewed one");
 	});
 
 	it("keeps the finding when the cited file cannot be read (absence is not proof)", () => {

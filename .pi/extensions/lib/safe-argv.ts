@@ -27,17 +27,21 @@ const NUL = /\u0000/;
  * bare program name (no quotes, no directory).
  */
 const INTERPRETER_PROGRAM =
-	/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd)(?:\.exe)?$/i;
+	/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd|sh|bash|zsh|dash)(?:\.exe)?$/i;
 /**
  * An interpreter flag that makes the interpreter execute code from argv:
  * the eval/print forms (`node -e`, `python -c`), the module-loading forms that
  * run a file the flag points at (`node --require`, `--import`, `--loader`,
- * `python -m`), and the attached single-letter forms `perl -Mmodule`,
- * `python -mmodule`, `perl -ecode` carry, plus a lone `-` (read the script from
- * stdin). Kept in sync with the CodeFlow fp-filter's `CODE_EVAL_TOKEN`.
+ * `python -m`), and the attached single-letter forms the interpreters accept
+ * (`perl -Mmodule`, `python -mmodule`, `python -cprint(1)`, `sh -cecho x`,
+ * `bash -lc cmd`) — including combined short flags where the code letter is not
+ * first. The letter class covers every code flag (`c`/`C` for Python and the
+ * shells, plus `e`/`E`/`m`/`M`/`r`/`R`/`p`/`P`), so an attached or combined
+ * form cannot hide the code. A lone `-` (script from stdin) is rejected too.
+ * Kept in sync with the CodeFlow fp-filter's `CODE_EVAL_TOKEN`.
  */
 const CODE_EVAL_FLAG =
-	/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?|-[meErRpP]\S*)$/i;
+	/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?|-[a-zA-Z]*[cCeEmMrRpP][\s\S]*)$/i;
 
 export interface ArgvCommand {
 	readonly program: string;

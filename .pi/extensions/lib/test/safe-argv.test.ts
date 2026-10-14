@@ -102,9 +102,22 @@ describe("argvCommand", () => {
 		assert.doesNotThrow(() => argvCommand("perl", ["-I/tmp/lib", "script.pl"]));
 	});
 
+	it("rejects an interpreter's attached and combined code flags (`-cprint(1)`, `-lc`) — regression", () => {
+		// The audit probe: Python attaches the program to `-c`, and a shell combines
+		// `-l`/`-c`. Both run argv code, so both must be rejected.
+		assert.throws(() => argvCommand("python3", ["-cprint(1)"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("python3", ["-c=print(1)"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("sh", ["-cecho pwned"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("bash", ["-lc", "id"]), UnsafeArgvError);
+		assert.throws(() => argvCommand("/bin/bash", ["-lcid"]), UnsafeArgvError);
+		// Positive control: an attached *path* flag (`-I`) runs nothing.
+		assert.doesNotThrow(() => argvCommand("perl", ["-I/tmp/lib", "script.pl"]));
+	});
+
 	it("accepts an interpreter invocation without a code flag (positive control)", () => {
 		assert.doesNotThrow(() => argvCommand("node", ["server.js", "--stdio"]));
 		assert.doesNotThrow(() => argvCommand("python3", ["server.py", "--port", "8080"]));
+		assert.doesNotThrow(() => argvCommand("bash", ["script.sh", "--port", "8080"]));
 		// A `-e`-looking arg on a non-interpreter program is not an eval flag.
 		assert.doesNotThrow(() => argvCommand("git", ["-e"]));
 	});
