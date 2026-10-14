@@ -126,6 +126,8 @@ const MARKERS = /\b(TODO|FIXME|HACK|XXX{2,})\b/;
 const repoFile = (rel: string) => readFileSync(join(REPO_ROOT, rel), "utf8");
 const crossLanguageOf = (data: { layerViolations: Array<{ from: string; to: string }> }) =>
 	data.layerViolations.filter((v) => ext(v.from) !== ext(v.to));
+const sameExtensionOf = (data: { layerViolations: Array<{ from: string; to: string }> }) =>
+	data.layerViolations.filter((v) => ext(v.from) === ext(v.to));
 const inventedLayerOf = (
 	data: { layerViolations: Array<{ from: string; to: string; fromLayer: string; toLayer: string }> },
 ) => data.layerViolations.filter((v) => !groundsLayer(v.fromLayer, v.from) || !groundsLayer(v.toLayer, v.to));
@@ -174,6 +176,10 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 			"recording must carry the four cited MEDIUM Command Execution hits",
 		);
 		assert.ok(crossLanguageOf(recorded).length > 0, "recording must carry cross-language edges");
+		assert.ok(
+			sameExtensionOf(recorded).length > 0,
+			"recording must carry same-extension edges so suppression is not only cross-language",
+		);
 		assert.ok(inventedLayerOf(recorded).length > 0, "recording must carry invented-layer edges");
 		for (const name of CITED_DEAD) {
 			assert.ok(deadNames(recorded).includes(name), `recording must carry the cited dead function ${name}`);
@@ -207,6 +213,7 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		);
 		assert.deepStrictEqual(crossLanguageOf(data), [], "cross-language layer edges must not survive");
 		assert.deepStrictEqual(inventedLayerOf(data), [], "invented layer labels must not survive");
+		assert.strictEqual(data.stats.violations, 0, "the summary violation count must move with the list");
 
 		// The recorded dead list carries the issue's cited symbols; every one the
 		// snapshot references must be dropped and counted out of the summary.

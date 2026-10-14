@@ -13,7 +13,7 @@ import type {
 	SupervisorConfig,
 	AgentRunner,
 } from "../config/types.ts";
-import { generateBranchName } from "../agent/task.ts";
+import { generateBranchName } from "../lib/branch-name.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";

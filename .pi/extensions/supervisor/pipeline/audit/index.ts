@@ -13,7 +13,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import { generateBranchName } from "../../agent/task.ts";
+import { generateBranchName } from "../../lib/branch-name.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import { withPerChildEnv } from "../../../lib/exec-env.ts";
 import { toExecFn } from "../../../lib/port-adapters.ts";
