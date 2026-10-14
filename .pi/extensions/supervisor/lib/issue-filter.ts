@@ -4,6 +4,7 @@
 // for review isolation. No Octokit or ExecFn dependency.
 
 import type { FilteredIssueData, ProjectItem } from "../config/types.ts";
+import { hasAuditRejectionMarker, isAuditRejectionComment } from "./audit-headings.ts";
 
 // ─── Raw Issue Data (from Octokit) ───────────────────────────────
 
@@ -37,9 +38,20 @@ export function filterIssueData(rawIssue: RawIssueData, codeowners: string[]): F
 			id: c?.id,
 		}));
 
+	// Supervisor rejections are the pipeline's own output — retrieve them from
+	// the RAW comments regardless of codeowner trust (issue #2044 audit finding
+	// #1), so the upsert finds its prior comment even when the automation
+	// account is not a codeowner. The marker gates ownership: an unmarked
+	// comment with a rejection heading is never treated as supervisor-authored
+	// (audit finding #4). Untrusted content stays out of `comments`.
+	const auditRejections = rawComments
+		.filter((c) => isAuditRejectionComment(c?.body) && hasAuditRejectionMarker(c?.body))
+		.map((c) => ({ id: c?.id, body: c?.body || "" }));
+
 	return {
 		body,
 		comments: trustedComments,
+		auditRejections,
 	};
 }
 

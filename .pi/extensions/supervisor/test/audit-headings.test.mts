@@ -9,6 +9,8 @@ import {
 	AUDIT_APPROVED_HEADING,
 	AUDIT_GATE_REJECTED_HEADING,
 	AUDIT_REJECTED_HEADING,
+	AUDIT_REJECTION_MARKER,
+	hasAuditRejectionMarker,
 	isAuditApprovedComment,
 	isAuditRejectedComment,
 	isAuditRejectionComment,
@@ -84,6 +86,30 @@ describe("isAuditRejectionComment()", () => {
 	it("returns false for empty bodies", () => {
 		assert.equal(isAuditRejectionComment(""), false);
 		assert.equal(isAuditRejectionComment(undefined), false);
+	});
+});
+
+// ─── Tests: hasAuditRejectionMarker() ───────────────────────────
+// Issue #2044: the hidden marker identifies supervisor-authored rejection
+// comments independently of the codeowner trust gate.
+
+describe("hasAuditRejectionMarker()", () => {
+	it("detects the marker anywhere in the body", () => {
+		assert.equal(
+			hasAuditRejectionMarker(`## Audit Rejected\n\nx\n\n${AUDIT_REJECTION_MARKER}`),
+			true,
+		);
+		assert.equal(hasAuditRejectionMarker(`${AUDIT_REJECTION_MARKER}\n## Audit Rejected`), true);
+	});
+
+	it("returns false for unmarked bodies", () => {
+		assert.equal(hasAuditRejectionMarker("## Audit Rejected\n\nx"), false);
+	});
+
+	it("returns false for empty/undefined/null bodies", () => {
+		assert.equal(hasAuditRejectionMarker(""), false);
+		assert.equal(hasAuditRejectionMarker(undefined), false);
+		assert.equal(hasAuditRejectionMarker(null), false);
 	});
 });
 

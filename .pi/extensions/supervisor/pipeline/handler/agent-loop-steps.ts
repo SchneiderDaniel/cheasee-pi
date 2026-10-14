@@ -35,7 +35,6 @@ import {
 import { buildDeadCodeContext } from "../../checks/dead-code.ts";
 import { buildVulnContext } from "../../checks/osv-scanner.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import { isAuditRejectionComment } from "../../lib/audit-headings.ts";
 import { countAuditRejections } from "../../lib/audit-rejections.ts";
 import type { RunContext } from "./shared.ts";
 
@@ -141,13 +140,25 @@ export async function loadLoopIssue(
 
 	// Loop counter lives on `reject-N` labels now that rejections update in
 	// place instead of appending comments (issue #2044). Legacy rejection
-	// comments remain the fallback so pre-label issues keep counting.
-	let labels: string[] = [];
+	// comments remain the fallback so pre-label issues keep counting. A label
+	// read failure must stop the loop when a limit is configured — falling back
+	// to comments undercounts (in-place updates leave one comment), which would
+	// let `maxRejections` never be reached (audit finding #3).
+	let labels: string[];
 	try {
 		labels = await port.getIssueLabels(issueNum, config.repo);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
+		if (step.maxRejections && step.maxRejections > 0) {
+			ctx.ui.notify(
+				`Issue #${issueNum}: cannot read reject labels — stopping to avoid bypassing the rejection limit`,
+				"error",
+			);
+			collector?.push("handler", "error", `Failed to fetch issue labels: ${msg}`);
+			return { kind: "terminal", stopReason: `Cannot read issue labels: ${msg}` };
+		}
 		collector?.push("handler", "warn", `Failed to fetch issue labels: ${msg}`);
+		labels = [];
 	}
 	const rejectionCount = countAuditRejections(labels, loopFilteredData.comments);
 
@@ -263,6 +274,30 @@ export async function loadLoopAgentFile(
 // ─── Task assembly ───────────────────────────────────────────────
 
 /**
+ * Resolve the prior supervisor rejection for the developer/auditor feedback
+ * block, plus the comment list with that rejection removed (the supervisor
+ * account may also be a codeowner, so the same comment can appear in both
+ * lists). Rejections come from `auditRejections` — retained outside the
+ * codeowner trust gate (issue #2044 audit finding #1) — and only marker-tagged
+ * comments qualify (audit finding #4).
+ */
+function resolveAuditFeedback(
+	loopFilteredData: FilteredIssueData,
+	agentName: string,
+): { auditFeedback: string | undefined; commentSource: FilteredIssueData["comments"] } {
+	if (agentName !== "developer" && agentName !== "auditor") {
+		return { auditFeedback: undefined, commentSource: loopFilteredData.comments };
+	}
+	const rejections = loopFilteredData.auditRejections ?? [];
+	const auditFeedback = [...rejections].reverse().find((r) => r.body)?.body;
+	const rejectionIds = new Set(rejections.map((r) => r.id).filter((id): id is string => !!id));
+	return {
+		auditFeedback,
+		commentSource: loopFilteredData.comments.filter((c) => !c.id || !rejectionIds.has(c.id)),
+	};
+}
+
+/**
  * Build the per-agent task string: the agent-specific context blocks
  * (duplicate code / research findings / audit feedback / dead code / vuln)
  * plus the shared buildAgentTask call. The pre-Implementation rebase
@@ -305,24 +340,12 @@ export async function assembleAgentTask(
 					.map((c) => c.body)
 					.find((body) => /##\s*Research\s*Findings/i.test(body))
 			: undefined;
-	// Extract the latest audit rejection comment (position-0 heading; gate
-	// rejections included). The developer sees it as a fix-list (issue #1668);
-	// the auditor sees it as a re-verify block (issue #2044).
-	const priorRejection = (() => {
-		for (let i = loopFilteredData.comments.length - 1; i >= 0; i--) {
-			const body = loopFilteredData.comments[i]?.body || "";
-			if (isAuditRejectionComment(body)) return { index: i, body };
-		}
-		return undefined;
-	})();
-	const auditFeedback: string | undefined =
-		agentName === "developer" || agentName === "auditor" ? priorRejection?.body : undefined;
-	// The auditor already gets the prior rejection as its re-verify block —
-	// drop it from the generic comments block to avoid duplication.
-	const commentSource =
-		agentName === "auditor" && priorRejection
-			? loopFilteredData.comments.filter((_, i) => i !== priorRejection.index)
-			: loopFilteredData.comments;
+	// Extract the latest supervisor rejection from `auditRejections` — retrieved
+	// independently of the codeowner trust gate (issue #2044 audit finding #1) so
+	// the loop still finds its prior rejection when the automation account is not
+	// a codeowner. The developer sees it as a fix-list (issue #1668); the auditor
+	// as a re-verify block (issue #2044). Only marker-tagged comments qualify.
+	const { auditFeedback, commentSource } = resolveAuditFeedback(loopFilteredData, agentName);
 	// Build dead code context for auditor
 	const deadContext: string | undefined =
 		agentName === "auditor"

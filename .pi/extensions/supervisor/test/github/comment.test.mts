@@ -36,6 +36,59 @@ describe("comment.ts runtime exports — direct call in assertions", () => {
 	});
 });
 
+// ─── Tests: filterIssueData() — supervisor rejection retention ────
+// Issue #2044 audit finding #1: supervisor rejection comments must be
+// discoverable independently of the codeowner trust gate, while untrusted
+// comment content stays out of the agent-visible `comments` list.
+
+describe("filterIssueData() — auditRejections", () => {
+	const MARK = "<!-- supervisor:audit-rejection -->";
+
+	it("retains a marked rejection from an untrusted (non-codeowner) author", () => {
+		const result = filterIssueData(
+			{
+				author: { login: "user1" },
+				body: "body",
+				comments: [
+					{ id: "IC_bot", author: { login: "automation" }, body: `## Audit Rejected\nx\n\n${MARK}` },
+				],
+			},
+			["user1"],
+		);
+		assert.equal(result.comments.length, 0, "untrusted author stays out of comments");
+		assert.deepEqual(result.auditRejections, [
+			{ id: "IC_bot", body: `## Audit Rejected\nx\n\n${MARK}` },
+		]);
+	});
+
+	it("excludes an unmarked rejection even when the author is trusted", () => {
+		const result = filterIssueData(
+			{
+				author: { login: "user1" },
+				body: "body",
+				comments: [
+					{ id: "IC_manual", author: { login: "user1" }, body: "## Audit Rejected\nmanual" },
+				],
+			},
+			["user1"],
+		);
+		assert.equal(result.comments.length, 1, "trusted comment still visible");
+		assert.deepEqual(result.auditRejections, []);
+	});
+
+	it("excludes an unmarked non-rejection comment", () => {
+		const result = filterIssueData(
+			{
+				author: { login: "user1" },
+				body: "body",
+				comments: [{ id: "IC_ok", author: { login: "automation" }, body: "looks good" }],
+			},
+			["user1"],
+		);
+		assert.deepEqual(result.auditRejections, []);
+	});
+});
+
 // ─── Helpers ──────────────────────────────────────────────────────
 
 function createMockExec(execResult: { code: number; stdout: string; stderr: string }): ExecFn {

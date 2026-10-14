@@ -697,7 +697,13 @@ const TEST_PLAN_QUOTE =
 	'## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment';
 
 function trustedComment(body: string): { author: { login: string }; body: string } {
-	return { author: { login: "user1" }, body };
+	// Genuine rejections carry the supervisor marker so the pipeline treats them
+	// as its own output (issue #2044 audit finding #4); quoted Test Plan text does
+	// not start with the heading and stays unmarked.
+	const marked = /^##\s*Audit\s*Rejected/i.test(body)
+		? `${body}\n\n<!-- supervisor:audit-rejection -->`
+		: body;
+	return { author: { login: "user1" }, body: marked };
 }
 
 function makeRejectWorktree(): string {

@@ -43,6 +43,13 @@ export interface FilteredIssueData {
 	body: string;
 	/** Only comments from trusted codeowners */
 	comments: Array<{ author: string; body: string; id?: string }>;
+	/**
+	 * Supervisor-authored audit rejection comments (marker-tagged), kept
+	 * independently of the codeowner trust gate so the pipeline can find and
+	 * update its own prior rejection even when the automation account is not a
+	 * codeowner (issue #2044). Never surfaced to agents as trusted comments.
+	 */
+	auditRejections?: Array<{ id?: string; body: string }>;
 }
 
 /**

@@ -17,7 +17,6 @@ import { AUDIT_GATE_REJECTED_HEADING, AUDIT_REJECTION_MARKER } from "../../lib/a
 import {
 	countAuditRejections,
 	findPriorAuditRejection,
-	parseRejectCount,
 	rejectLabel,
 } from "../../lib/audit-rejections.ts";
 import {
@@ -167,9 +166,12 @@ async function handleStructuredVerdict(
 /**
  * Post a new audit rejection, or update the auditor's prior rejection in place
  * (issue #2044) so later loops do not pile up stale rejection comments. The
- * prior rejection is only replaced when the comments carry an id we can PATCH.
- * Each rejection bumps the `reject-N` label — the durable loop counter now
- * that in-place updates leave no per-attempt comment behind.
+ * prior rejection is discovered from `auditRejections` — supervisor-marked
+ * comments retained outside the codeowner trust gate (audit finding #1) — and
+ * only updated when it carries the supervisor marker (audit finding #4). The
+ * `reject-N` label is bumped only AFTER the comment write succeeds (audit
+ * finding #2): a failed write must not advance the loop counter while the
+ * issue still shows stale feedback.
  */
 async function postOrUpdateAuditRejection(
 	issueNum: number,
@@ -180,8 +182,11 @@ async function postOrUpdateAuditRejection(
 	port: GitHubPort | undefined,
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
-	if (!port) return;
-	const prior = loopFilteredData ? findPriorAuditRejection(loopFilteredData.comments) : undefined;
+	if (!port) {
+		collector?.push("stages", "error", "Cannot record audit rejection: GitHub port unavailable");
+		return;
+	}
+	const prior = findPriorAuditRejection(loopFilteredData?.auditRejections ?? []);
 	const markedBody = `${body}\n\n${AUDIT_REJECTION_MARKER}`;
 	try {
 		if (prior) {
@@ -193,23 +198,24 @@ async function postOrUpdateAuditRejection(
 		}
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
-		collector?.push(
-			"stages",
-			"warn",
-			`Failed to ${prior ? "update" : "post"} audit rejection: ${msg}`,
-		);
+		const action = prior ? "update" : "post";
+		collector?.push("stages", "error", `Failed to ${action} audit rejection: ${msg}`);
+		ctx.ui.notify(`Audit rejection could not be saved: ${msg}`, "error");
+		// Fail closed (issue #2044 audit finding #2): without the persisted
+		// comment the next implementation run has no feedback, so do not advance
+		// the loop counter or the rejection transition. The top-level handler
+		// catch stops the pipeline and reports the error.
+		throw new Error(`Failed to ${action} audit rejection: ${msg}`);
 	}
 	try {
 		const labels = await port.getIssueLabels(issueNum, config.repo);
-		const current = loopFilteredData
-			? countAuditRejections(labels, loopFilteredData.comments)
-			: parseRejectCount(labels);
+		const current = countAuditRejections(labels, loopFilteredData?.comments ?? []);
 		const next = current + 1;
 		await port.addIssueLabel(issueNum, config.repo, rejectLabel(next));
 		if (current > 0) await port.removeIssueLabel(issueNum, config.repo, rejectLabel(current));
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
-		collector?.push("stages", "warn", `Failed to bump reject label: ${msg}`);
+		collector?.push("stages", "error", `Failed to bump reject label: ${msg}`);
 	}
 }
 

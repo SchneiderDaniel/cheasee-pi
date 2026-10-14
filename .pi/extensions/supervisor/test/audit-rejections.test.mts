@@ -50,35 +50,45 @@ describe("rejectLabel()", () => {
 // ─── findPriorAuditRejection() ───────────────────────────────────
 
 describe("findPriorAuditRejection()", () => {
+	const MARK = "<!-- supervisor:audit-rejection -->";
+
 	it("returns undefined when no comment carries an id", () => {
-		const comments = [{ body: "## Audit Rejected\nx" }];
+		const comments = [{ body: `## Audit Rejected\nx\n\n${MARK}` }];
 		assert.equal(findPriorAuditRejection(comments), undefined);
 	});
 
-	it("returns the newest rejection comment with its id", () => {
+	it("returns the newest supervisor rejection comment with its id", () => {
 		const comments = [
-			{ id: "1", body: "## Audit Rejected\nold" },
+			{ id: "1", body: `## Audit Rejected\nold\n\n${MARK}` },
 			{ id: "2", body: "## Audit Approved\nok" },
-			{ id: "3", body: "## Audit Rejected\nnew" },
+			{ id: "3", body: `## Audit Rejected\nnew\n\n${MARK}` },
 		];
 		assert.deepEqual(findPriorAuditRejection(comments), {
 			id: "3",
-			body: "## Audit Rejected\nnew",
+			body: `## Audit Rejected\nnew\n\n${MARK}`,
 		});
 	});
 
-	it("matches gate rejections as audit rejections", () => {
-		const comments = [{ id: "9", body: "## Audit Score Gate Rejected\nlow score" }];
+	it("matches marked gate rejections as audit rejections", () => {
+		const comments = [{ id: "9", body: `## Audit Score Gate Rejected\nlow score\n\n${MARK}` }];
 		assert.deepEqual(findPriorAuditRejection(comments), {
 			id: "9",
-			body: "## Audit Score Gate Rejected\nlow score",
+			body: `## Audit Score Gate Rejected\nlow score\n\n${MARK}`,
 		});
+	});
+
+	it("never selects an unmarked comment, even with a rejection heading", () => {
+		const comments = [
+			{ id: "1", body: "## Audit Rejected\ncodeowner wrote this" },
+			{ id: "2", body: "## Audit Score Gate Rejected\nunmarked gate" },
+		];
+		assert.equal(findPriorAuditRejection(comments), undefined);
 	});
 
 	it("ignores id-less rejection comments and quoted headings", () => {
 		const comments = [
 			{ id: "1", body: "## Audit Approved" },
-			{ id: "2", body: 'no "## Audit Rejected" verdict comment' },
+			{ id: "2", body: `no "## Audit Rejected" verdict comment\n${MARK}` },
 		];
 		assert.equal(findPriorAuditRejection(comments), undefined);
 	});
