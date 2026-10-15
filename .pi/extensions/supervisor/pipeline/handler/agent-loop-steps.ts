@@ -35,7 +35,7 @@ import {
 import { buildDeadCodeContext } from "../../checks/dead-code.ts";
 import { buildVulnContext } from "../../checks/osv-scanner.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
+import { countAuditRejections } from "../../lib/audit-rejections.ts";
 import type { RunContext } from "./shared.ts";
 
 // ─── Workflow step + agent resolution ────────────────────────────
@@ -129,18 +129,60 @@ export async function loadLoopIssue(
 	runCtx: RunContext,
 	step: WorkflowStep,
 ): Promise<IssueResolution> {
-	const { ctx, config, issueNum, exec, collector, issueData } = runCtx;
-	const loopFilteredData = await fetchFreshIssueData(
+	const { ctx, config, issueNum, exec, collector, issueData, port } = runCtx;
+	const fresh = await fetchFreshIssueData(
 		exec,
 		config,
 		issueNum,
 		issueData,
 		collector,
+		port,
+	);
+	// Fail closed on incomplete discovery when this step enforces the rejection
+	// limit (issue #2044 audit findings #1/#2): without every comment and a
+	// verified identity the prior rejection could be missed, and the next
+	// rejection would be posted as a duplicate. Steps without a limit keep the
+	// best-effort data so a non-audit stage still runs.
+	if (fresh.kind === "failed" && step.maxRejections && step.maxRejections > 0) {
+		ctx.ui.notify(`Issue #${issueNum}: ${fresh.reason}`, "error");
+		return { kind: "terminal", stopReason: fresh.reason };
+	}
+	const loopFilteredData = fresh.data;
+
+	// Loop counter lives on `reject-N` labels now that rejections update in
+	// place instead of appending comments (issue #2044). Legacy rejection
+	// comments remain the fallback so pre-label issues keep counting. A label
+	// read failure must stop the loop when a limit is configured — falling back
+	// to comments undercounts (in-place updates leave one comment), which would
+	// let `maxRejections` never be reached (audit finding #3).
+	let labels: string[];
+	try {
+		labels = await port.getIssueLabels(issueNum, config.repo);
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		if (step.maxRejections && step.maxRejections > 0) {
+			ctx.ui.notify(
+				`Issue #${issueNum}: cannot read reject labels — stopping to avoid bypassing the rejection limit`,
+				"error",
+			);
+			collector?.push("handler", "error", `Failed to fetch issue labels: ${msg}`);
+			return { kind: "terminal", stopReason: `Cannot read issue labels: ${msg}` };
+		}
+		collector?.push("handler", "warn", `Failed to fetch issue labels: ${msg}`);
+		labels = [];
+	}
+	// Legacy fallback is a count-only total over RAW position-0 rejection
+	// comments (issue #2044 audit finding #3): the in-place upsert leaves one
+	// comment, so the bodies alone undercount; the count covers unmarked
+	// rejections whose content stays out of the agent-visible `comments`.
+	const rejectionCount = countAuditRejections(
+		labels,
+		loopFilteredData.rejectionCommentCount ?? 0,
 	);
 
 	// Rejection limit check (issue #1668: reports the real count, not the
-	// threshold; only position-0 `## Audit Rejected` comments count).
-	const rejectionLimit = isRejectionLimitReached(loopFilteredData.comments, step.maxRejections);
+	// threshold).
+	const rejectionLimit = isRejectionLimitReached(rejectionCount, step.maxRejections);
 	if (rejectionLimit.reached) {
 		ctx.ui.notify(
 			`Issue #${issueNum} rejected ${rejectionLimit.count} times. Human intervention required.`,
@@ -250,6 +292,30 @@ export async function loadLoopAgentFile(
 // ─── Task assembly ───────────────────────────────────────────────
 
 /**
+ * Resolve the prior supervisor rejection for the developer/auditor feedback
+ * block, plus the comment list with that rejection removed (the supervisor
+ * account may also be a codeowner, so the same comment can appear in both
+ * lists). Rejections come from `auditRejections` — retained outside the
+ * codeowner trust gate and selected by author, so pre-marker rejections are
+ * included (issue #2044).
+ */
+function resolveAuditFeedback(
+	loopFilteredData: FilteredIssueData,
+	agentName: string,
+): { auditFeedback: string | undefined; commentSource: FilteredIssueData["comments"] } {
+	if (agentName !== "developer" && agentName !== "auditor") {
+		return { auditFeedback: undefined, commentSource: loopFilteredData.comments };
+	}
+	const rejections = loopFilteredData.auditRejections ?? [];
+	const auditFeedback = [...rejections].reverse().find((r) => r.body)?.body;
+	const rejectionIds = new Set(rejections.map((r) => r.id).filter((id): id is string => !!id));
+	return {
+		auditFeedback,
+		commentSource: loopFilteredData.comments.filter((c) => !c.id || !rejectionIds.has(c.id)),
+	};
+}
+
+/**
  * Build the per-agent task string: the agent-specific context blocks
  * (duplicate code / research findings / audit feedback / dead code / vuln)
  * plus the shared buildAgentTask call. The pre-Implementation rebase
@@ -292,25 +358,11 @@ export async function assembleAgentTask(
 					.map((c) => c.body)
 					.find((body) => /##\s*Research\s*Findings/i.test(body))
 			: undefined;
-	// Extract latest audit rejection comment for developer feedback loop
-	// When audit rejects and pipeline loops back to Implementation, the developer
-	// needs to see EXACTLY what the auditor found wrong — not just a generic
-	// list of trusted comments where audit feedback is buried.
-	const auditFeedback: string | undefined =
-		agentName === "developer"
-			? (() => {
-					// Find the latest comment BEGINNING with the "## Audit Rejected"
-					// heading (position-0 only — quoted occurrences must not be fed
-					// to the developer as rejection feedback, issue #1668).
-					for (let i = loopFilteredData.comments.length - 1; i >= 0; i--) {
-						const body = loopFilteredData.comments[i]?.body || "";
-						if (isAuditRejectedComment(body)) {
-							return body;
-						}
-					}
-					return undefined;
-				})()
-			: undefined;
+	// Extract the latest supervisor rejection from `auditRejections` — retrieved
+	// independently of the codeowner trust gate and selected by author, so
+	// pre-marker rejections are found too (issue #2044). The developer sees it as
+	// a fix-list (issue #1668); the auditor as a re-verify block.
+	const { auditFeedback, commentSource } = resolveAuditFeedback(loopFilteredData, agentName);
 	// Build dead code context for auditor
 	const deadContext: string | undefined =
 		agentName === "auditor"
@@ -335,7 +387,7 @@ export async function assembleAgentTask(
 		ctx.cwd, // mainRepoPrefix
 		worktreePath,
 		worktreeBranch,
-		summarizeComments(loopFilteredData.comments),
+		summarizeComments(commentSource),
 		dupContext,
 		researchFindings,
 		auditFeedback,

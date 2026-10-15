@@ -71,6 +71,7 @@ export async function handlePostAgentSuccess(
 			collector,
 			gateRejected,
 			port,
+			loopFilteredData,
 		);
 	}
 

@@ -9,6 +9,7 @@
 
 export const AUDIT_REJECTED_HEADING = "## Audit Rejected";
 export const AUDIT_APPROVED_HEADING = "## Audit Approved";
+export const AUDIT_GATE_REJECTED_HEADING = "## Audit Score Gate Rejected";
 
 /**
  * True when the body begins with the `## Audit Rejected` heading at
@@ -20,6 +21,18 @@ export const AUDIT_APPROVED_HEADING = "## Audit Approved";
 export function isAuditRejectedComment(body: string | null | undefined): boolean {
 	if (!body) return false;
 	return /^##\s*Audit\s*Rejected/i.test(body);
+}
+
+/**
+ * True when the body begins with either rejection heading at position 0 —
+ * the normal `## Audit Rejected` or the score-gate `## Audit Score Gate
+ * Rejected`. Used to identify the auditor's own rejection comment for the
+ * in-place upsert (issue #2044) and to count loop iterations.
+ */
+export function isAuditRejectionComment(body: string | null | undefined): boolean {
+	if (!body) return false;
+	if (isAuditRejectedComment(body)) return true;
+	return /^##\s*Audit\s*Score\s*Gate\s*Rejected/i.test(body);
 }
 
 /**

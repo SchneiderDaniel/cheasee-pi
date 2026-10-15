@@ -33,11 +33,32 @@ export interface GitHubPort {
 	/** Fetch issue including all comments (with authors). */
 	getIssueWithComments(issueNum: number, repo: string): Promise<RawIssueData | null>;
 
+	/** List every issue comment, auto-paginated (issue #2044 audit finding #4). */
+	listComments(issueNum: number, repo: string): Promise<NonNullable<RawIssueData["comments"]>>;
+
+	/** Login of the token owner — identifies supervisor-authored comments. */
+	getAuthenticatedLogin(): Promise<string>;
+
 	/** Close an issue. */
 	closeIssue(issueNum: number, repo: string): Promise<void>;
 
 	/** Post a comment on an issue. Body must be < 50K chars. */
 	postIssueComment(issueNum: number, repo: string, body: string): Promise<void>;
+
+	/** Update an existing issue comment in place (issue #2044). */
+	updateIssueComment(commentId: string, repo: string, body: string): Promise<void>;
+
+	/** List an issue's labels. */
+	getIssueLabels(issueNum: number, repo: string): Promise<string[]>;
+
+	/** Add a label to an issue (existing labels are preserved). */
+	addIssueLabel(issueNum: number, repo: string, label: string): Promise<void>;
+
+	/** Remove a label from an issue. A missing label (404) is a no-op. */
+	removeIssueLabel(issueNum: number, repo: string, label: string): Promise<void>;
+
+	/** Delete an issue comment. A missing comment (404) is a no-op. */
+	deleteIssueComment(commentId: string, repo: string): Promise<void>;
 
 	/** Compare two branches. Returns ahead_by count. */
 	compareBranches(base: string, head: string, repo: string): Promise<number>;

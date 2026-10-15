@@ -203,6 +203,12 @@ function buildRetryRunContext(opts: {
 			postIssueComment: async () => {},
 			closeIssue: async () => {},
 			setItemStatusField: async () => {},
+			listComments: async () =>
+				(opts.comments ?? []).map((c) => ({
+					author: c.author?.login ? { login: c.author.login } : undefined,
+					body: c.body ?? undefined,
+				})),
+			getAuthenticatedLogin: async () => "user1",
 		},
 		opts.portCalls,
 	);
@@ -697,6 +703,10 @@ const TEST_PLAN_QUOTE =
 	'## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment';
 
 function trustedComment(body: string): { author: { login: string }; body: string } {
+	// Genuine rejections are authored by the automation account (the port's
+	// getAuthenticatedLogin returns "user1" in this harness), so the pipeline
+	// treats them as its own output (issue #2044); quoted Test Plan text does
+	// not start with the heading and is never selected.
 	return { author: { login: "user1" }, body };
 }
 

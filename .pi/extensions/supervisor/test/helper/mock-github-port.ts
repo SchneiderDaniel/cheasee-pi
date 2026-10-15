@@ -19,8 +19,18 @@ export interface PortCall {
 export interface MockGitHubPortOptions {
 	getIssue?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
 	getIssueWithComments?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
+	listComments?: (
+		issueNum: number,
+		repo: string,
+	) => Promise<NonNullable<RawIssueData["comments"]>>;
+	getAuthenticatedLogin?: () => Promise<string>;
 	closeIssue?: (issueNum: number, repo: string) => Promise<void>;
 	postIssueComment?: (issueNum: number, repo: string, body: string) => Promise<void>;
+	updateIssueComment?: (commentId: string, repo: string, body: string) => Promise<void>;
+	getIssueLabels?: (issueNum: number, repo: string) => Promise<string[]>;
+	addIssueLabel?: (issueNum: number, repo: string, label: string) => Promise<void>;
+	removeIssueLabel?: (issueNum: number, repo: string, label: string) => Promise<void>;
+	deleteIssueComment?: (commentId: string, repo: string) => Promise<void>;
 	compareBranches?: (base: string, head: string, repo: string) => Promise<number>;
 	listPullRequestsForBranch?: (
 		branch: string,
@@ -84,8 +94,15 @@ export function createMockGitHubPort(
 	const defaults = {
 		getIssue: null as RawIssueData | null,
 		getIssueWithComments: null as RawIssueData | null,
+		listComments: [] as NonNullable<RawIssueData["comments"]>,
+		getAuthenticatedLogin: "automation",
 		closeIssue: undefined as void,
 		postIssueComment: undefined as void,
+		updateIssueComment: undefined as void,
+		getIssueLabels: [] as string[],
+		addIssueLabel: undefined as void,
+		removeIssueLabel: undefined as void,
+		deleteIssueComment: undefined as void,
 		compareBranches: 0,
 		listPullRequestsForBranch: null as PrConflictInfo | null,
 		createPullRequest: { number: 123 },
@@ -115,6 +132,22 @@ export function createMockGitHubPort(
 						return defaults.getIssueWithComments;
 					}) as GitHubPort["getIssueWithComments"],
 
+		listComments:
+			opts?.listComments
+				? wrap("listComments", opts.listComments)
+				: (async (issueNum: number, repo: string) => {
+						record("listComments", [issueNum, repo]);
+						return defaults.listComments;
+					}) as GitHubPort["listComments"],
+
+		getAuthenticatedLogin:
+			opts?.getAuthenticatedLogin
+				? wrap("getAuthenticatedLogin", opts.getAuthenticatedLogin)
+				: (async () => {
+						record("getAuthenticatedLogin", []);
+						return defaults.getAuthenticatedLogin;
+					}) as GitHubPort["getAuthenticatedLogin"],
+
 		closeIssue:
 			opts?.closeIssue
 				? wrap("closeIssue", opts.closeIssue)
@@ -130,6 +163,46 @@ export function createMockGitHubPort(
 						record("postIssueComment", [issueNum, repo, body]);
 						return defaults.postIssueComment;
 					}) as GitHubPort["postIssueComment"],
+
+		updateIssueComment:
+			opts?.updateIssueComment
+				? wrap("updateIssueComment", opts.updateIssueComment)
+				: (async (commentId: string, repo: string, body: string) => {
+						record("updateIssueComment", [commentId, repo, body]);
+						return defaults.updateIssueComment;
+					}) as GitHubPort["updateIssueComment"],
+
+		getIssueLabels:
+			opts?.getIssueLabels
+				? wrap("getIssueLabels", opts.getIssueLabels)
+				: (async (issueNum: number, repo: string) => {
+						record("getIssueLabels", [issueNum, repo]);
+						return defaults.getIssueLabels;
+					}) as GitHubPort["getIssueLabels"],
+
+		addIssueLabel:
+			opts?.addIssueLabel
+				? wrap("addIssueLabel", opts.addIssueLabel)
+				: (async (issueNum: number, repo: string, label: string) => {
+						record("addIssueLabel", [issueNum, repo, label]);
+						return defaults.addIssueLabel;
+					}) as GitHubPort["addIssueLabel"],
+
+		removeIssueLabel:
+			opts?.removeIssueLabel
+				? wrap("removeIssueLabel", opts.removeIssueLabel)
+				: (async (issueNum: number, repo: string, label: string) => {
+						record("removeIssueLabel", [issueNum, repo, label]);
+						return defaults.removeIssueLabel;
+					}) as GitHubPort["removeIssueLabel"],
+
+		deleteIssueComment:
+			opts?.deleteIssueComment
+				? wrap("deleteIssueComment", opts.deleteIssueComment)
+				: (async (commentId: string, repo: string) => {
+						record("deleteIssueComment", [commentId, repo]);
+						return defaults.deleteIssueComment;
+					}) as GitHubPort["deleteIssueComment"],
 
 		compareBranches:
 			opts?.compareBranches

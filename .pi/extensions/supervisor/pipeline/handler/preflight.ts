@@ -22,7 +22,7 @@ import { createWorktree, installWorktreeDeps } from "../worktree.ts";
 import { cleanupStalePipelineState } from "../state-checkpoint.ts";
 import { setupCrashCleanup, shouldRetainWorktree, type CleanupOnExitDeps } from "../crash-cleanup.ts";
 import { ErrorCollector, setErrorCollector } from "../error-collector.ts";
-import { fetchIssue, readProjectBoard, checkDependencies } from "../helpers.ts";
+import { fetchIssue, readProjectBoard, checkDependencies, resolveAutomationLogin } from "../helpers.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import { withPerChildEnv } from "../../../lib/exec-env.ts";
 import { toExecFn } from "../../../lib/port-adapters.ts";
@@ -259,7 +259,7 @@ function loadPipelineBasics(runCtx: RunContext): void {
 // Fetch issue → push footer data → notify + filter. Returns false when
 // the issue is not found (early return, footer-integration semantics).
 async function fetchIssueAndEmit(runCtx: RunContext): Promise<boolean> {
-	const { ctx, pi, exec, notify, collector, config, issueNum } = runCtx;
+	const { ctx, pi, exec, notify, collector, config, issueNum, port } = runCtx;
 
 	if (ctx.hasUI) {
 		ctx.ui.notify(`Fetching issue #${issueNum}...`, "info");
@@ -293,7 +293,19 @@ async function fetchIssueAndEmit(runCtx: RunContext): Promise<boolean> {
 		repo: config.repo,
 	});
 
-	runCtx.filteredData = filterIssueData(issueData, config.codeowners);
+	const automationLogin = await resolveAutomationLogin(port, collector);
+	// Identity is only needed to tell supervisor rejections apart from forged
+	// ones. Degrade instead of aborting: the rejection-limited Audit step
+	// re-resolves it via `fetchFreshIssueData` and stops only itself, so a
+	// transient /user failure no longer blocks issues with no rejection history
+	// (issue #2044).
+	if (!automationLogin) {
+		ctx.ui.notify(
+			`Issue #${issueNum}: cannot resolve the authenticated login — rejection tracking disabled for this run`,
+			"warning",
+		);
+	}
+	runCtx.filteredData = filterIssueData(issueData, config.codeowners, automationLogin);
 	return true;
 }
 

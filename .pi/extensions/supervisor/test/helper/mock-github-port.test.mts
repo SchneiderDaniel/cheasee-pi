@@ -1,5 +1,5 @@
 // ─── Tests: helper/mock-github-port.ts — mock GitHubPort ─────────
-// Verifies the 8-method contract: each method exists, returns correct
+// Verifies the port method contract: each method exists, returns correct
 // defaults, respects overrides, and records calls when trackCalls is
 // provided.
 
@@ -11,6 +11,13 @@ describe("createMockGitHubPort — port method contract", () => {
 	it("returns an object with all port methods", () => {
 		const port = createMockGitHubPort();
 		assert.equal(typeof port.postIssueComment, "function");
+		assert.equal(typeof port.updateIssueComment, "function");
+		assert.equal(typeof port.listComments, "function");
+		assert.equal(typeof port.getAuthenticatedLogin, "function");
+		assert.equal(typeof port.getIssueLabels, "function");
+		assert.equal(typeof port.addIssueLabel, "function");
+		assert.equal(typeof port.removeIssueLabel, "function");
+		assert.equal(typeof port.deleteIssueComment, "function");
 		assert.equal(typeof port.getProjectFields, "function");
 		assert.equal(typeof port.getProjectItems, "function");
 		assert.equal(typeof port.getProjectId, "function");
@@ -26,6 +33,31 @@ describe("createMockGitHubPort — port method contract", () => {
 		const port = createMockGitHubPort();
 		const result = await port.postIssueComment(1, "owner/repo", "hello");
 		assert.equal(result, undefined);
+	});
+
+	it("updateIssueComment returns void by default", async () => {
+		const port = createMockGitHubPort();
+		const result = await port.updateIssueComment("123", "owner/repo", "hello");
+		assert.equal(result, undefined);
+	});
+
+	it("listComments returns [] and getAuthenticatedLogin returns a login by default", async () => {
+		const port = createMockGitHubPort();
+		assert.deepEqual(await port.listComments(1, "owner/repo"), []);
+		assert.equal(await port.getAuthenticatedLogin(), "automation");
+	});
+
+	it("getIssueLabels returns [] by default", async () => {
+		const port = createMockGitHubPort();
+		const result = await port.getIssueLabels(1, "owner/repo");
+		assert.deepEqual(result, []);
+	});
+
+	it("addIssueLabel / removeIssueLabel / deleteIssueComment return void by default", async () => {
+		const port = createMockGitHubPort();
+		assert.equal(await port.addIssueLabel(1, "owner/repo", "reject-1"), undefined);
+		assert.equal(await port.removeIssueLabel(1, "owner/repo", "reject-1"), undefined);
+		assert.equal(await port.deleteIssueComment("123", "owner/repo"), undefined);
 	});
 
 	it("getProjectFields returns [] by default", async () => {
