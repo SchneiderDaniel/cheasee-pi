@@ -294,15 +294,16 @@ async function fetchIssueAndEmit(runCtx: RunContext): Promise<boolean> {
 	});
 
 	const automationLogin = await resolveAutomationLogin(port, collector);
-	// Fail closed (issue #2044 audit finding #2): without a verified identity
-	// supervisor rejections cannot be told apart from forged ones, so stop
-	// before any rejection-dependent state is built.
+	// Identity is only needed to tell supervisor rejections apart from forged
+	// ones. Degrade instead of aborting: the rejection-limited Audit step
+	// re-resolves it via `fetchFreshIssueData` and stops only itself, so a
+	// transient /user failure no longer blocks issues with no rejection history
+	// (issue #2044).
 	if (!automationLogin) {
 		ctx.ui.notify(
-			`Cannot resolve the authenticated login for issue #${issueNum} — stopping`,
-			"error",
+			`Issue #${issueNum}: cannot resolve the authenticated login — rejection tracking disabled for this run`,
+			"warning",
 		);
-		return false;
 	}
 	runCtx.filteredData = filterIssueData(issueData, config.codeowners, automationLogin);
 	return true;

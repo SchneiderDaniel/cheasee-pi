@@ -50,9 +50,11 @@ export function filterIssueData(
 	// existed must still be re-verified and updated in place, and the public
 	// marker could be forged. Authoring account is the authenticated automation
 	// login, so other users' comments are never selected; with no resolved login
-	// the rejections are withheld (fail closed → a new rejection is posted
-	// instead of an update). Bodies of selected rejections are supervisor-owned
-	// and stay out of the trust-filtered `comments` list.
+	// the rejections are withheld and the degraded shape is only used best-effort
+	// (the rejection-limited Audit step stops itself in fetchFreshIssueData
+	// instead of driving an upsert on unverified data). Bodies of selected
+	// rejections are supervisor-owned and stay out of the trust-filtered
+	// `comments` list.
 	const auditRejections = rawComments
 		.filter(
 			(c) =>

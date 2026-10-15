@@ -13,7 +13,7 @@ import type {
 } from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { GitHubPort } from "../../github/ports.ts";
-import { AUDIT_GATE_REJECTED_HEADING, AUDIT_REJECTION_MARKER } from "../../lib/audit-headings.ts";
+import { AUDIT_GATE_REJECTED_HEADING } from "../../lib/audit-headings.ts";
 import {
 	countAuditRejections,
 	findPriorAuditRejection,
@@ -148,6 +148,7 @@ async function handleStructuredVerdict(
 			config,
 			collector,
 			port,
+			loopFilteredData,
 			ctx,
 		);
 	} else {
@@ -164,13 +165,18 @@ async function handleStructuredVerdict(
 }
 
 /**
- * Post a new audit rejection, or update the auditor's prior rejection in place
- * (issue #2044) so later loops do not pile up stale rejection comments. The
- * prior rejection is discovered from `auditRejections` — supervisor-authored
- * comments retained outside the codeowner trust gate and selected by author,
- * so pre-marker rejections are updated too. The `reject-N` label is bumped only
- * AFTER the comment write succeeds (audit finding #2): a failed write must not
- * advance the loop counter while the issue still shows stale feedback.
+ * Post or update the supervisor's audit rejection (issue #2044).
+ *
+ * The `reject-N` label is the durable loop counter for the in-place update
+ * path, so it is written first and rolled back if the comment write fails.
+ * When the label cannot be written the rejection is appended instead — the
+ * legacy comment count then keeps the counter advancing, so a label outage
+ * degrades to the old append behaviour instead of stalling the loop or
+ * aborting the pipeline.
+ *
+ * Superseded rejection comments (older ones on an issue rejected before this
+ * feature) are deleted only while the label counter is authoritative;
+ * otherwise they are exactly what keeps the comment-count fallback growing.
  */
 async function postOrUpdateAuditRejection(
 	issueNum: number,
@@ -185,57 +191,107 @@ async function postOrUpdateAuditRejection(
 		collector?.push("stages", "error", "Cannot record audit rejection: GitHub port unavailable");
 		return;
 	}
-	const prior = findPriorAuditRejection(loopFilteredData?.auditRejections ?? []);
-	const markedBody = `${body}\n\n${AUDIT_REJECTION_MARKER}`;
-	try {
-		if (prior) {
-			await port.updateIssueComment(prior.id, config.repo, markedBody);
-			ctx.ui.notify("Audit rejection comment updated in place", "info");
-		} else {
-			await port.postIssueComment(issueNum, config.repo, markedBody);
-			ctx.ui.notify("Audit rejection comment posted", "info");
-		}
-	} catch (err: unknown) {
-		const msg = err instanceof Error ? err.message : String(err);
-		const action = prior ? "update" : "post";
-		collector?.push("stages", "error", `Failed to ${action} audit rejection: ${msg}`);
-		ctx.ui.notify(`Audit rejection could not be saved: ${msg}`, "error");
-		// Fail closed (issue #2044 audit finding #2): without the persisted
-		// comment the next implementation run has no feedback, so do not advance
-		// the loop counter or the rejection transition. The top-level handler
-		// catch stops the pipeline and reports the error.
-		throw new Error(`Failed to ${action} audit rejection: ${msg}`);
-	}
-	// Fail closed on the counter (issue #2044 audit finding #2): a read or add
-	// failure that returned normally would let the loop exceed `maxRejections`
-	// with an unpersisted count. The stale-label removal below is cosmetic and
-	// must not block the transition.
-	let labels: string[];
+	const rejections = loopFilteredData?.auditRejections ?? [];
+	const prior = findPriorAuditRejection(rejections);
+
+	// Resolve the counter before writing so a label outage can fall back to a
+	// new comment (which grows the legacy count) instead of aborting.
+	let labels: string[] | undefined;
 	try {
 		labels = await port.getIssueLabels(issueNum, config.repo);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
-		collector?.push("stages", "error", `Failed to read reject labels: ${msg}`);
-		throw new Error(`Failed to read reject labels: ${msg}`);
+		collector?.push("stages", "warn", `Failed to read reject labels: ${msg}`);
 	}
-	const current = countAuditRejections(
-		labels,
-		loopFilteredData?.rejectionCommentCount ?? 0,
-	);
+	const current = countAuditRejections(labels ?? [], loopFilteredData?.rejectionCommentCount ?? 0);
 	const next = current + 1;
+
+	// Label first: an in-place update keeps a single rejection comment, so the
+	// label is the only durable record of the increment.
+	let bumped = false;
+	if (labels) {
+		try {
+			await port.addIssueLabel(issueNum, config.repo, rejectLabel(next));
+			bumped = true;
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			collector?.push("stages", "warn", `Failed to record reject label: ${msg}`);
+		}
+	}
+
+	const updateInPlace = !!prior && bumped;
 	try {
-		await port.addIssueLabel(issueNum, config.repo, rejectLabel(next));
+		if (updateInPlace && prior) {
+			await port.updateIssueComment(prior.id, config.repo, body);
+			ctx.ui.notify("Audit rejection comment updated in place", "info");
+		} else {
+			await port.postIssueComment(issueNum, config.repo, body);
+			ctx.ui.notify("Audit rejection comment posted", "info");
+		}
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
-		collector?.push("stages", "error", `Failed to record reject label: ${msg}`);
-		throw new Error(`Failed to record reject label: ${msg}`);
+		const action = updateInPlace ? "update" : "post";
+		collector?.push("stages", "error", `Failed to ${action} audit rejection: ${msg}`);
+		ctx.ui.notify(`Audit rejection could not be saved: ${msg}`, "error");
+		// Roll back the counter bump — the rejection was not persisted, so the
+		// loop must not advance — then fail closed: the next implementation run
+		// would otherwise have no feedback.
+		if (bumped) {
+			try {
+				await port.removeIssueLabel(issueNum, config.repo, rejectLabel(next));
+			} catch (rollbackErr: unknown) {
+				const rollbackMsg =
+					rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+				collector?.push("stages", "warn", `Failed to roll back reject label: ${rollbackMsg}`);
+			}
+		}
+		throw new Error(`Failed to ${action} audit rejection: ${msg}`);
 	}
+
+	if (!bumped) return;
+	// The label now carries the count, so stale rejections can be removed.
+	await deleteSupersededRejections(
+		port,
+		config.repo,
+		rejections,
+		updateInPlace ? prior?.id : undefined,
+		collector,
+	);
 	if (current > 0) {
 		try {
 			await port.removeIssueLabel(issueNum, config.repo, rejectLabel(current));
 		} catch (err: unknown) {
 			const msg = err instanceof Error ? err.message : String(err);
 			collector?.push("stages", "warn", `Failed to remove stale reject label: ${msg}`);
+		}
+	}
+}
+
+/**
+ * Delete every supervisor rejection comment except `keepId` (issue #2044):
+ * older issues accumulated one rejection comment per loop, and the in-place
+ * update only collapses the newest. Best effort — a failed delete must not
+ * block the audit transition.
+ */
+async function deleteSupersededRejections(
+	port: GitHubPort,
+	repo: string,
+	rejections: Array<{ id?: string }>,
+	keepId: string | undefined,
+	collector: ErrorCollector | undefined,
+): Promise<void> {
+	for (const rejection of rejections) {
+		if (rejection.id && rejection.id !== keepId) {
+			try {
+				await port.deleteIssueComment(rejection.id, repo);
+			} catch (err: unknown) {
+				const msg = err instanceof Error ? err.message : String(err);
+				collector?.push(
+					"stages",
+					"warn",
+					`Failed to delete superseded rejection ${rejection.id}: ${msg}`,
+				);
+			}
 		}
 	}
 }
@@ -413,6 +469,7 @@ async function handleAuditorOutputFallback(
 				config,
 				collector,
 				port,
+				loopFilteredData,
 				ctx,
 			);
 		} else if (rejectedMatch) {
@@ -440,6 +497,7 @@ async function handleAuditorOutputFallback(
 				config,
 				collector,
 				port,
+				loopFilteredData,
 				ctx,
 			);
 		}
@@ -460,7 +518,11 @@ async function handleAuditorOutputFallback(
 	}
 }
 
-/** Post an approval comment, surfacing any post failure via the collector. */
+/**
+ * Post an approval comment, retiring any supervisor rejection it supersedes:
+ * an approved issue must not keep advertising a rejection the audit cleared
+ * (issue #2044).
+ */
 async function postApprovalComment(
 	body: string,
 	notifyMessage: string,
@@ -468,6 +530,7 @@ async function postApprovalComment(
 	config: SupervisorConfig,
 	collector: ErrorCollector | undefined,
 	port: GitHubPort | undefined,
+	loopFilteredData: FilteredIssueData | undefined,
 	ctx: ExtensionCommandContext,
 ): Promise<void> {
 	if (!port) return;
@@ -477,5 +540,13 @@ async function postApprovalComment(
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		collector?.push("stages", "warn", `Failed to post audit approval comment: ${msg}`);
+		return;
 	}
+	await deleteSupersededRejections(
+		port,
+		config.repo,
+		loopFilteredData?.auditRejections ?? [],
+		undefined,
+		collector,
+	);
 }

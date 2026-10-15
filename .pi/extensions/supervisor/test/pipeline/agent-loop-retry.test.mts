@@ -703,13 +703,11 @@ const TEST_PLAN_QUOTE =
 	'## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment';
 
 function trustedComment(body: string): { author: { login: string }; body: string } {
-	// Genuine rejections carry the supervisor marker so the pipeline treats them
-	// as its own output (issue #2044 audit finding #4); quoted Test Plan text does
-	// not start with the heading and stays unmarked.
-	const marked = /^##\s*Audit\s*Rejected/i.test(body)
-		? `${body}\n\n<!-- supervisor:audit-rejection -->`
-		: body;
-	return { author: { login: "user1" }, body: marked };
+	// Genuine rejections are authored by the automation account (the port's
+	// getAuthenticatedLogin returns "user1" in this harness), so the pipeline
+	// treats them as its own output (issue #2044); quoted Test Plan text does
+	// not start with the heading and is never selected.
+	return { author: { login: "user1" }, body };
 }
 
 function makeRejectWorktree(): string {

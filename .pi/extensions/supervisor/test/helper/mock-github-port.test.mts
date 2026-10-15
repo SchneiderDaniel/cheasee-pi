@@ -17,6 +17,7 @@ describe("createMockGitHubPort — port method contract", () => {
 		assert.equal(typeof port.getIssueLabels, "function");
 		assert.equal(typeof port.addIssueLabel, "function");
 		assert.equal(typeof port.removeIssueLabel, "function");
+		assert.equal(typeof port.deleteIssueComment, "function");
 		assert.equal(typeof port.getProjectFields, "function");
 		assert.equal(typeof port.getProjectItems, "function");
 		assert.equal(typeof port.getProjectId, "function");
@@ -52,10 +53,11 @@ describe("createMockGitHubPort — port method contract", () => {
 		assert.deepEqual(result, []);
 	});
 
-	it("addIssueLabel / removeIssueLabel return void by default", async () => {
+	it("addIssueLabel / removeIssueLabel / deleteIssueComment return void by default", async () => {
 		const port = createMockGitHubPort();
 		assert.equal(await port.addIssueLabel(1, "owner/repo", "reject-1"), undefined);
 		assert.equal(await port.removeIssueLabel(1, "owner/repo", "reject-1"), undefined);
+		assert.equal(await port.deleteIssueComment("123", "owner/repo"), undefined);
 	});
 
 	it("getProjectFields returns [] by default", async () => {

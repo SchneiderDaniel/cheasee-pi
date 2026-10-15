@@ -30,6 +30,7 @@ export interface MockGitHubPortOptions {
 	getIssueLabels?: (issueNum: number, repo: string) => Promise<string[]>;
 	addIssueLabel?: (issueNum: number, repo: string, label: string) => Promise<void>;
 	removeIssueLabel?: (issueNum: number, repo: string, label: string) => Promise<void>;
+	deleteIssueComment?: (commentId: string, repo: string) => Promise<void>;
 	compareBranches?: (base: string, head: string, repo: string) => Promise<number>;
 	listPullRequestsForBranch?: (
 		branch: string,
@@ -101,6 +102,7 @@ export function createMockGitHubPort(
 		getIssueLabels: [] as string[],
 		addIssueLabel: undefined as void,
 		removeIssueLabel: undefined as void,
+		deleteIssueComment: undefined as void,
 		compareBranches: 0,
 		listPullRequestsForBranch: null as PrConflictInfo | null,
 		createPullRequest: { number: 123 },
@@ -193,6 +195,14 @@ export function createMockGitHubPort(
 						record("removeIssueLabel", [issueNum, repo, label]);
 						return defaults.removeIssueLabel;
 					}) as GitHubPort["removeIssueLabel"],
+
+		deleteIssueComment:
+			opts?.deleteIssueComment
+				? wrap("deleteIssueComment", opts.deleteIssueComment)
+				: (async (commentId: string, repo: string) => {
+						record("deleteIssueComment", [commentId, repo]);
+						return defaults.deleteIssueComment;
+					}) as GitHubPort["deleteIssueComment"],
 
 		compareBranches:
 			opts?.compareBranches

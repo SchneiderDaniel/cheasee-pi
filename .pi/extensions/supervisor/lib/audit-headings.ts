@@ -11,19 +11,6 @@ export const AUDIT_REJECTED_HEADING = "## Audit Rejected";
 export const AUDIT_APPROVED_HEADING = "## Audit Approved";
 export const AUDIT_GATE_REJECTED_HEADING = "## Audit Score Gate Rejected";
 
-/** Hidden marker appended to supervisor-authored rejection comments. */
-export const AUDIT_REJECTION_MARKER = "<!-- supervisor:audit-rejection -->";
-
-/**
- * True when the body carries the hidden supervisor rejection marker. Used to
- * identify the pipeline's own rejection comments independently of the
- * codeowner trust gate (issue #2044) — an unmarked comment with a rejection
- * heading is never treated as supervisor-owned.
- */
-export function hasAuditRejectionMarker(body: string | null | undefined): boolean {
-	return !!body && body.includes(AUDIT_REJECTION_MARKER);
-}
-
 /**
  * True when the body begins with the `## Audit Rejected` heading at
  * position 0. `\s*` kept over strict CommonMark `\s+` (documented

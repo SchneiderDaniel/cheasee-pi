@@ -57,6 +57,9 @@ export interface GitHubPort {
 	/** Remove a label from an issue. A missing label (404) is a no-op. */
 	removeIssueLabel(issueNum: number, repo: string, label: string): Promise<void>;
 
+	/** Delete an issue comment. A missing comment (404) is a no-op. */
+	deleteIssueComment(commentId: string, repo: string): Promise<void>;
+
 	/** Compare two branches. Returns ahead_by count. */
 	compareBranches(base: string, head: string, repo: string): Promise<number>;
 

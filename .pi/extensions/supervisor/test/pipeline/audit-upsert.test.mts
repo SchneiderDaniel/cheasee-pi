@@ -66,6 +66,28 @@ function auditorResult(commentBody: string): AgentRunResult {
 	};
 }
 
+function auditorApprovalResult(commentBody: string): AgentRunResult {
+	const json = JSON.stringify({
+		action: "APPROVED",
+		agentName: "auditor",
+		summary: "ok",
+		commentBody,
+		findings: [],
+	});
+	return {
+		output: json,
+		success: true,
+		agentName: "auditor",
+		toolCount: 1,
+		tokenCount: 10,
+		durationMs: 5,
+		textOutput: json,
+		summaryLine: "ok",
+		errorOutput: "",
+		textOnly: json,
+	};
+}
+
 async function run(port: ReturnType<typeof createMockGitHubPort>, data: FilteredIssueData) {
 	return handlePostAgentSuccess(
 		createMockPi(),
@@ -85,21 +107,41 @@ async function run(port: ReturnType<typeof createMockGitHubPort>, data: Filtered
 	);
 }
 
+async function runApproval(port: ReturnType<typeof createMockGitHubPort>, data: FilteredIssueData) {
+	return handlePostAgentSuccess(
+		createMockPi(),
+		createMockCtx(),
+		auditorApprovalResult("## Audit Approved\n\nlooks good"),
+		"auditor",
+		42,
+		mockConfig,
+		data,
+		undefined,
+		undefined,
+		"Test issue",
+		undefined,
+		undefined,
+		undefined,
+		port,
+	);
+}
+
 const MARK = "<!-- supervisor:audit-rejection -->";
 
 describe("audit rejection upsert (issue #2044)", () => {
-	it("posts a new rejection (with marker) and label when no prior rejection exists", async () => {
+	it("posts a new rejection and bumps reject-1 when no prior rejection exists", async () => {
 		const calls: PortCall[] = [];
 		const port = createMockGitHubPort({}, calls);
 		await run(port, { body: "", comments: [] });
 
-		const post = calls.find((c) => c.method === "postIssueComment");
-		assert.ok(post, "posts the first rejection");
 		assert.ok(
-			String(post!.args[2]).includes(MARK),
-			"new rejection carries the supervisor marker",
+			calls.find((c) => c.method === "postIssueComment"),
+			"posts the first rejection",
 		);
-		assert.equal(calls.find((c) => c.method === "updateIssueComment"), undefined);
+		assert.equal(
+			calls.find((c) => c.method === "updateIssueComment"),
+			undefined,
+		);
 
 		const add = calls.find((c) => c.method === "addIssueLabel");
 		assert.ok(add, "bumps the reject label");
@@ -119,7 +161,10 @@ describe("audit rejection upsert (issue #2044)", () => {
 		const update = calls.find((c) => c.method === "updateIssueComment");
 		assert.ok(update, "updates the prior rejection");
 		assert.equal(update!.args[0], "IC_old");
-		assert.equal(calls.find((c) => c.method === "postIssueComment"), undefined);
+		assert.equal(
+			calls.find((c) => c.method === "postIssueComment"),
+			undefined,
+		);
 	});
 
 	it("updates the prior rejection even when it is not in the trusted comments", async () => {
@@ -155,7 +200,10 @@ describe("audit rejection upsert (issue #2044)", () => {
 		const update = calls.find((c) => c.method === "updateIssueComment");
 		assert.ok(update, "updates the pre-marker rejection");
 		assert.equal(update!.args[0], "IC_legacy");
-		assert.equal(calls.find((c) => c.method === "postIssueComment"), undefined);
+		assert.equal(
+			calls.find((c) => c.method === "postIssueComment"),
+			undefined,
+		);
 	});
 
 	it("bumps reject-N from the existing label, removing the previous one", async () => {
@@ -179,7 +227,9 @@ describe("audit rejection upsert (issue #2044)", () => {
 		assert.equal(add!.args[2], "reject-3", "max(labels, raw rejection count) + 1");
 	});
 
-	it("fails closed when reading the reject labels fails (audit finding #2)", async () => {
+	it("appends instead of failing when the reject labels cannot be read", async () => {
+		// A label outage must not abort the audit: without the label the legacy
+		// comment count still advances, so the loop counter keeps moving.
 		const calls: PortCall[] = [];
 		const port = createMockGitHubPort(
 			{
@@ -189,15 +239,19 @@ describe("audit rejection upsert (issue #2044)", () => {
 			},
 			calls,
 		);
-		await assert.rejects(() => run(port, { body: "", comments: [] }), /Failed to read reject labels/);
+		await run(port, { body: "", comments: [] });
+		assert.ok(
+			calls.find((c) => c.method === "postIssueComment"),
+			"appends a new rejection",
+		);
 		assert.equal(
 			calls.find((c) => c.method === "addIssueLabel"),
 			undefined,
-			"must not advance a counter it could not read",
+			"no label write when the read failed",
 		);
 	});
 
-	it("fails closed when adding the reject label fails (audit finding #2)", async () => {
+	it("appends instead of failing when the reject label cannot be written", async () => {
 		const calls: PortCall[] = [];
 		const port = createMockGitHubPort(
 			{
@@ -207,9 +261,15 @@ describe("audit rejection upsert (issue #2044)", () => {
 			},
 			calls,
 		);
-		await assert.rejects(
-			() => run(port, { body: "", comments: [] }),
-			/Failed to record reject label/,
+		await run(port, { body: "", comments: [] });
+		assert.ok(
+			calls.find((c) => c.method === "postIssueComment"),
+			"appends a new rejection",
+		);
+		assert.equal(
+			calls.find((c) => c.method === "updateIssueComment"),
+			undefined,
+			"never updates in place when the counter could not be recorded",
 		);
 	});
 
@@ -229,7 +289,7 @@ describe("audit rejection upsert (issue #2044)", () => {
 		assert.equal(add!.args[2], "reject-2");
 	});
 
-	it("fails closed when the comment write fails: no label bump, error surfaced (audit finding #2)", async () => {
+	it("rolls back the label bump and fails closed when the comment write fails", async () => {
 		const calls: PortCall[] = [];
 		const port = createMockGitHubPort(
 			{
@@ -239,14 +299,22 @@ describe("audit rejection upsert (issue #2044)", () => {
 			},
 			calls,
 		);
-		await assert.rejects(() => run(port, { body: "", comments: [] }), /Failed to post audit rejection/);
-
-		assert.ok(calls.find((c) => c.method === "postIssueComment"), "attempts the write");
-		assert.equal(
-			calls.find((c) => c.method === "addIssueLabel"),
-			undefined,
-			"label must not advance when the rejection was not persisted",
+		await assert.rejects(
+			() => run(port, { body: "", comments: [] }),
+			/Failed to post audit rejection/,
 		);
+
+		assert.ok(
+			calls.find((c) => c.method === "postIssueComment"),
+			"attempts the write",
+		);
+		assert.ok(
+			calls.find((c) => c.method === "addIssueLabel"),
+			"label written before the comment so the in-place path stays atomic",
+		);
+		const rollback = calls.find((c) => c.method === "removeIssueLabel");
+		assert.ok(rollback, "label bump rolled back — the loop must not advance");
+		assert.equal(rollback!.args[2], "reject-1");
 	});
 
 	it("does NOT overwrite an unmarked codeowner comment with a rejection heading", async () => {
@@ -263,6 +331,49 @@ describe("audit rejection upsert (issue #2044)", () => {
 			undefined,
 			"an unmarked comment is never updated in place",
 		);
-		assert.ok(calls.find((c) => c.method === "postIssueComment"), "posts a new marked rejection");
+		assert.ok(
+			calls.find((c) => c.method === "postIssueComment"),
+			"posts a new rejection",
+		);
+	});
+
+	it("deletes superseded rejection comments, keeping only the one updated", async () => {
+		const calls: PortCall[] = [];
+		const port = createMockGitHubPort({}, calls);
+		const data: FilteredIssueData = {
+			body: "",
+			comments: [],
+			auditRejections: [
+				{ id: "IC_old1", body: `## Audit Rejected\n\nfirst\n\n${MARK}` },
+				{ id: "IC_old2", body: `## Audit Rejected\n\nsecond\n\n${MARK}` },
+			],
+		};
+		await run(port, data);
+
+		const update = calls.find((c) => c.method === "updateIssueComment");
+		assert.equal(update!.args[0], "IC_old2", "updates the newest rejection");
+		const deleted = calls.filter((c) => c.method === "deleteIssueComment").map((c) => c.args[0]);
+		assert.deepEqual(deleted, ["IC_old1"], "older rejection comments are retired");
+	});
+
+	it("retires supervisor rejections when the audit approves", async () => {
+		const calls: PortCall[] = [];
+		const port = createMockGitHubPort({}, calls);
+		const data: FilteredIssueData = {
+			body: "",
+			comments: [],
+			auditRejections: [
+				{ id: "IC_old1", body: "## Audit Rejected\n\nfirst" },
+				{ id: "IC_old2", body: "## Audit Rejected\n\nsecond" },
+			],
+		};
+		await runApproval(port, data);
+
+		assert.ok(
+			calls.find((c) => c.method === "postIssueComment"),
+			"posts the approval",
+		);
+		const deleted = calls.filter((c) => c.method === "deleteIssueComment").map((c) => c.args[0]);
+		assert.deepEqual(deleted, ["IC_old1", "IC_old2"], "cleared rejections are retired");
 	});
 });

@@ -147,4 +147,24 @@ export abstract class IssueOpsBase {
 			throw err;
 		}
 	}
+
+	// Delete a superseded supervisor rejection comment (issue #2044). Used to
+	// collapse the many rejections an older issue accumulated into one.
+	async deleteIssueComment(commentId: string, repo: string): Promise<void> {
+		const [owner, name] = repo.split("/");
+		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+
+		this.log.debug("octokit", `deleteIssueComment ${commentId}`);
+		try {
+			await this.octokit.issues.deleteComment({
+				owner,
+				repo: name,
+				comment_id: Number(commentId),
+			});
+		} catch (err: unknown) {
+			// An already-deleted comment is the desired end state — idempotent.
+			if (isNotFound(err)) return;
+			throw err;
+		}
+	}
 }
