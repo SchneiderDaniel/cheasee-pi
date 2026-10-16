@@ -66,11 +66,18 @@ func TestRunBuildE_CachedBuildNoFlagsNoPrune(t *testing.T) {
 			t.Errorf("cached build must issue zero prune commands, got %v", stub.log)
 		}
 	}
-	if !strings.Contains(stderr, "Building container image...\n") {
-		t.Errorf("cached build must print the plain build label, got %q", stderr)
-	}
-	if strings.Contains(stderr, "full rebuild") {
-		t.Errorf("cached build must not carry the full-rebuild marker, got %q", stderr)
+	// The cached path prints the plain label, never the full-rebuild marker
+	// (#2050 regression on the #2003 complexity ceiling: one branch token).
+	for _, tt := range []struct {
+		sub  string
+		want bool
+	}{
+		{"Building container image...\n", true},
+		{"full rebuild", false},
+	} {
+		if strings.Contains(stderr, tt.sub) != tt.want {
+			t.Errorf("cached build stderr %q presence = %v, want %v (got %q)", tt.sub, !tt.want, tt.want, stderr)
+		}
 	}
 }
 

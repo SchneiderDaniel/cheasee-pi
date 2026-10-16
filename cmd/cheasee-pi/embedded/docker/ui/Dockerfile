@@ -108,16 +108,6 @@ RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x
 # tree is unused. npm itself is kept: the spawned `pi` child can install
 # configured packages through it.
 
-# pi-coding-agent — the `pi --mode rpc` child the server spawns (AC3/AC5).
-# PI_VERSION is pinned equal to the pi image's value by
-# TestUI_DockerfilePiVersionMatchesPiImage so the two clients never diverge.
-# The cache-busting PI_BUILD_STAMP is deliberately absent here: it is scoped to
-# the agent image only (docker-compose.yml build.args).
-ARG PI_VERSION=1.0.2
-RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
- && npm cache clean --force \
- && rm -rf /tmp/*
-
 # Non-root runtime: the image is a loopback-pinned sidecar; port 3000 is
 # unprivileged, so the bind needs no elevation.
 RUN useradd --create-home --uid 10001 --shell /usr/sbin/nologin ui
@@ -141,6 +131,18 @@ COPY --from=builder /build/target/server/release/hash.txt /app/hash.txt
 # in Cargo.toml is unaffected by the server target dir above.
 COPY --from=builder /build/target/site /app/site
 RUN chown -R ui:ui /app
+
+# pi-coding-agent — the `pi --mode rpc` child the server spawns (AC3/AC5).
+# Placed last (issue #2051): the layer is re-run whenever PI_VERSION changes,
+# so it follows the artifact COPYs and chown, which stay cached when it busts.
+# The cache-busting PI_BUILD_STAMP is deliberately absent here: it is scoped to
+# the agent image only (docker-compose.yml build.args) — #2052.
+# PI_VERSION is pinned equal to the pi image's value by
+# TestUI_DockerfilePiVersionMatchesPiImage so the two clients never diverge.
+ARG PI_VERSION=1.0.2
+RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
+ && npm cache clean --force \
+ && rm -rf /tmp/*
 
 # Point Leptos at the copied artifacts. LEPTOS_HASH_FILES must be true or the
 # server asks for unhashed filenames that do not exist in the image.
