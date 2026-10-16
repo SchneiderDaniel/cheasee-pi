@@ -14,6 +14,12 @@ nav_order: 2
 ## Prerequisites
 
 - **Docker Engine** ≥24.0 with [Compose V2](https://docs.docker.com/compose/)
+- **Free disk space** — at least **10 GiB** free on the Docker data root
+  (`docker info --format '{{.DockerRootDir}}'`, usually `/var/lib/docker`).
+  All image layers, the build cache and the export scratch land there.
+  `cheasee-pi build` and `cheasee-pi start` refuse to build below that
+  threshold; reclaim space with `cheasee-pi clean` and
+  `cheasee-pi prune-images`.
 - **git** with `user.name` and `user.email` configured
 - **Your own git repository** — cheasee-pi runs from any repo you own (it does not clone/fork anything)
 
@@ -195,6 +201,23 @@ through `cheasee-settings.json`.
 - [Zed](https://zed.dev/) — recommend for the workspace: `zed .`
 
 ## Troubleshooting
+
+### Build fails: not enough free space on the Docker data root
+
+A build needs at least **10 GiB** free on the Docker data root
+(`docker info --format '{{.DockerRootDir}}'`, usually `/var/lib/docker`).
+Below that, `cheasee-pi build` / `start` stop before BuildKit writes anything
+and name the reclaim commands:
+
+```bash
+cheasee-pi clean          # remove cheasee-pi containers
+cheasee-pi prune-images   # remove the regenerable cheasee-pi images + build cache
+cheasee-pi build          # retry
+```
+
+Do not let the partition fill up: if a build runs out mid-export, the Docker
+daemon reclaims space on its own and can delete the cheasee-pi images and
+containers, forcing a full cold rebuild (roughly 1 GB of downloads).
 
 ### Container doesn't start
 
