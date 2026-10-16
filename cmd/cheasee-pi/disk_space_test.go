@@ -33,6 +33,22 @@ func stubDockerInfoRoot(t *testing.T, out string, err error) {
 	})
 }
 
+// stubStatfs replaces the free-space probe seam for the duration of the test.
+// Serialized like the other package-var seams.
+func stubStatfs(t *testing.T, fn func(string) (uint64, error)) {
+	t.Helper()
+	saved := statfsFn
+	statfsFn = fn
+	t.Cleanup(func() { statfsFn = saved })
+}
+
+// stubStatfsAmple sets the probe above the build threshold so a build-running
+// harness never trips the disk gate.
+func stubStatfsAmple(t *testing.T) {
+	t.Helper()
+	stubStatfs(t, func(string) (uint64, error) { return uint64(minBuildFreeBytes + 1), nil })
+}
+
 func stubStatfsBytes(t *testing.T, n uint64) {
 	t.Helper()
 	stubStatfs(t, func(string) (uint64, error) { return n, nil })

@@ -2,18 +2,12 @@
 
 package main
 
-import "golang.org/x/sys/windows"
+import "errors"
 
-// platformFreeBytes returns the bytes available to the calling user on the
-// volume containing path.
-func platformFreeBytes(path string) (uint64, error) {
-	p, err := windows.UTF16PtrFromString(path)
-	if err != nil {
-		return 0, err
-	}
-	var freeToCaller, total, totalFree uint64
-	if err := windows.GetDiskFreeSpaceEx(p, &freeToCaller, &total, &totalFree); err != nil {
-		return 0, err
-	}
-	return freeToCaller, nil
+// platformFreeBytes is unsupported on Windows: Docker Desktop runs the data
+// root inside its Linux VM, so the host filesystem cannot be probed (and the
+// daemon-reported path is a path inside the VM). Returning an error makes
+// checkBuildDiskSpace fail open — the build is never blocked here.
+func platformFreeBytes(string) (uint64, error) {
+	return 0, errors.New("free-space probe unsupported on Windows")
 }
