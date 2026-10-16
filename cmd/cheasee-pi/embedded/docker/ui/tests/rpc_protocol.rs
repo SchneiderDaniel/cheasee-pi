@@ -628,7 +628,8 @@ fn rpc_our_extension_ui_response_matches_pi_shape() {
 
 #[test]
 fn rpc_an_additive_unknown_field_is_tolerated() {
-    // pi ships as PI_VERSION=latest, so no wire type may deny unknown fields.
+    // The pinned PI_VERSION can be advanced (or overridden to latest), so no
+    // wire type may deny unknown fields.
     let event: Event = serde_json::from_value(json!({
         "type": "agent_start",
         "futureField": {"nested": [1, 2]},

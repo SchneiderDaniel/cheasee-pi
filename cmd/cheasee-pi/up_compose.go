@@ -10,29 +10,25 @@ import (
 
 // composeBuildSpec parameterizes composeBuild: the caller owns the extra
 // args, the label text, the optional pre-build notice, and the error wrap;
-// composeBuild owns the stamp, argv assembly, env, redirect and ordering.
+// composeBuild owns argv assembly, env, redirect and ordering.
 type composeBuildSpec struct {
-	extraArgs []string          // appended after the stamp build-arg, e.g. --no-cache --pull
+	extraArgs []string          // appended after `build`, e.g. --no-cache --pull
 	label     string            // build label printed as "  ℹ <label>..."
 	notice    string            // optional pre-build notice line (blank-line separated); "" → none
 	wrapErr   func(error) error // nil → return the raw Run() error
 }
 
 // composeBuild runs `docker compose -f <composeDir>/docker-compose.yml build`
-// with a per-build cache-busting PI_BUILD_STAMP, the caller's extra args, the
-// compose env, and the notice-before-label ordering shared by start and build.
+// with the caller's extra args, the compose env, and the notice-before-label
+// ordering shared by start and build.
 func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerName string, spec composeBuildSpec) error {
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
 
-	// Per-build cache-busting stamp so the pi-coding-agent layer always
-	// re-resolves @latest: Docker caches RUN layers on the command text +
-	// ARG values, and an unchanging ARG would serve a stale pi from the
-	// layer cache — the "Update Available" nag pointing at a version the
-	// image never carries. Never a constant. The pi layer sits after the
-	// clone/npm-ci layers, so this bust re-runs only the pi install —
-	// clone + npm ci stay cached across builds.
-	stamp := fmt.Sprintf("%d", time.Now().Unix())
-	args := []string{"compose", "-f", composeFile, "build", "--build-arg", "PI_BUILD_STAMP=" + stamp}
+	// The per-build cache-busting stamp rides the compose env (see
+	// applyComposeEnv) and is declared on the agent service's build.args in
+	// docker-compose.yml — never a global CLI --build-arg, which would reach
+	// every service whose Dockerfile declares the ARG.
+	args := []string{"compose", "-f", composeFile, "build"}
 	args = append(args, spec.extraArgs...)
 
 	build := runCommandContext(ctx, "docker", args...)
@@ -126,11 +122,21 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		"COMPOSE_PROJECT_NAME", "CODEFLOW_PORT",
 		"CHEASEEPI_CONTAINER", "CODEFLOW_CONTAINER",
 		"PI_UI_PORT", "PI_UI_CONTAINER",
+		"PI_BUILD_STAMP",
 		codeflowSpecEnv,
 	)
 	env = append(env,
 		"WORKSPACE_HOST_PATH="+workspaceHostPath,
 		"WORKSPACE_BARE_PATH="+filepath.Join(filepath.Dir(workspaceHostPath), ".bare"),
+		// Per-build cache-busting stamp so the agent image's pi-coding-agent
+		// layer always re-resolves the requested version: Docker caches RUN
+		// layers on the command text + ARG values, and an unchanging ARG would
+		// serve a stale pi from the layer cache. Never a constant. Scoped to
+		// the agent service via docker-compose.yml build.args — a global
+		// --build-arg would also bust the ui sidecar's pi layer. The pi layer
+		// sits after the clone/npm-ci layers, so this bust re-runs only the pi
+		// install; clone + npm ci stay cached across builds.
+		"PI_BUILD_STAMP="+fmt.Sprintf("%d", time.Now().Unix()),
 		// Container names carry the repo slug so distinct workspaces get
 		// distinct containers (compose interpolates them into container_name).
 		"CHEASEEPI_CONTAINER="+containerName,
