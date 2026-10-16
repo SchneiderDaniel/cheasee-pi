@@ -57,12 +57,20 @@ type buildTestStub struct {
 
 func (s *buildTestStub) install(t *testing.T) {
 	t.Helper()
+	// Ample free space by default: the disk gate now runs inside every
+	// compose build (docker info --format below), and these tests exercise the
+	// build core, not the gate.
+	stubStatfsAmple(t)
 	saved := runCommandContext
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		if name != "docker" {
 			return saved(ctx, name, arg...) // git (repoRoot, gitCommand, bareRepoURL)
 		}
 		switch {
+		case slices.Contains(arg, "{{.DockerRootDir}}"): // disk gate: docker info --format
+			// Not a build invocation — keep it out of the log/compose capture so
+			// per-test invocation counts stay stable.
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
 		case slices.Contains(arg, "images"): // docker images --filter dangling=true -q
 			s.log = append(s.log, "exec:"+strings.Join(append([]string{name}, arg...), " "))
 			if s.noDangling {

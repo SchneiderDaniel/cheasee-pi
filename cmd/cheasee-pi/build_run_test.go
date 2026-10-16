@@ -105,10 +105,13 @@ func TestComposeBuild_StampExtrasAndNoticeOrder(t *testing.T) {
 	composeDir := t.TempDir()
 	workspace := t.TempDir()
 
+	// Only compose invocations are recorded: the disk gate also runs a
+	// `docker info --format` in front (its free space is undeterminable here →
+	// fail open).
 	var recorded [][]string
 	var built *mockCmd
 	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
-		if name == "docker" {
+		if name == "docker" && slices.Contains(arg, "compose") {
 			recorded = append(recorded, append([]string(nil), arg...))
 			built = &mockCmd{}
 			return built

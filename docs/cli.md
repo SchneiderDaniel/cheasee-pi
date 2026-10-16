@@ -158,7 +158,7 @@ Docker layer cache; `rebuild` is a full no-cache rebuild plus prune.
 | | |
 |---|---|
 | **Does** | Rebuilds the image from the compose/Dockerfile in the version-keyed cache dir; passes `CHEASEEPI_MEMORY` from `cheasee-settings.json` as a build arg. |
-| **Checks** | Runs from a git repo (settings + git identity come from it). Docker gate unless `--no-docker-check`. Compose validates every volume spec, so the workspace path must resolve. |
+| **Checks** | Runs from a git repo (settings + git identity come from it). Docker gate unless `--no-docker-check`. Refuses to build when free space on the Docker data root (`docker info --format '{{.DockerRootDir}}'`) is below 10 GiB, naming `cheasee-pi clean` / `cheasee-pi prune-images` to reclaim. Compose validates every volume spec, so the workspace path must resolve. |
 | **Inputs** | Flags: `--workdir`, `--no-docker-check`. Reads `cheasee-settings.json` (`docker.memory`). |
 | **Note** | A cached build does not apply the new image to a running container — apply with `cheasee-pi start --build` or `cheasee-pi down` + `cheasee-pi start`. |
 

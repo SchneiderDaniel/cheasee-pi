@@ -22,6 +22,13 @@ type composeBuildSpec struct {
 // with the caller's extra args, the compose env, and the notice-before-label
 // ordering shared by start and build.
 func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerName string, spec composeBuildSpec) error {
+	// Fail fast before BuildKit starts writing: a data root without room for
+	// the layers/export makes the daemon reclaim images and containers itself.
+	// Undeterminable space fails open (see checkBuildDiskSpace).
+	if err := checkBuildDiskSpace(ctx); err != nil {
+		return err
+	}
+
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
 
 	// The per-build cache-busting stamp rides the compose env (see
