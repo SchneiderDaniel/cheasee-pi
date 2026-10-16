@@ -184,7 +184,6 @@ export function buildDuplicateCodeContext(result: DuplicateCodeResult | null): s
 	return lines.join("\n");
 }
 
-
 // ─── Check Rejection Limit ────────────────────────────────────────
 
 /** Result of the rejection-limit gate: whether the limit is reached and the real count. */
@@ -207,7 +206,6 @@ export function isRejectionLimitReached(
 	if (!stepMaxRejections || stepMaxRejections <= 0) return { reached: false, count: 0 };
 	return { reached: count >= stepMaxRejections, count };
 }
-
 
 // ─── Status Transition ────────────────────────────────────────────
 
@@ -324,11 +322,7 @@ export function validateResearcherFindings(commentBody: string): string {
 // Gate-context and status-resolution live in sibling modules; re-exported
 // here so existing importers (and the stages/index.ts barrel) keep working.
 export { applyGateFailureContext } from "./gate-context.ts";
-export {
-	calculateNextStatus,
-	inferForwardStatus,
-	trackAuditScore,
-} from "./status-resolution.ts";
+export { calculateNextStatus, inferForwardStatus, trackAuditScore } from "./status-resolution.ts";
 export type {
 	AuditGateContext,
 	GateRejected,

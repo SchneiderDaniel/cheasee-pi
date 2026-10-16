@@ -38,12 +38,12 @@ gh auth status
 
 Evaluate before step 1. If any of the following apply, **stop and explain**:
 
-| Condition | Response |
-|-----------|----------|
-| Repo is `SchneiderDaniel/cheasee-pi` | "Issues on this repo are handled by other skills (bug-hunter, reinvention-hunter)." |
-| Repo is private | "This skill supports public repos only." |
-| Target is GitLab, Bitbucket, or other non-GitHub platform | "This skill supports GitHub repos only." |
-| User asks for a pull request | "This skill creates issues only, not pull requests." |
+| Condition                                                 | Response                                                                            |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Repo is `SchneiderDaniel/cheasee-pi`                      | "Issues on this repo are handled by other skills (bug-hunter, reinvention-hunter)." |
+| Repo is private                                           | "This skill supports public repos only."                                            |
+| Target is GitLab, Bitbucket, or other non-GitHub platform | "This skill supports GitHub repos only."                                            |
+| User asks for a pull request                              | "This skill creates issues only, not pull requests."                                |
 
 ### Parse Target Repo
 
@@ -123,12 +123,12 @@ Before writing the issue body, verify that the issue hasn't already been reporte
 
 Generate 3+ keyword permutations from the proposed issue title:
 
-| Permutation | Example |
-|-------------|---------|
-| Original title | `"Crash when parsing empty array"` |
-| Stripped keywords | `"crash parsing empty array"` |
-| Core terms only | `"crash array parsing"` |
-| Reordered | `"array empty parse crash"` |
+| Permutation       | Example                            |
+| ----------------- | ---------------------------------- |
+| Original title    | `"Crash when parsing empty array"` |
+| Stripped keywords | `"crash parsing empty array"`      |
+| Core terms only   | `"crash array parsing"`            |
+| Reordered         | `"array empty parse crash"`        |
 
 **B. Search for each permutation:**
 
@@ -193,13 +193,16 @@ Use the format described in `CONTRIBUTING.md`. Extract section requirements, exp
 #### Writing Rules (apply to all cases)
 
 1. **Neutral reproducible examples** — Every code example must use generic, neutral code:
+
    ```
    const arr = [1, 2, 3];
    arr.forEach(x => console.log(x));
    ```
+
    ```
    echo "hello" > file && cmd --flag input.txt
    ```
+
    Never reference types, functions, patterns, or identifiers from the cheasee-pi codebase.
 
 2. **Tone** — Neutral third-person, factual. No opinions, no emotional language, no subjective judgments.
@@ -208,7 +211,7 @@ Use the format described in `CONTRIBUTING.md`. Extract section requirements, exp
 
 4. **Imperative steps** — Write steps to reproduce as clear, ordered imperatives.
 
-5. **Markdown formatting** — Use only headings (`##`, `###`) and fenced code blocks (```` ``` ````). No bold, italic, lists, blockquotes, tables, or other extended markdown.
+5. **Markdown formatting** — Use only headings (`##`, `###`) and fenced code blocks (` ``` `). No bold, italic, lists, blockquotes, tables, or other extended markdown.
 
 6. **Do NOT include**:
    - Personal opinions ("This is annoying", "It would be great if")
@@ -288,15 +291,15 @@ Each section heading uses exactly `## Section Name`. Content follows the Writing
 
 ## Error Handling
 
-| Scenario | Action |
-|----------|--------|
-| `gh auth status` fails | Stop. Tell user: "Run `gh auth login` to authenticate." |
-| Duplicate issue found in step 3 | Stop. Report to user: "Likely duplicate of #N — title matches. Review before filing." Do NOT file. |
-| No CONTRIBUTING.md and no templates | Use Universal Fallback Format (do NOT abort). |
-| CONTRIBUTING.md exists but no templates | Extract format from CONTRIBUTING.md (do NOT fall back to universal format immediately). |
-| Duplicate check confidence < threshold | Report related issues to user for manual review. Do NOT file without confirmation. |
-| `gh api` returns 404 for repo | Stop. Tell user: "Repo OWNER/REPO not found. Verify the repository name." |
-| `gh api` returns 403 (rate limited) | Stop. Tell user: "Rate limited by GitHub API. Wait and retry." |
+| Scenario                                | Action                                                                                             |
+| --------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `gh auth status` fails                  | Stop. Tell user: "Run `gh auth login` to authenticate."                                            |
+| Duplicate issue found in step 3         | Stop. Report to user: "Likely duplicate of #N — title matches. Review before filing." Do NOT file. |
+| No CONTRIBUTING.md and no templates     | Use Universal Fallback Format (do NOT abort).                                                      |
+| CONTRIBUTING.md exists but no templates | Extract format from CONTRIBUTING.md (do NOT fall back to universal format immediately).            |
+| Duplicate check confidence < threshold  | Report related issues to user for manual review. Do NOT file without confirmation.                 |
+| `gh api` returns 404 for repo           | Stop. Tell user: "Repo OWNER/REPO not found. Verify the repository name."                          |
+| `gh api` returns 403 (rate limited)     | Stop. Tell user: "Rate limited by GitHub API. Wait and retry."                                     |
 
 ## Scope Boundaries
 

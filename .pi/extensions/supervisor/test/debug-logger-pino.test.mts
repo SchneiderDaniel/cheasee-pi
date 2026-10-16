@@ -185,7 +185,7 @@ describe("createDebugLogger — facade contract", () => {
 		assert.equal(data.num, 42);
 	});
 
-it("circular reference in data does not throw (pino safe-stable-stringify handles it)", () => {
+	it("circular reference in data does not throw (pino safe-stable-stringify handles it)", () => {
 		const logger = createDebugLogger(tmpDir, "circular");
 
 		const circular: Record<string, unknown> = { a: 1 };

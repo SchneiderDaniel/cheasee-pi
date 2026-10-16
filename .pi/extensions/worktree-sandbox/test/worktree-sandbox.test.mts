@@ -696,7 +696,10 @@ describe("findUnsafeWriteInBash", () => {
 			mod.findUnsafeWriteInBash("install -at /etc/out src", SANDBOX),
 			"outside sandbox: /etc/out",
 		);
-		assert.equal(mod.findUnsafeWriteInBash("cp -at/etc/out src", SANDBOX), "outside sandbox: /etc/out");
+		assert.equal(
+			mod.findUnsafeWriteInBash("cp -at/etc/out src", SANDBOX),
+			"outside sandbox: /etc/out",
+		);
 	});
 
 	it("returns null for bundled -t target-directory inside sandbox", () => {
@@ -779,10 +782,7 @@ describe("findUnsafeWriteInBash", () => {
 	it("returns reason when the command word itself is built by expansion", () => {
 		// `c$X -t /out src` runs `cp -t /out src` — the shell picks the command
 		// word, so no write grammar can be matched against the token. Fail closed.
-		assert.equal(
-			mod.findUnsafeWriteInBash("c$X -t /etc/out src", SANDBOX),
-			"c$X -t /etc/out src",
-		);
+		assert.equal(mod.findUnsafeWriteInBash("c$X -t /etc/out src", SANDBOX), "c$X -t /etc/out src");
 		assert.equal(
 			mod.findUnsafeWriteInBash("$(which tee) /etc/out", SANDBOX),
 			"$(which tee) /etc/out",

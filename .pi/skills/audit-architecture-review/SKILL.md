@@ -16,10 +16,10 @@ Requires: `gh` CLI authenticated.
 /skill:audit-architecture-review <target>
 ```
 
-| Target              | What it analyzes                                |
-| ------------------- | ----------------------------------------------- |
-| `root` (or omitted) | Main repo                                       |
-| `<any-path>`        | Arbitrary directory                             |
+| Target              | What it analyzes    |
+| ------------------- | ------------------- |
+| `root` (or omitted) | Main repo           |
+| `<any-path>`        | Arbitrary directory |
 
 ## Workflow
 
@@ -126,11 +126,13 @@ Per candidate, create a **proper GitHub sub-issue** linked to the umbrella — n
 Create the umbrella issue first (Step 3) and **capture its issue number** (printed in `gh issue create` output). Then create each sub-issue anchored to that parent:
 
 ```
+
 gh issue create \
-  --title "ICA: <candidate short title>" \
-  --label architecture \
-  --body-file <body-file> \
-  --parent <umbrella-number>
+--title "ICA: <candidate short title>" \
+--label architecture \
+--body-file <body-file> \
+--parent <umbrella-number>
+
 ```
 
 The `--parent <number>` flag is the **only** mechanism that produces a real sub-issue in GitHub's issue hierarchy. Cross-reference comments and body mentions do **not** create the parent-child link — issues filed that way are independent issues that merely mention each other, which is exactly the bug we are fixing here.
@@ -198,3 +200,4 @@ Use these terms exactly in every suggestion. No substitutions.
 ## Tone
 
 Lean editorial. No hedging, no throat-clearing, no "it's worth noting". Sentence → bullet if possible. Bullet → cut if possible.
+```

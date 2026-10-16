@@ -177,7 +177,7 @@ export function createHarnessState(): HarnessState {
 		clear(): void {
 			cacheMap.clear();
 		},
-	} satisfies HarnessState['readCache'];
+	} satisfies HarnessState["readCache"];
 
 	// ── Error Tracker (TimedMap with per-key array storage + decay) ──
 
@@ -214,7 +214,7 @@ export function createHarnessState(): HarnessState {
 				}
 			}
 		},
-	} satisfies HarnessState['errorTracker'];
+	} satisfies HarnessState["errorTracker"];
 
 	// ── Call Counter (TimedMap with composite-key + lastKey tracking) ──
 
@@ -295,7 +295,7 @@ export function createHarnessState(): HarnessState {
 			callIdMap.clear();
 			lastKey = null;
 		},
-	} satisfies HarnessState['callCounter'];
+	} satisfies HarnessState["callCounter"];
 
 	return {
 		readCache,

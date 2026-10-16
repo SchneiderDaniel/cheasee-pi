@@ -160,9 +160,7 @@ describe("tsc gate — shared-prompts.ts clean under --noUnusedLocals", () => {
 			`compiler did not process ${TARGET} (absent from --listFiles output)`,
 		);
 
-		const matches = output.match(
-			/lib\/shared-prompts\.ts\(\d+,\d+\): error TS(6133|6192|6196)/g,
-		);
+		const matches = output.match(/lib\/shared-prompts\.ts\(\d+,\d+\): error TS(6133|6192|6196)/g);
 		assert.equal(
 			matches,
 			null,

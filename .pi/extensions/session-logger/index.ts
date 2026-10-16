@@ -75,11 +75,17 @@ export default function (pi: ExtensionAPI): void {
 				await extState.saveState();
 			} catch (err) {
 				if (ctx.hasUI) {
-					ctx.ui.notify(`Failed to persist session-logger state: ${(err as Error).message}`, "error");
+					ctx.ui.notify(
+						`Failed to persist session-logger state: ${(err as Error).message}`,
+						"error",
+					);
 				}
 			}
 			if (ctx.hasUI) {
-				ctx.ui.notify(`Session logger: ${enabled ? "ON" : "OFF"} (applies to next session)`, "info");
+				ctx.ui.notify(
+					`Session logger: ${enabled ? "ON" : "OFF"} (applies to next session)`,
+					"info",
+				);
 			}
 		},
 	});

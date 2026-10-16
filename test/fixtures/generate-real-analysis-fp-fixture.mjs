@@ -59,9 +59,17 @@ try {
 	const wanted = new Set(violations.map((v) => `${v.from}\u0000${v.to}`));
 
 	const fixture = {
-		provenance: { analyzer: "https://github.com/braedonsaunders/codeflow", ref, snapshot: "git archive HEAD" },
+		provenance: {
+			analyzer: "https://github.com/braedonsaunders/codeflow",
+			ref,
+			snapshot: "git archive HEAD",
+		},
 		stats: data.stats,
-		issues: (data.issues || []).map((i) => ({ title: i.title, severity: i.severity, category: i.category })),
+		issues: (data.issues || []).map((i) => ({
+			title: i.title,
+			severity: i.severity,
+			category: i.category,
+		})),
 		securityIssues: (data.securityIssues || []).map((i) => ({
 			title: i.title,
 			severity: i.severity,

@@ -23,9 +23,7 @@ function page(over: Partial<CrawledPage> = {}): CrawledPage {
 	};
 }
 
-function successResult(
-	over: Partial<Extract<CrawlResult, { success: true }>> = {},
-): CrawlResult {
+function successResult(over: Partial<Extract<CrawlResult, { success: true }>> = {}): CrawlResult {
 	return {
 		success: true,
 		results: [page()],
@@ -43,7 +41,14 @@ describe("structured-output — success projection", () => {
 		const out = toStructuredContent(successResult());
 		assert.deepEqual(out, {
 			ok: true,
-			pages: [{ url: "https://example.com", markdown: "# Hello", method: "lightweight", truncated: false }],
+			pages: [
+				{
+					url: "https://example.com",
+					markdown: "# Hello",
+					method: "lightweight",
+					truncated: false,
+				},
+			],
 			totalPages: 1,
 			attempted: 1,
 			failed: [],

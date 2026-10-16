@@ -184,10 +184,7 @@ describe("interpretSgExecResult structuredContent", () => {
 			results: parseSgOutput(TWO_MATCHES).results,
 			language: "ts",
 		});
-		assert.strictEqual(
-			(result.structuredContent as { matches: number }).matches,
-			details.matches,
-		);
+		assert.strictEqual((result.structuredContent as { matches: number }).matches, details.matches);
 		assert.strictEqual(result.isError, undefined);
 	});
 
@@ -229,7 +226,10 @@ describe("interpretSgExecResult structuredContent", () => {
 		).join("\n");
 		const atThreshold = interpretSgExecResult(0, hundred, "", "pat", "ts");
 		assertConforms(atThreshold);
-		assert.strictEqual((atThreshold.structuredContent as { truncated?: boolean }).truncated, undefined);
+		assert.strictEqual(
+			(atThreshold.structuredContent as { truncated?: boolean }).truncated,
+			undefined,
+		);
 		assert.strictEqual(
 			(atThreshold.structuredContent as { results: unknown[] }).results.length,
 			100,
@@ -243,7 +243,10 @@ describe("interpretSgExecResult structuredContent", () => {
 			"ts",
 		);
 		assertConforms(overThreshold);
-		assert.strictEqual((overThreshold.structuredContent as { truncated?: boolean }).truncated, true);
+		assert.strictEqual(
+			(overThreshold.structuredContent as { truncated?: boolean }).truncated,
+			true,
+		);
 		assert.strictEqual(
 			(overThreshold.structuredContent as { results: unknown[] }).results.length,
 			100,

@@ -395,8 +395,14 @@ describe("prose/comment sync — head redirect claim (#1728)", () => {
 		const commentStart = content.indexOf("Commands that should redirect to the `read` tool.");
 		assert.ok(commentStart >= 0, "expected READ_REDIRECT_CMDS doc comment");
 		const comment = content.slice(commentStart, content.indexOf("*/", commentStart));
-		assert.ok(comment.includes("head"), "READ_REDIRECT_CMDS comment should document head exclusion");
-		assert.ok(comment.includes("tail"), "READ_REDIRECT_CMDS comment should document tail exclusion");
+		assert.ok(
+			comment.includes("head"),
+			"READ_REDIRECT_CMDS comment should document head exclusion",
+		);
+		assert.ok(
+			comment.includes("tail"),
+			"READ_REDIRECT_CMDS comment should document tail exclusion",
+		);
 	});
 });
 

@@ -50,9 +50,9 @@ web_crawl(url)
 
 ```json
 {
-  "maxConcurrentCrawls": 2,
-  "defaultMaxPages": 1,
-  "defaultMaxTokens": 0
+	"maxConcurrentCrawls": 2,
+	"defaultMaxPages": 1,
+	"defaultMaxTokens": 0
 }
 ```
 

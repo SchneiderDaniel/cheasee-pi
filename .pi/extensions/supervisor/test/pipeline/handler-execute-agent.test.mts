@@ -362,7 +362,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		);
 	});
 
-
 	it("passes sessionPath to runAgentSubprocess", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();

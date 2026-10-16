@@ -172,5 +172,3 @@ export function setCachedResult(
 export function clearCache(): void {
 	resultCache.clear();
 }
-
-

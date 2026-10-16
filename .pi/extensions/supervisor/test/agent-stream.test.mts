@@ -104,11 +104,7 @@ function assertThinkingFallback(state: AgentRunState): void {
 		"text output has thinking content (fallback for textOnly)",
 	);
 	assert.equal(state.textOutputLines[0], "t1\nt2", "textOutputLines has thinking content");
-	assert.equal(
-		state.fullLog.filter((l) => l.includes("💭 t1")).length,
-		1,
-		"thinking in fullLog",
-	);
+	assert.equal(state.fullLog.filter((l) => l.includes("💭 t1")).length, 1, "thinking in fullLog");
 }
 
 // ─── Phase 1: Budget check via message_end ──────────────────────────
@@ -422,7 +418,11 @@ describe("processNormalizedEvent — full streaming chain no duplicate (Phase 2)
 		// Text not re-pushed because textPushedThisTurn is true
 		assert.equal(state.fullLog.filter((l) => l === "r1").length, 1, "text NOT re-pushed");
 		assert.equal(state.fullLog.filter((l) => l === "r2").length, 1, "text NOT re-pushed");
-		assert.equal(state.textOutputLines.length, 2, "text output has 2 streamed lines (r1, r2), no duplicates from message_end");
+		assert.equal(
+			state.textOutputLines.length,
+			2,
+			"text output has 2 streamed lines (r1, r2), no duplicates from message_end",
+		);
 		// thinkingOutputLines NOT populated because thinkingPushedThisTurn is true
 		assert.equal(
 			state.thinkingOutputLines.length,
@@ -610,11 +610,7 @@ describe("processNormalizedEvent — done event dedup (Phase 2)", () => {
 		);
 		assert.equal(state.fullLog.filter((l) => l === "r1").length, 1, "text NOT re-pushed");
 		assert.equal(state.fullLog.filter((l) => l === "r2").length, 1, "text NOT re-pushed");
-		assert.equal(
-			state.textOutputLines.length,
-			2,
-			"text output has 2 streamed lines (r1, r2)",
-		);
+		assert.equal(state.textOutputLines.length, 2, "text output has 2 streamed lines (r1, r2)");
 		assert.equal(
 			state.thinkingOutputLines.length,
 			0,
@@ -651,11 +647,7 @@ describe("processNormalizedEvent — done event dedup (Phase 2)", () => {
 			0,
 			"thinking output not re-pushed (dedup guard)",
 		);
-		assert.equal(
-			state.fullLog.length,
-			fullLogLenBefore + 1,
-			"fullLog grows by 1 (text only)",
-		);
+		assert.equal(state.fullLog.length, fullLogLenBefore + 1, "fullLog grows by 1 (text only)");
 		assert.equal(
 			state.fullLog.filter((l) => l.includes("💭 t1")).length,
 			1,

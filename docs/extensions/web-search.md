@@ -72,6 +72,7 @@ Search results:
 ### Testing
 
 Tests cover:
+
 - Search result parsing from RS-framed stdout
 - Error parsing from SEARCH_ERROR blocks
 - Empty result sets

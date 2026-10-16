@@ -214,7 +214,7 @@ describe("ponytail — static regression guard", () => {
 	it("source contains no blank-string status clear", () => {
 		assert.ok(
 			!indexSource.includes('setStatus("ponytail", "")'),
-			'blank-string clear leaves an empty footer row; use undefined',
+			"blank-string clear leaves an empty footer row; use undefined",
 		);
 	});
 });

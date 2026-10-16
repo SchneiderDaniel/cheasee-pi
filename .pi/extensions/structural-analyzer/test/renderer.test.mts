@@ -389,7 +389,11 @@ describe("renderStructuralSearchResult — OSC 8 argument order & URI canonicali
 		const occurrences = output.split(uri).length - 1;
 		const linked = output.split(`\x1b]8;;${uri}\x1b\\`).length - 1;
 		assert.strictEqual(occurrences, 1, `expected the URI exactly once:\n${output}`);
-		assert.strictEqual(linked, occurrences, `URI must only appear inside an OSC 8 link:\n${output}`);
+		assert.strictEqual(
+			linked,
+			occurrences,
+			`URI must only appear inside an OSC 8 link:\n${output}`,
+		);
 	});
 
 	it("Phase 1: line info suffix is rendered after the closing hyperlink for a range", () => {
@@ -425,6 +429,9 @@ describe("renderStructuralSearchResult — OSC 8 argument order & URI canonicali
 
 	it("Phase 2: no 'file://localhost' authority remains", () => {
 		const output = renderSingle("src/app.ts", "10-10");
-		assert.ok(!output.includes("file://localhost"), `must not contain localhost authority:\n${output}`);
+		assert.ok(
+			!output.includes("file://localhost"),
+			`must not contain localhost authority:\n${output}`,
+		);
 	});
 });

@@ -40,10 +40,7 @@ const config: SupervisorConfig = {
 function buildRunContext(opts: {
 	comments?: Array<{ author: { login: string }; body: string; id?: string }>;
 	getIssueLabels?: (issueNum: number, repo: string) => Promise<string[]>;
-	listComments?: (
-		issueNum: number,
-		repo: string,
-	) => Promise<NonNullable<RawIssueData["comments"]>>;
+	listComments?: (issueNum: number, repo: string) => Promise<NonNullable<RawIssueData["comments"]>>;
 	getAuthenticatedLogin?: () => Promise<string>;
 }): RunContext {
 	const rawComments = opts.comments ?? [];
@@ -114,12 +111,7 @@ describe("assembleAgentTask() — trust-independent prior rejection (finding #1)
 	};
 
 	it("injects the re-verify block for the auditor from auditRejections", async () => {
-		const task = await assembleAgentTask(
-			buildRunContext({}),
-			"auditor",
-			rejectionData,
-			undefined,
-		);
+		const task = await assembleAgentTask(buildRunContext({}), "auditor", rejectionData, undefined);
 		assert.ok(
 			task.includes("Prior Rejection — Re-verify Against Current Code"),
 			"auditor gets the re-verify block",
@@ -207,8 +199,7 @@ describe("loadLoopIssue() — fail-closed discovery (findings #1/#2)", () => {
 		const resolution = await loadLoopIssue(runCtx, step);
 		assert.equal(resolution.kind, "terminal");
 		assert.ok(
-			resolution.kind === "terminal" &&
-				resolution.stopReason.includes("Cannot list all comments"),
+			resolution.kind === "terminal" && resolution.stopReason.includes("Cannot list all comments"),
 		);
 	});
 
@@ -221,8 +212,7 @@ describe("loadLoopIssue() — fail-closed discovery (findings #1/#2)", () => {
 		const resolution = await loadLoopIssue(runCtx, step);
 		assert.equal(resolution.kind, "terminal");
 		assert.ok(
-			resolution.kind === "terminal" &&
-				resolution.stopReason.includes("authenticated login"),
+			resolution.kind === "terminal" && resolution.stopReason.includes("authenticated login"),
 		);
 	});
 });

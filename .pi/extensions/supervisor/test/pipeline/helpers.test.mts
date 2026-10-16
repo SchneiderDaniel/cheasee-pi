@@ -142,13 +142,21 @@ describe("fetchIssue()", () => {
 describe("readProjectBoard()", () => {
 	it("reads project fields, items, and returns statusField via port", async () => {
 		const trackCalls: PortCall[] = [];
-		const port = createMockGitHubPort({
-			getProjectFields: async () => [
-				{ id: "sf_1", name: "Status", type: "SINGLE_SELECT", options: [{ id: "opt_ar", name: "Architecture" }] },
-			],
-			getProjectItems: async () => [],
-			getProjectId: async () => "project_123",
-		}, trackCalls);
+		const port = createMockGitHubPort(
+			{
+				getProjectFields: async () => [
+					{
+						id: "sf_1",
+						name: "Status",
+						type: "SINGLE_SELECT",
+						options: [{ id: "opt_ar", name: "Architecture" }],
+					},
+				],
+				getProjectItems: async () => [],
+				getProjectId: async () => "project_123",
+			},
+			trackCalls,
+		);
 		const notify = makeNotify();
 
 		const result = await readProjectBoard(notify, mockConfig, port);
@@ -183,7 +191,9 @@ describe("readProjectBoard()", () => {
 
 	it("handles port errors gracefully", async () => {
 		const port = createMockGitHubPort({
-			getProjectFields: async () => { throw new Error("network error"); },
+			getProjectFields: async () => {
+				throw new Error("network error");
+			},
 		});
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
@@ -226,7 +236,9 @@ describe("checkDependencies()", () => {
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
 		const port = createMockGitHubPort({
-			checkBlockedByDependencies: async () => { throw new Error("network error"); },
+			checkBlockedByDependencies: async () => {
+				throw new Error("network error");
+			},
 		});
 
 		const result = await checkDependencies(notify, mockConfig, 42, port);
@@ -395,9 +407,7 @@ describe("fetchFreshIssueData()", () => {
 
 		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
 		assert.equal(resolution.kind, "failed", "unverified ownership must not proceed");
-		assert.ok(
-			resolution.kind === "failed" && resolution.reason.includes("authenticated login"),
-		);
+		assert.ok(resolution.kind === "failed" && resolution.reason.includes("authenticated login"));
 	});
 });
 

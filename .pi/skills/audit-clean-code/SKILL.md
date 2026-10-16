@@ -16,10 +16,10 @@ Requires: `gh` CLI authenticated.
 /skill:audit-clean-code <target>
 ```
 
-| Target              | What it analyzes                                |
-| ------------------- | ----------------------------------------------- |
-| `root` (or omitted) | Main repo                                       |
-| `<any-path>`        | Arbitrary directory                             |
+| Target              | What it analyzes    |
+| ------------------- | ------------------- |
+| `root` (or omitted) | Main repo           |
+| `<any-path>`        | Arbitrary directory |
 
 ## Workflow
 
@@ -104,24 +104,30 @@ File at most 7 candidates total across both strengths; 2–4 strong is a healthy
 **Source:** SonarQube S104 / Clean Code ch. 4 / Linux kernel coding style §1 / …
 
 **Before:**
+
 ```typescript
 // 812 non-blank lines in output.ts
 // wc -l output.ts → 812
 ```
+
 or
+
 ```typescript
 // increment counter
 count += 1;
 ```
 
 **After:**
+
 ```typescript
 // split into output.ts (pipeline summary) + status-map.ts (STATUS_MAP)
 // re-export public API from index.ts so callers unchanged
 ```
+
 or
+
 ```typescript
-count += 1;   // comment deleted; the code already states "increment counter"
+count += 1; // comment deleted; the code already states "increment counter"
 ```
 
 **Wins:** Bullets (≤6 words each).
@@ -139,12 +145,11 @@ count += 1;   // comment deleted; the code already states "increment counter"
 
 ## Summary
 
-| Candidate | Rule | Source | Lines changed | Risk |
-|-----------|------|--------|---------------|------|
-| 1         | File size | SonarQube S104 | -300 → new file | Low |
-| 2         | What-comment | Clean Code ch. 4 | -1 | Low |
-...
-
+| Candidate | Rule         | Source           | Lines changed   | Risk |
+| --------- | ------------ | ---------------- | --------------- | ---- |
+| 1         | File size    | SonarQube S104   | -300 → new file | Low  |
+| 2         | What-comment | Clean Code ch. 4 | -1              | Low  |
+| ...       |
 ````
 
 ### 4 — Create sub-issues
@@ -162,6 +167,7 @@ gh issue create \
 ```
 
 Sub-issue fields:
+
 - **Title:** `CLEAN: <candidate short title>`
 - **Body:**
   ````

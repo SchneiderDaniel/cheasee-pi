@@ -34,9 +34,7 @@ const RETRY_BASE_DELAY_MS = 1000;
  * - "fail-closed": local fallback also failed — skip push with reason
  */
 type AheadVerdict =
-	| { state: "ahead" }
-	| { state: "not-ahead" }
-	| { state: "fail-closed"; reason: string };
+	{ state: "ahead" } | { state: "not-ahead" } | { state: "fail-closed"; reason: string };
 
 /**
  * Verify that headBranch has commits ahead of defaultBranch.
@@ -56,7 +54,10 @@ async function verifyAhead(
 	try {
 		const aheadCount = await port.compareBranches(config.defaultBranch!, headBranch, config.repo);
 		if (aheadCount === 0) {
-			log.warn("pr-creation", `No commits between ${config.defaultBranch} and ${headBranch} — skipping push and PR`);
+			log.warn(
+				"pr-creation",
+				`No commits between ${config.defaultBranch} and ${headBranch} — skipping push and PR`,
+			);
 			return { state: "not-ahead" };
 		}
 		log.info("pr-creation", `Head is ${aheadCount} commits ahead of ${config.defaultBranch}`);
@@ -76,14 +77,20 @@ async function verifyAhead(
 			);
 			// merge-base --is-ancestor exits 0 if defaultBranch is ancestor of headBranch
 			if (mergeBase.code !== 0) {
-				log.warn("pr-creation", `Local check: ${headBranch} is not ahead of ${config.defaultBranch} — skipping PR`);
+				log.warn(
+					"pr-creation",
+					`Local check: ${headBranch} is not ahead of ${config.defaultBranch} — skipping PR`,
+				);
 				return { state: "not-ahead" };
 			}
 			log.info("pr-creation", "Local check passed — head is ahead of base");
 			return { state: "ahead" };
 		} catch (fallbackErr: unknown) {
 			const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
-			log.error("pr-creation", `Local ahead check failed: ${fallbackMsg} — skipping push (fail-closed)`);
+			log.error(
+				"pr-creation",
+				`Local ahead check failed: ${fallbackMsg} — skipping push (fail-closed)`,
+			);
 			return { state: "fail-closed", reason: fallbackMsg };
 		}
 	}
@@ -245,11 +252,10 @@ export async function createPrOnApproval(
 					// attempt when the lease is stale (remote head branch deleted
 					// with the PR, or a pre-push fetch advanced the ref). Refresh
 					// the lease before each retry so the loop can actually recover.
-					const pruneResult = await pi.exec(
-						"git",
-						["fetch", "--prune", config.remote!],
-						{ cwd: worktreePath, timeout: 30000 },
-					);
+					const pruneResult = await pi.exec("git", ["fetch", "--prune", config.remote!], {
+						cwd: worktreePath,
+						timeout: 30000,
+					});
 					if (pruneResult.code !== 0 || pruneResult.killed) {
 						throw new Error(
 							`git fetch --prune ${config.remote} failed: ${
@@ -270,11 +276,13 @@ export async function createPrOnApproval(
 				);
 				if (pushResult.code !== 0 || pushResult.killed) {
 					throw new Error(
-						(pushResult.stderr ||
+						(
+							pushResult.stderr ||
 							pushResult.stdout ||
 							(pushResult.killed
 								? "git push timed out and was killed"
-								: `git push failed (exit ${pushResult.code})`)).trim(),
+								: `git push failed (exit ${pushResult.code})`)
+						).trim(),
 					);
 				}
 				log.info("pr-creation", "Push OK");

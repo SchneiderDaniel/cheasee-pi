@@ -56,11 +56,11 @@ Toggle on/off per session — useful for long-running sessions where you want to
 
 ### Command
 
-| Command | Effect |
-|---------|--------|
-| `/session-logger` | Toggle on/off |
-| `/session-logger on` | Enable for next session |
-| `/session-logger off` | Disable |
+| Command               | Effect                  |
+| --------------------- | ----------------------- |
+| `/session-logger`     | Toggle on/off           |
+| `/session-logger on`  | Enable for next session |
+| `/session-logger off` | Disable                 |
 
 ## Install
 

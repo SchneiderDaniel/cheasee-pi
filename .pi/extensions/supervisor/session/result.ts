@@ -4,7 +4,12 @@
 // which were removed in Phase 3.
 
 import type { AgentRunResult } from "../config/types.ts";
-import type { AgentToolResult, SubagentDetails, NestedCall, NestedCalls } from "../subagent/types.ts";
+import type {
+	AgentToolResult,
+	SubagentDetails,
+	NestedCall,
+	NestedCalls,
+} from "../subagent/types.ts";
 import { combineErrorCount } from "./nested-stats.ts";
 
 // ─── Adapter: AgentRunResult → AgentToolResult<SubagentDetails> ──────

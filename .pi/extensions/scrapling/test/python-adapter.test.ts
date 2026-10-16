@@ -278,38 +278,29 @@ describe("PythonAdapter — error handling", () => {
 		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
 		assert.equal(result.success, false, "should return error for killed subprocess");
 		if (!result.success) {
-			assert.ok(
-				result.error.includes("killed"),
-				"error should mention killed"
-			);
+			assert.ok(result.error.includes("killed"), "error should mention killed");
 		}
 	});
 
-	it("(entity) killed: true, signal: \"SIGTERM\" surfaces signal name in error message", async () => {
+	it('(entity) killed: true, signal: "SIGTERM" surfaces signal name in error message', async () => {
 		const { adapter } = setupTest("", 0, { killed: true, signal: "SIGTERM" });
 		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
 		assert.equal(result.success, false, "should return error for SIGTERM-ed subprocess");
 		if (!result.success) {
-			assert.ok(
-				result.error.includes("SIGTERM"),
-				"error should mention SIGTERM"
-			);
+			assert.ok(result.error.includes("SIGTERM"), "error should mention SIGTERM");
 		}
 	});
 
-	it("(entity) killed: true, signal: \"SIGKILL\" distinguishes kill signal types", async () => {
+	it('(entity) killed: true, signal: "SIGKILL" distinguishes kill signal types', async () => {
 		const { adapter } = setupTest("", 0, { killed: true, signal: "SIGKILL" });
 		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
 		assert.equal(result.success, false);
 		if (!result.success) {
-			assert.ok(
-				result.error.includes("SIGKILL"),
-				"error should mention SIGKILL"
-			);
+			assert.ok(result.error.includes("SIGKILL"), "error should mention SIGKILL");
 		}
 	});
 
-	it("(entity) killed: true, code: 0, stderr: \"Timeout\" includes stderr in error message", async () => {
+	it('(entity) killed: true, code: 0, stderr: "Timeout" includes stderr in error message', async () => {
 		const execFn: ExecFn = async () => ({
 			code: 0,
 			stdout: "",
@@ -321,14 +312,11 @@ describe("PythonAdapter — error handling", () => {
 		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
 		assert.equal(result.success, false);
 		if (!result.success) {
-			assert.ok(
-				result.error.includes("Timeout"),
-				"error should include stderr content"
-			);
+			assert.ok(result.error.includes("Timeout"), "error should include stderr content");
 		}
 	});
 
-	it("(entity) killed: true, code: 0, stdout: \"partial output\" uses stdout fallback when stderr empty", async () => {
+	it('(entity) killed: true, code: 0, stdout: "partial output" uses stdout fallback when stderr empty', async () => {
 		const execFn: ExecFn = async () => ({
 			code: 0,
 			stdout: "partial output",
@@ -340,10 +328,7 @@ describe("PythonAdapter — error handling", () => {
 		const result = await adapter.crawl({ url: "https://example.com", maxPages: 1 });
 		assert.equal(result.success, false);
 		if (!result.success) {
-			assert.ok(
-				result.error.includes("partial output"),
-				"error should include stdout fallback"
-			);
+			assert.ok(result.error.includes("partial output"), "error should include stdout fallback");
 		}
 	});
 

@@ -76,12 +76,7 @@ export interface GitHubPort {
 	}): Promise<{ number: number }>;
 
 	/** Update PR body (and optionally title). */
-	updatePullRequest(
-		prNumber: number,
-		repo: string,
-		body: string,
-		title?: string,
-	): Promise<void>;
+	updatePullRequest(prNumber: number, repo: string, body: string, title?: string): Promise<void>;
 
 	/** Get ProjectV2 fields. */
 	getProjectFields(projectNumber: number): Promise<ProjectField[]>;

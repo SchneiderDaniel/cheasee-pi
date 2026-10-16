@@ -387,7 +387,8 @@ describe("commitAndPush() — Result<T>", () => {
 			}, // gh api -i /user — token lacks workflow
 			{
 				code: 0,
-				stdout: "sha-main\trefs/heads/main\nsha-other\trefs/heads/other\nsha-r\trefs/heads/remoteonly\n",
+				stdout:
+					"sha-main\trefs/heads/main\nsha-other\trefs/heads/other\nsha-r\trefs/heads/remoteonly\n",
 				stderr: "",
 			}, // ls-remote --heads origin — remoteonly unseen locally
 			{
@@ -644,7 +645,7 @@ describe("workflowChangesExempt() — identical-file exemption (real git)", () =
 		};
 		const exempt = await workflowChangesExempt(throwingExec, "/tmp/worktree", "origin", [
 			".github/workflows/ci.yml",
-			]);
+		]);
 		assert.equal(exempt, null);
 	});
 });

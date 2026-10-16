@@ -32,10 +32,7 @@ afterEach(() => {
 
 describe("readGraph — imports", () => {
 	it("captures the module specifier and named bindings of a single-line import", () => {
-		const file = fixture(
-			"a.ts",
-			'import { a, b } from "./x.ts";\n',
-		);
+		const file = fixture("a.ts", 'import { a, b } from "./x.ts";\n');
 		const graph = readGraph(file);
 		assert.deepEqual(graph.specifiers, ["./x.ts"]);
 		assert.deepEqual(graph.importedNames, ["a", "b"]);
@@ -67,10 +64,7 @@ describe("readGraph — imports", () => {
 	});
 
 	it("records the specifier of a multi-line import", () => {
-		const file = fixture(
-			"a.ts",
-			['import {', "\ta,", "\tb,", '} from "./x.ts";', ""].join("\n"),
-		);
+		const file = fixture("a.ts", ["import {", "\ta,", "\tb,", '} from "./x.ts";', ""].join("\n"));
 		const graph = readGraph(file);
 		assert.deepEqual(graph.specifiers, ["./x.ts"]);
 		assert.deepEqual(graph.importedNames, ["a", "b"]);
@@ -84,13 +78,7 @@ describe("readGraph — imports", () => {
 
 describe("readGraph — re-exports", () => {
 	it("starReExports equals the targets of `export * from`", () => {
-		const file = fixture(
-			"a.ts",
-			[
-				'export * from "./m.ts";',
-				'export * from "./n.ts";',
-			].join("\n"),
-		);
+		const file = fixture("a.ts", ['export * from "./m.ts";', 'export * from "./n.ts";'].join("\n"));
 		assert.deepEqual(readGraph(file).starReExports, ["./m.ts", "./n.ts"]);
 	});
 

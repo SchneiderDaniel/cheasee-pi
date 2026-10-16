@@ -128,10 +128,7 @@ export function resolveNextStatus(step: WorkflowStep, agentOutput: string): stri
  * original truthiness check: an empty long-form value falls through to the
  * short form instead of suppressing it.
  */
-function auditMarker(
-	step: WorkflowStep,
-	verdict: "APPROVED" | "REJECTED",
-): string | undefined {
+function auditMarker(step: WorkflowStep, verdict: "APPROVED" | "REJECTED"): string | undefined {
 	return step.markerMap?.[`AUDIT_DECISION: ${verdict}`] || step.markerMap?.[`AUDIT_${verdict}`];
 }
 

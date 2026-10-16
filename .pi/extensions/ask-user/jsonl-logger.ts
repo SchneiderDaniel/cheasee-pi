@@ -221,7 +221,10 @@ async function readOneJsonlFile(filePath: string, signal?: AbortSignal): Promise
  * Merges in chronological order (oldest archive first, active last).
  * Returns empty array if no files exist.
  */
-export async function readQnaEntries(projectDir: string, signal?: AbortSignal): Promise<QnaEntry[]> {
+export async function readQnaEntries(
+	projectDir: string,
+	signal?: AbortSignal,
+): Promise<QnaEntry[]> {
 	signal?.throwIfAborted();
 	const entries: QnaEntry[] = [];
 

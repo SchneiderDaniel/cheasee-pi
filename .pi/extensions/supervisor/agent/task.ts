@@ -287,7 +287,7 @@ ${auditFeedback}\n`
 					.filter((p) => p.length > 0);
 				return `\n\n### Reintegrate main\n\n⚠️ YOUR BRANCH CONFLICTS WITH THE LATEST \`${defaultBranch}\`. The pipeline attempted to rebase your worktree onto \`${remote}/${defaultBranch}\` before this implementation run, but ${files.length} file(s) conflicted:\n\n${files.map((p) => `- \`${p}\``).join("\n")}\n\nResolve these conflicts BEFORE implementing the issue:\n1. Fetch base: \`git fetch ${remote} ${defaultBranch}\`\n2. Merge base: \`git merge ${remote}/${defaultBranch}\`\n3. Resolve conflicts in the files listed above — keep your work, integrate main's changes\n4. Stage resolved files: \`git add -A\`\n5. Commit merge: \`git commit -m "fix: resolve conflicts with ${defaultBranch}"\`\n\nDo NOT run \`git push\` — the pipeline owns pushing.\n`;
 			})()
-			: "";
+		: "";
 
 	// Build the resume block (injected for developer when a prior timed-out run
 	// preserved its partial work as a marked wip(#N) commit — issue #1987).
@@ -356,7 +356,6 @@ ${filteredData.body}`,
 			// Pre-audit OSV vulnerability context — injected when pipeline found CVEs
 			const vulnBlock = vulnContext
 				? `\n### ⚠️ Vulnerabilities Detected (Pre-Audit Gate)\nThe automated OSV vulnerability scan found known CVEs in project dependencies.\nPlease verify these findings and include them in your audit if confirmed.\n\n${vulnContext}\n`
-
 				: "";
 
 			const checklist = buildAuditChecklist(8);

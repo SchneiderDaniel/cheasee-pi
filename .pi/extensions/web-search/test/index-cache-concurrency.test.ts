@@ -99,7 +99,10 @@ describe("Concurrency semaphore", () => {
 				}
 				return {
 					code: 0,
-					stdout: framed({ ok: true, results: [{ title: "Second", url: "https://example.com", snippet: "Second attempt" }] }),
+					stdout: framed({
+						ok: true,
+						results: [{ title: "Second", url: "https://example.com", snippet: "Second attempt" }],
+					}),
 					stderr: "",
 				};
 			}
@@ -137,7 +140,10 @@ describe("Concurrency semaphore", () => {
 			if (cmd === "bash") {
 				return {
 					code: 0,
-					stdout: framed({ ok: true, results: [{ title: "Seq", url: "https://example.com", snippet: "Sequential" }] }),
+					stdout: framed({
+						ok: true,
+						results: [{ title: "Seq", url: "https://example.com", snippet: "Sequential" }],
+					}),
 					stderr: "",
 				};
 			}
@@ -165,11 +171,13 @@ describe("Concurrency semaphore", () => {
 		assert.ok(r2.content[0].text.includes("Sequential"), "second result should contain snippet");
 	});
 
-		it("(entity) cancellation during search lock wait — abort signal throws AbortError", async () => {
+	it("(entity) cancellation during search lock wait — abort signal throws AbortError", async () => {
 		// MAX_CONCURRENT_SEARCHES = 5, so we need 5 searches in-flight to fill the semaphore.
 		// Gated exec: bash calls block on a deferred promise for the first 5 calls.
 		let openBashGate!: () => void;
-		const bashGate = new Promise<void>((r) => { openBashGate = r; });
+		const bashGate = new Promise<void>((r) => {
+			openBashGate = r;
+		});
 		let bashCallCount = 0;
 
 		const gatedExec: ExecFn = async (cmd: string, args: string[]) => {
@@ -218,7 +226,11 @@ describe("Concurrency semaphore", () => {
 		controller.abort();
 
 		// p6 should reject with AbortError within 1 poll interval (~200ms for search)
-		await assert.rejects(p6, { name: "AbortError" }, "abort during search lock wait should throw AbortError");
+		await assert.rejects(
+			p6,
+			{ name: "AbortError" },
+			"abort during search lock wait should throw AbortError",
+		);
 
 		// Clean up: release bash gate so fill searches complete
 		openBashGate();
@@ -227,7 +239,9 @@ describe("Concurrency semaphore", () => {
 
 	it("(entity) after abort during search lock wait, fresh calls still work — no semaphore corruption", async () => {
 		let openBashGate!: () => void;
-		const bashGate = new Promise<void>((r) => { openBashGate = r; });
+		const bashGate = new Promise<void>((r) => {
+			openBashGate = r;
+		});
 		let bashCallCount = 0;
 
 		const gatedExec: ExecFn = async (cmd: string, args: string[]) => {
@@ -277,7 +291,9 @@ describe("Concurrency semaphore", () => {
 		const fresh = tool.execute("fresh", { query: "fresh-after-abort" }, undefined, undefined, {
 			cwd: tmp("fresh-after-abort"),
 		});
-		const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("fresh did not complete within 3s")), 3000));
+		const timeout = new Promise((_, reject) =>
+			setTimeout(() => reject(new Error("fresh did not complete within 3s")), 3000),
+		);
 		await Promise.race([fresh, timeout]);
 		assert.ok(bashCallCount >= 6, "fresh call should reach bash after slots freed");
 	});
@@ -313,7 +329,9 @@ describe("web_search.execute — structured details payload", () => {
 	});
 
 	it("(use-case) details.query is trimmed and maxResults defaults to 10 in script config", async () => {
-		const { exec, config } = execReturning([{ title: "T", url: "https://t.example", snippet: "s" }]);
+		const { exec, config } = execReturning([
+			{ title: "T", url: "https://t.example", snippet: "s" },
+		]);
 		const tool = registerWebSearch(exec);
 		await tool.execute("c1", { query: "  trimmed-query  " }, undefined, undefined, {
 			cwd: tmp("trimmed"),
@@ -377,10 +395,7 @@ describe("web_search — outputSchema & annotations", () => {
 	it("(D) registered outputSchema is the ok-discriminated union", () => {
 		const tool = registerWebSearch(mockExecReturns({ code: 0, stdout: "", stderr: "" }));
 		const serialized = JSON.stringify(tool.outputSchema);
-		assert.ok(
-			(serialized.match(/"ok"/g) ?? []).length >= 2,
-			"both ok branches declared",
-		);
+		assert.ok((serialized.match(/"ok"/g) ?? []).length >= 2, "both ok branches declared");
 		assert.ok(Value.Check(tool.outputSchema, { ok: true, query: "q", returned: 0, results: [] }));
 		assert.ok(Value.Check(tool.outputSchema, { ok: false, query: "q", error: "boom" }));
 	});

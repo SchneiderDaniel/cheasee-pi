@@ -301,7 +301,11 @@ describe("tryRebaseOntoBase()", () => {
 			[
 				{ code: 0, stdout: "fetch ok", stderr: "" },
 				// rebase fails (non-conflict)
-				{ code: 1, stdout: "", stderr: "fatal: Unable to create '/workspaces/main/.git/index.lock': File exists." },
+				{
+					code: 1,
+					stdout: "",
+					stderr: "fatal: Unable to create '/workspaces/main/.git/index.lock': File exists.",
+				},
 				// diff --diff-filter=U returns no files
 				{ code: 0, stdout: "", stderr: "" },
 				// abort
@@ -623,9 +627,7 @@ describe("tryRebaseOntoBase()", () => {
 		);
 		const cleanCalls = execCalls.filter((c) => c.args[0] === "clean");
 		assert.equal(cleanCalls.length, 0, "no clean call when nothing untracked");
-		const rebaseCalls = execCalls.filter(
-			(c) => c.args[0] === "rebase" && c.args[1] !== "--abort",
-		);
+		const rebaseCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] !== "--abort");
 		assert.equal(rebaseCalls.length, 1, "no retry when nothing untracked");
 	});
 
@@ -806,7 +808,11 @@ describe("tryRebaseOntoBase()", () => {
 
 		// git merge --no-edit NEVER invoked; no git merge --abort (nothing to abort)
 		const mergeCalls = execCalls.filter((c) => c.args[0] === "merge");
-		assert.equal(mergeCalls.length, 0, "merge fallback must NOT be invoked with mergeFallback:false");
+		assert.equal(
+			mergeCalls.length,
+			0,
+			"merge fallback must NOT be invoked with mergeFallback:false",
+		);
 		// git rebase --abort called exactly once
 		const abortCalls = execCalls.filter((c) => c.args[0] === "rebase" && c.args[1] === "--abort");
 		assert.equal(abortCalls.length, 1, "rebase --abort should be called exactly once");
@@ -871,7 +877,11 @@ describe("tryRebaseOntoBase()", () => {
 		const pi = createMockPi(
 			[
 				{ code: 0, stdout: "fetch ok", stderr: "" },
-				{ code: 1, stdout: "", stderr: "fatal: Unable to create '/workspaces/main/.git/index.lock': File exists." },
+				{
+					code: 1,
+					stdout: "",
+					stderr: "fatal: Unable to create '/workspaces/main/.git/index.lock': File exists.",
+				},
 				// diff empty
 				{ code: 0, stdout: "", stderr: "" },
 				// abort

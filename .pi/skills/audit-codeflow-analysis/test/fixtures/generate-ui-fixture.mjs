@@ -39,7 +39,8 @@ const html = readFileSync(uiPath, "utf8");
 // mobile variant (`top-btn mobile-icon-btn`, title 'Export'). The bridge only
 // needs one control; the desktop one is what a non-mobile view renders.
 function extractButton() {
-	const re = /React\.createElement\('button',\{className:'([^']*)','aria-label':'Export analysis',title:'([^']*)'/g;
+	const re =
+		/React\.createElement\('button',\{className:'([^']*)','aria-label':'Export analysis',title:'([^']*)'/g;
 	let m;
 	let desktop = null;
 	while ((m = re.exec(html)) !== null) {

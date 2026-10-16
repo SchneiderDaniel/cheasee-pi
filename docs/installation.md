@@ -9,7 +9,7 @@ nav_order: 2
 {: .no_toc }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ## Prerequisites
 
@@ -39,6 +39,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 ```
 
 {:.note-title}
+
 > macOS
 > Gatekeeper may block the unsigned binary. Run `xattr -d com.apple.quarantine ~/.local/bin/cheasee-pi` or Ctrl-click → Open in Finder.
 
@@ -98,6 +99,7 @@ cache state, and pi's own `.pi/settings.json` is self-scaffolded by pi on its
 first run.
 
 {:.note-title}
+
 > Custom skills?
 > `cheasee-pi init --skill-repo owner/repo` records custom skills (git-hosted
 > skill repository specs) without a prompt (repeatable; also accepts
@@ -110,11 +112,13 @@ first run.
 > remove it.
 
 {:.note-title}
+
 > No GitHub?
 > `cheasee-pi init --no-github` skips auth and the clone; you provide API keys
 > separately. `--no-input` needs `--repo-url <url>` since there is no prompt.
 
 {:.note-title}
+
 > Already initialized?
 > `cheasee-pi init --reauth` re-runs the authentications (GitHub OAuth device
 > flow + provider API-key setup) without touching the clone or the settings
@@ -142,8 +146,8 @@ cheasee-pi start
 `cheasee-pi` (alias `start`) gates on the workspace state:
 
 - **Empty folder** → auto-runs `cheasee-pi init` (repo URL prompt, bare clone
-  + main worktree, `cheasee-settings.json`), then stops — init never launches
-  pi; run `cheasee-pi start` again to start
+  - main worktree, `cheasee-settings.json`), then stops — init never launches
+    pi; run `cheasee-pi start` again to start
 - **`cheasee-settings.json` present** → initialized workspace; runs normally
 - **Non-empty folder without `cheasee-settings.json`** → refused with
   “not initialized; run `cheasee-pi init` in an empty folder”

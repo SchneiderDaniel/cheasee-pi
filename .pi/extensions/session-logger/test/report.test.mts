@@ -25,7 +25,12 @@ const START_BASE = 1_000_000;
 
 function makeToolExecution(
 	toolName: string,
-	opts: { isError?: boolean; durationMs?: number; hasEndTime?: boolean; parentToolCallId?: string } = {},
+	opts: {
+		isError?: boolean;
+		durationMs?: number;
+		hasEndTime?: boolean;
+		parentToolCallId?: string;
+	} = {},
 ): ToolExecution {
 	const startTime = START_BASE;
 	const endTime = opts.hasEndTime !== false ? startTime + (opts.durationMs ?? 100) : null;
@@ -467,7 +472,11 @@ describe("buildMetadata() — pure function unit tests", () => {
 			"subagentToolStats unchanged after snapshot merge",
 		);
 		// toolStats still merged as before
-		assert.strictEqual(meta.toolStats!.read.totalDurationMs, 150, "toolStats duration from snapshot");
+		assert.strictEqual(
+			meta.toolStats!.read.totalDurationMs,
+			150,
+			"toolStats duration from snapshot",
+		);
 	});
 
 	it("overrides (sessionName, mode) do not affect subagentToolStats", () => {

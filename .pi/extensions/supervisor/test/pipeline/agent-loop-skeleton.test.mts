@@ -488,7 +488,10 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			0,
 			"no status transition on refusal",
 		);
-		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${runCtx.stopReason}`,
+		);
 		assert.ok(runCtx.stopReason?.includes("cannot design this reliably"));
 		assert.equal(runCtx.loopStatus, "Architecture", "loopStatus unchanged");
 	});
@@ -505,7 +508,10 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		const comments = commentsOf(portCalls);
 		assert.equal(comments.length, 1, "exactly one comment");
 		assert.equal(comments[0], body, "non-blank commentBody posted verbatim, not trimmed");
-		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${runCtx.stopReason}`,
+		);
 	});
 
 	it("falls back to a generated note when commentBody is missing", async () => {
@@ -584,7 +590,11 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 
 		assert.equal(runner.mock.callCount(), 1, "no retry when the initial result is a refusal");
 		const comments = commentsOf(portCalls);
-		assert.equal(comments.length, 1, `exactly one refusal comment, got: ${JSON.stringify(comments)}`);
+		assert.equal(
+			comments.length,
+			1,
+			`exactly one refusal comment, got: ${JSON.stringify(comments)}`,
+		);
 		assert.ok(comments[0].includes("Agent Refused"), "generated refusal note posted");
 		assert.ok(comments[0].includes("cannot continue"), "refusal reason surfaced");
 		assert.equal(
@@ -592,7 +602,10 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			0,
 			"no status transition on refusal",
 		);
-		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${runCtx.stopReason}`,
+		);
 		assert.equal(runCtx.loopStatus, "Architecture", "loopStatus unchanged");
 	});
 
@@ -652,7 +665,10 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 			0,
 			"no status transition on auditor refusal",
 		);
-		assert.ok(runCtx.stopReason?.includes("Agent refused"), `stopReason, got: ${runCtx.stopReason}`);
+		assert.ok(
+			runCtx.stopReason?.includes("Agent refused"),
+			`stopReason, got: ${runCtx.stopReason}`,
+		);
 	});
 
 	it("researcher refusal with budgetExceeded → refusal note posted, no degradation, no Research→Architecture transition", async () => {
@@ -825,7 +841,9 @@ describe("runAgentLoop skeleton — refusal handling (issue #1618)", () => {
 		// (no unhandled rejection, no bogus status transition).
 		const warns = runCtx.collector.flush("handler");
 		assert.ok(
-			warns.some((w) => w.severity === "warn" && w.message.includes("Failed to post refusal comment")),
+			warns.some(
+				(w) => w.severity === "warn" && w.message.includes("Failed to post refusal comment"),
+			),
 			`collector must carry the posting failure, got: ${JSON.stringify(warns)}`,
 		);
 		assert.equal(

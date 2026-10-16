@@ -11,11 +11,11 @@ strict subset of.
 ## The metric
 
 `index.html` `detectPatterns` (pinned analyzer ref below) emits the pattern as
-the *same* predicate behind `God Object`, at a higher ceiling:
+the _same_ predicate behind `God Object`, at a higher ceiling:
 
 ```js
 var vbaGodFiles = files.filter(function (f) {
-  return f.isCode !== false && f.functions && f.functions.length > 20;
+	return f.isCode !== false && f.functions && f.functions.length > 20;
 });
 ```
 
@@ -27,12 +27,12 @@ Four consequences drive this change:
    every `class`. `.py` counts nested helpers too, which is why the two suites
    below already sat at 21 declarations each after #2005's split.
 2. **The ceiling is strict.** A file with exactly 20 declarations is not
-   flagged; 21 is. A split only moves the metric when *every* sibling lands
+   flagged; 21 is. A split only moves the metric when _every_ sibling lands
    `<= 20`.
 3. **`VBA God Module` is a strict subset of `God Object`** (`> 15`, same
    predicate, `index.html:1412`), and `God Object` is the metric behind the
    `N Large Files` architecture issue. A split that only reaches `<= 20` can
-   *mint* a God Object regression, so this change targets `<= 15` per sibling
+   _mint_ a God Object regression, so this change targets `<= 15` per sibling
    and records the expected co-benefit.
 4. **Only code extensions are scored.** `isCode` gates files absent from
    `codeExts` (`index.html:1093`), so `.mts`, `.md` and `.json` are never
@@ -94,15 +94,15 @@ scenario helpers and the tests). The class contract moved into a new non-test
 module and whole `def test_*` bodies moved verbatim, so every module lands
 `<= 15`:
 
-| Module                                    | before | after | holds                              |
-| ----------------------------------------- | ------ | ----- | ---------------------------------- |
-| `test_adapter_extraction.py`              | 21     | 7     | Python/JS/Go scenarios             |
-| `test_adapter_extraction_jvm_dotnet.py`   | —      | 4     | JVM/.NET scenarios                 |
-| `test_adapter_extraction_systems_dynamic.py` | —   | 8     | Rust/C++/Ruby/PHP/Swift/Dart       |
-| `test_registry_transport.py`              | 21     | 5     | URL/maven/normalization/404        |
-| `test_registry_transport_cache.py`        | —      | 13    | retry/network/cache/rate-limit     |
-| `test_registry_transport_registries.py`   | —      | 3     | packagist/nuget                    |
-| `_bases.py` (new, shared)                 | —      | 8     | `AdapterExtractionBase` + `RegistryIntervalBase` |
+| Module                                       | before | after | holds                                            |
+| -------------------------------------------- | ------ | ----- | ------------------------------------------------ |
+| `test_adapter_extraction.py`                 | 21     | 7     | Python/JS/Go scenarios                           |
+| `test_adapter_extraction_jvm_dotnet.py`      | —      | 4     | JVM/.NET scenarios                               |
+| `test_adapter_extraction_systems_dynamic.py` | —      | 8     | Rust/C++/Ruby/PHP/Swift/Dart                     |
+| `test_registry_transport.py`                 | 21     | 5     | URL/maven/normalization/404                      |
+| `test_registry_transport_cache.py`           | —      | 13    | retry/network/cache/rate-limit                   |
+| `test_registry_transport_registries.py`      | —      | 3     | packagist/nuget                                  |
+| `_bases.py` (new, shared)                    | —      | 8     | `AdapterExtractionBase` + `RegistryIntervalBase` |
 
 The preserved surface is pinned by
 `test/vba-god-module-refactor-2006.test.mts`: the union of `def test_*` names is

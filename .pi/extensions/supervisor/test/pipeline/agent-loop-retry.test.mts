@@ -33,10 +33,7 @@ interface ExecCall {
 
 type GitReply = { code: number; stdout?: string; stderr?: string } | null;
 
-function createMockPi(
-	calls?: ExecCall[],
-	gitHandler?: (args: string[]) => GitReply,
-): ExtensionAPI {
+function createMockPi(calls?: ExecCall[], gitHandler?: (args: string[]) => GitReply): ExtensionAPI {
 	const callLog = calls || [];
 	return {
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
@@ -919,7 +916,10 @@ function runDeveloper(opts: {
 	queueAgent?: string;
 	gitHandler?: (args: string[]) => GitReply;
 }): { runner: ReturnType<typeof mock.fn>; runCtx: RunContext } {
-	const runner = createQueueRunner(opts.queue ?? [makeDevResult({})], opts.queueAgent ?? "developer");
+	const runner = createQueueRunner(
+		opts.queue ?? [makeDevResult({})],
+		opts.queueAgent ?? "developer",
+	);
 	const runCtx = buildRetryRunContext({
 		runner,
 		portCalls: [],

@@ -19,10 +19,7 @@ export interface PortCall {
 export interface MockGitHubPortOptions {
 	getIssue?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
 	getIssueWithComments?: (issueNum: number, repo: string) => Promise<RawIssueData | null>;
-	listComments?: (
-		issueNum: number,
-		repo: string,
-	) => Promise<NonNullable<RawIssueData["comments"]>>;
+	listComments?: (issueNum: number, repo: string) => Promise<NonNullable<RawIssueData["comments"]>>;
 	getAuthenticatedLogin?: () => Promise<string>;
 	closeIssue?: (issueNum: number, repo: string) => Promise<void>;
 	postIssueComment?: (issueNum: number, repo: string, body: string) => Promise<void>;
@@ -32,10 +29,7 @@ export interface MockGitHubPortOptions {
 	removeIssueLabel?: (issueNum: number, repo: string, label: string) => Promise<void>;
 	deleteIssueComment?: (commentId: string, repo: string) => Promise<void>;
 	compareBranches?: (base: string, head: string, repo: string) => Promise<number>;
-	listPullRequestsForBranch?: (
-		branch: string,
-		repo: string,
-	) => Promise<PrConflictInfo | null>;
+	listPullRequestsForBranch?: (branch: string, repo: string) => Promise<PrConflictInfo | null>;
 	createPullRequest?: (input: {
 		repo: string;
 		base: string;
@@ -58,14 +52,8 @@ export interface MockGitHubPortOptions {
 		fieldId: string,
 		optionId: string,
 	) => Promise<void>;
-	checkBlockedByDependencies?: (
-		issueNum: number,
-		repo: string,
-	) => Promise<DepsResult>;
-	getClosingPrsForIssue?: (
-		issueNum: number,
-		repo: string,
-	) => Promise<ClosingPrRef[]>;
+	checkBlockedByDependencies?: (issueNum: number, repo: string) => Promise<DepsResult>;
+	getClosingPrsForIssue?: (issueNum: number, repo: string) => Promise<ClosingPrRef[]>;
 	setToken?: (token: string) => void;
 }
 
@@ -112,177 +100,162 @@ export function createMockGitHubPort(
 		getProjectId: "",
 		setItemStatusField: undefined as void,
 		checkBlockedByDependencies: { blocked: false, blockers: [] } as DepsResult,
-	getClosingPrsForIssue: [] as ClosingPrRef[],
+		getClosingPrsForIssue: [] as ClosingPrRef[],
 	};
 
 	return {
-		getIssue:
-			opts?.getIssue
-				? wrap("getIssue", opts.getIssue)
-				: (async (issueNum: number, repo: string) => {
-						record("getIssue", [issueNum, repo]);
-						return defaults.getIssue;
-					}) as GitHubPort["getIssue"],
+		getIssue: opts?.getIssue
+			? wrap("getIssue", opts.getIssue)
+			: ((async (issueNum: number, repo: string) => {
+					record("getIssue", [issueNum, repo]);
+					return defaults.getIssue;
+				}) as GitHubPort["getIssue"]),
 
-		getIssueWithComments:
-			opts?.getIssueWithComments
-				? wrap("getIssueWithComments", opts.getIssueWithComments)
-				: (async (issueNum: number, repo: string) => {
-						record("getIssueWithComments", [issueNum, repo]);
-						return defaults.getIssueWithComments;
-					}) as GitHubPort["getIssueWithComments"],
+		getIssueWithComments: opts?.getIssueWithComments
+			? wrap("getIssueWithComments", opts.getIssueWithComments)
+			: ((async (issueNum: number, repo: string) => {
+					record("getIssueWithComments", [issueNum, repo]);
+					return defaults.getIssueWithComments;
+				}) as GitHubPort["getIssueWithComments"]),
 
-		listComments:
-			opts?.listComments
-				? wrap("listComments", opts.listComments)
-				: (async (issueNum: number, repo: string) => {
-						record("listComments", [issueNum, repo]);
-						return defaults.listComments;
-					}) as GitHubPort["listComments"],
+		listComments: opts?.listComments
+			? wrap("listComments", opts.listComments)
+			: ((async (issueNum: number, repo: string) => {
+					record("listComments", [issueNum, repo]);
+					return defaults.listComments;
+				}) as GitHubPort["listComments"]),
 
-		getAuthenticatedLogin:
-			opts?.getAuthenticatedLogin
-				? wrap("getAuthenticatedLogin", opts.getAuthenticatedLogin)
-				: (async () => {
-						record("getAuthenticatedLogin", []);
-						return defaults.getAuthenticatedLogin;
-					}) as GitHubPort["getAuthenticatedLogin"],
+		getAuthenticatedLogin: opts?.getAuthenticatedLogin
+			? wrap("getAuthenticatedLogin", opts.getAuthenticatedLogin)
+			: ((async () => {
+					record("getAuthenticatedLogin", []);
+					return defaults.getAuthenticatedLogin;
+				}) as GitHubPort["getAuthenticatedLogin"]),
 
-		closeIssue:
-			opts?.closeIssue
-				? wrap("closeIssue", opts.closeIssue)
-				: (async (issueNum: number, repo: string) => {
-						record("closeIssue", [issueNum, repo]);
-						return defaults.closeIssue;
-					}) as GitHubPort["closeIssue"],
+		closeIssue: opts?.closeIssue
+			? wrap("closeIssue", opts.closeIssue)
+			: ((async (issueNum: number, repo: string) => {
+					record("closeIssue", [issueNum, repo]);
+					return defaults.closeIssue;
+				}) as GitHubPort["closeIssue"]),
 
-		postIssueComment:
-			opts?.postIssueComment
-				? wrap("postIssueComment", opts.postIssueComment)
-				: (async (issueNum: number, repo: string, body: string) => {
-						record("postIssueComment", [issueNum, repo, body]);
-						return defaults.postIssueComment;
-					}) as GitHubPort["postIssueComment"],
+		postIssueComment: opts?.postIssueComment
+			? wrap("postIssueComment", opts.postIssueComment)
+			: ((async (issueNum: number, repo: string, body: string) => {
+					record("postIssueComment", [issueNum, repo, body]);
+					return defaults.postIssueComment;
+				}) as GitHubPort["postIssueComment"]),
 
-		updateIssueComment:
-			opts?.updateIssueComment
-				? wrap("updateIssueComment", opts.updateIssueComment)
-				: (async (commentId: string, repo: string, body: string) => {
-						record("updateIssueComment", [commentId, repo, body]);
-						return defaults.updateIssueComment;
-					}) as GitHubPort["updateIssueComment"],
+		updateIssueComment: opts?.updateIssueComment
+			? wrap("updateIssueComment", opts.updateIssueComment)
+			: ((async (commentId: string, repo: string, body: string) => {
+					record("updateIssueComment", [commentId, repo, body]);
+					return defaults.updateIssueComment;
+				}) as GitHubPort["updateIssueComment"]),
 
-		getIssueLabels:
-			opts?.getIssueLabels
-				? wrap("getIssueLabels", opts.getIssueLabels)
-				: (async (issueNum: number, repo: string) => {
-						record("getIssueLabels", [issueNum, repo]);
-						return defaults.getIssueLabels;
-					}) as GitHubPort["getIssueLabels"],
+		getIssueLabels: opts?.getIssueLabels
+			? wrap("getIssueLabels", opts.getIssueLabels)
+			: ((async (issueNum: number, repo: string) => {
+					record("getIssueLabels", [issueNum, repo]);
+					return defaults.getIssueLabels;
+				}) as GitHubPort["getIssueLabels"]),
 
-		addIssueLabel:
-			opts?.addIssueLabel
-				? wrap("addIssueLabel", opts.addIssueLabel)
-				: (async (issueNum: number, repo: string, label: string) => {
-						record("addIssueLabel", [issueNum, repo, label]);
-						return defaults.addIssueLabel;
-					}) as GitHubPort["addIssueLabel"],
+		addIssueLabel: opts?.addIssueLabel
+			? wrap("addIssueLabel", opts.addIssueLabel)
+			: ((async (issueNum: number, repo: string, label: string) => {
+					record("addIssueLabel", [issueNum, repo, label]);
+					return defaults.addIssueLabel;
+				}) as GitHubPort["addIssueLabel"]),
 
-		removeIssueLabel:
-			opts?.removeIssueLabel
-				? wrap("removeIssueLabel", opts.removeIssueLabel)
-				: (async (issueNum: number, repo: string, label: string) => {
-						record("removeIssueLabel", [issueNum, repo, label]);
-						return defaults.removeIssueLabel;
-					}) as GitHubPort["removeIssueLabel"],
+		removeIssueLabel: opts?.removeIssueLabel
+			? wrap("removeIssueLabel", opts.removeIssueLabel)
+			: ((async (issueNum: number, repo: string, label: string) => {
+					record("removeIssueLabel", [issueNum, repo, label]);
+					return defaults.removeIssueLabel;
+				}) as GitHubPort["removeIssueLabel"]),
 
-		deleteIssueComment:
-			opts?.deleteIssueComment
-				? wrap("deleteIssueComment", opts.deleteIssueComment)
-				: (async (commentId: string, repo: string) => {
-						record("deleteIssueComment", [commentId, repo]);
-						return defaults.deleteIssueComment;
-					}) as GitHubPort["deleteIssueComment"],
+		deleteIssueComment: opts?.deleteIssueComment
+			? wrap("deleteIssueComment", opts.deleteIssueComment)
+			: ((async (commentId: string, repo: string) => {
+					record("deleteIssueComment", [commentId, repo]);
+					return defaults.deleteIssueComment;
+				}) as GitHubPort["deleteIssueComment"]),
 
-		compareBranches:
-			opts?.compareBranches
-				? wrap("compareBranches", opts.compareBranches)
-				: (async (base: string, head: string, repo: string) => {
-						record("compareBranches", [base, head, repo]);
-						return defaults.compareBranches;
-					}) as GitHubPort["compareBranches"],
+		compareBranches: opts?.compareBranches
+			? wrap("compareBranches", opts.compareBranches)
+			: ((async (base: string, head: string, repo: string) => {
+					record("compareBranches", [base, head, repo]);
+					return defaults.compareBranches;
+				}) as GitHubPort["compareBranches"]),
 
-		listPullRequestsForBranch:
-			opts?.listPullRequestsForBranch
-				? wrap("listPullRequestsForBranch", opts.listPullRequestsForBranch)
-				: (async (branch: string, repo: string) => {
-						record("listPullRequestsForBranch", [branch, repo]);
-						return defaults.listPullRequestsForBranch;
-					}) as GitHubPort["listPullRequestsForBranch"],
+		listPullRequestsForBranch: opts?.listPullRequestsForBranch
+			? wrap("listPullRequestsForBranch", opts.listPullRequestsForBranch)
+			: ((async (branch: string, repo: string) => {
+					record("listPullRequestsForBranch", [branch, repo]);
+					return defaults.listPullRequestsForBranch;
+				}) as GitHubPort["listPullRequestsForBranch"]),
 
-		createPullRequest:
-			opts?.createPullRequest
-				? wrap("createPullRequest", opts.createPullRequest)
-				: (async (input: { repo: string; base: string; head: string; title: string; body?: string }) => {
-						record("createPullRequest", [input]);
-						return defaults.createPullRequest;
-					}) as GitHubPort["createPullRequest"],
+		createPullRequest: opts?.createPullRequest
+			? wrap("createPullRequest", opts.createPullRequest)
+			: ((async (input: {
+					repo: string;
+					base: string;
+					head: string;
+					title: string;
+					body?: string;
+				}) => {
+					record("createPullRequest", [input]);
+					return defaults.createPullRequest;
+				}) as GitHubPort["createPullRequest"]),
 
-		updatePullRequest:
-			opts?.updatePullRequest
-				? wrap("updatePullRequest", opts.updatePullRequest)
-				: (async (prNumber: number, repo: string, body: string, title?: string) => {
-						record("updatePullRequest", [prNumber, repo, body, title]);
-						return defaults.updatePullRequest;
-					}) as GitHubPort["updatePullRequest"],
+		updatePullRequest: opts?.updatePullRequest
+			? wrap("updatePullRequest", opts.updatePullRequest)
+			: ((async (prNumber: number, repo: string, body: string, title?: string) => {
+					record("updatePullRequest", [prNumber, repo, body, title]);
+					return defaults.updatePullRequest;
+				}) as GitHubPort["updatePullRequest"]),
 
-		getProjectFields:
-			opts?.getProjectFields
-				? wrap("getProjectFields", opts.getProjectFields)
-				: (async (projectNumber: number) => {
-						record("getProjectFields", [projectNumber]);
-						return defaults.getProjectFields;
-					}) as GitHubPort["getProjectFields"],
+		getProjectFields: opts?.getProjectFields
+			? wrap("getProjectFields", opts.getProjectFields)
+			: ((async (projectNumber: number) => {
+					record("getProjectFields", [projectNumber]);
+					return defaults.getProjectFields;
+				}) as GitHubPort["getProjectFields"]),
 
-		getProjectItems:
-			opts?.getProjectItems
-				? wrap("getProjectItems", opts.getProjectItems)
-				: (async (projectNumber: number) => {
-						record("getProjectItems", [projectNumber]);
-						return defaults.getProjectItems;
-					}) as GitHubPort["getProjectItems"],
+		getProjectItems: opts?.getProjectItems
+			? wrap("getProjectItems", opts.getProjectItems)
+			: ((async (projectNumber: number) => {
+					record("getProjectItems", [projectNumber]);
+					return defaults.getProjectItems;
+				}) as GitHubPort["getProjectItems"]),
 
-		getProjectId:
-			opts?.getProjectId
-				? wrap("getProjectId", opts.getProjectId)
-				: (async (projectNumber: number) => {
-						record("getProjectId", [projectNumber]);
-						return defaults.getProjectId;
-					}) as GitHubPort["getProjectId"],
+		getProjectId: opts?.getProjectId
+			? wrap("getProjectId", opts.getProjectId)
+			: ((async (projectNumber: number) => {
+					record("getProjectId", [projectNumber]);
+					return defaults.getProjectId;
+				}) as GitHubPort["getProjectId"]),
 
-		setItemStatusField:
-			opts?.setItemStatusField
-				? wrap("setItemStatusField", opts.setItemStatusField)
-				: (async (itemId: string, projectId: string, fieldId: string, optionId: string) => {
-						record("setItemStatusField", [itemId, projectId, fieldId, optionId]);
-						return defaults.setItemStatusField;
-					}) as GitHubPort["setItemStatusField"],
+		setItemStatusField: opts?.setItemStatusField
+			? wrap("setItemStatusField", opts.setItemStatusField)
+			: ((async (itemId: string, projectId: string, fieldId: string, optionId: string) => {
+					record("setItemStatusField", [itemId, projectId, fieldId, optionId]);
+					return defaults.setItemStatusField;
+				}) as GitHubPort["setItemStatusField"]),
 
-		checkBlockedByDependencies:
-			opts?.checkBlockedByDependencies
-				? wrap("checkBlockedByDependencies", opts.checkBlockedByDependencies)
-				: (async (issueNum: number, repo: string) => {
-						record("checkBlockedByDependencies", [issueNum, repo]);
-						return defaults.checkBlockedByDependencies;
-					}) as GitHubPort["checkBlockedByDependencies"],
+		checkBlockedByDependencies: opts?.checkBlockedByDependencies
+			? wrap("checkBlockedByDependencies", opts.checkBlockedByDependencies)
+			: ((async (issueNum: number, repo: string) => {
+					record("checkBlockedByDependencies", [issueNum, repo]);
+					return defaults.checkBlockedByDependencies;
+				}) as GitHubPort["checkBlockedByDependencies"]),
 
-		getClosingPrsForIssue:
-			opts?.getClosingPrsForIssue
-				? wrap("getClosingPrsForIssue", opts.getClosingPrsForIssue)
-				: (async (issueNum: number, repo: string) => {
-						record("getClosingPrsForIssue", [issueNum, repo]);
-						return defaults.getClosingPrsForIssue;
-					}) as GitHubPort["getClosingPrsForIssue"],
+		getClosingPrsForIssue: opts?.getClosingPrsForIssue
+			? wrap("getClosingPrsForIssue", opts.getClosingPrsForIssue)
+			: ((async (issueNum: number, repo: string) => {
+					record("getClosingPrsForIssue", [issueNum, repo]);
+					return defaults.getClosingPrsForIssue;
+				}) as GitHubPort["getClosingPrsForIssue"]),
 
 		setToken: opts?.setToken ?? ((_token: string) => {}),
 	};

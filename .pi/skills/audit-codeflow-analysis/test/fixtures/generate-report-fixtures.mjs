@@ -47,7 +47,10 @@ function compile(parameters, body, filename) {
 
 // --- the report object shared by every format (JSON export) -----------------
 const reportSrc = html.slice(html.indexOf("var report={"), html.indexOf("if(format==='json'){"));
-const calcHealthSrc = html.slice(html.indexOf("function calcHealth(data){"), html.indexOf("// ===== CODEFLOW_METRICS_END ====="));
+const calcHealthSrc = html.slice(
+	html.indexOf("function calcHealth(data){"),
+	html.indexOf("// ===== CODEFLOW_METRICS_END ====="),
+);
 const calcHealth = compile([], calcHealthSrc + "\nreturn calcHealth;", "codeflow-calc-health.js")();
 // --- the markdown builder (format === 'md') ---------------------------------
 const mdSrc = sliceFixtureSection("}else if(format==='md'){", "}else if(format==='txt'){").body;
@@ -84,32 +87,127 @@ const data = {
 		},
 	],
 	deadFunctions: [
-		{ name: "legacyParse", file: "src/parser/legacy.ts", line: 44, codeLines: 18, code: "function legacyParse(){}", ext: ".ts" },
+		{
+			name: "legacyParse",
+			file: "src/parser/legacy.ts",
+			line: 44,
+			codeLines: 18,
+			code: "function legacyParse(){}",
+			ext: ".ts",
+		},
 		{ name: "oldHelper", file: "src/util/helpers.ts", line: 3, codeLines: 5, code: "", ext: ".ts" },
-		{ name: "deadBranch", file: "src/parser/legacy.ts", line: 90, codeLines: 7, code: "", ext: ".ts" },
+		{
+			name: "deadBranch",
+			file: "src/parser/legacy.ts",
+			line: 90,
+			codeLines: 7,
+			code: "",
+			ext: ".ts",
+		},
 	],
 	patterns: [
-		{ name: "Singleton", desc: "A single shared instance.", isAnti: false, severity: "info", files: [{ name: "src/registry.ts", path: "src/registry.ts" }], metrics: {} },
-		{ name: "God Object", desc: "Files with too many responsibilities.", isAnti: true, severity: "warning", files: [{ name: "src/god.ts", path: "src/god.ts" }], metrics: {} },
+		{
+			name: "Singleton",
+			desc: "A single shared instance.",
+			isAnti: false,
+			severity: "info",
+			files: [{ name: "src/registry.ts", path: "src/registry.ts" }],
+			metrics: {},
+		},
+		{
+			name: "God Object",
+			desc: "Files with too many responsibilities.",
+			isAnti: true,
+			severity: "warning",
+			files: [{ name: "src/god.ts", path: "src/god.ts" }],
+			metrics: {},
+		},
 	],
 	issues: [
-		{ type: "warning", title: "High coupling in parser layer", desc: "Parser files depend on UI modules.", items: [{ file: "src/parser/ast.ts" }, { file: "src/ui/render.ts" }] },
-		{ type: "critical", title: "1 Architecture Violations", desc: "Lower layers importing from higher layers", items: [{ name: "domain → ui", file: "src/domain/b.ts", toFile: "src/ui/c.ts", fn: "render" }] },
-		{ type: "warning", title: "Circular dependency", desc: "A cycle between two modules.", items: [{ file: "src/cycle/a.ts" }, { file: "src/cycle/b.ts" }] },
+		{
+			type: "warning",
+			title: "High coupling in parser layer",
+			desc: "Parser files depend on UI modules.",
+			items: [{ file: "src/parser/ast.ts" }, { file: "src/ui/render.ts" }],
+		},
+		{
+			type: "critical",
+			title: "1 Architecture Violations",
+			desc: "Lower layers importing from higher layers",
+			items: [
+				{ name: "domain → ui", file: "src/domain/b.ts", toFile: "src/ui/c.ts", fn: "render" },
+			],
+		},
+		{
+			type: "warning",
+			title: "Circular dependency",
+			desc: "A cycle between two modules.",
+			items: [{ file: "src/cycle/a.ts" }, { file: "src/cycle/b.ts" }],
+		},
 	],
 	files: [
-		{ path: "src/parser/ast.ts", name: "ast.ts", folder: "src/parser", layer: "Parser", lines: 220, churn: 1, isCode: true, functions: [{ name: "parse", line: 5, key: "parse" }] },
+		{
+			path: "src/parser/ast.ts",
+			name: "ast.ts",
+			folder: "src/parser",
+			layer: "Parser",
+			lines: 220,
+			churn: 1,
+			isCode: true,
+			functions: [{ name: "parse", line: 5, key: "parse" }],
+		},
 	],
 	fnStats: {
-		parse: { name: "parse", file: "src/parser/ast.ts", folder: "src/parser", line: 5, internal: 1, external: 2, isExported: true, isClassMethod: false, isTopLevel: true, type: "function", callers: [{ file: "src/a.ts", name: "main", count: 1 }] },
+		parse: {
+			name: "parse",
+			file: "src/parser/ast.ts",
+			folder: "src/parser",
+			line: 5,
+			internal: 1,
+			external: 2,
+			isExported: true,
+			isClassMethod: false,
+			isTopLevel: true,
+			type: "function",
+			callers: [{ file: "src/a.ts", name: "main", count: 1 }],
+		},
 	},
-	connections: [{ source: "src/parser/ast.ts", target: "src/ui/render.ts", fn: "render", count: 2 }],
-	duplicates: [
-		{ type: "name", name: "parseConfig", count: 3, files: [{ file: "src/dup/a.ts", line: 1 }, { file: "src/dup/b.ts", line: 2 }, { file: "src/dup/c.ts", line: 3 }], similarity: 80, suggestion: "consolidate" },
+	connections: [
+		{ source: "src/parser/ast.ts", target: "src/ui/render.ts", fn: "render", count: 2 },
 	],
-	layerViolations: [{ from: "src/layer/from.ts", to: "src/layer/to.ts", fromLayer: "domain", toLayer: "ui", fn: "render", suggestion: "invert" }],
+	duplicates: [
+		{
+			type: "name",
+			name: "parseConfig",
+			count: 3,
+			files: [
+				{ file: "src/dup/a.ts", line: 1 },
+				{ file: "src/dup/b.ts", line: 2 },
+				{ file: "src/dup/c.ts", line: 3 },
+			],
+			similarity: 80,
+			suggestion: "consolidate",
+		},
+	],
+	layerViolations: [
+		{
+			from: "src/layer/from.ts",
+			to: "src/layer/to.ts",
+			fromLayer: "domain",
+			toLayer: "ui",
+			fn: "render",
+			suggestion: "invert",
+		},
+	],
 	suggestions: [
-		{ priority: "high", icon: "layers", title: "Fix Architecture Violations", desc: "1 layer violations found.", action: "Invert dependencies", impact: "Improves testability" },
+		{
+			priority: "high",
+			icon: "layers",
+			title: "Fix Architecture Violations",
+			desc: "1 layer violations found.",
+			action: "Invert dependencies",
+			impact: "Improves testability",
+		},
 	],
 	folders: [{ name: "src", files: 9 }],
 };
@@ -120,16 +218,16 @@ const report = compile(
 	["data", "repo", "h", "Parser", "getAnalysisSourceLabel", "calcHealth"],
 	reportSrc + "\nreturn report;",
 	"codeflow-report.js",
-)(
+)(data, repo, health, { functionKey: (fn) => fn.name }, () => repo, calcHealth);
+
+const md = buildMd(
 	data,
 	repo,
 	health,
-	{ functionKey: (fn) => fn.name },
-	() => repo,
-	calcHealth,
+	function () {},
+	{ createObjectURL: () => "blob:stub", revokeObjectURL: () => {} },
+	{ createElement: () => ({ click: () => {} }) },
 );
-
-const md = buildMd(data, repo, health, function () {}, { createObjectURL: () => "blob:stub", revokeObjectURL: () => {} }, { createElement: () => ({ click: () => {} }) });
 
 const here = dirname(new URL(import.meta.url).pathname);
 writeFileSync(join(here, "codeflow-report.md"), md);

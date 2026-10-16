@@ -44,15 +44,15 @@ Agents default to over-building — interfaces before they're needed, factories 
 
 ## Commands
 
-| Command | Effect |
-|---------|--------|
-| `/ponytail` or `/ponytail full` | Full ladder enforced. Default |
-| `/ponytail lite` | Build what's asked, name lazier alt |
-| `/ponytail ultra` | YAGNI extremist |
-| `/ponytail off` | Disable ponytail for session |
-| `/ponytail status` | Show current + default mode |
-| `/ponytail review` | Forward to `/skill:ponytail-review` (needs the skill enabled) |
-| `/ponytail-audit` | Forward to `/skill:ponytail-audit` (needs the skill enabled) |
+| Command                         | Effect                                                        |
+| ------------------------------- | ------------------------------------------------------------- |
+| `/ponytail` or `/ponytail full` | Full ladder enforced. Default                                 |
+| `/ponytail lite`                | Build what's asked, name lazier alt                           |
+| `/ponytail ultra`               | YAGNI extremist                                               |
+| `/ponytail off`                 | Disable ponytail for session                                  |
+| `/ponytail status`              | Show current + default mode                                   |
+| `/ponytail review`              | Forward to `/skill:ponytail-review` (needs the skill enabled) |
+| `/ponytail-audit`               | Forward to `/skill:ponytail-audit` (needs the skill enabled)  |
 
 Deactivate with `stop ponytail` or `normal mode`. Resume with `/ponytail`.
 
@@ -60,14 +60,14 @@ Deactivate with `stop ponytail` or `normal mode`. Resume with `/ponytail`.
 
 Ponytail ships 6 skills. Only `ponytail` is registered by default — the five below are excluded by the package resource filter and can be enabled with `pi config --local`. (They can also be enabled by re-linking them under `.pi/skills/`, which bypasses the filter; the repo deliberately does not.)
 
-| Skill | Trigger | Purpose |
-|-------|---------|---------|
-| ponytail | `/skill:ponytail` | Lazy mode instructions |
+| Skill           | Trigger                  | Purpose                            |
+| --------------- | ------------------------ | ---------------------------------- |
+| ponytail        | `/skill:ponytail`        | Lazy mode instructions             |
 | ponytail-review | `/skill:ponytail-review` | Diff-level over-engineering review |
-| ponytail-audit | `/skill:ponytail-audit` | Whole-repo bloat scan |
-| ponytail-debt | `/skill:ponytail-debt` | Track deliberate shortcuts |
-| ponytail-gain | `/skill:ponytail-gain` | Measured-impact scoreboard |
-| ponytail-help | `/skill:ponytail-help` | Reference card |
+| ponytail-audit  | `/skill:ponytail-audit`  | Whole-repo bloat scan              |
+| ponytail-debt   | `/skill:ponytail-debt`   | Track deliberate shortcuts         |
+| ponytail-gain   | `/skill:ponytail-gain`   | Measured-impact scoreboard         |
+| ponytail-help   | `/skill:ponytail-help`   | Reference card                     |
 
 (`/ponytail review|audit|gain|debt|help` and the `/ponytail-audit` aliases forward to those auxiliary skills via `/skill:…`, so they need the skills enabled with `pi config --local`. The mode commands — `/ponytail`, `/ponytail lite|full|ultra`, `/ponytail off|status` — are extension-only and keep working.)
 

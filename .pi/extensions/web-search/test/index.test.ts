@@ -8,7 +8,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-
 import type { ExecFn, ExecResult } from "../types.ts";
 import webSearch, { formatResults } from "../index.ts";
 import { WebSearchOutputSchema } from "../types.ts";
@@ -209,9 +208,15 @@ describe("web_search.execute — RS framing", () => {
 			};
 		};
 		const tool = registerWebSearch(mockExec);
-		const result = await tool.execute("call1", { query: "framing-preserved" }, undefined, undefined, {
-			cwd: tmp("framing-preserved"),
-		});
+		const result = await tool.execute(
+			"call1",
+			{ query: "framing-preserved" },
+			undefined,
+			undefined,
+			{
+				cwd: tmp("framing-preserved"),
+			},
+		);
 		assert.ok(result.content[0].text.includes(snippet), "snippet must survive framing");
 	});
 

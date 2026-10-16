@@ -56,10 +56,11 @@ describe("pickThresholdColor", () => {
 
 	it("sorts unsorted thresholds internally", () => {
 		assert.strictEqual(
-			pickThresholdColor(
-				75_000,
-				[{ maxTokens: 100_000 }, { maxTokens: 50_000 }, { maxTokens: null }],
-			),
+			pickThresholdColor(75_000, [
+				{ maxTokens: 100_000 },
+				{ maxTokens: 50_000 },
+				{ maxTokens: null },
+			]),
 			"warning",
 		);
 	});

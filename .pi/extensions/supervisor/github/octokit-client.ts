@@ -37,7 +37,6 @@ import {
 // re-exported here so existing importers keep their path.
 export { mapRestPrToConflictInfo } from "./parsers.ts";
 
-
 // ─── OctokitClient ──────────────────────────────────────────────
 
 export class OctokitClient extends IssueOpsBase implements GitHubPort {

@@ -34,10 +34,7 @@ describe("resolveSkillPaths", () => {
 		const result = resolveSkillPaths("extension-spec");
 		if (fs.existsSync(resolvePath(process.cwd(), "private-pi/skills/extension-spec/SKILL.md"))) {
 			assert.equal(result.length, 1);
-			assert.ok(
-				result[0]!.endsWith("extension-spec/SKILL.md"),
-				`got ${result[0]}`,
-			);
+			assert.ok(result[0]!.endsWith("extension-spec/SKILL.md"), `got ${result[0]}`);
 		} else {
 			// Host-side private-pi clone absent (e.g. fresh clone) → fail-open
 			assert.deepEqual(result, []);
@@ -50,9 +47,7 @@ describe("resolveSkillPaths", () => {
 		warnSpy.mock.restore();
 		assert.deepEqual(result, []);
 		assert.ok(warnSpy.mock.calls.length >= 1, "should warn for missing skill");
-		assert.ok(
-			String(warnSpy.mock.calls[0]?.arguments[0] ?? "").includes("nonexistent-skill-xyz"),
-		);
+		assert.ok(String(warnSpy.mock.calls[0]?.arguments[0] ?? "").includes("nonexistent-skill-xyz"));
 	});
 
 	it("warning message includes skill name and all tried paths", () => {
@@ -175,9 +170,7 @@ describe("resolveSkillPathsWithFs", () => {
 	it("injected roots: first hit wins when name exists in multiple roots", () => {
 		const roots = ["/root/.pi/skills", "/root/private-pi/skills"];
 		const mockExists = (p: string): boolean => {
-			return (
-				p === "/root/.pi/skills/dup.md" || p === "/root/private-pi/skills/dup.md"
-			);
+			return p === "/root/.pi/skills/dup.md" || p === "/root/private-pi/skills/dup.md";
 		};
 		const result = resolveSkillPathsWithFs("dup", "/root", mockExists, roots);
 		assert.deepEqual(result, ["/root/.pi/skills/dup.md"]);
@@ -186,9 +179,7 @@ describe("resolveSkillPathsWithFs", () => {
 	it("per-root probe order: root-1 SKILL.md beats root-2 .md", () => {
 		const roots = ["/root/.pi/skills", "/root/private-pi/skills"];
 		const mockExists = (p: string): boolean => {
-			return (
-				p === "/root/.pi/skills/x/SKILL.md" || p === "/root/private-pi/skills/x.md"
-			);
+			return p === "/root/.pi/skills/x/SKILL.md" || p === "/root/private-pi/skills/x.md";
 		};
 		const result = resolveSkillPathsWithFs("x", "/root", mockExists, roots);
 		assert.deepEqual(result, ["/root/.pi/skills/x/SKILL.md"]);
@@ -324,10 +315,7 @@ describe("discoverExtensionTools", () => {
 	});
 
 	it("no-arg defaults to process.cwd()", () => {
-		assert.deepEqual(
-			[...discoverExtensionTools()],
-			[...discoverExtensionTools(process.cwd())],
-		);
+		assert.deepEqual([...discoverExtensionTools()], [...discoverExtensionTools(process.cwd())]);
 	});
 });
 

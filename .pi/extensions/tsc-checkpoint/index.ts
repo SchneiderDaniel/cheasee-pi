@@ -24,16 +24,10 @@ import { formatDiagnostics, formatDiagnosticsJson, directionLabel } from "./form
 // ═══════════════════════════════════════════════════════════════════════
 
 // Type re-exports
-export type {
-	TscDiagnostic,
-	DiagnosticTrend,
-} from "./types.ts";
+export type { TscDiagnostic, DiagnosticTrend } from "./types.ts";
 
 // Value re-exports
-export {
-	diagnosticToTscDiagnostic,
-	resolveDiagnosticFilePath,
-} from "./adapter.ts";
+export { diagnosticToTscDiagnostic, resolveDiagnosticFilePath } from "./adapter.ts";
 export { DiagnosticsWatcher } from "./watcher.ts";
 export { formatDiagnostics, formatDiagnosticsJson, directionLabel } from "./format.ts";
 export { runTscCheckpoint } from "./checkpoint.ts";

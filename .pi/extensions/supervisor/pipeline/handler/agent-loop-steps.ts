@@ -41,8 +41,7 @@ import type { RunContext } from "./shared.ts";
 // ─── Workflow step + agent resolution ────────────────────────────
 
 export type StepResolution =
-	| { kind: "step"; step: WorkflowStep }
-	| { kind: "terminal"; stopReason: string };
+	{ kind: "step"; step: WorkflowStep } | { kind: "terminal"; stopReason: string };
 
 /**
  * Look up the workflow step for the current status. An unknown status is
@@ -63,8 +62,7 @@ export function resolveStep(runCtx: RunContext, loopStatus: string): StepResolut
 }
 
 export type AgentResolution =
-	| { kind: "agent"; agentName: string }
-	| { kind: "terminal"; stopReason: string };
+	{ kind: "agent"; agentName: string } | { kind: "terminal"; stopReason: string };
 
 /**
  * Resolve the agent for the current status. Missing mapping is terminal.
@@ -118,8 +116,7 @@ export function runDoneStep(runCtx: RunContext, step: WorkflowStep): boolean {
 // ─── Fresh issue data + rejection limit ──────────────────────────
 
 export type IssueResolution =
-	| { kind: "loaded"; data: FilteredIssueData }
-	| { kind: "terminal"; stopReason: string };
+	{ kind: "loaded"; data: FilteredIssueData } | { kind: "terminal"; stopReason: string };
 
 /**
  * Fetch fresh issue data and apply the rejection limit. Reaching the limit
@@ -130,14 +127,7 @@ export async function loadLoopIssue(
 	step: WorkflowStep,
 ): Promise<IssueResolution> {
 	const { ctx, config, issueNum, exec, collector, issueData, port } = runCtx;
-	const fresh = await fetchFreshIssueData(
-		exec,
-		config,
-		issueNum,
-		issueData,
-		collector,
-		port,
-	);
+	const fresh = await fetchFreshIssueData(exec, config, issueNum, issueData, collector, port);
 	// Fail closed on incomplete discovery when this step enforces the rejection
 	// limit (issue #2044 audit findings #1/#2): without every comment and a
 	// verified identity the prior rejection could be missed, and the next
@@ -175,10 +165,7 @@ export async function loadLoopIssue(
 	// comments (issue #2044 audit finding #3): the in-place upsert leaves one
 	// comment, so the bodies alone undercount; the count covers unmarked
 	// rejections whose content stays out of the agent-visible `comments`.
-	const rejectionCount = countAuditRejections(
-		labels,
-		loopFilteredData.rejectionCommentCount ?? 0,
-	);
+	const rejectionCount = countAuditRejections(labels, loopFilteredData.rejectionCommentCount ?? 0);
 
 	// Rejection limit check (issue #1668: reports the real count, not the
 	// threshold).
@@ -269,8 +256,7 @@ export function writePreAuditorCheckpoint(runCtx: RunContext, agentName: string)
 }
 
 export type AgentFileResolution =
-	| { kind: "loaded"; agent: ParsedAgent }
-	| { kind: "missing"; stopReason: string };
+	{ kind: "loaded"; agent: ParsedAgent } | { kind: "missing"; stopReason: string };
 
 /**
  * Load the agent file for the current step. A missing/unparseable file is

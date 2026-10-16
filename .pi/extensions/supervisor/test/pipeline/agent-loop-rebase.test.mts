@@ -26,9 +26,7 @@ const AGENT_LOOP_STEPS_TS = resolve(__dirname, "../../pipeline/handler/agent-loo
 // The loop's helper tail was extracted verbatim into a sibling (issue #2005), so
 // the source/graph pins below read the loop module as both files.
 function agentLoopSource(): string {
-	return (
-		readFileSync(AGENT_LOOP_TS, "utf-8") + "\n" + readFileSync(AGENT_LOOP_HELPERS_TS, "utf-8")
-	);
+	return readFileSync(AGENT_LOOP_TS, "utf-8") + "\n" + readFileSync(AGENT_LOOP_HELPERS_TS, "utf-8");
 }
 
 function agentLoopStepsSource(): string {
@@ -185,7 +183,10 @@ describe("agent-loop.ts — pre-Implementation rebase wiring (Phase 5, Issue #14
 			agentLoopStepsSource().includes("const task = buildAgentTask("),
 			"buildAgentTask call present in agent-loop-steps.ts",
 		);
-		assert.ok(guardIdx >= 0, "refresh (with conflict context) runs in the loop before task assembly");
+		assert.ok(
+			guardIdx >= 0,
+			"refresh (with conflict context) runs in the loop before task assembly",
+		);
 	});
 
 	it("fetch/non-conflict failure — fail-open: warning surfaced, context NOT set, stale base proceeds", () => {

@@ -32,7 +32,13 @@
  * wrapping is owned by the footer renderer.
  */
 
-import { fnv32, readDockerPortSetting, repoSlug, resolveWorkspaceRoot, validPort } from "./codeflow.ts";
+import {
+	fnv32,
+	readDockerPortSetting,
+	repoSlug,
+	resolveWorkspaceRoot,
+	validPort,
+} from "./codeflow.ts";
 
 /** Low end of the derived port range, must match uiPortBase (Go). */
 const UI_PORT_BASE = 9500;

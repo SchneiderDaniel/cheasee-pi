@@ -332,7 +332,10 @@ describe("ensureVenv — lock held during pip install", () => {
 					events.push({ phase: "create", lockHeld: pathExists(lockDirPath(ctx.cwd, "test-venv")) });
 				},
 				onInstall: () => {
-					events.push({ phase: "install", lockHeld: pathExists(lockDirPath(ctx.cwd, "test-venv")) });
+					events.push({
+						phase: "install",
+						lockHeld: pathExists(lockDirPath(ctx.cwd, "test-venv")),
+					});
 				},
 			},
 		});

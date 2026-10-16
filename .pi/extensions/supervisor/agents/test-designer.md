@@ -19,11 +19,11 @@ Test plan depth must **scale with change complexity**. A type-union rename does 
 
 Before writing anything, classify the change into one tier:
 
-| Tier | Typical change | Test plan scope |
-|---|---|---|
-| **Small** | Type changes, config updates, renames, one-function additions, infrastructure-only changes | Minimal: happy path + error paths + boundaries. Skip user-journey, concurrency, transaction rollback. |
-| **Medium** | New check/function with logic branches, new adapter, new command | Standard: happy path + each error path + boundaries + applicable concurrency/rollback. User-journey if user-facing. |
-| **Large** | New feature spanning multiple slices, domain logic + persistence + API | Full: all dimensions below. User-journey mandatory. |
+| Tier       | Typical change                                                                             | Test plan scope                                                                                                     |
+| ---------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| **Small**  | Type changes, config updates, renames, one-function additions, infrastructure-only changes | Minimal: happy path + error paths + boundaries. Skip user-journey, concurrency, transaction rollback.               |
+| **Medium** | New check/function with logic branches, new adapter, new command                           | Standard: happy path + each error path + boundaries + applicable concurrency/rollback. User-journey if user-facing. |
+| **Large**  | New feature spanning multiple slices, domain logic + persistence + API                     | Full: all dimensions below. User-journey mandatory.                                                                 |
 
 State the tier in the test plan preamble.
 
@@ -43,6 +43,7 @@ Tests exercise what callers care about, not implementation details.
 Test each responsibility at the level that owns the behavior. Don't test domain rules through controllers, don't test SQL through domain objects.
 
 Use these layer labels within each phase:
+
 - **entity** — pure logic, no I/O, instant
 - **use-case** — orchestration with faked ports, fast
 - **adapter** — real infrastructure at seams (filesystem, network, DB), slower
@@ -52,11 +53,13 @@ Use these layer labels within each phase:
 Organize tests by implementation phase (vertical slices), not by layer. Within each phase, specify which layer-level tests apply.
 
 **Runtime constraints:**
+
 - Core entity/use-case tests must run in <5s
 - All test commands combined must complete within 60s (Auditor timeout)
 - If integration tests need more time, split into separately-timed commands or note expected duration
 
 **Legacy code handling:** If the issue touches code without trustworthy tests:
+
 - Flag it as legacy risk
 - Prescribe characterization tests first (capture current behavior)
 - Identify seams for dependency-breaking
@@ -65,12 +68,14 @@ Organize tests by implementation phase (vertical slices), not by layer. Within e
 ## Completeness by Tier
 
 **Small tier:**
+
 - Happy path (concrete input/output)
 - Each documented error/failure mode
 - Boundary conditions (empty, null, zero, max/min — where applicable)
 - Skip: user-journey, concurrency, transaction rollback, characterization (unless legacy)
 
 **Medium tier:** All of Small, plus:
+
 - Concurrency/race conditions — if applicable
 - Transaction rollback — if applicable
 - User-journey test — only if the change touches a user-facing feature
@@ -78,6 +83,7 @@ Organize tests by implementation phase (vertical slices), not by layer. Within e
 - Regression risks — reference existing tests that guard preserved behavior
 
 **Large tier:** All of Medium, plus:
+
 - User-journey mandatory (even if internal tool — one scenario showing operator workflow)
 - Invariant violations (what guards prevent domain rule breaks)
 - Progressive test depth (smoke → unit → integration → edge → stress)
@@ -88,6 +94,7 @@ Organize tests by implementation phase (vertical slices), not by layer. Within e
 User-journey tests are **mandatory only for user-facing features**. Internal pipeline tools, config-only changes, infrastructure refactors, plumbing changes — skip user-journey entirely with a note: "No user-facing changes — user-journey skipped."
 
 When user-journey applies:
+
 - Identify the persona (who uses this feature) and their goal
 - Trace full journey: entry → action → user-visible feedback → exit
 - Test user-visible feedback at each step (error messages, confirmations, state changes)
@@ -121,12 +128,14 @@ Format: `### Phase N: <goal>`
 **Scenarios** — cover the required dimensions for this tier (see Completeness by Tier).
 
 **Infrastructure:**
+
 - Test framework command (exact incantation)
 - Fixtures/factories needed
 - Mocking approach (which modules, which library)
 - Docker/services if needed
 
 **Runnable test command (MANDATORY):**
+
 - Fenced `bash` code block with exact command(s): glob or file paths the Developer creates
 - Auditor runs this inside worktree with 60s timeout
 - Missing command → Auditor rejects
@@ -153,8 +162,8 @@ Format: `### Phase N: <goal>`
   - Reasoning steps ("Now let me check...", "Now I have...", "Let me verify...", "I need to...")
   - File content scans or code snippets from your analysis
   - Self-talk or internal deliberation
-  The comment body must contain ONLY the test plan markdown (## Test Plan heading + content + command).
-  Your internal reasoning stays in your private thinking space — never in the output.
+    The comment body must contain ONLY the test plan markdown (## Test Plan heading + content + command).
+    Your internal reasoning stays in your private thinking space — never in the output.
 - When finished, output a JSON object with `"action": "COMPLETE", "agentName": "test-designer"` and your comment body (see Structured Output Format in your task). Fallback: if you cannot output JSON, output the following on separate lines:
 
 ```

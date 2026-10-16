@@ -6,7 +6,16 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, isAbsolute } from "node:path";
-import { validateAgentTimeouts, validateAgentTimeoutSec, resolveTimeoutPolicy, loadSkillsRoots, SupervisorConfigSchema, DEFAULT_AGENT_TIMEOUT_MS, MAX_AGENT_TIMEOUT_SEC, MAX_AGENT_TIMEOUT_MIN } from "../config/config.ts";
+import {
+	validateAgentTimeouts,
+	validateAgentTimeoutSec,
+	resolveTimeoutPolicy,
+	loadSkillsRoots,
+	SupervisorConfigSchema,
+	DEFAULT_AGENT_TIMEOUT_MS,
+	MAX_AGENT_TIMEOUT_SEC,
+	MAX_AGENT_TIMEOUT_MIN,
+} from "../config/config.ts";
 
 // ─── validateAgentTimeouts ────────────────────────────────────────
 
@@ -62,10 +71,9 @@ describe("validateAgentTimeouts", () => {
 			() => validateAgentTimeouts({ developer: MAX_AGENT_TIMEOUT_MIN + 1 }, ["developer"]),
 			/timer limit/,
 		);
-		assert.deepEqual(
-			validateAgentTimeouts({ developer: MAX_AGENT_TIMEOUT_MIN }, ["developer"]),
-			{ developer: MAX_AGENT_TIMEOUT_MIN },
-		);
+		assert.deepEqual(validateAgentTimeouts({ developer: MAX_AGENT_TIMEOUT_MIN }, ["developer"]), {
+			developer: MAX_AGENT_TIMEOUT_MIN,
+		});
 	});
 });
 
@@ -238,10 +246,9 @@ describe("validateAgentTimeoutSec", () => {
 			() => validateAgentTimeoutSec({ developer: MAX_AGENT_TIMEOUT_SEC + 1 }, ["developer"]),
 			/timer limit/,
 		);
-		assert.deepEqual(
-			validateAgentTimeoutSec({ developer: MAX_AGENT_TIMEOUT_SEC }, ["developer"]),
-			{ developer: MAX_AGENT_TIMEOUT_SEC },
-		);
+		assert.deepEqual(validateAgentTimeoutSec({ developer: MAX_AGENT_TIMEOUT_SEC }, ["developer"]), {
+			developer: MAX_AGENT_TIMEOUT_SEC,
+		});
 	});
 
 	it("warns for unknown agents but does not throw (fail-open retained)", () => {
@@ -304,14 +311,8 @@ describe("resolveTimeoutPolicy", () => {
 
 	it("neither field set / empty records → 30-min default", () => {
 		assert.equal(resolveTimeoutPolicy("developer", {}).timeoutMs, DEFAULT_AGENT_TIMEOUT_MS);
-		assert.equal(
-			resolveTimeoutPolicy("developer", agentTimeoutSec({})).source,
-			"default",
-		);
-		assert.equal(
-			resolveTimeoutPolicy("developer", agentTimeoutsMin({})).source,
-			"default",
-		);
+		assert.equal(resolveTimeoutPolicy("developer", agentTimeoutSec({})).source, "default");
+		assert.equal(resolveTimeoutPolicy("developer", agentTimeoutsMin({})).source, "default");
 	});
 
 	it("legacy 0 in agentTimeoutsMin is not expressible — still resolves to default", () => {
@@ -356,30 +357,50 @@ describe("resolveTimeoutPolicy — size-tier scaling (issue #1987)", () => {
 	});
 
 	it("explicit agentTimeoutSec is authoritative and unscaled", () => {
-		const policy = resolveTimeoutPolicy("developer", { agentTimeoutSec: { developer: 3600 } }, "large");
+		const policy = resolveTimeoutPolicy(
+			"developer",
+			{ agentTimeoutSec: { developer: 3600 } },
+			"large",
+		);
 		assert.equal(policy.timeoutMs, 3_600_000);
 		assert.equal(policy.source, "agentTimeoutSec");
 		assert.equal(policy.scale, 1);
 	});
 
 	it("agentTimeoutSec 0 (no timeout) is never resurrected by scaling", () => {
-		const policy = resolveTimeoutPolicy("developer", { agentTimeoutSec: { developer: 0 } }, "large");
+		const policy = resolveTimeoutPolicy(
+			"developer",
+			{ agentTimeoutSec: { developer: 0 } },
+			"large",
+		);
 		assert.equal(policy.timeoutMs, null);
 		assert.equal(policy.scale, 1);
 	});
 
 	it("legacy agentTimeoutsMin is unscaled", () => {
-		const policy = resolveTimeoutPolicy("developer", { agentTimeoutsMin: { developer: 45 } }, "large");
+		const policy = resolveTimeoutPolicy(
+			"developer",
+			{ agentTimeoutsMin: { developer: 45 } },
+			"large",
+		);
 		assert.equal(policy.timeoutMs, 2_700_000);
 		assert.equal(policy.source, "agentTimeoutsMin");
 		assert.equal(policy.scale, 1);
 	});
 
 	it("custom agentTimeoutTierScale overrides per key; partial override keeps other tiers default", () => {
-		const custom = resolveTimeoutPolicy("developer", { agentTimeoutTierScale: { large: 3 } }, "large");
+		const custom = resolveTimeoutPolicy(
+			"developer",
+			{ agentTimeoutTierScale: { large: 3 } },
+			"large",
+		);
 		assert.equal(custom.timeoutMs, 5_400_000);
 		assert.equal(custom.scale, 3);
-		const partial = resolveTimeoutPolicy("developer", { agentTimeoutTierScale: { large: 3 } }, "medium");
+		const partial = resolveTimeoutPolicy(
+			"developer",
+			{ agentTimeoutTierScale: { large: 3 } },
+			"medium",
+		);
 		assert.equal(partial.timeoutMs, 2_700_000);
 		assert.equal(partial.scale, 1.5);
 	});
@@ -392,7 +413,11 @@ describe("resolveTimeoutPolicy — size-tier scaling (issue #1987)", () => {
 	});
 
 	it("clamps the scaled product to MAX_AGENT_TIMEOUT_SEC * 1000; equality is unclamped", () => {
-		const above = resolveTimeoutPolicy("developer", { agentTimeoutTierScale: { large: 1200 } }, "large");
+		const above = resolveTimeoutPolicy(
+			"developer",
+			{ agentTimeoutTierScale: { large: 1200 } },
+			"large",
+		);
 		assert.equal(above.timeoutMs, MAX_MS);
 		const exact = resolveTimeoutPolicy(
 			"developer",
@@ -476,8 +501,14 @@ describe("SupervisorConfigSchema — per-agent timeout fields", () => {
 	});
 
 	it("agentKillGraceSec accepts non-negative ints, incl. 0 (immediate SIGKILL)", () => {
-		assert.equal(SupervisorConfigSchema.parse({ ...base, agentKillGraceSec: 0 }).agentKillGraceSec, 0);
-		assert.equal(SupervisorConfigSchema.parse({ ...base, agentKillGraceSec: 10 }).agentKillGraceSec, 10);
+		assert.equal(
+			SupervisorConfigSchema.parse({ ...base, agentKillGraceSec: 0 }).agentKillGraceSec,
+			0,
+		);
+		assert.equal(
+			SupervisorConfigSchema.parse({ ...base, agentKillGraceSec: 10 }).agentKillGraceSec,
+			10,
+		);
 	});
 
 	it("agentKillGraceSec rejects negative and non-integer values", () => {
@@ -503,7 +534,10 @@ describe("SupervisorConfigSchema — per-agent timeout fields", () => {
 
 	it("legacy validateAgentTimeouts still rejects 0/negative (deprecated alias contract)", () => {
 		assert.throws(() => validateAgentTimeouts({ developer: 0 }, ["developer"]), /positive integer/);
-		assert.throws(() => validateAgentTimeouts({ developer: -1 }, ["developer"]), /positive integer/);
+		assert.throws(
+			() => validateAgentTimeouts({ developer: -1 }, ["developer"]),
+			/positive integer/,
+		);
 	});
 });
 
@@ -551,9 +585,7 @@ describe("loadSkillsRoots", () => {
 	});
 
 	it("entity: pattern-prefixed entries (!/+/−) filtered out, plain kept", () => {
-		const dir = makeFixture(
-			JSON.stringify({ skills: ["!foo", "+bar", "-baz", ".pi/skills"] }),
-		);
+		const dir = makeFixture(JSON.stringify({ skills: ["!foo", "+bar", "-baz", ".pi/skills"] }));
 		assert.deepEqual(loadSkillsRoots(dir), [join(dir, ".pi", "skills")]);
 	});
 

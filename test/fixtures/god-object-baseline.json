@@ -100,9 +100,7 @@
 		},
 		{
 			"reason": "the offline safety-net suite (106 functions, 62 tests) needs ~8 scenario modules and a harness split. Its two largest TestCase classes carry 21 functions each, so landing every sibling <= 15 requires base-class declarations that add names per split — a structural change to the very suite that guards the package, not the verbatim move this change can verify in-gate. Deferred to its own recorded change (architecture trade-off), while its two smaller siblings (registries.py, transport.py) and the refactor guard are split here.",
-			"files": [
-				"test/dependency-existence-check.test.py"
-			]
+			"files": ["test/dependency-existence-check.test.py"]
 		},
 		{
 			"reason": "every remaining TS/Python flag needs a multi-module decomposition, not a single extraction: osv-scanner.ts's severity half carries 72 of its branch hits and last-json-scanner.ts's string-state machine 80, and server.py (386) needs roughly a dozen modules because its inline _BRIDGE_JS/_UI_REWRITES string literals carry 84 of its hits. Shipping the plan's one-file seam would leave both siblings flagged and not move the metric.",

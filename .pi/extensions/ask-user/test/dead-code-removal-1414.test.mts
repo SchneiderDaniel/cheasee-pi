@@ -75,12 +75,11 @@ describe("dead code removal — Issue #1414 (ToolResultDetailsQna, QnaToolResult
 
 	it("keeps exporting QnaEntry from types.ts (used by jsonl-logger.ts)", () => {
 		const content = fs.readFileSync(typesPath, "utf-8");
-		const exportLine = content.split("\n").find((line) => line.includes("export interface QnaEntry"));
+		const exportLine = content
+			.split("\n")
+			.find((line) => line.includes("export interface QnaEntry"));
 
-		assert.ok(
-			exportLine !== undefined,
-			"Expected QnaEntry to still be exported from types.ts",
-		);
+		assert.ok(exportLine !== undefined, "Expected QnaEntry to still be exported from types.ts");
 	});
 
 	it("keeps exporting Mode, OptionItem, LabelValuePair, and schemas from types.ts", () => {
@@ -92,10 +91,7 @@ describe("dead code removal — Issue #1414 (ToolResultDetailsQna, QnaToolResult
 			"export const QnaReadParams",
 			"export const QuestionParams",
 		]) {
-			assert.ok(
-				content.includes(decl),
-				`Expected "${decl}" to still be exported from types.ts`,
-			);
+			assert.ok(content.includes(decl), `Expected "${decl}" to still be exported from types.ts`);
 		}
 	});
 

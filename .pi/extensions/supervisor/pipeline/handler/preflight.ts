@@ -20,9 +20,18 @@ import { createGitHubPort } from "../../github/ports.ts";
 import { generateBranchName } from "../../lib/branch-name.ts";
 import { createWorktree, installWorktreeDeps } from "../worktree.ts";
 import { cleanupStalePipelineState } from "../state-checkpoint.ts";
-import { setupCrashCleanup, shouldRetainWorktree, type CleanupOnExitDeps } from "../crash-cleanup.ts";
+import {
+	setupCrashCleanup,
+	shouldRetainWorktree,
+	type CleanupOnExitDeps,
+} from "../crash-cleanup.ts";
 import { ErrorCollector, setErrorCollector } from "../error-collector.ts";
-import { fetchIssue, readProjectBoard, checkDependencies, resolveAutomationLogin } from "../helpers.ts";
+import {
+	fetchIssue,
+	readProjectBoard,
+	checkDependencies,
+	resolveAutomationLogin,
+} from "../helpers.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import { withPerChildEnv } from "../../../lib/exec-env.ts";
 import { toExecFn } from "../../../lib/port-adapters.ts";

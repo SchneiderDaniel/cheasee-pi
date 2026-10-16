@@ -226,7 +226,10 @@ describe("ensureScraplingVenv — adapter", () => {
 
 		const pipCall = trackedCalls(exec).find(isPipInstall);
 		assert.ok(pipCall, "should call pip install");
-		assert.ok(!pipCall.args.includes("-c"), `no -c without the env contract: ${pipCall.args.join(" ")}`);
+		assert.ok(
+			!pipCall.args.includes("-c"),
+			`no -c without the env contract: ${pipCall.args.join(" ")}`,
+		);
 	});
 
 	it("(entity) SCRAPLING_PIP_CONSTRAINTS pointing at a missing file → no -c arg", async () => {
@@ -250,14 +253,18 @@ describe("ensureScraplingVenv — adapter", () => {
 
 		const calls = trackedCalls(exec);
 		const verifyCall = calls.find(
-			(c) => c.cmd.includes("bin/python3") && c.args[0] === "-c" && !c.args[1].includes("browsers.json"),
+			(c) =>
+				c.cmd.includes("bin/python3") && c.args[0] === "-c" && !c.args[1].includes("browsers.json"),
 		);
 		assert.ok(verifyCall, "quick verify should run the verifyCommand");
 		const verifyCommand = verifyCall.args[1];
 		assert.ok(verifyCommand.includes("StealthyFetcher"), "should import the stealth fetcher");
 		assert.ok(verifyCommand.includes("markdownify"), "should import markdownify");
 		assert.ok(verifyCommand.includes("print('ok')"), "should print('ok') on success");
-		assert.ok(!verifyCommand.includes("browsers.json"), "browser contract must leave the venv verify");
+		assert.ok(
+			!verifyCommand.includes("browsers.json"),
+			"browser contract must leave the venv verify",
+		);
 		assert.ok(!verifyCommand.includes("chromium-"), "browser contract must leave the venv verify");
 	});
 
@@ -378,7 +385,10 @@ describe("ensureScraplingVenv — adapter", () => {
 	});
 
 	it("(error) patchright install signal-killed → typed error", async () => {
-		const { cwd, exec } = setupTest({ patchrightInstall: { code: 0, stdout: "", stderr: "", killed: true } }, { venvReady: true });
+		const { cwd, exec } = setupTest(
+			{ patchrightInstall: { code: 0, stdout: "", stderr: "", killed: true } },
+			{ venvReady: true },
+		);
 
 		let err: unknown;
 		try {

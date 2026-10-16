@@ -315,10 +315,7 @@ describe("formatForMode — delegation to formatDiagnostics", () => {
 			WORKTREE_PATH,
 			false,
 		) as string;
-		assert.strictEqual(
-			result,
-			`/workspace/a.ts, Line 1: [Error] ${LONG_MSG_501.slice(0, 497)}...`,
-		);
+		assert.strictEqual(result, `/workspace/a.ts, Line 1: [Error] ${LONG_MSG_501.slice(0, 497)}...`);
 	});
 
 	it("empty message → rendered, no truncation", () => {
@@ -361,28 +358,48 @@ describe("formatForMode — structured message truncation (Phase 5)", () => {
 	];
 
 	it("RPC 1000-char message → issues[0].message length 500 ending in ...", () => {
-		const result = formatForMode(make(LONG_1000), "rpc", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const result = formatForMode(
+			make(LONG_1000),
+			"rpc",
+			WORKTREE_PATH,
+			false,
+		) as StructuredDiagnostics;
 		const msg = result.files[0]!.issues[0]!.message;
 		assert.strictEqual(msg.length, 500);
 		assert.ok(msg.endsWith("..."));
 	});
 
 	it("JSON 1000-char message → length 500 ending in ...", () => {
-		const result = formatForMode(make(LONG_1000), "json", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const result = formatForMode(
+			make(LONG_1000),
+			"json",
+			WORKTREE_PATH,
+			false,
+		) as StructuredDiagnostics;
 		const msg = result.files[0]!.issues[0]!.message;
 		assert.strictEqual(msg.length, 500);
 		assert.ok(msg.endsWith("..."));
 	});
 
 	it("exactly 500 chars → unchanged, no ...", () => {
-		const result = formatForMode(make(EXACT_500_MSG), "rpc", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const result = formatForMode(
+			make(EXACT_500_MSG),
+			"rpc",
+			WORKTREE_PATH,
+			false,
+		) as StructuredDiagnostics;
 		const msg = result.files[0]!.issues[0]!.message;
 		assert.strictEqual(msg.length, 500);
 		assert.ok(!msg.endsWith("..."));
 	});
 
 	it("501 chars → length 500 ending in ...", () => {
-		const result = formatForMode(make(LONG_MSG_501), "rpc", WORKTREE_PATH, false) as StructuredDiagnostics;
+		const result = formatForMode(
+			make(LONG_MSG_501),
+			"rpc",
+			WORKTREE_PATH,
+			false,
+		) as StructuredDiagnostics;
 		const msg = result.files[0]!.issues[0]!.message;
 		assert.strictEqual(msg.length, 500);
 		assert.ok(msg.endsWith("..."));

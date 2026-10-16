@@ -133,7 +133,9 @@ function renderSubagentResultInline(
 			}
 			if (details.toolCalls.length > MAX_EXPANDED_TOOL_CALLS) {
 				const overflow = details.toolCalls.length - MAX_EXPANDED_TOOL_CALLS;
-				container.addChild(new Text(fit(theme.style(`  … ${overflow} more tool calls`, { fg: subtle })), 1, 0));
+				container.addChild(
+					new Text(fit(theme.style(`  … ${overflow} more tool calls`, { fg: subtle })), 1, 0),
+				);
 			}
 		}
 		const nestedSummary = formatNestedStats(nestedStats);
@@ -175,7 +177,9 @@ function renderSubagentResultInline(
 		const thinkingToken = thinkingColor(details.thinkingLevel);
 		// `dim` is faint on light terminals: fall back to the appearance-aware
 		// subtle token there, while keeping semantic tokens (accent/warning/…).
-		footerParts.push(theme.style(thinkingLevelStr, { fg: thinkingToken === "dim" ? subtle : thinkingToken }));
+		footerParts.push(
+			theme.style(thinkingLevelStr, { fg: thinkingToken === "dim" ? subtle : thinkingToken }),
+		);
 	}
 	if (details.model) {
 		const shortModel = details.model.split("/").pop() || details.model;
@@ -190,4 +194,3 @@ function renderSubagentResultInline(
 
 	return container;
 }
-

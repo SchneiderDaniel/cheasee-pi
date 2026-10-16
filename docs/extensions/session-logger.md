@@ -17,12 +17,12 @@ nav_order: 9
 
 ### Output formats
 
-| Format | File | Description |
-|--------|------|-------------|
-| JSONL | `.pi/sessions/<datetime>_<uuid>.jsonl` | Event stream per session |
-| Markdown | `.pi/sessions/<sessionId>.md` | Human-readable session summary |
-| Metadata | `.pi/sessions/<sessionId>.metadata.json` | Structured session metadata |
-| Latest symlinks | `.pi/sessions/latest.*` | Convenience symlinks |
+| Format          | File                                     | Description                    |
+| --------------- | ---------------------------------------- | ------------------------------ |
+| JSONL           | `.pi/sessions/<datetime>_<uuid>.jsonl`   | Event stream per session       |
+| Markdown        | `.pi/sessions/<sessionId>.md`            | Human-readable session summary |
+| Metadata        | `.pi/sessions/<sessionId>.metadata.json` | Structured session metadata    |
+| Latest symlinks | `.pi/sessions/latest.*`                  | Convenience symlinks           |
 
 Reports include sub-agent output from supervisor pipeline agents (developer, auditor, researcher, test-designer) with agent header, status, tool count, token count, duration, and audit score.
 
@@ -34,30 +34,30 @@ Pi saves every session as raw JSONL to `~/.pi/agent/sessions/` with tree branchi
 
 Session Logger is a **rendering layer** on top. It reads pi's JSONL, aggregates the noise into structured summaries. Not competing, complementary.
 
-| Feature | Built-in pi | session-logger |
-|---------|-------------|----------------|
-| Raw JSONL storage | ✅ | — (consumes pi's) |
-| Tree branching / `/tree` | ✅ | ❌ |
-| Compaction summaries | ✅ | ❌ |
-| Session picker (`/resume`) | ✅ | ❌ |
-| Human-readable Markdown report | ❌ | ✅ Per-turn breakdown, totals |
-| Per-turn token breakdown | ❌ (raw usage in JSONL) | ✅ Table per turn |
-| Tool call stats (count, duration, errors) | ❌ | ✅ Aggregated |
-| File modification log | ❌ | ✅ Every write/edit tracked |
-| Error summary | ❌ | ✅ Table with counts |
-| Sub-agent output (supervisor) | ❌ | ✅ Status, tokens, duration, score |
-| Latest symlinks | ❌ | ✅ `latest.md` / `latest.jsonl` |
-| Toggle per session | ❌ | ✅ `/session-logger on|off` |
+| Feature                                   | Built-in pi             | session-logger                     |
+| ----------------------------------------- | ----------------------- | ---------------------------------- |
+| Raw JSONL storage                         | ✅                      | — (consumes pi's)                  |
+| Tree branching / `/tree`                  | ✅                      | ❌                                 |
+| Compaction summaries                      | ✅                      | ❌                                 |
+| Session picker (`/resume`)                | ✅                      | ❌                                 |
+| Human-readable Markdown report            | ❌                      | ✅ Per-turn breakdown, totals      |
+| Per-turn token breakdown                  | ❌ (raw usage in JSONL) | ✅ Table per turn                  |
+| Tool call stats (count, duration, errors) | ❌                      | ✅ Aggregated                      |
+| File modification log                     | ❌                      | ✅ Every write/edit tracked        |
+| Error summary                             | ❌                      | ✅ Table with counts               |
+| Sub-agent output (supervisor)             | ❌                      | ✅ Status, tokens, duration, score |
+| Latest symlinks                           | ❌                      | ✅ `latest.md` / `latest.jsonl`    |
+| Toggle per session                        | ❌                      | ✅ `/session-logger on             | off` |
 
 ### Token efficiency for agent self-analysis
 
 When an agent wants to analyze its own past session, format choice matters:
 
-| Format | ~Tokens to read | Problem |
-|--------|----------------|---------|
-| Raw JSONL | 15-20K | Structural keys repeated every line (`"type"`, `"toolName"`, `"args"`, `"turnIndex"`) — huge overhead |
-| Markdown report | 2-3K | Collapses 50 tool calls into table rows, no per-event noise |
-| `bash` script on JSONL | ~700 | Run `node -e ...` against JSONL, get exact answer only |
+| Format                 | ~Tokens to read | Problem                                                                                               |
+| ---------------------- | --------------- | ----------------------------------------------------------------------------------------------------- |
+| Raw JSONL              | 15-20K          | Structural keys repeated every line (`"type"`, `"toolName"`, `"args"`, `"turnIndex"`) — huge overhead |
+| Markdown report        | 2-3K            | Collapses 50 tool calls into table rows, no per-event noise                                           |
+| `bash` script on JSONL | ~700            | Run `node -e ...` against JSONL, get exact answer only                                                |
 
 **Pattern:** Agent wants stats → run `bash` against JSONL (~700 tokens). Agent wants human overview → read `.md` (~2-3K). Agent reading raw JSONL directly → worst option (~15-20K).
 
@@ -91,7 +91,7 @@ flowchart TD
         Q[session_shutdown] --> R[Write .md + .metadata.json + symlinks]
         S[session_compact] --> T[Reset accumulated state]
     end
-    
+
     subgraph Output
         R --> U[.md: human-readable summary]
         R --> V[metadata.json: structured per-turn data]
@@ -108,6 +108,7 @@ The generated `.md` report includes:
 # Session Report: <session_id>
 
 ## Overview
+
 - Duration: <elapsed>
 - Model: <model_name>
 - Total Turns: <N>
@@ -117,23 +118,28 @@ The generated `.md` report includes:
 - Files Modified: <N>
 
 ## Turn-by-Turn Breakdown
+
 | Turn | Tokens In | Tokens Out | Thinking | Tools | Duration |
-|------|-----------|------------|----------|-------|----------|
+| ---- | --------- | ---------- | -------- | ----- | -------- |
 | 1    | ...       | ...        | ...      | ...   | ...      |
 
 ## Tool Calls
+
 | Tool | Args | Duration | Status |
-|------|------|----------|--------|
+| ---- | ---- | -------- | ------ |
 
 ## File Modifications
+
 | File | Action |
-|------|--------|
+| ---- | ------ |
 
 ## Sub-Agent Output (supervisor)
+
 - Agent: developer → toolCount, tokenCount, duration
 - Agent: auditor → toolCount, tokenCount, duration, auditScore
 
 ## Errors
+
 - <error messages>
 ```
 
@@ -149,6 +155,7 @@ The generated `.md` report includes:
 ### Testing
 
 Tests cover:
+
 - Pipeline: all event handlers, state accumulation, write
 - Report generator: markdown formatting, metadata JSON, symlink creation
 - Gate: toggle on/off, persistence, cross-session state

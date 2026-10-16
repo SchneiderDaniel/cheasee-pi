@@ -75,9 +75,13 @@ describe("MAX_CONCURRENT_CRAWLS — memory protection", () => {
 
 		// Fill both slots by holding locks with deferred gates
 		let resolveA!: () => void;
-		const gateA = new Promise<void>((r) => { resolveA = r; });
+		const gateA = new Promise<void>((r) => {
+			resolveA = r;
+		});
 		let resolveB!: () => void;
-		const gateB = new Promise<void>((r) => { resolveB = r; });
+		const gateB = new Promise<void>((r) => {
+			resolveB = r;
+		});
 
 		const p1 = (async () => {
 			await acquire();

@@ -207,7 +207,14 @@ describe("renderWidgetFromDetails — simplified widget (footer only)", () => {
 
 	it("shows correct icon per level", () => {
 		const ctx = createMockCtx();
-		const iconMap: Record<string, string> = { off: "○", minimal: "◐", low: "◑", medium: "◒", high: "◓", xhigh: "●" };
+		const iconMap: Record<string, string> = {
+			off: "○",
+			minimal: "◐",
+			low: "◑",
+			medium: "◒",
+			high: "◓",
+			xhigh: "●",
+		};
 		for (const [level, icon] of Object.entries(iconMap)) {
 			widgetCalls = [];
 			const d = makeDetails({ thinkingLevel: level });

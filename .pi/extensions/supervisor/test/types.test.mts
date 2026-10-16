@@ -104,8 +104,7 @@ describe("production importers — ExecFn comes from lib/port-types.ts", () => {
 			const src = readExt(file);
 			assert.ok(importsExecFrom(src, specifier), `${file} must import ExecFn from ${specifier}`);
 			assert.ok(
-				!importsExecFrom(src, "../helpers.ts") &&
-					!importsExecFrom(src, "../pipeline/helpers.ts"),
+				!importsExecFrom(src, "../helpers.ts") && !importsExecFrom(src, "../pipeline/helpers.ts"),
 				`${file} must not import ExecFn from helpers`,
 			);
 		});
@@ -184,13 +183,18 @@ describe("seam — no exec type crosses github/ → pipeline/", () => {
 			),
 			"checks/shared.ts must import ExecFn from lib/port-types.ts",
 		);
-		assert.ok(/export\s+type\s*\{\s*ExecFn\s*\}/.test(src), "checks/shared.ts must re-export ExecFn");
+		assert.ok(
+			/export\s+type\s*\{\s*ExecFn\s*\}/.test(src),
+			"checks/shared.ts must re-export ExecFn",
+		);
 	});
 
 	it("(entity) web-search/types.ts re-export unchanged", () => {
 		const src = readExt("web-search/types.ts");
 		assert.ok(
-			/export\s+type\s*\{[^}]*\bExecFn\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/.test(src),
+			/export\s+type\s*\{[^}]*\bExecFn\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/.test(
+				src,
+			),
 			"web-search/types.ts must re-export ExecFn from lib/port-types.ts",
 		);
 	});

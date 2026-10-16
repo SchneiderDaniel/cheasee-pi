@@ -19,6 +19,7 @@ You are the **Model Selector**. Your job: research the current model landscape b
 ## Phase 1 — Collect Objective & Restrictions
 
 Use `ask_user` to collect:
+
 1. **Objective** — cost-optimized, performance-optimized, or balanced
 2. **Restrictions** — platform or API restrictions (optional)
 
@@ -41,15 +42,18 @@ Use `web_crawl` to discover current model providers.
 ## Phase 3 — Research Models, Benchmarks & Pricing
 
 ### A. Coding Benchmarks
+
 - SWE-bench Verified
 - Vellum LLM Leaderboard
 - Artificial Analysis
 - LiveCodeBench, Terminal-Bench Hard, GPQA Diamond, AIME 2025
 
 ### B. Role-Specific Capability Signals
+
 Research per model: reasoning depth, code generation quality, code review/bug detection, test generation, tool-use reliability, speed, knowledge breadth.
 
 ### C. Pricing
+
 Crawl provider pricing pages. Record input/output/blended cost per 1M tokens.
 
 ### D. Context Window & Speed
@@ -64,13 +68,13 @@ Filter by recency (<6 months), coding suitability (≥16K context, tool use), us
 
 ### Role-Specific Capability Scoring
 
-| Role | Weighting |
-|------|-----------|
-| architect | `0.40*reasoning + 0.25*coding + 0.20*context + 0.15*cost` |
-| developer | `0.35*coding + 0.25*tool_use + 0.20*speed + 0.20*cost` |
-| test-designer | `0.30*test_gen + 0.25*coding + 0.25*reasoning + 0.20*cost` |
-| auditor | `0.30*code_review + 0.25*reasoning + 0.25*coding + 0.20*cost` |
-| researcher | `0.30*knowledge + 0.30*cost + 0.20*speed + 0.20*reasoning` |
+| Role          | Weighting                                                     |
+| ------------- | ------------------------------------------------------------- |
+| architect     | `0.40*reasoning + 0.25*coding + 0.20*context + 0.15*cost`     |
+| developer     | `0.35*coding + 0.25*tool_use + 0.20*speed + 0.20*cost`        |
+| test-designer | `0.30*test_gen + 0.25*coding + 0.25*reasoning + 0.20*cost`    |
+| auditor       | `0.30*code_review + 0.25*reasoning + 0.25*coding + 0.20*cost` |
+| researcher    | `0.30*knowledge + 0.30*cost + 0.20*speed + 0.20*reasoning`    |
 
 ### Ranking by Objective
 

@@ -118,7 +118,7 @@ flowchart LR
 
 - **Binary detection via lazy promise** — `getSgBinary()` caches the `ast-grep --version` check as a module-level promise. All concurrent callers await the same promise. On failure, the promise resets so next caller retries (transient fault recovery).
 - **FIFO eviction, not LRU** — Cache uses simple FIFO eviction at 200 entries. Hot-spot patterns may evict cold entries first. Revisit LRU when usage data exists.
-- **Mutation-triggered invalidation, epoch-qualified** — A successful `write`/`edit` tool result (`invalidation.ts`) clears the cache and bumps a monotonic world-version epoch mixed into every entry key. The epoch — not a bare `clear()` — is what makes an in-flight search that lands *after* a mutation unreachable rather than resurrect stale matches. Coarse whole-cache invalidation is intentional: surgical per-path invalidation needs canonical path comparison (symlinks, realpath) that is not worth the correctness risk for this fix.
+- **Mutation-triggered invalidation, epoch-qualified** — A successful `write`/`edit` tool result (`invalidation.ts`) clears the cache and bumps a monotonic world-version epoch mixed into every entry key. The epoch — not a bare `clear()` — is what makes an in-flight search that lands _after_ a mutation unreachable rather than resurrect stale matches. Coarse whole-cache invalidation is intentional: surgical per-path invalidation needs canonical path comparison (symlinks, realpath) that is not worth the correctness risk for this fix.
 - **`bash` mutations are not invalidated** — `sed -i`, `rm`, `git checkout`, and codegen run through `bash` and are not treated as cache-invalidating: blanket invalidation on every bash destroys cache value in the normal agent loop. Residual staleness is accepted; `isMutatingToolResult` in `invalidation.ts` is the single extension point if that changes.
 - **Null-byte cache key separator** — `${pattern}\x00${language}\x00${cwd}` prevents collision when inputs contain `::`.
 - **Exit-code-based error interpretation** (not keyword heuristics) — code 0 = success, code 1 + empty stderr = no matches, all other non-zero = real errors. Stderr presence overrides success interpretation. ast-grep execution failures return `isError: true` with typed `structuredContent` (stderr, exitCode) instead of throwing; precondition guards (`validatePattern`, `resolveWithinRoot`, `getSgBinary`) still throw.
@@ -129,6 +129,7 @@ flowchart LR
 ### Renderer Adaptation
 
 The TUI renderer (`renderer.ts`) shows:
+
 - Summary: "Structural search: N matches"
 - Each match: hyperlinked file path (OSC 8 `file://`), line range, truncated snippet
 - Collapsed view: 5 matches default; expanded view: 20 matches

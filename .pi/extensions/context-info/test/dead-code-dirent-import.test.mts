@@ -23,9 +23,7 @@ const markdownResourcesPath = joinPath(dir, "../markdown-resources.ts");
 const read = (p: string): string => readFileSync(p, "utf-8");
 
 // Locator entry parameter type, derived without a static `Dirent` import.
-type Entry = Parameters<
-	typeof import("../prompts.ts").promptsLocator
->[1];
+type Entry = Parameters<typeof import("../prompts.ts").promptsLocator>[1];
 
 const dirEntry = (name: string): Entry =>
 	({ name, isDirectory: () => true, isFile: () => false }) as unknown as Entry;
@@ -119,9 +117,7 @@ describe("dead code removal — Issue #1877 (unused Dirent import)", () => {
 				assert.deepEqual(promptsLocator(tempDir, dirEntry("sub")), [
 					joinPath(tempDir, "sub", "a.md"),
 				]);
-				assert.deepEqual(promptsLocator(tempDir, fileEntry("x.md")), [
-					joinPath(tempDir, "x.md"),
-				]);
+				assert.deepEqual(promptsLocator(tempDir, fileEntry("x.md")), [joinPath(tempDir, "x.md")]);
 				assert.equal(promptsLocator(tempDir, fileEntry("x.txt")), null);
 
 				assert.deepEqual(skillsLocator(tempDir, dirEntry("skillsub")), [

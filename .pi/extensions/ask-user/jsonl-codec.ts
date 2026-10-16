@@ -13,7 +13,6 @@ export const QNA_CONTEXT = "context";
 const QNA_JSONL = "qna.jsonl";
 const QNA_CSV = "qna.csv";
 
-
 // ---------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------
@@ -98,7 +97,6 @@ export function parseJsonlLine(line: string): QnaEntry | null {
 		return null;
 	}
 }
-
 
 // ---------------------------------------------------------------------------
 // Path helpers

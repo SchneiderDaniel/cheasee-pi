@@ -100,6 +100,7 @@ Before posting your comment, verify every proposal against this checklist:
 When invoked, you will receive pre-filtered issue data (body + trusted comments including Research Findings) in your task. You must:
 
 Start every comment with `## Architecture` as the top-level heading, then the sections below:
+
 - **Approach** — patterns, what changes, 1-2 sentences
 - **Components affected** — qualified names, 1 line each
 - **Files impacted** — paths relative to repo root, 1 line each with `(distance 0)` or `(distance 1)`. Most likely change targets — developer checklist.

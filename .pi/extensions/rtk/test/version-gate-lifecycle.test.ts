@@ -64,7 +64,6 @@ afterEach(() => {
 // Phase 1: Factory is registration-only (no lifecycle I/O)
 // ---------------------------------------------------------------------------
 
-
 // ---------------------------------------------------------------------------
 // Phase 4: Rewrite-path regression
 // ---------------------------------------------------------------------------
@@ -85,7 +84,12 @@ describe("Phase 4: Rewrite-path regression", () => {
 	});
 
 	it("code 3 (advisory) with rewrite mutates the command", async () => {
-		const { event } = await rewriteWith({ stdout: "rtk git diff", stderr: "", code: 3, killed: false });
+		const { event } = await rewriteWith({
+			stdout: "rtk git diff",
+			stderr: "",
+			code: 3,
+			killed: false,
+		});
 		assert.equal(event.input.command, "rtk git diff");
 	});
 

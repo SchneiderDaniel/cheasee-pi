@@ -72,7 +72,12 @@ function renderExpandedThinkingStyleCalls(
 		},
 	};
 
-	const component = renderSubagentResult(message as any, { expanded: true, outputPad: 0 }, theme as never, process.cwd());
+	const component = renderSubagentResult(
+		message as any,
+		{ expanded: true, outputPad: 0 },
+		theme as never,
+		process.cwd(),
+	);
 	component!.render(80);
 	return styleCalls;
 }

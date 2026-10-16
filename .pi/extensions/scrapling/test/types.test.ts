@@ -70,8 +70,14 @@ describe("types.ts exports — shared ExecResult/ExecFn", () => {
 		assert.ok(/^\s*code:\s*number;/m.test(typesSource), "ExecResult should have code: number");
 		assert.ok(/^\s*stdout:\s*string;/m.test(typesSource), "ExecResult should have stdout: string");
 		assert.ok(/^\s*stderr:\s*string;/m.test(typesSource), "ExecResult should have stderr: string");
-		assert.ok(/^\s*killed:\s*boolean;/m.test(typesSource), "ExecResult should have killed: boolean");
-		assert.ok(/signal\?:\s*string/.test(typesSource), "ExecResult should have optional signal?: string");
+		assert.ok(
+			/^\s*killed:\s*boolean;/m.test(typesSource),
+			"ExecResult should have killed: boolean",
+		);
+		assert.ok(
+			/signal\?:\s*string/.test(typesSource),
+			"ExecResult should have optional signal?: string",
+		);
 	});
 
 	it("(D) types.ts exports ExecFn with correct signature", () => {
@@ -100,7 +106,10 @@ describe("types.ts exports — shared ExecResult/ExecFn", () => {
 		// Killed by signal (upstream bug scenario: code: 0 but killed: true)
 		assert.equal(isExecFailure({ code: 0, stdout: "", stderr: "", killed: true }), true);
 		// Killed with signal name
-		assert.equal(isExecFailure({ code: 0, stdout: "", stderr: "", killed: true, signal: "SIGTERM" }), true);
+		assert.equal(
+			isExecFailure({ code: 0, stdout: "", stderr: "", killed: true, signal: "SIGTERM" }),
+			true,
+		);
 		// Both failure signals
 		assert.equal(isExecFailure({ code: 1, stdout: "", stderr: "", killed: true }), true);
 	});
@@ -113,7 +122,8 @@ describe("types.ts exports — shared ExecResult/ExecFn", () => {
 	});
 
 	it("(D) OnUpdateCallback re-exported from lib/port-types.ts", () => {
-		const reexport = /export\s+type\s*\{[^}]*\bOnUpdateCallback\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
+		const reexport =
+			/export\s+type\s*\{[^}]*\bOnUpdateCallback\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
 		assert.ok(
 			reexport.test(typesSource),
 			"types.ts should re-export OnUpdateCallback from lib/port-types.ts",
@@ -171,8 +181,6 @@ describe("test/venv-setup-scrapling.test.ts — imports from ../venv-setup.ts", 
 			'test/venv-setup-scrapling.test.ts should import ensureScraplingVenv from "../venv-setup"',
 		);
 	});
-
-
 });
 
 // ── Phase 5: index.test.ts — verify tool import (no local ExecResult/ExecFn needed since test is self-contained) ──
@@ -244,11 +252,17 @@ describe("types.ts — CrawlResult and CrawledPage types", () => {
 	});
 
 	it("(D) CrawlResult success branch has attempted: number", () => {
-		assert.ok(/\battempted:\s*number;/.test(source), "CrawlResult success branch needs attempted: number");
+		assert.ok(
+			/\battempted:\s*number;/.test(source),
+			"CrawlResult success branch needs attempted: number",
+		);
 	});
 
 	it("(D) CrawlResult success branch has failed: string[]", () => {
-		assert.ok(/\bfailed:\s*string\[\];/.test(source), "CrawlResult success branch needs failed: string[]");
+		assert.ok(
+			/\bfailed:\s*string\[\];/.test(source),
+			"CrawlResult success branch needs failed: string[]",
+		);
 	});
 
 	it("(D) CrawlParams extended with maxTokens field", () => {

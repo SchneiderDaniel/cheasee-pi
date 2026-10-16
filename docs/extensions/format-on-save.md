@@ -52,7 +52,7 @@ flowchart TD
     N -- error --> O[Notify failure]
     N -- formatted --> P[Notify success]
     N -- no change --> Q[Silent]
-    
+
     P --> R{linter.canHandle?}
     M --> R
     Q --> R
@@ -79,25 +79,27 @@ flowchart TD
 
 ```typescript
 interface Formatter {
-  canHandle(filePath: string): boolean;    // Check if this formatter supports the file
-  format(filePath: string): Promise<{      // Format the file
-    formatted: boolean;                    // true = file was changed
-    error?: string;                        // Error message if format failed
-  }>;
+	canHandle(filePath: string): boolean; // Check if this formatter supports the file
+	format(filePath: string): Promise<{
+		// Format the file
+		formatted: boolean; // true = file was changed
+		error?: string; // Error message if format failed
+	}>;
 }
 
 interface Linter {
-  canHandle(filePath: string): boolean;
-  lint(filePath: string): Promise<{
-    diagnostics: LintDiagnostic[];
-    error?: string;
-  }>;
+	canHandle(filePath: string): boolean;
+	lint(filePath: string): Promise<{
+		diagnostics: LintDiagnostic[];
+		error?: string;
+	}>;
 }
 ```
 
 ### Testing
 
 Tests cover:
+
 - File path heuristics (valid paths, pip install, npm commands)
 - Size gate (below/above 1MB)
 - Trust gate (trusted → format+lint, untrusted → skip)

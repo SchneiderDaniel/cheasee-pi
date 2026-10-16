@@ -161,7 +161,9 @@ function renderRecoveredMarkdown(analyzedAt: number | null): Uint8Array {
 		"# CodeFlow Analysis Report\n\n" +
 			"> **JSON-only recovery.** This shim's markdown route served the structured JSON " +
 			"export and no markdown narration is available, so this file is narration only. " +
-			"The authoritative findings are in `" + REPORT_JSON_REL_PATH + "`.\n\n" +
+			"The authoritative findings are in `" +
+			REPORT_JSON_REL_PATH +
+			"`.\n\n" +
 			`- Analysis timestamp: ${when}\n`,
 	);
 }
@@ -433,7 +435,10 @@ export async function fetchAndStoreReport(opts: {
 	const partial = jsonPath === null;
 	// A JSON-less run must name the categories it cannot see; a warning already
 	// carrying the list (from `jsonUnavailableWarning`) is enough.
-	if (partial && !warnings.some((w) => w.includes("duplicates, layer violations and suggestions"))) {
+	if (
+		partial &&
+		!warnings.some((w) => w.includes("duplicates, layer violations and suggestions"))
+	) {
 		warnings.push(
 			`Structured JSON report unavailable, so ${JSON_ONLY_CATEGORIES.join(", ")} categories cannot be extracted.`,
 		);

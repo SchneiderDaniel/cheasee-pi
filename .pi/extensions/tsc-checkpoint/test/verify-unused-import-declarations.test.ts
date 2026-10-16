@@ -32,7 +32,7 @@ describe("Issue #1875 — redundant local import declarations removed", () => {
 		assert.strictEqual(
 			importFrom(content, "types.ts"),
 			null,
-			"unused `import type { TscDiagnostic, DiagnosticTrend } from \"./types.ts\"` still present",
+			'unused `import type { TscDiagnostic, DiagnosticTrend } from "./types.ts"` still present',
 		);
 	});
 
@@ -41,7 +41,7 @@ describe("Issue #1875 — redundant local import declarations removed", () => {
 		assert.strictEqual(
 			importFrom(content, "adapter.ts"),
 			null,
-			"unused `import { diagnosticToTscDiagnostic, resolveDiagnosticFilePath } from \"./adapter.ts\"` still present",
+			'unused `import { diagnosticToTscDiagnostic, resolveDiagnosticFilePath } from "./adapter.ts"` still present',
 		);
 	});
 
@@ -50,7 +50,7 @@ describe("Issue #1875 — redundant local import declarations removed", () => {
 		assert.strictEqual(
 			importFrom(content, "checkpoint.ts"),
 			null,
-			"unused `import { runTscCheckpoint } from \"./checkpoint.ts\"` still present",
+			'unused `import { runTscCheckpoint } from "./checkpoint.ts"` still present',
 		);
 	});
 
@@ -58,11 +58,11 @@ describe("Issue #1875 — redundant local import declarations removed", () => {
 		const content = readFileSync(indexPath, "utf-8");
 		assert.ok(
 			importFrom(content, "watcher.ts"),
-			"`import { DiagnosticsWatcher } from \"./watcher.ts\"` was wrongly removed",
+			'`import { DiagnosticsWatcher } from "./watcher.ts"` was wrongly removed',
 		);
 		assert.ok(
 			importFrom(content, "format.ts"),
-			"`import { formatDiagnostics, formatDiagnosticsJson, directionLabel } from \"./format.ts\"` was wrongly removed",
+			'`import { formatDiagnostics, formatDiagnosticsJson, directionLabel } from "./format.ts"` was wrongly removed',
 		);
 	});
 });
@@ -101,7 +101,10 @@ describe("Issue #1875 — facade public surface preserved", () => {
 		const content = readFileSync(indexPath, "utf-8");
 		const exportBlock = content.slice(content.indexOf("// Type re-exports"));
 		assert.ok(exportBlock.includes("TscDiagnostic"), "TscDiagnostic missing from type re-exports");
-		assert.ok(exportBlock.includes("DiagnosticTrend"), "DiagnosticTrend missing from type re-exports");
+		assert.ok(
+			exportBlock.includes("DiagnosticTrend"),
+			"DiagnosticTrend missing from type re-exports",
+		);
 	});
 
 	it("runTscCheckpoint appears exactly once, inside the export re-binding", () => {

@@ -15,12 +15,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-import {
-	makeEvent,
-	makeCtx,
-	callNTimes,
-	createMockAPI,
-} from "./harness-fixtures.ts";
+import { makeEvent, makeCtx, callNTimes, createMockAPI } from "./harness-fixtures.ts";
 
 describe("AgentHarness — extension entry point", () => {
 	it("registers session_start, turn_start, and tool_call handlers", () => {
@@ -297,7 +292,13 @@ describe("AgentHarness — preserved public exports", () => {
 		assert.match(entrySrc, /export type \{ ResolvedHarnessRules \} from "\.\/agent-harness\.ts";/);
 		assert.match(entrySrc, /export \{ loadProjectConfig \} from "\.\/lib\/load-config\.ts";/);
 
-		const loaderSrc = fs.readFileSync(path.join(import.meta.dirname, "..", "lib", "load-config.ts"), "utf-8");
-		assert.match(loaderSrc, /export type \{ ResolvedHarnessRules, ToolMeta \} from "\.\/harness-rules\.ts";/);
+		const loaderSrc = fs.readFileSync(
+			path.join(import.meta.dirname, "..", "lib", "load-config.ts"),
+			"utf-8",
+		);
+		assert.match(
+			loaderSrc,
+			/export type \{ ResolvedHarnessRules, ToolMeta \} from "\.\/harness-rules\.ts";/,
+		);
 	});
 });

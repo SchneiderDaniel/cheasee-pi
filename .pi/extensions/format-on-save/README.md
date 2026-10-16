@@ -117,13 +117,13 @@ flowchart TD
 
 ```typescript
 interface Formatter {
-  canHandle(filePath: string): boolean;
-  format(filePath: string): Promise<{ formatted: boolean; error?: string }>;
+	canHandle(filePath: string): boolean;
+	format(filePath: string): Promise<{ formatted: boolean; error?: string }>;
 }
 
 interface Linter {
-  canHandle(filePath: string): boolean;
-  lint(filePath: string): Promise<{ diagnostics: LintDiagnostic[]; error?: string }>;
+	canHandle(filePath: string): boolean;
+	lint(filePath: string): Promise<{ diagnostics: LintDiagnostic[]; error?: string }>;
 }
 ```
 

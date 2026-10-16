@@ -26,9 +26,7 @@ import {
 	loadDefaultRules,
 	shouldBlockRetry,
 } from "./lib/harness-rules.ts";
-import {
-	deriveToolMetaFromAnnotations,
-} from "./lib/tool-annotations.ts";
+import { deriveToolMetaFromAnnotations } from "./lib/tool-annotations.ts";
 import type { ToolInfoLike } from "./lib/tool-annotations.ts";
 import {
 	hasBypassAnnotation,

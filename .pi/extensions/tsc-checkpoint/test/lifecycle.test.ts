@@ -7,21 +7,11 @@ import fs from "node:fs";
 import { describe, it } from "node:test";
 import { resolve, join } from "node:path";
 
-
-
-import {
-	DiagnosticsWatcher,
-	formatDiagnostics,
-	formatDiagnosticsJson,
-} from "../index.ts";
+import { DiagnosticsWatcher, formatDiagnostics, formatDiagnosticsJson } from "../index.ts";
 
 import type { TscDiagnostic, DiagnosticTrend } from "../index.ts";
 
-import {
-	createMinimalFixture,
-	createCheckHandler,
-	createMockPi,
-} from "./fixtures.ts";
+import { createMinimalFixture, createCheckHandler, createMockPi } from "./fixtures.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 11: Lifecycle cleanup via session_shutdown event

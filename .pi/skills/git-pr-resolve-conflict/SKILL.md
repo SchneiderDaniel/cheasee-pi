@@ -45,7 +45,7 @@ git diff --stat <merge-base> origin/main           # files main touched
 git diff --name-only <merge-base> origin/main      # intersect with PR's files
 ```
 
-Read the PR's own file list and the main-side file list. The overlap set is the conflict surface. Identify the other PR(s) that touched the same files — same-family refactors (interface removals, test rewrites, port/DI changes) are the classic cause. Note what each side was doing *conceptually*: deletion PRs compose (both sides removed different things from the same file → remove both), while replacement PRs override.
+Read the PR's own file list and the main-side file list. The overlap set is the conflict surface. Identify the other PR(s) that touched the same files — same-family refactors (interface removals, test rewrites, port/DI changes) are the classic cause. Note what each side was doing _conceptually_: deletion PRs compose (both sides removed different things from the same file → remove both), while replacement PRs override.
 
 ## Step 2 — Pull origin/main into the branch worktree
 
@@ -57,6 +57,7 @@ git rebase origin/main
 ```
 
 Pick based on history preference:
+
 - **Merge**: preserves branch history, but the merge commit pulls ALL of main's changes into the branch. PR diff vs main stays clean, but branch history carries main.
 - **Rebase**: branch becomes origin/main + the PR's own commits only. Preferred when the branch must contain only the PR's changes. Conflicts are resolved identically either way.
 
@@ -135,15 +136,15 @@ Reapply the full resolved file rather than re-resolving by hand — the semantic
 
 ## Error handling
 
-| Scenario | Action |
-|----------|--------|
-| `gh pr view` fails or auth missing | Stop. "Run `gh auth login`." |
-| `git merge` aborts (dirty worktree) | `git merge --abort`, stash the branch worktree's unrelated changes, retry |
-| No editor in container | Always `GIT_EDITOR=true` |
-| Push rejected after rebase | `git fetch origin`; PR may have merged — check state before `--force-with-lease` |
-| Grep finds leftover deleted symbols | Deletion incomplete — finish Step 4 before committing |
-| Main worktree has modified files | `git stash` them (recoverable), never `git checkout --` or delete |
-| PR auto-merged mid-work | Verify merged tree equality (Step 6); report orphaned head |
+| Scenario                            | Action                                                                           |
+| ----------------------------------- | -------------------------------------------------------------------------------- |
+| `gh pr view` fails or auth missing  | Stop. "Run `gh auth login`."                                                     |
+| `git merge` aborts (dirty worktree) | `git merge --abort`, stash the branch worktree's unrelated changes, retry        |
+| No editor in container              | Always `GIT_EDITOR=true`                                                         |
+| Push rejected after rebase          | `git fetch origin`; PR may have merged — check state before `--force-with-lease` |
+| Grep finds leftover deleted symbols | Deletion incomplete — finish Step 4 before committing                            |
+| Main worktree has modified files    | `git stash` them (recoverable), never `git checkout --` or delete                |
+| PR auto-merged mid-work             | Verify merged tree equality (Step 6); report orphaned head                       |
 
 ## Rules
 

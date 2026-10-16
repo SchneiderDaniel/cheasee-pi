@@ -49,10 +49,7 @@ export type CrawlStructuredOutput = Static<typeof crawlOutputSchema>;
  * @param result - adapter result (success or failure)
  * @param requestedUrl - URL the caller asked for; used by the error branch
  */
-export function toStructuredContent(
-	result: CrawlResult,
-	requestedUrl = "",
-): CrawlStructuredOutput {
+export function toStructuredContent(result: CrawlResult, requestedUrl = ""): CrawlStructuredOutput {
 	if (!result.success) {
 		return { ok: false, error: { url: requestedUrl, reason: result.error } };
 	}

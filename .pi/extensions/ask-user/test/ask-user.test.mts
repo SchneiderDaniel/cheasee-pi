@@ -593,7 +593,12 @@ describe("list/search absolute ids (issue #1614)", () => {
 	}
 
 	/** Strip the absolute id to compare against plain QnaEntry. */
-	function stripId(e: { datetime: string; question: string; answer: string; id: number }): QnaEntry {
+	function stripId(e: {
+		datetime: string;
+		question: string;
+		answer: string;
+		id: number;
+	}): QnaEntry {
 		return { datetime: e.datetime, question: e.question, answer: e.answer };
 	}
 
@@ -1254,7 +1259,6 @@ describe("Empty JSONL file edge cases", () => {
 // ============================================================================
 // Unit tests: successResult helper (ask_user_read success envelope)
 // ============================================================================
-
 
 describe("successResult (ask_user_read success envelope)", () => {
 	it("returns correct ContentResult shape for non-empty entries", () => {

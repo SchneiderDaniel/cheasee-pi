@@ -87,7 +87,9 @@ describe("render-subagent nestedCalls summary", () => {
 
 	it("complete:false flags truncation", () => {
 		const out = stripAnsi(
-			render(details({ nestedCalls: { calls: [{ name: "read", status: "ok" }], complete: false } })),
+			render(
+				details({ nestedCalls: { calls: [{ name: "read", status: "ok" }], complete: false } }),
+			),
 		);
 		assert.match(out, /nested: 1 call \(1 ok, 0 err\) \(truncated\)/);
 	});
@@ -174,7 +176,11 @@ describe("render-subagent nestedCalls summary", () => {
 			.filter((l) => !l.includes("nested:"))
 			.join("\n");
 		const standalone = withoutNested.match(/\d+ err/g) ?? [];
-		assert.equal(standalone.length, 1, `expected 1 standalone err segment, got: ${JSON.stringify(standalone)}`);
+		assert.equal(
+			standalone.length,
+			1,
+			`expected 1 standalone err segment, got: ${JSON.stringify(standalone)}`,
+		);
 		assert.match(withoutNested, /2 err/);
 	});
 

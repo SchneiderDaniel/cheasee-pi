@@ -16,7 +16,7 @@ color_scheme: cheasee
 heading_anchors: true
 
 # Footer content
-footer_content: "Copyright &copy; 2026 SchneiderDaniel. Distributed under the <a href=\"https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE\">MIT License.</a>"
+footer_content: 'Copyright &copy; 2026 SchneiderDaniel. Distributed under the <a href="https://github.com/SchneiderDaniel/cheasee-pi/blob/main/LICENSE">MIT License.</a>'
 
 # Google Analytics
 # ga_tracking: <your Google Analytics measurement id>

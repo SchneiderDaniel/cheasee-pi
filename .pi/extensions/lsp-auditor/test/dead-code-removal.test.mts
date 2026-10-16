@@ -37,7 +37,10 @@ describe("dead-code removal — index.ts banned symbols", () => {
 
 describe("dead-code removal — live symbols preserved", () => {
 	it("still imports ExtensionAPI from the SDK", () => {
-		assert.match(source, /import type \{[^}]*\bExtensionAPI\b[^}]*\} from "@earendil-works\/pi-coding-agent"/);
+		assert.match(
+			source,
+			/import type \{[^}]*\bExtensionAPI\b[^}]*\} from "@earendil-works\/pi-coding-agent"/,
+		);
 	});
 
 	it("still imports runPreAudit from ./run-pre-audit.ts", () => {

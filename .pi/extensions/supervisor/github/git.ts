@@ -50,12 +50,19 @@ async function tokenHasWorkflowScope(exec: ExecFn): Promise<boolean | null> {
 		const output = (result.stdout || "") + (result.stderr || "");
 		const header = output.match(/^x-oauth-scopes:\s*(.*)$/im);
 		if (!header) return null;
-		const scopes = header[1]!.split(",").map((s) => s.trim()).filter(Boolean);
+		const scopes = header[1]!
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean);
 		return scopes.includes("workflow");
 	} catch (err) {
-		getDebugLogger().warn("git", "workflow-scope introspection failed — proceeding with push (server is ground truth)", {
-			error: String(err),
-		});
+		getDebugLogger().warn(
+			"git",
+			"workflow-scope introspection failed — proceeding with push (server is ground truth)",
+			{
+				error: String(err),
+			},
+		);
 		return null;
 	}
 }
@@ -129,11 +136,9 @@ export async function workflowChangesExempt(
 			// ponytail: per-head rev-parse loop; batch via `cat-file --batch-check`
 			// over stdin if remote-head counts ever make this path measurable.
 			for (const name of serverHeads.keys()) {
-				const other = await exec(
-					"git",
-					["rev-parse", "--verify", `${prefix}${name}:${file}`],
-					{ cwd },
-				);
+				const other = await exec("git", ["rev-parse", "--verify", `${prefix}${name}:${file}`], {
+					cwd,
+				});
 				if (other.code === 0 && other.stdout.trim() === stagedSha) {
 					found = true;
 					break;
@@ -225,13 +230,9 @@ export async function pushBranch(
 					branch,
 					stderr: stderr.slice(0, 300),
 				});
-				const forceResult = await exec(
-					"git",
-					["push", "--force-with-lease", remote, branch],
-					{
-						cwd,
-					},
-				);
+				const forceResult = await exec("git", ["push", "--force-with-lease", remote, branch], {
+					cwd,
+				});
 				if (forceResult.code === 0) {
 					log.info("git", `git push --force-with-lease OK — ${remote}/${branch}`);
 					return;
@@ -306,7 +307,9 @@ export async function commitAndPush(
 		// files for the gate; --exit-code is required, plain --name-only exits 0
 		// regardless of differences).
 		let didCommit = false;
-		const diffResult = await exec("git", ["diff", "--cached", "--name-only", "--exit-code"], { cwd });
+		const diffResult = await exec("git", ["diff", "--cached", "--name-only", "--exit-code"], {
+			cwd,
+		});
 		const stagedFiles = (diffResult.stdout || "")
 			.split("\n")
 			.map((s) => s.trim())

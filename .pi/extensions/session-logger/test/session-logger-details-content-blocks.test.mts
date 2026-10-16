@@ -115,10 +115,7 @@ describe("renderer/details.ts — content-block narrowing", () => {
 	});
 
 	it("user: missing content field → empty turn section, no crash (?? [] fallback)", () => {
-		const filepath = writeJsonl([
-			sessionHeader(),
-			{ type: "message", message: { role: "user" } },
-		]);
+		const filepath = writeJsonl([sessionHeader(), { type: "message", message: { role: "user" } }]);
 
 		const md = renderSessionToMarkdown(filepath);
 		assert.ok(md.includes("### Turn 1 — User"), "user turn heading present");

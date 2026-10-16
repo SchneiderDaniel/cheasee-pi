@@ -55,12 +55,7 @@ describe("Simplified widget — footer only", () => {
 	});
 
 	it("uses short model name (strips path prefix)", () => {
-		const lines = buildWidgetLines(
-			createState(),
-			"dev",
-			"anthropic/claude-sonnet-4",
-			10000,
-		);
+		const lines = buildWidgetLines(createState(), "dev", "anthropic/claude-sonnet-4", 10000);
 		assert.ok(lines[0].includes("claude-sonnet-4"));
 		assert.ok(!lines[0].includes("anthropic"));
 	});
@@ -203,7 +198,14 @@ describe("Simplified widget — footer only", () => {
 	});
 
 	it("thinking level appears after model in stats line", () => {
-		const state = createState({ thinkingLevel: "high", tokenCount: 1000, toolCount: 3, cacheRead: 0, cacheWrite: 0, startedAt: 0 });
+		const state = createState({
+			thinkingLevel: "high",
+			tokenCount: 1000,
+			toolCount: 3,
+			cacheRead: 0,
+			cacheWrite: 0,
+			startedAt: 0,
+		});
 		const lines = buildWidgetLines(state, "dev", "some-model", 10000);
 		const line = lines[0];
 		const modelIdx = line.indexOf("some-model");
@@ -214,7 +216,14 @@ describe("Simplified widget — footer only", () => {
 	});
 
 	it("all levels render correct icon", () => {
-		const iconMap: Record<string, string> = { off: "○", minimal: "◐", low: "◑", medium: "◒", high: "◓", xhigh: "●" };
+		const iconMap: Record<string, string> = {
+			off: "○",
+			minimal: "◐",
+			low: "◑",
+			medium: "◒",
+			high: "◓",
+			xhigh: "●",
+		};
 		for (const [level, icon] of Object.entries(iconMap)) {
 			const state = createState({ thinkingLevel: level });
 			const lines = buildWidgetLines(state, "dev", undefined, 10000);

@@ -64,4 +64,3 @@ describe("Fix 1 — researcher.md extensions (Issue #933)", () => {
 		]);
 	});
 });
-

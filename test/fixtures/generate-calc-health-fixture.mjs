@@ -37,5 +37,8 @@ const header = `/**
  */
 `;
 
-writeFileSync(join(dirname(new URL(import.meta.url).pathname), "codeflow-calc-health.mjs"), header + body + "\n");
+writeFileSync(
+	join(dirname(new URL(import.meta.url).pathname), "codeflow-calc-health.mjs"),
+	header + body + "\n",
+);
 console.log(`wrote codeflow-calc-health.mjs from ${uiPath}`);

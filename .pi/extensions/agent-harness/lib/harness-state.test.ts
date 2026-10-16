@@ -56,7 +56,6 @@ describe("HarnessState", () => {
 		state.sessionTurn = 3;
 		assert.equal(state.toolCallIndex, 5); // not affected
 	});
-
 });
 
 // ── CACHE_TTL_TURNS ──

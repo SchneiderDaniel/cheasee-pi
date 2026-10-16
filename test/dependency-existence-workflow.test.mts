@@ -22,7 +22,7 @@ const WORKFLOW_PATH = resolve(
 	"..",
 	".github",
 	"workflows",
-	"dependency-existence.yml"
+	"dependency-existence.yml",
 );
 
 interface WorkflowConfig {
@@ -40,7 +40,13 @@ interface WorkflowConfig {
 			needs?: string | string[];
 			"runs-on"?: string;
 			"timeout-minutes"?: number;
-			steps?: Array<{ uses?: string; name?: string; run?: string; if?: string; with?: Record<string, string> }>;
+			steps?: Array<{
+				uses?: string;
+				name?: string;
+				run?: string;
+				if?: string;
+				with?: Record<string, string>;
+			}>;
 		}
 	>;
 }
@@ -78,10 +84,7 @@ describe(".github/workflows/dependency-existence.yml", () => {
 
 		it("supports manual workflow_dispatch", () => {
 			const workflow = parseWorkflow();
-			assert.ok(
-				workflow.on?.workflow_dispatch !== undefined,
-				"workflow_dispatch trigger missing"
-			);
+			assert.ok(workflow.on?.workflow_dispatch !== undefined, "workflow_dispatch trigger missing");
 		});
 	});
 
@@ -101,8 +104,10 @@ describe(".github/workflows/dependency-existence.yml", () => {
 			const jobs = parseWorkflow().jobs || {};
 			assert.ok(Object.keys(jobs).length >= 2, "expected unit-tests + check jobs");
 			for (const [name, job] of Object.entries(jobs)) {
-				assert.ok(job["timeout-minutes"] && job["timeout-minutes"] > 0,
-					`job ${name} must set timeout-minutes`);
+				assert.ok(
+					job["timeout-minutes"] && job["timeout-minutes"] > 0,
+					`job ${name} must set timeout-minutes`,
+				);
 			}
 		});
 	});
@@ -115,7 +120,7 @@ describe(".github/workflows/dependency-existence.yml", () => {
 			const needs = jobs.check.needs;
 			assert.ok(
 				needs === "unit-tests" || (Array.isArray(needs) && needs.includes("unit-tests")),
-				"check job must need unit-tests"
+				"check job must need unit-tests",
 			);
 		});
 
@@ -131,10 +136,7 @@ describe(".github/workflows/dependency-existence.yml", () => {
 			const steps = parseWorkflow().jobs?.["check"]?.steps || [];
 			const runStep = steps.find((s) => s.run?.includes("dependency-existence-check.py"));
 			assert.ok(runStep, "check job missing the checker invocation step");
-			assert.ok(
-				runStep.run?.includes("--root . --json"),
-				"checker must run with --root . --json"
-			);
+			assert.ok(runStep.run?.includes("--root . --json"), "checker must run with --root . --json");
 		});
 
 		it("emits ::error:: annotations per failure", () => {
@@ -151,7 +153,7 @@ describe(".github/workflows/dependency-existence.yml", () => {
 			assert.strictEqual(upload.if, "failure()");
 			assert.ok(
 				upload.with?.path?.includes("dependency-existence-report.json"),
-				"upload must include the JSON report path"
+				"upload must include the JSON report path",
 			);
 		});
 
@@ -159,7 +161,10 @@ describe(".github/workflows/dependency-existence.yml", () => {
 			const steps = parseWorkflow().jobs?.["check"]?.steps || [];
 			const cache = steps.find((s) => s.uses?.startsWith("actions/cache@"));
 			assert.ok(cache, "check job missing actions/cache step");
-			assert.ok(cache.with?.path?.includes(".cache/slopsquat"), "cache path must be the slopsquat cache");
+			assert.ok(
+				cache.with?.path?.includes(".cache/slopsquat"),
+				"cache path must be the slopsquat cache",
+			);
 		});
 	});
 });

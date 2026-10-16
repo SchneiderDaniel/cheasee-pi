@@ -89,7 +89,9 @@ export function classifyIncomplete(record: NestedToolCalls): IncompleteReason | 
  * the message carries no `nestedCalls` record. Keeps the `incomplete` key absent
  * (not `undefined`) so non-nested metadata stays byte-identical.
  */
-export function annotateNested(record: NestedToolCalls | undefined): NestedCallAnnotation | undefined {
+export function annotateNested(
+	record: NestedToolCalls | undefined,
+): NestedCallAnnotation | undefined {
 	if (!record) return undefined;
 	const { nestedCalls, nestedErrors, nestedDurationMs } = rollupNestedCalls(record);
 	const incomplete = classifyIncomplete(record);

@@ -266,7 +266,8 @@ export async function preserveTimedOutWork(
 	// per-call timeouts win; untimed calls (notably the inner `git push`) inherit
 	// the bound so a stalled remote cannot hang the timeout path indefinitely.
 	const exec: ExecFn = withPerChildEnv((cmd, args, opts) =>
-		pi.exec(cmd, args, { timeout: PRESERVATION_GIT_TIMEOUT_MS, ...opts }));
+		pi.exec(cmd, args, { timeout: PRESERVATION_GIT_TIMEOUT_MS, ...opts }),
+	);
 	try {
 		const status = await exec("git", ["status", "--porcelain"], {
 			cwd: worktreePath,
@@ -294,24 +295,17 @@ export async function preserveTimedOutWork(
 			// and `rev-list <remote>/<branch>..HEAD` fails. Fall back to a known base
 			// ref: otherwise preservation reports failure and post-pipeline cleanup
 			// (worktree removal + branch delete) discards the only copy of the work.
-			const ahead = await resolvePreservationBase(
-				exec,
-				worktreePath,
-				remote,
-				branch,
-				baseBranch,
-			);
+			const ahead = await resolvePreservationBase(exec, worktreePath, remote, branch, baseBranch);
 			if (!ahead.ok) {
 				return { committed: false, files: [], error: ahead.error };
 			}
 			if (ahead.count === 0) {
 				return { committed: false, files: [] };
 			}
-			const changed = await exec(
-				"git",
-				["diff", "--name-only", `${ahead.ref}..HEAD`],
-				{ cwd: worktreePath, timeout: 10_000 },
-			);
+			const changed = await exec("git", ["diff", "--name-only", `${ahead.ref}..HEAD`], {
+				cwd: worktreePath,
+				timeout: 10_000,
+			});
 			const changedFiles =
 				changed.code <= 1 // 1 = differences (same --exit-code semantics as commitAndPush)
 					? (changed.stdout || "")
@@ -334,13 +328,7 @@ export async function preserveTimedOutWork(
 					error: `git commit failed: ${markResult.stderr || markResult.stdout || ""}`,
 				};
 			}
-			const pushResult = await pushBranch(
-				exec,
-				worktreePath,
-				remote,
-				branch,
-				pushNotify,
-			);
+			const pushResult = await pushBranch(exec, worktreePath, remote, branch, pushNotify);
 			if (!pushResult.ok) {
 				return { committed: false, files: changedFiles, error: pushResult.error };
 			}

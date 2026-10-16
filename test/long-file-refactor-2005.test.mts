@@ -69,6 +69,7 @@ const TOUCHED: Record<string, string[]> = {
 	".pi/extensions/scrapling/test/index-handler.test.ts": [
 		".pi/extensions/scrapling/test/index-handler-factory.test.ts",
 		".pi/extensions/scrapling/test/index-handler-contracts.test.ts",
+		".pi/extensions/scrapling/test/index-handler-contracts-structured-content.test.ts",
 	],
 	".pi/extensions/scrapling/test/python-adapter.test.ts": [
 		".pi/extensions/scrapling/test/python-adapter-fixtures.ts",
@@ -169,7 +170,11 @@ describe("long-file refactor #2005 — the mirror is the pinned detector", () =>
 	it("counts a trailing newline — 500 newlines is 501 segments", () => {
 		const trailing = "export const x = 1;\n".repeat(500);
 		assert.equal(lineCount(trailing), 501);
-		assert.equal(isFlagged(trailing, "x.ts"), true, "500 wc-l lines plus the terminator is flagged");
+		assert.equal(
+			isFlagged(trailing, "x.ts"),
+			true,
+			"500 wc-l lines plus the terminator is flagged",
+		);
 	});
 
 	it("is not vacuous — empty content is one segment, not zero", () => {
