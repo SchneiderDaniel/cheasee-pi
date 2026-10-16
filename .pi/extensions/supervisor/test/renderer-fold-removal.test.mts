@@ -66,7 +66,11 @@ function renderStripped(component: any, width = 80): string[] {
 	return component.render(width).map((line: string) => stripAnsi(line).trim());
 }
 
-function renderWith(fn: (m: any, o: any, t: any) => any, details: Record<string, unknown>, content?: string) {
+function renderWith(
+	fn: (m: any, o: any, t: any) => any,
+	details: Record<string, unknown>,
+	content?: string,
+) {
 	const message: Record<string, unknown> = { details };
 	if (content !== undefined) message.content = content;
 	return fn(message, {}, mockTheme);
@@ -139,7 +143,10 @@ describe("folded renderers — direct render (public contract of render-simple.t
 	});
 
 	it("error with toolName + reason → '✗ bash: command not found'", () => {
-		const c = renderWith(simple.renderError, { toolName: "bash", errorReason: "command not found" });
+		const c = renderWith(simple.renderError, {
+			toolName: "bash",
+			errorReason: "command not found",
+		});
 		assert.ok(c instanceof Text);
 		assert.ok(renderStripped(c).some((l) => l.includes("✗ bash: command not found")));
 	});
@@ -167,7 +174,11 @@ describe("folded renderers — direct render (public contract of render-simple.t
 	});
 
 	it("tool-start with args → '⏳ dev — bash ls -la'", () => {
-		const c = renderWith(simple.renderToolStart, { agentName: "dev", toolName: "bash", args: "ls -la" });
+		const c = renderWith(simple.renderToolStart, {
+			agentName: "dev",
+			toolName: "bash",
+			args: "ls -la",
+		});
 		assert.ok(c instanceof Text);
 		assert.ok(renderStripped(c).some((l) => l.includes("⏳ dev — bash ls -la")));
 	});
@@ -198,10 +209,12 @@ describe("folded renderers — boundaries the goldens never hit", () => {
 		initTheme();
 	});
 
-	it("budget-exceeded with no agentName/toolCount/tokenCount pins `|| \"\"` and `?? 0`", () => {
+	it('budget-exceeded with no agentName/toolCount/tokenCount pins `|| ""` and `?? 0`', () => {
 		const c = renderWith(simple.renderBudgetExceeded, {});
 		assert.ok(c instanceof Text);
-		assert.ok(renderStripped(c).some((l) => l.includes("⚠  — budget exceeded (0 tools, 0 tokens)")));
+		assert.ok(
+			renderStripped(c).some((l) => l.includes("⚠  — budget exceeded (0 tools, 0 tokens)")),
+		);
 	});
 
 	it("thinking with only thinkingText pins `content || thinkingText`", () => {
@@ -295,7 +308,10 @@ describe("index.ts is a table of values, not a pointer list", () => {
 
 describe("constants.ts — MAX_TASK_PREVIEW_CHARS absent, live caps intact", () => {
 	it("module surface holds only the two live caps", async () => {
-		const mod = (await import("../session/message-renderers/constants.ts")) as Record<string, unknown>;
+		const mod = (await import("../session/message-renderers/constants.ts")) as Record<
+			string,
+			unknown
+		>;
 		assert.equal("MAX_TASK_PREVIEW_CHARS" in mod, false);
 		assert.equal(mod.MAX_EXPANDED_TOOL_CALLS, 30);
 		assert.equal(mod.MAX_NESTED_CALLS, 30);
@@ -311,7 +327,10 @@ describe("constants.ts — MAX_TASK_PREVIEW_CHARS absent, live caps intact", () 
 	it("live consumers are not cascaded", () => {
 		const subagent = readFileSync(join(RENDERERS_DIR, "render-subagent.ts"), "utf8");
 		assert.match(subagent, /MAX_EXPANDED_TOOL_CALLS/);
-		const handlers = readFileSync(join(EXTENSIONS_ROOT, "supervisor", "event", "adapter", "handlers.ts"), "utf8");
+		const handlers = readFileSync(
+			join(EXTENSIONS_ROOT, "supervisor", "event", "adapter", "handlers.ts"),
+			"utf8",
+		);
 		assert.match(handlers, /MAX_NESTED_CALLS/);
 	});
 });

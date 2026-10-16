@@ -30,15 +30,14 @@ export interface ModuleGraph {
 const IMPORT_FROM_RE = /^[ \t]*import\s+(?!["'])([\s\S]*?)\s+from\s+["']([^"']+)["']/gm;
 const IMPORT_SIDE_EFFECT_RE = /^[ \t]*import\s+["']([^"']+)["']/gm;
 const STAR_REEXPORT_RE = /^[ \t]*export\s+\*\s+from\s+["']([^"']+)["']/gm;
-const NAMED_REEXPORT_RE = /^[ \t]*export\s+(?:type\s+)?\{([\s\S]*?)\}\s*(?:from\s+["']([^"']+)["'])?/gm;
+const NAMED_REEXPORT_RE =
+	/^[ \t]*export\s+(?:type\s+)?\{([\s\S]*?)\}\s*(?:from\s+["']([^"']+)["'])?/gm;
 const DECLARATION_RE =
 	/^[ \t]*(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(interface|type|function|class|const|let|enum|namespace)\s+([A-Za-z_$][\w$]*)/gm;
 
 /** Strip line and block comments (keeps everything else byte-for-byte). */
 function stripComments(source: string): string {
-	return source
-		.replace(/\/\*[\s\S]*?\*\//g, "")
-		.replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+	return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 
 /** Extract local binding names from an import/export clause. */
@@ -55,7 +54,12 @@ function parseNames(clause: string): string[] {
 			.split(",")
 			.map((part) => part.trim())
 			.filter(Boolean)
-			.map((part) => part.split(/\s+as\s+/).pop()!.trim())
+			.map((part) =>
+				part
+					.split(/\s+as\s+/)
+					.pop()!
+					.trim(),
+			)
 			.filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
 	}
 	// default import, optionally followed by `, { … }`

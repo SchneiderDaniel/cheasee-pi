@@ -80,11 +80,7 @@ describe("runner killGroup integration (real OS, Linux container)", () => {
 				await sleep(100);
 
 				assert.ok(sleepPid > 0, `learned grandchild pid from stdout (got ${sleepPid})`);
-				assert.equal(
-					isAlive(sleepPid),
-					false,
-					"sleep grandchild is dead — no orphaned Pi process",
-				);
+				assert.equal(isAlive(sleepPid), false, "sleep grandchild is dead — no orphaned Pi process");
 				assert.equal(isAlive(child.pid!), false, "sh leader is dead");
 				assert.equal(
 					closed,
@@ -136,7 +132,11 @@ describe("runner killGroup integration (real OS, Linux container)", () => {
 			// Leader must exit while the grandchild keeps running.
 			for (let i = 0; i < 50 && isAlive(child.pid!); i++) await sleep(20);
 			assert.equal(isAlive(child.pid!), false, "leader exited after SIGTERM");
-			assert.equal(isAlive(sleepPid), true, "descendant survives the leader's exit (group still exists)");
+			assert.equal(
+				isAlive(sleepPid),
+				true,
+				"descendant survives the leader's exit (group still exists)",
+			);
 
 			// Group kill AFTER leader exit — must still reach the descendant.
 			process.kill(-child.pid!, "SIGKILL");

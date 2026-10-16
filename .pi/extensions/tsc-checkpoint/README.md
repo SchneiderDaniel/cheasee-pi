@@ -48,11 +48,11 @@ Called automatically by the Supervisor pipeline as a quality gate between Implem
 
 ### Trend interpretation
 
-| Trend | Meaning |
-|-------|---------|
-| `stable` | Same error count as previous check |
-| `improved` | Fewer errors than previous check |
-| `regressed` | More errors than previous check |
+| Trend       | Meaning                            |
+| ----------- | ---------------------------------- |
+| `stable`    | Same error count as previous check |
+| `improved`  | Fewer errors than previous check   |
+| `regressed` | More errors than previous check    |
 
 ### Command
 
@@ -130,10 +130,18 @@ flowchart TD
 
 ```typescript
 class DiagnosticsWatcher {
-  start(): void { /* ts.createWatchProgram */ }
-  getDiagnostics(): TscDiagnostic[] { /* cached from last compilation */ }
-  getTrend(): DiagnosticTrend { /* compare current vs previous */ }
-  stop(): void { /* closeProgram */ }
+	start(): void {
+		/* ts.createWatchProgram */
+	}
+	getDiagnostics(): TscDiagnostic[] {
+		/* cached from last compilation */
+	}
+	getTrend(): DiagnosticTrend {
+		/* compare current vs previous */
+	}
+	stop(): void {
+		/* closeProgram */
+	}
 }
 ```
 

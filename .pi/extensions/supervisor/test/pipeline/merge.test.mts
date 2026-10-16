@@ -508,7 +508,9 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 			port,
 		);
 
-		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.agent?.config?.name === "developer");
+		const devCalls = runner.mock.calls.filter(
+			(c) => c.arguments[0]?.agent?.config?.name === "developer",
+		);
 		assert.ok(devCalls.length > 0, "runAgentSubprocess should be called with developer agent");
 	});
 
@@ -567,7 +569,9 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 			createMockMergePort(true),
 		);
 
-		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.agent?.config?.name === "developer");
+		const devCalls = runner.mock.calls.filter(
+			(c) => c.arguments[0]?.agent?.config?.name === "developer",
+		);
 		assert.equal(devCalls.length, 1, "developer dispatched for conflict resolution");
 		return { arguments: devCalls[0]!.arguments as any[] };
 	}
@@ -594,9 +598,15 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 			createMockMergePort(true),
 		);
 
-		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.agent?.config?.name === "developer");
+		const devCalls = runner.mock.calls.filter(
+			(c) => c.arguments[0]?.agent?.config?.name === "developer",
+		);
 		assert.equal(devCalls.length, 1, "developer dispatched for conflict resolution");
-		assert.equal(devCalls[0]!.arguments[0]?.timeoutMs, 60_000, "agentTimeoutSec.developer=60 → 60_000ms");
+		assert.equal(
+			devCalls[0]!.arguments[0]?.timeoutMs,
+			60_000,
+			"agentTimeoutSec.developer=60 → 60_000ms",
+		);
 	});
 
 	it("agentTimeoutSec.developer=0 → runner called with null (no longer the 30-min default)", async () => {
@@ -621,9 +631,15 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 			createMockMergePort(true),
 		);
 
-		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.agent?.config?.name === "developer");
+		const devCalls = runner.mock.calls.filter(
+			(c) => c.arguments[0]?.agent?.config?.name === "developer",
+		);
 		assert.equal(devCalls.length, 1, "developer dispatched");
-		assert.equal(devCalls[0]!.arguments[0]?.timeoutMs, null, "configured 0 → null (timers disarmed)");
+		assert.equal(
+			devCalls[0]!.arguments[0]?.timeoutMs,
+			null,
+			"configured 0 → null (timers disarmed)",
+		);
 	});
 
 	it("legacy agentTimeoutsMin.developer=5 → 300_000ms; absent → 30-min default", async () => {
@@ -633,7 +649,11 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 		const minDispatch = await dispatchWithConfig(minConfig);
 		const defaultDispatch = await dispatchWithConfig(evolved);
 
-		assert.equal(minDispatch.arguments[0]?.timeoutMs, 300_000, "legacy minutes alias resolves to ms");
+		assert.equal(
+			minDispatch.arguments[0]?.timeoutMs,
+			300_000,
+			"legacy minutes alias resolves to ms",
+		);
 		assert.equal(
 			defaultDispatch.arguments[0]?.timeoutMs,
 			1_800_000,
@@ -663,9 +683,15 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 			createMockMergePort(true),
 		);
 
-		const devCalls = runner.mock.calls.filter((c) => c.arguments[0]?.agent?.config?.name === "developer");
+		const devCalls = runner.mock.calls.filter(
+			(c) => c.arguments[0]?.agent?.config?.name === "developer",
+		);
 		assert.equal(devCalls.length, 1, "developer dispatched");
-		assert.equal(devCalls[0]!.arguments[0]?.killGraceSec, 3, "killGraceSec passed as 10th positional");
+		assert.equal(
+			devCalls[0]!.arguments[0]?.killGraceSec,
+			3,
+			"killGraceSec passed as 10th positional",
+		);
 	});
 
 	it("timed-out developer dispatch surfaces timeout metadata + errorOutput (audit finding #4)", async () => {
@@ -702,7 +728,9 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 
 		const devMsg: any = sendMessage.mock.calls
 			.map((c) => c.arguments[0])
-			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+			.find(
+				(m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"),
+			);
 		assert.ok(devMsg, "conflict-resolution message posted");
 		assert.match(devMsg.content, /TIMEOUT/, "status names the timeout, not a bare FAILED");
 		assert.match(
@@ -745,7 +773,9 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 
 		const devMsg: any = sendMessage.mock.calls
 			.map((c) => c.arguments[0])
-			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+			.find(
+				(m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"),
+			);
 		assert.ok(devMsg, "conflict-resolution message posted");
 		assert.match(devMsg.content, /Conflict Resolution: developer — SUCCESS/);
 		assert.equal(devMsg.details.details.statusLabel, "SUCCESS");
@@ -781,7 +811,9 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 
 		const devMsg: any = sendMessage.mock.calls
 			.map((c) => c.arguments[0])
-			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+			.find(
+				(m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"),
+			);
 		assert.ok(devMsg, "conflict-resolution message posted");
 		assert.match(devMsg.content, /Conflict Resolution: developer — FAILED/);
 		assert.equal(devMsg.details.details.statusLabel, "FAILED");
@@ -813,7 +845,9 @@ describe("handlePostPipelineMerge() — runAgentSubprocess dispatch", () => {
 
 		const devMsg: any = sendMessage.mock.calls
 			.map((c) => c.arguments[0])
-			.find((m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"));
+			.find(
+				(m: any) => typeof m?.content === "string" && m.content.includes("Conflict Resolution"),
+			);
 		assert.ok(devMsg, "conflict-resolution message posted");
 		assert.match(devMsg.content, /Conflict Resolution: developer — SUCCESS/);
 		assert.equal(devMsg.details.details.statusLabel, "SUCCESS");

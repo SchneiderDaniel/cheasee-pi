@@ -25,8 +25,7 @@ const indexSource = readFileSync(INDEX_PATH, "utf-8");
 
 // `--listFiles` also emits the compiled program's file list, which lets the
 // oracle prove the adapter was actually analysed instead of passing vacuously.
-const TSC_CMD =
-	"npx tsc --noEmit --noUnusedLocals --listFiles --project .pi/tsconfig.json";
+const TSC_CMD = "npx tsc --noEmit --noUnusedLocals --listFiles --project .pi/tsconfig.json";
 
 /**
  * Run the strict compiler and return its combined output.
@@ -109,9 +108,7 @@ describe("Phase 1 — dead existsSync import removed", () => {
 
 describe("Phase 2 — adapter dependency surface preserved", () => {
 	it("still imports readFile and writeFile from node:fs/promises", () => {
-		const line = adapterSource
-			.split("\n")
-			.find((l) => l.includes('from "node:fs/promises"'));
+		const line = adapterSource.split("\n").find((l) => l.includes('from "node:fs/promises"'));
 		assert.ok(line, "node:fs/promises import line missing");
 		assert.ok(line!.includes("readFile"), "readFile specifier missing");
 		assert.ok(line!.includes("writeFile"), "writeFile specifier missing");
@@ -201,11 +198,7 @@ describe("Phase 3 — PrettierFormatter runtime contract", () => {
 			readFile: async () => "const x = 1\n",
 			writeFile: async () => {},
 		};
-		const f = new PrettierFormatter(
-			"/my/project",
-			mockPrettier as never,
-			mockFs as never,
-		);
+		const f = new PrettierFormatter("/my/project", mockPrettier as never, mockFs as never);
 		await f.format("/my/project/src/file.ts");
 		assert.strictEqual(configPath, "/my/project/.prettierrc");
 	});

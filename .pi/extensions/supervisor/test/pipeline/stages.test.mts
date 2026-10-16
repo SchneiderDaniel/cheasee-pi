@@ -1016,7 +1016,10 @@ describe("buildAgentResultEntry()", () => {
 	});
 
 	it("folds nestedErrors into failedToolCount via the shared combine", () => {
-		const entry = buildAgentResultEntry({ ...baseResult, failedToolCount: 1, nestedErrors: 2 }, false);
+		const entry = buildAgentResultEntry(
+			{ ...baseResult, failedToolCount: 1, nestedErrors: 2 },
+			false,
+		);
 		assert.equal(entry.failedToolCount, 3);
 	});
 

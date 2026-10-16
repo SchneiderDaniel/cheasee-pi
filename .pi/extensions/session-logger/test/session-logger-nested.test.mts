@@ -160,9 +160,7 @@ describe("classifyIncomplete", () => {
 
 	it("returns arguments-omitted when a call has argumentsBytes but no arguments", () => {
 		const record = {
-			calls: [
-				{ id: "codemode_1/1", name: "read", status: "ok" as const, argumentsBytes: 9000 },
-			],
+			calls: [{ id: "codemode_1/1", name: "read", status: "ok" as const, argumentsBytes: 9000 }],
 			complete: false,
 		};
 		assert.strictEqual(classifyIncomplete(record), "arguments-omitted");

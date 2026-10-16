@@ -7,11 +7,13 @@
 > in EVERY repository. This file holds only cheasee-pi-repo-specific policy.
 
 <system_directives>
+
 - TYPESCRIPT: The root `tsconfig.json` extends `.pi/tsconfig.json`. You MUST run `npm run tsc:extensions` or `tsc --noEmit` to validate type checks.
 - GITHUB ISSUES: Always use the repository defined in `.pi/settings.json` (supervisor.repo). Never query the git remote directly.
 - TEMPORARY FILES: All temporary files MUST be saved to the `ignore/` folder and deleted immediately after use.
-</system_directives>
+  </system_directives>
 
 <CRITICAL_OVERRIDES>
+
 - THE MAIN BRANCH IS LOCKED. You are strictly forbidden from committing directly to main worktree. Also do not edit the main worktree. ALWAYS: Create a worktree, change, push and create PR. Merge only by user. Agent never merge.
-</CRITICAL_OVERRIDES>
+  </CRITICAL_OVERRIDES>

@@ -11,15 +11,11 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 
-
 import { execFileSync } from "node:child_process";
 import type { ExecResult, ExecFn } from "../types.ts";
 
 import { FRAME } from "../protocol.ts";
-import {
-	parseSearchOutput,
-	parseSearchResults,
-} from "../executor.ts";
+import { parseSearchOutput, parseSearchResults } from "../executor.ts";
 import { formatResults } from "../index.ts";
 
 type ExecHandler = ExecFn;
@@ -33,7 +29,6 @@ const framed = (json: string): string => `${FRAME}${json}${FRAME}`;
 function makeMockExec(): ReturnType<typeof mock.fn<ExecHandler>> {
 	return mock.fn<ExecHandler>();
 }
-
 
 describe("parseSearchOutput — RS framing", () => {
 	it("(D) extracts JSON between frames", () => {
@@ -177,8 +172,7 @@ describe("producer↔consumer frame round-trip (stock python3, stdlib only)", ()
 // ===========================================================================
 
 describe("parseSearchResults — item validation", () => {
-	const payload = (results: unknown): string =>
-		framed(JSON.stringify({ ok: true, results }));
+	const payload = (results: unknown): string => framed(JSON.stringify({ ok: true, results }));
 
 	it("(entity) results missing → { ok: true, results: [] }", () => {
 		const result = parseSearchResults(framed('{"ok":true}'));
@@ -201,7 +195,11 @@ describe("parseSearchResults — item validation", () => {
 			]),
 		);
 		assert.ok(result.ok === true);
-		if (result.ok) assert.deepEqual(result.results.map((r) => r.title), ["A", "C"]);
+		if (result.ok)
+			assert.deepEqual(
+				result.results.map((r) => r.title),
+				["A", "C"],
+			);
 	});
 
 	it("(entity) entry with non-string title or snippet is dropped", () => {
@@ -213,7 +211,11 @@ describe("parseSearchResults — item validation", () => {
 			]),
 		);
 		assert.ok(result.ok === true);
-		if (result.ok) assert.deepEqual(result.results.map((r) => r.title), ["C"]);
+		if (result.ok)
+			assert.deepEqual(
+				result.results.map((r) => r.title),
+				["C"],
+			);
 	});
 
 	it("(entity) non-object entries (null, string, number) are dropped, no throw", () => {
@@ -229,9 +231,7 @@ describe("parseSearchResults — item validation", () => {
 
 	it("(entity) all-valid entries pass through unchanged, SEARCH_DONE/SEARCH_OK preserved", () => {
 		const snippet = "a SEARCH_DONE b SEARCH_OK c";
-		const result = parseSearchResults(
-			payload([{ title: "T", url: "https://x.io", snippet }]),
-		);
+		const result = parseSearchResults(payload([{ title: "T", url: "https://x.io", snippet }]));
 		assert.ok(result.ok === true);
 		if (result.ok) {
 			assert.deepEqual(result.results, [{ title: "T", url: "https://x.io", snippet }]);

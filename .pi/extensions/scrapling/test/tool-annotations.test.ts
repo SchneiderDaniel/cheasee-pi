@@ -104,7 +104,11 @@ describe("runtime pin — pi 1.0.2 lockstep", () => {
 			"@earendil-works/pi-coding-agent",
 			"@earendil-works/pi-tui",
 		]) {
-			assert.equal(root.dependencies![name], "1.0.2", `${name} must be pinned in package-lock root`);
+			assert.equal(
+				root.dependencies![name],
+				"1.0.2",
+				`${name} must be pinned in package-lock root`,
+			);
 		}
 	});
 });

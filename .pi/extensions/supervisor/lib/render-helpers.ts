@@ -136,14 +136,38 @@ function makeRenderContext(cwd: string): Record<string, unknown> {
 
 // ponytail: permissive type — each factory returns a full ToolDefinition with
 // typed renderCall. We only need the runtime dispatch, so cast at the boundary.
-const toolDefFactories: Record<string, (cwd: string) => { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } }> = {
-	bash: (cwd: string) => createBashToolDefinition(cwd) as unknown as { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } },
-	read: (cwd: string) => createReadToolDefinition(cwd) as unknown as { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } },
-	edit: (cwd: string) => createEditToolDefinition(cwd) as unknown as { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } },
-	write: (cwd: string) => createWriteToolDefinition(cwd) as unknown as { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } },
-	grep: (cwd: string) => createGrepToolDefinition(cwd) as unknown as { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } },
-	find: (cwd: string) => createFindToolDefinition(cwd) as unknown as { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } },
-	ls: (cwd: string) => createLsToolDefinition(cwd) as unknown as { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } },
+const toolDefFactories: Record<
+	string,
+	(cwd: string) => { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } }
+> = {
+	bash: (cwd: string) =>
+		createBashToolDefinition(cwd) as unknown as {
+			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
+		},
+	read: (cwd: string) =>
+		createReadToolDefinition(cwd) as unknown as {
+			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
+		},
+	edit: (cwd: string) =>
+		createEditToolDefinition(cwd) as unknown as {
+			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
+		},
+	write: (cwd: string) =>
+		createWriteToolDefinition(cwd) as unknown as {
+			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
+		},
+	grep: (cwd: string) =>
+		createGrepToolDefinition(cwd) as unknown as {
+			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
+		},
+	find: (cwd: string) =>
+		createFindToolDefinition(cwd) as unknown as {
+			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
+		},
+	ls: (cwd: string) =>
+		createLsToolDefinition(cwd) as unknown as {
+			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
+		},
 };
 
 const EXTENSION_TOOL_NAMES = new Set([
@@ -187,17 +211,20 @@ export function renderToolCallText(name: string, args: unknown, cwd: string): st
 	if (factory) {
 		const def = factory(cwd);
 		if (def.renderCall) {
-			const component = def.renderCall(
-				args ?? {},
-				identityTheme,
-				makeRenderContext(cwd),
-			);
+			const component = def.renderCall(args ?? {}, identityTheme, makeRenderContext(cwd));
 			// Render at large width to avoid wrapping, then strip ANSI.
 			// Different tool renderCalls return different component types
 			// (Text, Container, Box, etc.), so we use the shared render() API.
 			const rendered = component.render(10000);
 			const text = rendered
-				.map((l: string) => l.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, "").trim())
+				.map((l: string) =>
+					l
+						.replace(
+							/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g,
+							"",
+						)
+						.trim(),
+				)
 				.filter(Boolean)
 				.join("\n");
 			return text || "";
@@ -226,5 +253,3 @@ function formatJsonPreview(name: string, args: unknown): string {
 	}
 	return `${prefix}${preview}`;
 }
-
-

@@ -583,9 +583,7 @@ describe("parseOsvJson()", () => {
 		assert.equal(result.findings.length, 4);
 
 		// Check first finding: lodash HIGH
-		const lodashHigh = result.findings.find(
-			(f) => f.id === "GHSA-xxxx-xxxx-xxxx",
-		);
+		const lodashHigh = result.findings.find((f) => f.id === "GHSA-xxxx-xxxx-xxxx");
 		assert.ok(lodashHigh, "lodash high severity finding should exist");
 		assert.equal(lodashHigh!.severity, "HIGH");
 		assert.equal(lodashHigh!.packageName, "lodash");
@@ -596,9 +594,7 @@ describe("parseOsvJson()", () => {
 		assert.equal(lodashHigh!.isCcCommitMatch, false);
 
 		// Check CRITICAL finding
-		const critical = result.findings.find(
-			(f) => f.id === "GHSA-zzzz-zzzz-zzzz",
-		);
+		const critical = result.findings.find((f) => f.id === "GHSA-zzzz-zzzz-zzzz");
 		assert.ok(critical, "critical severity finding should exist");
 		assert.equal(critical!.severity, "CRITICAL");
 		assert.equal(critical!.packageName, "axios");
@@ -632,8 +628,10 @@ describe("parseOsvJson()", () => {
 	it("malformed JSON returns error with parse failure message", () => {
 		const result = parseOsvJson("{invalid json}");
 		assert.equal(result.status, "error");
-		assert.ok(result.message!.includes("Failed to parse"), 
-			`Expected parse failure message, got: ${result.message}`);
+		assert.ok(
+			result.message!.includes("Failed to parse"),
+			`Expected parse failure message, got: ${result.message}`,
+		);
 	});
 
 	it("null input returns error gracefully", () => {
@@ -802,7 +800,7 @@ describe("parseOsvJson() — severity resolution (Issue #1620)", () => {
 		assert.equal(result.counts.high, 1);
 	});
 
-	it("legacy numeric score fallback still classifies (score: \"9.8\" → CRITICAL)", () => {
+	it('legacy numeric score fallback still classifies (score: "9.8" → CRITICAL)', () => {
 		const result = parseOsvJson(NUMERIC_SCORE_JSON);
 		const finding = result.findings[0]!;
 		assert.equal(finding.severity, "CRITICAL");
@@ -875,34 +873,70 @@ describe("bucketBySeverity()", () => {
 	it("single finding per severity bucket returns correct counts", () => {
 		const findings: OsvFinding[] = [
 			{
-				id: "1", aliases: [], severity: "CRITICAL",
-				packageName: "a", packageVersion: "1", ecosystem: "npm",
-				sourceFile: "f", summary: "", isCcCommitMatch: false,
+				id: "1",
+				aliases: [],
+				severity: "CRITICAL",
+				packageName: "a",
+				packageVersion: "1",
+				ecosystem: "npm",
+				sourceFile: "f",
+				summary: "",
+				isCcCommitMatch: false,
 			},
 			{
-				id: "2", aliases: [], severity: "HIGH",
-				packageName: "a", packageVersion: "1", ecosystem: "npm",
-				sourceFile: "f", summary: "", isCcCommitMatch: false,
+				id: "2",
+				aliases: [],
+				severity: "HIGH",
+				packageName: "a",
+				packageVersion: "1",
+				ecosystem: "npm",
+				sourceFile: "f",
+				summary: "",
+				isCcCommitMatch: false,
 			},
 			{
-				id: "3", aliases: [], severity: "HIGH",
-				packageName: "b", packageVersion: "1", ecosystem: "npm",
-				sourceFile: "f", summary: "", isCcCommitMatch: false,
+				id: "3",
+				aliases: [],
+				severity: "HIGH",
+				packageName: "b",
+				packageVersion: "1",
+				ecosystem: "npm",
+				sourceFile: "f",
+				summary: "",
+				isCcCommitMatch: false,
 			},
 			{
-				id: "4", aliases: [], severity: "MEDIUM",
-				packageName: "c", packageVersion: "1", ecosystem: "npm",
-				sourceFile: "f", summary: "", isCcCommitMatch: false,
+				id: "4",
+				aliases: [],
+				severity: "MEDIUM",
+				packageName: "c",
+				packageVersion: "1",
+				ecosystem: "npm",
+				sourceFile: "f",
+				summary: "",
+				isCcCommitMatch: false,
 			},
 			{
-				id: "5", aliases: [], severity: "LOW",
-				packageName: "d", packageVersion: "1", ecosystem: "npm",
-				sourceFile: "f", summary: "", isCcCommitMatch: false,
+				id: "5",
+				aliases: [],
+				severity: "LOW",
+				packageName: "d",
+				packageVersion: "1",
+				ecosystem: "npm",
+				sourceFile: "f",
+				summary: "",
+				isCcCommitMatch: false,
 			},
 			{
-				id: "6", aliases: [], severity: "UNKNOWN",
-				packageName: "e", packageVersion: "1", ecosystem: "npm",
-				sourceFile: "f", summary: "", isCcCommitMatch: false,
+				id: "6",
+				aliases: [],
+				severity: "UNKNOWN",
+				packageName: "e",
+				packageVersion: "1",
+				ecosystem: "npm",
+				sourceFile: "f",
+				summary: "",
+				isCcCommitMatch: false,
 			},
 		];
 		const counts = bucketBySeverity(findings);
@@ -1070,18 +1104,24 @@ describe("buildVulnContext() — severity labels", () => {
 	it("UNKNOWN severity falls through to ⚪ Unknown", () => {
 		// Create a result with an UNKNOWN finding
 		const unknownJson = JSON.stringify({
-			results: [{
-				source: { path: "/worktrees/test/package-lock.json", type: "lockfile" },
-				packages: [{
-					package: { name: "test-pkg", version: "1.0.0", ecosystem: "npm" },
-					vulnerabilities: [{
-						id: "GHSA-uuuu-uuuu-uuuu",
-						aliases: [],
-						summary: "Unknown severity vuln",
-					}],
-					groups: [{ ids: ["GHSA-uuuu-uuuu-uuuu"] }],
-				}],
-			}],
+			results: [
+				{
+					source: { path: "/worktrees/test/package-lock.json", type: "lockfile" },
+					packages: [
+						{
+							package: { name: "test-pkg", version: "1.0.0", ecosystem: "npm" },
+							vulnerabilities: [
+								{
+									id: "GHSA-uuuu-uuuu-uuuu",
+									aliases: [],
+									summary: "Unknown severity vuln",
+								},
+							],
+							groups: [{ ids: ["GHSA-uuuu-uuuu-uuuu"] }],
+						},
+					],
+				},
+			],
 		});
 		const result = parseOsvJson(unknownJson);
 		const ctx = buildVulnContext(result);
@@ -1105,37 +1145,28 @@ describe("buildVulnContext() — severity labels", () => {
 describe("runVulnScan()", () => {
 	it("exit code 0 with clean JSON returns clean", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		const result = await runVulnScan(exec, "/worktrees/test");
 		assert.equal(result.status, "clean");
 		assert.equal(result.findings.length, 0);
 	});
 
 	it("exit code 1 with vulns JSON returns vulns_found", async () => {
-		const exec = createMockExec(
-			[{ code: 1, stdout: VULNS_JSON, stderr: "" }],
-		);
+		const exec = createMockExec([{ code: 1, stdout: VULNS_JSON, stderr: "" }]);
 		const result = await runVulnScan(exec, "/worktrees/test");
 		assert.equal(result.status, "vulns_found");
 		assert.equal(result.findings.length, 4);
 	});
 
 	it("exit code 127 returns error with stderr", async () => {
-		const exec = createMockExec(
-			[{ code: 127, stdout: "", stderr: "osv-scanner: unknown flag" }],
-		);
+		const exec = createMockExec([{ code: 127, stdout: "", stderr: "osv-scanner: unknown flag" }]);
 		const result = await runVulnScan(exec, "/worktrees/test");
 		assert.equal(result.status, "error");
 		assert.ok(result.message!.includes("unknown flag"));
 	});
 
 	it("exit code 128 returns no_lockfiles", async () => {
-		const exec = createMockExec(
-			[{ code: 128, stdout: "", stderr: "No lockfiles found" }],
-		);
+		const exec = createMockExec([{ code: 128, stdout: "", stderr: "No lockfiles found" }]);
 		const result = await runVulnScan(exec, "/worktrees/test");
 		assert.equal(result.status, "no_lockfiles");
 	});
@@ -1157,10 +1188,7 @@ describe("runVulnScan()", () => {
 
 	it("includes --recursive and --format json in args", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		await runVulnScan(exec, "/worktrees/test");
 		assert.ok(calls.length >= 1);
 		const args = calls[0]!.args;
@@ -1171,20 +1199,14 @@ describe("runVulnScan()", () => {
 
 	it("worktree path passed as positional arg", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		await runVulnScan(exec, "/my/worktree");
 		assert.ok(calls[0]!.args.includes("/my/worktree"));
 	});
 
 	it("uses V2 syntax: scan source subcommands", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		await runVulnScan(exec, "/worktrees/test");
 		const args = calls[0]!.args;
 		assert.equal(args[0], "scan");
@@ -1193,10 +1215,7 @@ describe("runVulnScan()", () => {
 
 	it("timeout default is 60s (60000ms)", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		await runVulnScan(exec, "/worktrees/test");
 		const opts = calls[0]!.opts as Record<string, unknown> | undefined;
 		assert.equal(opts?.timeout, 60000);
@@ -1204,10 +1223,7 @@ describe("runVulnScan()", () => {
 
 	it("timeout option from opts is used", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		await runVulnScan(exec, "/worktrees/test", { timeoutSec: 30 });
 		const opts = calls[0]!.opts as Record<string, unknown> | undefined;
 		assert.equal(opts?.timeout, 30000);
@@ -1215,10 +1231,7 @@ describe("runVulnScan()", () => {
 
 	it("configPath option adds --config flag", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		await runVulnScan(exec, "/worktrees/test", { configPath: "/worktrees/test/osv-scanner.toml" });
 		const args = calls[0]!.args;
 		const configIdx = args.indexOf("--config");
@@ -1227,9 +1240,7 @@ describe("runVulnScan()", () => {
 	});
 
 	it("exit code 0 with stdout empty returns clean (empty stdout = no findings)", async () => {
-		const exec = createMockExec(
-			[{ code: 0, stdout: "", stderr: "" }],
-		);
+		const exec = createMockExec([{ code: 0, stdout: "", stderr: "" }]);
 		const result = await runVulnScan(exec, "/worktrees/test");
 		assert.equal(result.status, "clean"); // Exit 0 + empty stdout = clean
 		assert.equal(result.findings.length, 0);
@@ -1237,10 +1248,7 @@ describe("runVulnScan()", () => {
 
 	it("calls osv-scanner with correct command", async () => {
 		const calls: ExecCall[] = [];
-		const exec = createMockExec(
-			[{ code: 0, stdout: CLEAN_JSON, stderr: "" }],
-			calls,
-		);
+		const exec = createMockExec([{ code: 0, stdout: CLEAN_JSON, stderr: "" }], calls);
 		await runVulnScan(exec, "/worktrees/test");
 		assert.equal(calls[0]!.cmd, "osv-scanner");
 	});

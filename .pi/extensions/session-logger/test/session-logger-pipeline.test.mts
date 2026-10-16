@@ -29,17 +29,29 @@ function createGate(enabled = true): SessionLoggerGate {
  * Create a mock sessionManager with a real temp dir backing.
  * Writes an empty session file at the returned path.
  */
-function createSessionManager(tmpDir: string, overrides?: {
-	sessionFile?: string;
-	cwd?: string;
-	entries?: any[];
-}): any {
+function createSessionManager(
+	tmpDir: string,
+	overrides?: {
+		sessionFile?: string;
+		cwd?: string;
+		entries?: any[];
+	},
+): any {
 	const sessionsDir = path.join(tmpDir, ".pi", "sessions");
 	fs.mkdirSync(sessionsDir, { recursive: true });
 
 	const sessionFile = overrides?.sessionFile ?? path.join(sessionsDir, "session-test.jsonl");
 	if (!fs.existsSync(sessionFile)) {
-		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "test", timestamp: new Date().toISOString(), cwd: "/tmp", version: 1 }) + "\n");
+		fs.writeFileSync(
+			sessionFile,
+			JSON.stringify({
+				type: "session",
+				id: "test",
+				timestamp: new Date().toISOString(),
+				cwd: "/tmp",
+				version: 1,
+			}) + "\n",
+		);
 	}
 
 	return {
@@ -326,7 +338,10 @@ describe("LoggerPipeline onSessionStart — FS assertions", () => {
 
 		// No symlink should be created
 		const latestLink = path.join(tmpDir, ".pi", "sessions", "latest.jsonl");
-		assert.ok(!fs.existsSync(latestLink), "latest.jsonl should NOT exist when sessionFile is undefined");
+		assert.ok(
+			!fs.existsSync(latestLink),
+			"latest.jsonl should NOT exist when sessionFile is undefined",
+		);
 	});
 
 	it("with gate disabled — no symlink created", async () => {
@@ -492,7 +507,16 @@ describe("LoggerPipeline onSessionShutdown — FS assertions", () => {
 		const pipeline = new LoggerPipeline(gate);
 
 		const sessionFile = path.join(tmpDir, "session-test.jsonl");
-		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "test", timestamp: "2025-01-01T00:00:00Z", cwd: "/tmp", version: 1 }) + "\n");
+		fs.writeFileSync(
+			sessionFile,
+			JSON.stringify({
+				type: "session",
+				id: "test",
+				timestamp: "2025-01-01T00:00:00Z",
+				cwd: "/tmp",
+				version: 1,
+			}) + "\n",
+		);
 
 		const shutdownCtx = {
 			sessionManager: {
@@ -504,7 +528,10 @@ describe("LoggerPipeline onSessionShutdown — FS assertions", () => {
 
 		const sessionDir = path.dirname(sessionFile);
 		const sessionPrefix = path.basename(sessionFile, ".jsonl");
-		assert.ok(!fs.existsSync(path.join(sessionDir, `${sessionPrefix}.metadata.json`)), "metadata should NOT exist");
+		assert.ok(
+			!fs.existsSync(path.join(sessionDir, `${sessionPrefix}.metadata.json`)),
+			"metadata should NOT exist",
+		);
 		assert.ok(!fs.existsSync(path.join(sessionDir, `${sessionPrefix}.md`)), "md should NOT exist");
 	});
 
@@ -545,7 +572,16 @@ describe("LoggerPipeline — full lifecycle", () => {
 		const sessionsDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionsDir, { recursive: true });
 		const sessionFile = path.join(sessionsDir, "session-lifecycle.jsonl");
-		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "lifecycle-test", timestamp: new Date().toISOString(), cwd: "/tmp", version: 1 }) + "\n");
+		fs.writeFileSync(
+			sessionFile,
+			JSON.stringify({
+				type: "session",
+				id: "lifecycle-test",
+				timestamp: new Date().toISOString(),
+				cwd: "/tmp",
+				version: 1,
+			}) + "\n",
+		);
 
 		const ctx = {
 			sessionManager: {
@@ -560,7 +596,10 @@ describe("LoggerPipeline — full lifecycle", () => {
 
 		// Verify latest.jsonl symlink
 		const latestJsonl = path.join(sessionsDir, "latest.jsonl");
-		assert.ok(fs.lstatSync(latestJsonl).isSymbolicLink(), "latest.jsonl symlink exists after start");
+		assert.ok(
+			fs.lstatSync(latestJsonl).isSymbolicLink(),
+			"latest.jsonl symlink exists after start",
+		);
 
 		// Call various handlers
 		pipeline.onSessionCompact();
@@ -568,7 +607,10 @@ describe("LoggerPipeline — full lifecycle", () => {
 		pipeline.onThinkingLevelSelect({ level: "high" });
 		pipeline.onTurnStart({ turnIndex: 0 });
 		pipeline.onMessageEnd({
-			message: { role: "assistant", usage: { input: 100, output: 50, totalTokens: 150, cost: { total: 0.002 } } },
+			message: {
+				role: "assistant",
+				usage: { input: 100, output: 50, totalTokens: 150, cost: { total: 0.002 } },
+			},
 		});
 		pipeline.onToolExecutionStart({ toolCallId: "call-1", toolName: "bash" });
 		pipeline.onToolExecutionEnd({
@@ -593,9 +635,18 @@ describe("LoggerPipeline — full lifecycle", () => {
 		assert.ok(fs.existsSync(`${prefix}.md`), ".md exists");
 
 		// Verify symlinks
-		assert.ok(fs.lstatSync(path.join(sessionsDir, "latest.jsonl")).isSymbolicLink(), "latest.jsonl symlink");
-		assert.ok(fs.lstatSync(path.join(sessionsDir, "latest.md")).isSymbolicLink(), "latest.md symlink");
-		assert.ok(fs.lstatSync(path.join(sessionsDir, "latest.metadata.json")).isSymbolicLink(), "latest.metadata.json symlink");
+		assert.ok(
+			fs.lstatSync(path.join(sessionsDir, "latest.jsonl")).isSymbolicLink(),
+			"latest.jsonl symlink",
+		);
+		assert.ok(
+			fs.lstatSync(path.join(sessionsDir, "latest.md")).isSymbolicLink(),
+			"latest.md symlink",
+		);
+		assert.ok(
+			fs.lstatSync(path.join(sessionsDir, "latest.metadata.json")).isSymbolicLink(),
+			"latest.metadata.json symlink",
+		);
 
 		// No tmp leftovers
 		const tmpFiles = fs.readdirSync(sessionsDir).filter((f) => f.includes(".tmp"));
@@ -609,7 +660,16 @@ describe("LoggerPipeline — full lifecycle", () => {
 		const sessionsDir = path.join(tmpDir, ".pi", "sessions");
 		fs.mkdirSync(sessionsDir, { recursive: true });
 		const sessionFile = path.join(sessionsDir, "session-override.jsonl");
-		fs.writeFileSync(sessionFile, JSON.stringify({ type: "session", id: "override-test", timestamp: new Date().toISOString(), cwd: "/tmp", version: 1 }) + "\n");
+		fs.writeFileSync(
+			sessionFile,
+			JSON.stringify({
+				type: "session",
+				id: "override-test",
+				timestamp: new Date().toISOString(),
+				cwd: "/tmp",
+				version: 1,
+			}) + "\n",
+		);
 
 		const ctx = {
 			sessionManager: {

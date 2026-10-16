@@ -91,14 +91,8 @@ describe("formatDiagnostics", () => {
 	});
 
 	it("same line+column keeps input order (stable sort)", () => {
-		const result = formatDiagnostics([
-			diag("a.ts", 1, "first"),
-			diag("a.ts", 1, "second"),
-		]);
-		assert.strictEqual(
-			result,
-			"a.ts, Line 1: [Error] first\na.ts, Line 1: [Error] second",
-		);
+		const result = formatDiagnostics([diag("a.ts", 1, "first"), diag("a.ts", 1, "second")]);
+		assert.strictEqual(result, "a.ts, Line 1: [Error] first\na.ts, Line 1: [Error] second");
 	});
 
 	it("default comparator: line asc, then column asc", () => {
@@ -130,10 +124,7 @@ describe("formatDiagnostics", () => {
 				},
 			},
 		);
-		assert.strictEqual(
-			result,
-			"a.ts, Line 9: [Error] err\na.ts, Line 1: [Warning] warn",
-		);
+		assert.strictEqual(result, "a.ts, Line 9: [Error] err\na.ts, Line 1: [Warning] warn");
 	});
 
 	it("suffix callback text appended per line; empty suffix adds nothing", () => {
@@ -141,10 +132,7 @@ describe("formatDiagnostics", () => {
 			[diag("a.ts", 1, "msg", { code: "E1" }), diag("a.ts", 2, "no code")],
 			{ suffix: (d) => (d.code ? ` (${d.code})` : "") },
 		);
-		assert.strictEqual(
-			result,
-			"a.ts, Line 1: [Error] msg (E1)\na.ts, Line 2: [Error] no code",
-		);
+		assert.strictEqual(result, "a.ts, Line 1: [Error] msg (E1)\na.ts, Line 2: [Error] no code");
 	});
 
 	it("caller's original array order unchanged after call", () => {

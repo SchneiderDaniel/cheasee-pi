@@ -139,7 +139,9 @@ describe("/lsp-auditor command structured output", () => {
 		const payload = JSON.parse(messages[0].content);
 		assert.notStrictEqual(payload.diagnostics, null, "diagnostics must never be null");
 		assert.ok(Array.isArray(payload.diagnostics.files), "diagnostics.files is an array");
-		const messages_ = payload.diagnostics.files.flatMap((f: any) => f.issues.map((i: any) => i.message));
+		const messages_ = payload.diagnostics.files.flatMap((f: any) =>
+			f.issues.map((i: any) => i.message),
+		);
 		assert.ok(messages_.includes("mock error"), "finding present in structured output");
 		assert.ok("proceed" in payload && "note" in payload, "proceed/note keys present");
 	});

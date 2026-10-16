@@ -121,7 +121,9 @@ describe("createMockGitHubPort — port method contract", () => {
 
 	it("respects per-method overrides", async () => {
 		const port = createMockGitHubPort({
-			getProjectFields: async () => [{ id: "f1", name: "Status", type: "SingleSelect", options: [{ id: "o1", name: "Done" }] }],
+			getProjectFields: async () => [
+				{ id: "f1", name: "Status", type: "SingleSelect", options: [{ id: "o1", name: "Done" }] },
+			],
 		});
 		const fields = await port.getProjectFields(1);
 		assert.equal(fields.length, 1);
@@ -130,9 +132,12 @@ describe("createMockGitHubPort — port method contract", () => {
 
 	it("tracks calls even when methods are overridden", async () => {
 		const calls: PortCall[] = [];
-		const port = createMockGitHubPort({
-			getProjectFields: async () => [{ id: "f1", name: "Status", type: "SingleSelect" }],
-		}, calls);
+		const port = createMockGitHubPort(
+			{
+				getProjectFields: async () => [{ id: "f1", name: "Status", type: "SingleSelect" }],
+			},
+			calls,
+		);
 		await port.getProjectFields(1);
 		assert.equal(calls.length, 1);
 		assert.equal(calls[0].method, "getProjectFields");

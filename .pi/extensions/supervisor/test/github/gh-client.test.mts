@@ -79,7 +79,8 @@ describe("gh() — low-level CLI wrapper", () => {
 describe("ghRaw() — raw CLI wrapper", () => {
 	it("returns raw stdout including HTTP headers (no trim, no throw)", async () => {
 		const calls: ExecCall[] = [];
-		const header = "HTTP/2.0 200 OK\nx-oauth-scopes: repo, read:org, project\n\n{\"login\":\"octocat\"}\n";
+		const header =
+			'HTTP/2.0 200 OK\nx-oauth-scopes: repo, read:org, project\n\n{"login":"octocat"}\n';
 		const exec = createMockExec({ code: 0, stdout: header, stderr: "" }, calls);
 		const result = await ghRaw(exec, ["api", "-i", "/user"]);
 		assert.equal(result.code, 0);
@@ -148,8 +149,15 @@ describe("detectTokenClass() — remediation hint keying", () => {
 				JSON.stringify({ github_token: "gho_init_minted" }),
 			);
 			mkdirSync(join(home, ".config", "gh"), { recursive: true });
-			writeFileSync(join(home, ".config", "gh", "hosts.yml"), "github.com:\n    oauth_token: gho_gh_minted\n");
-			assert.equal(detectTokenClass(home), "cheasee-pi", "entrypoint re-import makes gh hold the init token");
+			writeFileSync(
+				join(home, ".config", "gh", "hosts.yml"),
+				"github.com:\n    oauth_token: gho_gh_minted\n",
+			);
+			assert.equal(
+				detectTokenClass(home),
+				"cheasee-pi",
+				"entrypoint re-import makes gh hold the init token",
+			);
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}
@@ -161,7 +169,10 @@ describe("detectTokenClass() — remediation hint keying", () => {
 /** Write a gh hosts.yml holding `oauth_token: <token>` under `home`. */
 function writeHosts(home: string, token: string): void {
 	mkdirSync(join(home, ".config", "gh"), { recursive: true });
-	writeFileSync(join(home, ".config", "gh", "hosts.yml"), `github.com:\n    oauth_token: ${token}\n`);
+	writeFileSync(
+		join(home, ".config", "gh", "hosts.yml"),
+		`github.com:\n    oauth_token: ${token}\n`,
+	);
 }
 
 describe("resolveGitHubToken() — single resolution policy", () => {
@@ -206,7 +217,10 @@ describe("resolveGitHubToken() — single resolution policy", () => {
 		const home = mkdtempSync(join(tmpdir(), "gh-tok-noline-"));
 		try {
 			mkdirSync(join(home, ".config", "gh"), { recursive: true });
-			writeFileSync(join(home, ".config", "gh", "hosts.yml"), "github.com:\n    users:\n        octocat: {}\n");
+			writeFileSync(
+				join(home, ".config", "gh", "hosts.yml"),
+				"github.com:\n    users:\n        octocat: {}\n",
+			);
 			assert.equal(resolveGitHubToken({ home, env: {} }), null);
 		} finally {
 			rmSync(home, { recursive: true, force: true });
@@ -354,7 +368,10 @@ describe("gh()/ghRaw() — GH_TOKEN injected as a per-child env var, never a she
 		try {
 			await withEnv(home, "gho_env", async () => {
 				const exec = createMockExec({ code: 1, stdout: "", stderr: "auth failed" });
-				await assert.rejects(() => gh(exec, ["issue", "view", "1"]), /gh issue failed: auth failed/);
+				await assert.rejects(
+					() => gh(exec, ["issue", "view", "1"]),
+					/gh issue failed: auth failed/,
+				);
 				assert.equal(process.env.GH_TOKEN, "gho_env", "pre-existing value untouched");
 			});
 		} finally {
@@ -420,7 +437,11 @@ describe("gh()/ghRaw() — GH_TOKEN injected as a per-child env var, never a she
 					return { code: 0, stdout: "ok", stderr: "" };
 				};
 				await gh(exec, ["status"]);
-				assert.deepEqual(seen, [undefined], "GH_TOKEN must never appear in process.env during the call");
+				assert.deepEqual(
+					seen,
+					[undefined],
+					"GH_TOKEN must never appear in process.env during the call",
+				);
 			});
 		} finally {
 			rmSync(home, { recursive: true, force: true });
@@ -514,4 +535,3 @@ describe("ghJson<T>() — typed JSON output parser", () => {
 		assert.equal(result!.id, "PVT_1");
 	});
 });
-

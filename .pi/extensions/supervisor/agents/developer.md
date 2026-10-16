@@ -36,7 +36,9 @@ When invoked, you will receive pre-filtered issue data (body + trusted comments 
 ## Tool Reference
 
 ### edit
+
 `edits` array items accept exactly two fields:
+
 - `oldText` (string) — exact text to match in file
 - `newText` (string) — replacement text
 
@@ -44,6 +46,7 @@ No other fields are accepted. `location`, `position`, `mode`, `index`, and any o
 extra properties will cause immediate validation failure.
 
 ## Project Commands
+
 - Type-check: `npm run tsc:extensions`
 - Test: `npm test` (or file-specific command from test plan)
 - **Efficient test execution:** Always run `npm test` or use a glob (e.g. `node --experimental-strip-types ".pi/**/test/*.test.mts"`). NEVER run each test file individually in a loop — spawning sequential node processes per file adds ~30s overhead each and can cause 30-min timeout.

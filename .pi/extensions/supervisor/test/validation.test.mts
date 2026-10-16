@@ -166,10 +166,7 @@ describe("validateAgentOutput — golden-master matrix (characterization)", () =
 			{ ...base, auditScore: { passing: -1, total: -2 } },
 			{
 				valid: false,
-				errors: [
-					"'auditScore.passing' and 'auditScore.total' must be non-negative",
-					EXCEED,
-				],
+				errors: ["'auditScore.passing' and 'auditScore.total' must be non-negative", EXCEED],
 			},
 		],
 		[
@@ -182,11 +179,7 @@ describe("validateAgentOutput — golden-master matrix (characterization)", () =
 			{ ...base, auditScore: null },
 			{ valid: true, errors: [] },
 		],
-		[
-			"findings null passes",
-			{ ...base, findings: null },
-			{ valid: true, errors: [] },
-		],
+		["findings null passes", { ...base, findings: null }, { valid: true, errors: [] }],
 		[
 			"zero-zero auditScore passes (type checks, not truthiness)",
 			{ ...base, auditScore: { passing: 0, total: 0 } },
@@ -225,12 +218,18 @@ describe("validateAgentOutput — golden-master matrix (characterization)", () =
 		[
 			"auditScore array → must-be-object error",
 			{ ...base, auditScore: [1, 2] },
-			{ valid: false, errors: ["'auditScore' must be an object with 'passing' and 'total' fields"] },
+			{
+				valid: false,
+				errors: ["'auditScore' must be an object with 'passing' and 'total' fields"],
+			},
 		],
 		[
 			"auditScore string → must-be-object error",
 			{ ...base, auditScore: "x" },
-			{ valid: false, errors: ["'auditScore' must be an object with 'passing' and 'total' fields"] },
+			{
+				valid: false,
+				errors: ["'auditScore' must be an object with 'passing' and 'total' fields"],
+			},
 		],
 		[
 			"findings 42 → must-be-array error",
@@ -254,7 +253,10 @@ describe("validateAgentOutput — golden-master matrix (characterization)", () =
 		],
 		[
 			"fully-bad entry pushes 5 errors in canonical order",
-			{ ...base, findings: [{ severity: "fatal", dimension: 7, symptom: "  ", consequence: 0, remedy: "" }] },
+			{
+				...base,
+				findings: [{ severity: "fatal", dimension: 7, symptom: "  ", consequence: 0, remedy: "" }],
+			},
 			{
 				valid: false,
 				errors: [
@@ -281,17 +283,46 @@ describe("validateAgentOutput — golden-master matrix (characterization)", () =
 		],
 		[
 			"non-string location → per-index location error",
-			{ ...base, findings: [{ severity: "warning", dimension: "d", symptom: "s", consequence: "c", remedy: "r", location: 42 }] },
+			{
+				...base,
+				findings: [
+					{
+						severity: "warning",
+						dimension: "d",
+						symptom: "s",
+						consequence: "c",
+						remedy: "r",
+						location: 42,
+					},
+				],
+			},
 			{ valid: false, errors: ["findings[0].location must be a string if provided"] },
 		],
 		[
 			"null location valid",
-			{ ...base, findings: [{ severity: "warning", dimension: "d", symptom: "s", consequence: "c", remedy: "r", location: null }] },
+			{
+				...base,
+				findings: [
+					{
+						severity: "warning",
+						dimension: "d",
+						symptom: "s",
+						consequence: "c",
+						remedy: "r",
+						location: null,
+					},
+				],
+			},
 			{ valid: true, errors: [] },
 		],
 		[
 			"omitted location valid",
-			{ ...base, findings: [{ severity: "warning", dimension: "d", symptom: "s", consequence: "c", remedy: "r" }] },
+			{
+				...base,
+				findings: [
+					{ severity: "warning", dimension: "d", symptom: "s", consequence: "c", remedy: "r" },
+				],
+			},
 			{ valid: true, errors: [] },
 		],
 		[
@@ -347,10 +378,7 @@ describe("validateAgentOutput — quirk locks", () => {
 	it("dual-error co-fire: negative passing AND passing>total push two errors, never else-if", () => {
 		assert.deepEqual(validateAgentOutput({ ...base, auditScore: { passing: -1, total: -2 } }), {
 			valid: false,
-			errors: [
-				"'auditScore.passing' and 'auditScore.total' must be non-negative",
-				EXCEED,
-			],
+			errors: ["'auditScore.passing' and 'auditScore.total' must be non-negative", EXCEED],
 		});
 	});
 
@@ -362,7 +390,10 @@ describe("validateAgentOutput — quirk locks", () => {
 	});
 
 	it("auditScore:null and findings:null pass with zero errors", () => {
-		assert.deepEqual(validateAgentOutput({ ...base, auditScore: null }), { valid: true, errors: [] });
+		assert.deepEqual(validateAgentOutput({ ...base, auditScore: null }), {
+			valid: true,
+			errors: [],
+		});
 		assert.deepEqual(validateAgentOutput({ ...base, findings: null }), { valid: true, errors: [] });
 	});
 
@@ -384,7 +415,10 @@ describe("validateAgentOutput — quirk locks", () => {
 		assert.deepEqual(
 			validateAgentOutput({
 				...base,
-				findings: [null, { severity: "bad", dimension: "d", symptom: "s", consequence: "c", remedy: "r" }],
+				findings: [
+					null,
+					{ severity: "bad", dimension: "d", symptom: "s", consequence: "c", remedy: "r" },
+				],
 			}),
 			{
 				valid: false,
@@ -487,7 +521,10 @@ describe("validation.ts — refactor structure (#1548)", () => {
 		assert.ok(auditDelegate < findingsDelegate);
 		assert.ok(findingsDelegate < targetStatusCheck);
 		// orchestrator itself stays flat (≤ 2 levels) after delegation
-		const body = functionBody(source, "function validateAgentOutput(data: Record<string, unknown>): ValidationResult {");
+		const body = functionBody(
+			source,
+			"function validateAgentOutput(data: Record<string, unknown>): ValidationResult {",
+		);
 		assert.ok(maxBraceDepth(body) <= 2);
 	});
 });

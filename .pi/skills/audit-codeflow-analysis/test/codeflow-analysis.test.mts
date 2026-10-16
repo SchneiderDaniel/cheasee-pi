@@ -455,7 +455,12 @@ describe("classifyReportBody", () => {
 
 describe("partial run disclosure", () => {
 	it("re-homes a JSON body misrouted to the markdown route into the JSON artifact", async () => {
-		const s = await shim({ status: 200, body: MARKED_JSON_BODY, jsonStatus: 404, bridgeStatusStatus: 404 });
+		const s = await shim({
+			status: 200,
+			body: MARKED_JSON_BODY,
+			jsonStatus: 404,
+			bridgeStatusStatus: 404,
+		});
 		routeTo(s);
 		// A previous buggy run left the misrouted JSON at the markdown path.
 		mkdirSync(join(cwd, "ignore"), { recursive: true });
@@ -526,7 +531,10 @@ describe("partial run disclosure", () => {
 		if (!outcome.ok) return;
 		assert.strictEqual(outcome.result.jsonPath, null);
 		assert.strictEqual(outcome.result.partial, true);
-		assert.ok(!existsSync(REPORT_JSON_PATH()), "stale JSON artifact must not survive a JSON-less fetch");
+		assert.ok(
+			!existsSync(REPORT_JSON_PATH()),
+			"stale JSON artifact must not survive a JSON-less fetch",
+		);
 		assert.match(outcome.result.warnings.join(" "), /stale structured JSON artifact/i);
 	});
 
@@ -646,7 +654,10 @@ describe("partial run disclosure", () => {
 		assert.strictEqual(outcome.result.recoveredFromMarkdownRoute, false);
 		const markdown = readFileSync(REPORT_PATH(), "utf-8");
 		assert.match(markdown, /^# CodeFlow Analysis Report/);
-		assert.ok(!markdown.includes("architectureIssues"), "JSON bytes must never sit at the markdown path");
+		assert.ok(
+			!markdown.includes("architectureIssues"),
+			"JSON bytes must never sit at the markdown path",
+		);
 		assert.match(outcome.result.warnings.join(" "), /markdown route returned a JSON body|stub/i);
 	});
 
@@ -704,7 +715,10 @@ describe("headless run integration", () => {
 
 		assert.strictEqual(outcome.ok, true);
 		assert.strictEqual(s.runPosts(), 1, "exactly one run trigger");
-		assert.strictEqual(readFileSync(REPORT_PATH(), "utf-8"), "# CodeFlow Analysis Report\n\nHEADLESS\n");
+		assert.strictEqual(
+			readFileSync(REPORT_PATH(), "utf-8"),
+			"# CodeFlow Analysis Report\n\nHEADLESS\n",
+		);
 		assert.strictEqual(readFileSync(REPORT_JSON_PATH(), "utf-8"), JSON_BODY);
 		assert.strictEqual(outcome.ok && outcome.result.analyzedAt, 1767225600000);
 	});
@@ -738,7 +752,11 @@ describe("headless run integration", () => {
 	});
 
 	it("maps an unavailable analyzer to a null-status failure naming it", async () => {
-		const s = await shim({ mdStatuses: [404], runStatus: 503, runStatusBody: { reason: "analyzer-unavailable" } });
+		const s = await shim({
+			mdStatuses: [404],
+			runStatus: 503,
+			runStatusBody: { reason: "analyzer-unavailable" },
+		});
 		routeTo(s);
 
 		const outcome = await fetchAndStoreReport({ cwd });
@@ -837,7 +855,14 @@ describe("e2e: real codeflow shim subprocess", () => {
 		proc.stdout?.on("data", (d) => (log += d.toString()));
 		proc.stderr?.on("data", (d) => (log += d.toString()));
 		const base = `http://127.0.0.1:${port}`;
-		routeTo({ base, mdCount: () => 0, jsonCount: () => 0, runPosts: () => 0, statusPolls: () => 0, close: async () => {} });
+		routeTo({
+			base,
+			mdCount: () => 0,
+			jsonCount: () => 0,
+			runPosts: () => 0,
+			statusPolls: () => 0,
+			close: async () => {},
+		});
 
 		const deadline = Date.now() + 15_000;
 		for (;;) {
@@ -998,7 +1023,14 @@ describe("e2e: unattended recovery from an empty report slot", () => {
 			STUB_MD: join(fixtureDir, "codeflow-report.md"),
 			STUB_JSON: join(fixtureDir, "codeflow-report.json"),
 		});
-		routeTo({ base: journey.base, mdCount: () => 0, jsonCount: () => 0, runPosts: () => 0, statusPolls: () => 0, close: async () => {} });
+		routeTo({
+			base: journey.base,
+			mdCount: () => 0,
+			jsonCount: () => 0,
+			runPosts: () => 0,
+			statusPolls: () => 0,
+			close: async () => {},
+		});
 
 		let out = "";
 		let err = "";
@@ -1030,7 +1062,14 @@ describe("e2e: unattended recovery from an empty report slot", () => {
 			CONFIG_FILE: join(dir, "missing.json"),
 			ANALYZER_CMD: `python3 ${join(dir, "absent.py")}`,
 		});
-		routeTo({ base: journey.base, mdCount: () => 0, jsonCount: () => 0, runPosts: () => 0, statusPolls: () => 0, close: async () => {} });
+		routeTo({
+			base: journey.base,
+			mdCount: () => 0,
+			jsonCount: () => 0,
+			runPosts: () => 0,
+			statusPolls: () => 0,
+			close: async () => {},
+		});
 
 		let out = "";
 		let err = "";

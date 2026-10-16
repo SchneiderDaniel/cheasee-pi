@@ -101,14 +101,10 @@ describe("thinkingLabel", () => {
 
 describe("THINKING_LEVELS", () => {
 	it("contains all 6 levels in order", () => {
-		assert.deepStrictEqual([...THINKING_LEVELS], [
-			"off",
-			"minimal",
-			"low",
-			"medium",
-			"high",
-			"xhigh",
-		]);
+		assert.deepStrictEqual(
+			[...THINKING_LEVELS],
+			["off", "minimal", "low", "medium", "high", "xhigh"],
+		);
 	});
 
 	it("is readonly (not mutable)", () => {

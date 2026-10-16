@@ -66,13 +66,13 @@ Each stage dispatches a dedicated agent. The agent outputs structured JSON, whic
 
 ## Agents
 
-| Stage | Agent | What it does | Output |
-|-------|-------|-------------|--------|
-| **Research** | `researcher` | Gathers context: codebase docs, web search, existing patterns | GitHub comment with `## Research Findings` |
-| **Architecture** | `architect` | Designs architecture, identifies components, plans changes | GitHub comment with `## Architecture` |
-| **TestDesign** | `test-designer` | Writes test plan | GitHub comment with `## Test Plan` |
-| **Implementation** | `developer` | Writes code, commits and pushes to worktree branch | Git commit + push |
-| **Audit** | `auditor` | Reviews code against 8 dimensions, approves or rejects | GitHub comment + structured findings |
+| Stage              | Agent           | What it does                                                  | Output                                     |
+| ------------------ | --------------- | ------------------------------------------------------------- | ------------------------------------------ |
+| **Research**       | `researcher`    | Gathers context: codebase docs, web search, existing patterns | GitHub comment with `## Research Findings` |
+| **Architecture**   | `architect`     | Designs architecture, identifies components, plans changes    | GitHub comment with `## Architecture`      |
+| **TestDesign**     | `test-designer` | Writes test plan                                              | GitHub comment with `## Test Plan`         |
+| **Implementation** | `developer`     | Writes code, commits and pushes to worktree branch            | Git commit + push                          |
+| **Audit**          | `auditor`       | Reviews code against 8 dimensions, approves or rejects        | GitHub comment + structured findings       |
 
 ### Research dedup gate
 
@@ -139,13 +139,13 @@ flowchart LR
 
 Polls GitHub check runs for the worktree branch via `gh api repos/<repo>/commits/<sha>/check-runs`. Polls every 15s up to `ciGatingTimeoutSec` (default 300s).
 
-| Result | Action |
-|--------|--------|
-| All checks pass | Proceed |
-| Any check fails | Block → Implementation |
+| Result                          | Action                    |
+| ------------------------------- | ------------------------- |
+| All checks pass                 | Proceed                   |
+| Any check fails                 | Block → Implementation    |
 | Checks still pending at timeout | Warning, proceed to audit |
-| No checks configured | Skip silently |
-| `gh api` error | Warning, proceed to audit |
+| No checks configured            | Skip silently             |
+| `gh api` error                  | Warning, proceed to audit |
 
 If the branch SHA isn't on remote yet (push still in flight), the gate attempts **push recovery**: it pushes the branch from worktree, then retries SHA resolution.
 
@@ -239,60 +239,60 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
 
 ```json
 {
-  "supervisor": {
-    "repo": "owner/repo",
-    "projectNumber": 1,
-    "statusField": "Status",
-    "statusMapping": {
-      "Research": "researcher",
-      "Architecture": "architect",
-      "TestDesign": "test-designer",
-      "Implementation": "developer",
-      "Audit": "auditor"
-    },
-    "defaultBranch": "main",
-    "branchPrefix": "worktree-git-issue-",
-    "codeowners": ["your-github-username"],
-    "maxRejections": 3,
-    "auditScoreThreshold": 0.75,
-    "ciGatingTimeoutSec": 300,
-    "agentTokenBudget": 300000,
-    "maxToolCalls": 0,
-    "agentTimeoutsMin": {},
-    "agentTimeoutSec": {},
-    "agentKillGraceSec": 10,
-    "bellOnComplete": false,
-    "enableExperimentalFeatures": false
-  }
+	"supervisor": {
+		"repo": "owner/repo",
+		"projectNumber": 1,
+		"statusField": "Status",
+		"statusMapping": {
+			"Research": "researcher",
+			"Architecture": "architect",
+			"TestDesign": "test-designer",
+			"Implementation": "developer",
+			"Audit": "auditor"
+		},
+		"defaultBranch": "main",
+		"branchPrefix": "worktree-git-issue-",
+		"codeowners": ["your-github-username"],
+		"maxRejections": 3,
+		"auditScoreThreshold": 0.75,
+		"ciGatingTimeoutSec": 300,
+		"agentTokenBudget": 300000,
+		"maxToolCalls": 0,
+		"agentTimeoutsMin": {},
+		"agentTimeoutSec": {},
+		"agentKillGraceSec": 10,
+		"bellOnComplete": false,
+		"enableExperimentalFeatures": false
+	}
 }
 ```
 
 ### Required fields
 
-| Field | What it does |
-|-------|-------------|
-| `repo` | GitHub repo (owner/name) for issue fetching and PR creation |
-| `projectNumber` | GitHub Project board number |
-| `statusMapping` | Maps board column names to agent `.md` files |
-| `codeowners` | List of trusted GitHub usernames. Only issues by these authors are processed |
+| Field           | What it does                                                                 |
+| --------------- | ---------------------------------------------------------------------------- |
+| `repo`          | GitHub repo (owner/name) for issue fetching and PR creation                  |
+| `projectNumber` | GitHub Project board number                                                  |
+| `statusMapping` | Maps board column names to agent `.md` files                                 |
+| `codeowners`    | List of trusted GitHub usernames. Only issues by these authors are processed |
 
 ### Optional fields
 
-| Field | Default | What it does |
-|-------|---------|-------------|
-| `defaultBranch` | `main` | Base branch for worktree and PR target |
-| `branchPrefix` | `worktree-git-issue-` | Prefix for worktree branch names |
-| `maxRejections` | `3` | Max auditor rejections before pipeline stops |
-| `auditScoreThreshold` | `0.75` | Minimum passing/total ratio for audit score gate |
-| `ciGatingTimeoutSec` | `300` | Seconds to poll CI before giving up. `0` = skip CI gate entirely |
-| `agentTokenBudget` | `0` | Soft token cap per agent dispatch. `0` = unlimited |
-| `maxToolCalls` | `0` | Hard cap on tool invocations per agent. `0` = unlimited |
-| `agentTimeoutsMin` | `{}` | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`) |
-| `agentTimeoutSec` | `{}` | Per-agent wall-clock timeout in seconds: `{ "developer": 600 }`. `0` = no timeout (timers and kill disarmed). Authoritative override — **unscaled** by `agentTimeoutTierScale` |
-| `agentTimeoutTierScale` | `{ small: 1, medium: 1.5, large: 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker: a `Large` issue scales 30 min → 60 min |
-| `agentKillGraceSec` | `10` | SIGTERM→SIGKILL grace (s) for the subprocess kill ladder on timeout. `0` = immediate SIGKILL |
-| `bellOnComplete` | `false` | Ring terminal bell when pipeline finishes |
-| `enableExperimentalFeatures` | `false` | When false, only core pipeline stages run |
+| Field                        | Default                               | What it does                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `defaultBranch`              | `main`                                | Base branch for worktree and PR target                                                                                                                                         |
+| `branchPrefix`               | `worktree-git-issue-`                 | Prefix for worktree branch names                                                                                                                                               |
+| `maxRejections`              | `3`                                   | Max auditor rejections before pipeline stops                                                                                                                                   |
+| `auditScoreThreshold`        | `0.75`                                | Minimum passing/total ratio for audit score gate                                                                                                                               |
+| `ciGatingTimeoutSec`         | `300`                                 | Seconds to poll CI before giving up. `0` = skip CI gate entirely                                                                                                               |
+| `agentTokenBudget`           | `0`                                   | Soft token cap per agent dispatch. `0` = unlimited                                                                                                                             |
+| `maxToolCalls`               | `0`                                   | Hard cap on tool invocations per agent. `0` = unlimited                                                                                                                        |
+| `agentTimeoutsMin`           | `{}`                                  | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`)                                                     |
+| `agentTimeoutSec`            | `{}`                                  | Per-agent wall-clock timeout in seconds: `{ "developer": 600 }`. `0` = no timeout (timers and kill disarmed). Authoritative override — **unscaled** by `agentTimeoutTierScale` |
+| `agentTimeoutTierScale`      | `{ small: 1, medium: 1.5, large: 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker: a `Large` issue scales 30 min → 60 min                                 |
+| `agentKillGraceSec`          | `10`                                  | SIGTERM→SIGKILL grace (s) for the subprocess kill ladder on timeout. `0` = immediate SIGKILL                                                                                   |
+| `bellOnComplete`             | `false`                               | Ring terminal bell when pipeline finishes                                                                                                                                      |
+| `enableExperimentalFeatures` | `false`                               | When false, only core pipeline stages run                                                                                                                                      |
 
 ---
 
@@ -376,64 +376,64 @@ A summary message is sent with agent stats (duration, tokens, tools, model), PR 
 
 ### Configuration
 
-| Problem | What happens |
-|---------|-------------|
-| No `.pi/settings.json` | Pipeline throws |
-| Missing `supervisor.repo` | Pipeline throws |
+| Problem                         | What happens    |
+| ------------------------------- | --------------- |
+| No `.pi/settings.json`          | Pipeline throws |
+| Missing `supervisor.repo`       | Pipeline throws |
 | Missing `supervisor.codeowners` | Pipeline throws |
-| Invalid `auditScoreThreshold` | Pipeline throws |
+| Invalid `auditScoreThreshold`   | Pipeline throws |
 
 ### GitHub API
 
-| Problem | What happens |
-|---------|-------------|
-| Issue not found | "Issue #N not found" → stops |
-| Token missing project scope | "GitHub token missing 'project' scope" → stops |
-| Issue not on board | "Issue #N not on project board #P" → stops |
-| `gh api` errors mid-flight | Warnings in error collector, pipeline continues |
+| Problem                     | What happens                                    |
+| --------------------------- | ----------------------------------------------- |
+| Issue not found             | "Issue #N not found" → stops                    |
+| Token missing project scope | "GitHub token missing 'project' scope" → stops  |
+| Issue not on board          | "Issue #N not on project board #P" → stops      |
+| `gh api` errors mid-flight  | Warnings in error collector, pipeline continues |
 
 ### Agent execution
 
-| Problem | What happens |
-|---------|-------------|
-| Agent `.md` not found | Pipeline stops |
-| Agent subprocess times out | SIGTERM → killed, pipeline stops |
-| Budget exceeded | Kill subprocess. Researcher: graceful degradation (partial findings posted). Others: pipeline stops |
-| Agent produces no output | `"Output is empty"` → stops |
+| Problem                             | What happens                                                                                                                 |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Agent `.md` not found               | Pipeline stops                                                                                                               |
+| Agent subprocess times out          | SIGTERM → killed, pipeline stops                                                                                             |
+| Budget exceeded                     | Kill subprocess. Researcher: graceful degradation (partial findings posted). Others: pipeline stops                          |
+| Agent produces no output            | `"Output is empty"` → stops                                                                                                  |
 | Agent refuses (`refusal` field set) | Parsed as a refusal (not a schema error), posts the refusal reason as an issue comment, then stops with `Agent refused: ...` |
-| Agent fails with no explicit marker | Pipeline stops (Bug #643 fix: prevents crash-loop) |
+| Agent fails with no explicit marker | Pipeline stops (Bug #643 fix: prevents crash-loop)                                                                           |
 
 ### Developer-specific
 
-| Problem | What happens |
-|---------|-------------|
-| `commitAndPush` fails | Pipeline stops |
-| No changes to commit | Pipeline continues (no-op commit skipped) |
-| Developer→Audit: worktree has no commits | Issue closed as "already resolved" |
+| Problem                                  | What happens                              |
+| ---------------------------------------- | ----------------------------------------- |
+| `commitAndPush` fails                    | Pipeline stops                            |
+| No changes to commit                     | Pipeline continues (no-op commit skipped) |
+| Developer→Audit: worktree has no commits | Issue closed as "already resolved"        |
 
 ### Quality gates
 
-| Gate | Problem | What happens |
-|------|---------|-------------|
-| CI | Checks fail | Block → Implementation |
-| CI | Checks pending > timeout | Warning → proceed to audit |
-| CI | Unconfigured | Skip |
-| Dead code | Found | Block → Implementation + uncommit |
-| TSC | Error | Block → Implementation |
-| LSP | Error | Block → Implementation |
-| Dup code | Results | Stored for auditor context (non-blocking) |
-| Package safety | Blocked packages | Warning → auditor may flag |
-| Traceability | Gaps | Warning → auditor reviews |
+| Gate           | Problem                  | What happens                              |
+| -------------- | ------------------------ | ----------------------------------------- |
+| CI             | Checks fail              | Block → Implementation                    |
+| CI             | Checks pending > timeout | Warning → proceed to audit                |
+| CI             | Unconfigured             | Skip                                      |
+| Dead code      | Found                    | Block → Implementation + uncommit         |
+| TSC            | Error                    | Block → Implementation                    |
+| LSP            | Error                    | Block → Implementation                    |
+| Dup code       | Results                  | Stored for auditor context (non-blocking) |
+| Package safety | Blocked packages         | Warning → auditor may flag                |
+| Traceability   | Gaps                     | Warning → auditor reviews                 |
 
 ### Crash recovery
 
-| Problem | What happens |
-|---------|-------------|
-| Pipeline process SIGTERM | Cleanup worktree, delete branch, exit(0) |
-| Pipeline process SIGINT | Same as SIGTERM |
-| Double signal (SIGTERM + SIGINT) | `exit(1)` immediately |
+| Problem                           | What happens                             |
+| --------------------------------- | ---------------------------------------- |
+| Pipeline process SIGTERM          | Cleanup worktree, delete branch, exit(0) |
+| Pipeline process SIGINT           | Same as SIGTERM                          |
+| Double signal (SIGTERM + SIGINT)  | `exit(1)` immediately                    |
 | Stale checkpoint found on restart | `git worktree prune` + delete + `rm -rf` |
-| Checkpoint older than 1h | Treated as stale |
+| Checkpoint older than 1h          | Treated as stale                         |
 
 ---
 
@@ -443,36 +443,49 @@ The pipeline is driven by a data structure in `config/workflow.ts`:
 
 ```typescript
 [
-  { status: "Backlog",      builtIn: "backlog" },
+	{ status: "Backlog", builtIn: "backlog" },
 
-  { status: "Research",     agentName: "researcher",
-    markerMap: { RESEARCH_COMPLETE: "Architecture" } },
+	{ status: "Research", agentName: "researcher", markerMap: { RESEARCH_COMPLETE: "Architecture" } },
 
-  { status: "Architecture", agentName: "architect",
-    markerMap: { ARCHITECTURE_COMPLETE: "TestDesign",
-                 FEEDBACK_RESEARCH: "Research" },
-    canLoopBackTo: ["Research"] },
+	{
+		status: "Architecture",
+		agentName: "architect",
+		markerMap: { ARCHITECTURE_COMPLETE: "TestDesign", FEEDBACK_RESEARCH: "Research" },
+		canLoopBackTo: ["Research"],
+	},
 
-  { status: "TestDesign",   agentName: "test-designer",
-    markerMap: { TEST_PLAN_COMPLETE: "Implementation" } },
+	{
+		status: "TestDesign",
+		agentName: "test-designer",
+		markerMap: { TEST_PLAN_COMPLETE: "Implementation" },
+	},
 
-  { status: "Implementation", agentName: "developer",
-    markerMap: { IMPLEMENTATION_COMPLETE: "Audit" },
-    hooks: ["ci", "tsc", "lsp", "dup", "trace"] },
+	{
+		status: "Implementation",
+		agentName: "developer",
+		markerMap: { IMPLEMENTATION_COMPLETE: "Audit" },
+		hooks: ["ci", "tsc", "lsp", "dup", "trace"],
+	},
 
-  { status: "Audit",        agentName: "auditor",
-    markerMap: { "AUDIT_DECISION: APPROVED": "Done",
-                 "AUDIT_DECISION: REJECTED": "Implementation",
-                 AUDIT_APPROVED: "Done",
-                 AUDIT_REJECTED: "Implementation" },
-    canLoopBackTo: ["Implementation"],
-    maxRejections: 5 },
+	{
+		status: "Audit",
+		agentName: "auditor",
+		markerMap: {
+			"AUDIT_DECISION: APPROVED": "Done",
+			"AUDIT_DECISION: REJECTED": "Implementation",
+			AUDIT_APPROVED: "Done",
+			AUDIT_REJECTED: "Implementation",
+		},
+		canLoopBackTo: ["Implementation"],
+		maxRejections: 5,
+	},
 
-  { status: "Done",         builtIn: "done" },
-]
+	{ status: "Done", builtIn: "done" },
+];
 ```
 
 Each step specifies:
+
 - **status** — Board column that triggers this step
 - **agentName** — Which agent `.md` file to load
 - **markerMap** — Text markers in agent output that determine next status
@@ -536,6 +549,7 @@ Each step specifies:
 ## Testing
 
 Integration tests cover:
+
 - Full pipeline with mock GitHub API
 - Agent dispatch with structured JSON output parsing
 - Quality gates (each gate tested independently)

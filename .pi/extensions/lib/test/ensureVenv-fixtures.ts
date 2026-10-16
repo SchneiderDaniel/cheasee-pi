@@ -135,7 +135,10 @@ export function setupTest(opts: TestConfig = {}): TestContext {
 	return { cwd, exec };
 }
 
-export function makeConfig(ctx: TestContext, overrides: Partial<EnsureVenvConfig> = {}): EnsureVenvConfig {
+export function makeConfig(
+	ctx: TestContext,
+	overrides: Partial<EnsureVenvConfig> = {},
+): EnsureVenvConfig {
 	return {
 		exec: ctx.exec,
 		cwd: ctx.cwd,
@@ -145,7 +148,6 @@ export function makeConfig(ctx: TestContext, overrides: Partial<EnsureVenvConfig
 		...overrides,
 	};
 }
-
 
 export interface Deferred<T> {
 	promise: Promise<T>;

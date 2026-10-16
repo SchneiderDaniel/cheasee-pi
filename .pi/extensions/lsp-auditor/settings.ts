@@ -68,9 +68,7 @@ export function readSettings(worktreePath: string): PiSettings | null {
 						if (Value.Check(ServerEntrySchema, srv)) {
 							validServers.push(srv);
 						} else {
-							console.warn(
-								`[lsp-auditor] Dropped malformed server entry: ${JSON.stringify(srv)}`,
-							);
+							console.warn(`[lsp-auditor] Dropped malformed server entry: ${JSON.stringify(srv)}`);
 						}
 					}
 					parsed.lspAuditor = { servers: validServers };

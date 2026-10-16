@@ -76,7 +76,15 @@ then prints a
 single JSON object to stdout:
 
 ```json
-{ "path": "…", "jsonPath": "…", "bytes": 0, "analyzedAt": 0, "warnings": [], "partial": false, "unavailableCategories": [] }
+{
+	"path": "…",
+	"jsonPath": "…",
+	"bytes": 0,
+	"analyzedAt": 0,
+	"warnings": [],
+	"partial": false,
+	"unavailableCategories": []
+}
 ```
 
 `path` is the markdown artifact, `jsonPath` is the structured artifact (or
@@ -87,11 +95,11 @@ artifact was stored and `unavailableCategories` then names what the run cannot
 see. Progress and errors go to stderr.
 Exit codes:
 
-| Exit | Meaning |
-|------|---------|
-| `0` | report fetched and written |
-| `2` | no report and no headless run route (old shim) or bad usage — ask the user to run an analysis in the CodeFlow UI |
-| `1` | transport, headless-run or write failure |
+| Exit | Meaning                                                                                                          |
+| ---- | ---------------------------------------------------------------------------------------------------------------- |
+| `0`  | report fetched and written                                                                                       |
+| `2`  | no report and no headless run route (old shim) or bad usage — ask the user to run an analysis in the CodeFlow UI |
+| `1`  | transport, headless-run or write failure                                                                         |
 
 If it exits **`2`** with **"No CodeFlow report yet — run analysis in CodeFlow"**,
 the sidecar has no on-demand run route, so stop and ask the user to run an
@@ -122,24 +130,24 @@ markdown exporter omits. Use markdown only as a fallback.
 
 Structured JSON sources (authoritative):
 
-| Field | Kind | File source |
-|-------|------|-------------|
-| `architectureIssues[]` | architecture | `affectedFiles[]`, `affectedItems[].file`/`.toFile`, `affectedItems[].files[].file` |
-| `duplicates[]` | duplicate | `files[].file` |
-| `layerViolations[]` | layer-violation | `from`, `to` |
-| `suggestions[]` | suggestion | (none — derived from other signals) |
-| `unusedFunctions[]` | dead-code | `file` |
-| `securityIssues[]` | security | `path` |
+| Field                  | Kind            | File source                                                                         |
+| ---------------------- | --------------- | ----------------------------------------------------------------------------------- |
+| `architectureIssues[]` | architecture    | `affectedFiles[]`, `affectedItems[].file`/`.toFile`, `affectedItems[].files[].file` |
+| `duplicates[]`         | duplicate       | `files[].file`                                                                      |
+| `layerViolations[]`    | layer-violation | `from`, `to`                                                                        |
+| `suggestions[]`        | suggestion      | (none — derived from other signals)                                                 |
+| `unusedFunctions[]`    | dead-code       | `file`                                                                              |
+| `securityIssues[]`     | security        | `path`                                                                              |
 
 Markdown fallback sections:
 
-| Section | Kind | File source |
-|---------|------|-------------|
-| `## Architecture Issues` | architecture | `**Affected:**` targets (paths, `A → B` edges, symbols) |
-| `## Security Issues` | security | `- **File:**` |
-| `## Unused Functions (N)` | dead-code | `- **File:**` |
-| `## Design Patterns` | pattern | `**Files:**` |
-| `## Anti-Patterns` | anti-pattern | `**Affected files:**` |
+| Section                   | Kind         | File source                                             |
+| ------------------------- | ------------ | ------------------------------------------------------- |
+| `## Architecture Issues`  | architecture | `**Affected:**` targets (paths, `A → B` edges, symbols) |
+| `## Security Issues`      | security     | `- **File:**`                                           |
+| `## Unused Functions (N)` | dead-code    | `- **File:**`                                           |
+| `## Design Patterns`      | pattern      | `**Files:**`                                            |
+| `## Anti-Patterns`        | anti-pattern | `**Affected files:**`                                   |
 
 The browser bridge classifies each captured export by **structure**, not by a
 substring marker or the route it lands on: a body that parses to a JSON object
@@ -158,7 +166,7 @@ markdown placeholder to `path` instead of leaving it dangling.
 
 Markdown is narration, **never the sole source of findings**. The markdown
 exporter does **not** emit duplicates, layer violations, or suggestions — those
-come from the JSON export only. `jsonPath` is null when no *usable* structured
+come from the JSON export only. `jsonPath` is null when no _usable_ structured
 export was stored — absent, or a body that classifies as JSON but yields no facts
 (an empty stub). Then the run is **partial**: it
 names the categories it cannot see (`duplicate`, `layer-violation`,
@@ -199,7 +207,7 @@ honest. Both are pure functions in the same module:
    findings in this section". `unparsedItems` counts items with no recoverable
    target, not path-less ones: a `**Affected:**` layer edge (`utils → ui`) or a
    bare symbol (`execFn (3 files)`) is a target and keeps the item as a candidate.
-   A section that parsed *some* entries (`unparsedItems > 0` with
+   A section that parsed _some_ entries (`unparsedItems > 0` with
    `candidates > 0`) is not unreadable — the coverage table reports the per-entry
    `unparsedItems` and the run lists those titles.
 

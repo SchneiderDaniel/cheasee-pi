@@ -42,9 +42,15 @@ describe("makeGitFixture", () => {
 
 	it("returns a committed main repo with a modified src/app.ts and .pi/settings.json", () => {
 		const dir = fixture("lsp-preaudit-");
-		const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: dir, encoding: "utf-8" }).trim();
+		const branch = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+			cwd: dir,
+			encoding: "utf-8",
+		}).trim();
 		assert.strictEqual(branch, "main");
-		const diff = execFileSync("git", ["diff", "main", "--name-only"], { cwd: dir, encoding: "utf-8" });
+		const diff = execFileSync("git", ["diff", "main", "--name-only"], {
+			cwd: dir,
+			encoding: "utf-8",
+		});
 		assert.ok(diff.split("\n").includes("src/app.ts"), `modified file must be listed: ${diff}`);
 		assert.ok(existsSync(join(dir, ".pi/settings.json")));
 		const settings = JSON.parse(readFileSync(join(dir, ".pi/settings.json"), "utf-8"));

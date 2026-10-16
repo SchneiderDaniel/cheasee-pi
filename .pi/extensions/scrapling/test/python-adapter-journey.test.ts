@@ -73,7 +73,9 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) maxTokens undefined → truncated false", async () => {
 		const { adapter } = setupTest(
-			renderStdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+			renderStdout([
+				{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true },
+			]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1 });
 		assert.ok(result.success);
@@ -82,7 +84,9 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) maxTokens: 0 → truncated false (passthrough)", async () => {
 		const { adapter } = setupTest(
-			renderStdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+			renderStdout([
+				{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true },
+			]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 0 });
 		assert.ok(result.success);
@@ -91,7 +95,9 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) small maxTokens + long markdown → truncated true with suffix and preserved rawLength", async () => {
 		const { adapter } = setupTest(
-			renderStdout([{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true }]),
+			renderStdout([
+				{ url: "https://a.com", markdown: LONG, method: "lightweight", success: true },
+			]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 5 });
 		assert.ok(result.success);
@@ -104,7 +110,9 @@ describe("PythonAdapter — truncation flag + attempt counts", () => {
 
 	it("(entity) maxTokens ≥ content estimate → truncated false", async () => {
 		const { adapter } = setupTest(
-			renderStdout([{ url: "https://a.com", markdown: "short", method: "lightweight", success: true }]),
+			renderStdout([
+				{ url: "https://a.com", markdown: "short", method: "lightweight", success: true },
+			]),
 		);
 		const result = await adapter.crawl({ url: "https://a.com", maxPages: 1, maxTokens: 1000 });
 		assert.ok(result.success);
@@ -249,8 +257,14 @@ describe("web_crawl user journey — browser provisioning contract", () => {
 
 			assert.equal(result.success, false, "a mismatched browser must not be reported as success");
 			if (!result.success) {
-				assert.ok(result.error.includes("1234"), `error must name the expected revision: ${result.error}`);
-				assert.ok(result.error.includes(cacheRoot), `error must name the cache root: ${result.error}`);
+				assert.ok(
+					result.error.includes("1234"),
+					`error must name the expected revision: ${result.error}`,
+				);
+				assert.ok(
+					result.error.includes(cacheRoot),
+					`error must name the cache root: ${result.error}`,
+				);
 			}
 			assert.equal(
 				installCalls(calls).length,

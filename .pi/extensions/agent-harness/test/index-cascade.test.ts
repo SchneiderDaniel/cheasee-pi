@@ -9,16 +9,10 @@ import assert from "node:assert/strict";
 import { AgentHarness, getBashSubKey } from "../index.ts";
 import type { ToolCallResult, ResolvedHarnessRules } from "../index.ts";
 
-import {
-	CASCADE_THRESHOLD,
-} from "../lib/harness-rules.ts";
+import { CASCADE_THRESHOLD } from "../lib/harness-rules.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import {
-	makeEvent,
-	makeCtx,
-	callNTimes,
-} from "./harness-fixtures.ts";
+import { makeEvent, makeCtx, callNTimes } from "./harness-fixtures.ts";
 
 // ── Cascade detection ──
 

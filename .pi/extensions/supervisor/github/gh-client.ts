@@ -150,4 +150,3 @@ export async function ghJson<T = unknown>(
 	if (!output) return null;
 	return JSON.parse(output) as T;
 }
-

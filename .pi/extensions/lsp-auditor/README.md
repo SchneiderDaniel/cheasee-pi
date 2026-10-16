@@ -43,6 +43,7 @@ Then run `/reload` or restart pi.
 ```
 
 Output adapts to your current mode:
+
 - **TUI mode** — Clickable `file://` URIs with notification via `ctx.ui.notify()`
 - **RPC/JSON mode** — Structured JSON with `proceed`, `note`, and `diagnostics` fields
 - **Print mode** — Plain text summary
@@ -73,12 +74,13 @@ In `.pi/settings.json`:
 ```
 
 Default server mappings:
-| Extension | LSP Command |
-|-----------|-------------|
+
+| Extension                    | LSP Command                          |
+| ---------------------------- | ------------------------------------ |
 | `.ts`, `.tsx`, `.js`, `.jsx` | `typescript-language-server --stdio` |
-| `.py` | `pylsp` |
-| `.rs` | `rust-analyzer` |
-| `.go` | `gopls` |
+| `.py`                        | `pylsp`                              |
+| `.rs`                        | `rust-analyzer`                      |
+| `.go`                        | `gopls`                              |
 
 Override `severityThreshold` per server: `"error"`, `"warning"`, or `"info"` (default: `"info"`).
 
@@ -93,7 +95,7 @@ import { checkProjectTrust } from "@agentcastle/lsp-auditor";
 
 const result = checkProjectTrust(ctx);
 if (!result.trusted) {
-  // Skip LSP audit
+	// Skip LSP audit
 }
 ```
 
@@ -116,15 +118,15 @@ const structured = formatForMode(diags, "rpc", "/workspace", false);
 
 ```typescript
 interface StructuredDiagnostics {
-  files: Array<{
-    path: string;
-    issues: Array<{
-      line: number;
-      col: number;
-      severity: string;
-      message: string;
-    }>;
-  }>;
+	files: Array<{
+		path: string;
+		issues: Array<{
+			line: number;
+			col: number;
+			severity: string;
+			message: string;
+		}>;
+	}>;
 }
 ```
 
@@ -176,12 +178,12 @@ flowchart TD
 
 ### Server Mappings
 
-| Extension | LSP Server |
-|-----------|-----------|
+| Extension                    | LSP Server                           |
+| ---------------------------- | ------------------------------------ |
 | `.ts`, `.tsx`, `.js`, `.jsx` | `typescript-language-server --stdio` |
-| `.py` | `pylsp` |
-| `.rs` | `rust-analyzer` |
-| `.go` | `gopls` |
+| `.py`                        | `pylsp`                              |
+| `.rs`                        | `rust-analyzer`                      |
+| `.go`                        | `gopls`                              |
 
 ### Key Design Decisions
 
@@ -195,14 +197,16 @@ flowchart TD
 ### Retry Logic
 
 ```typescript
-MAX_RETRIES = 3
+MAX_RETRIES = 3;
 
 function shouldRetry(attempts: number, error: Error): boolean {
-  if (attempts >= MAX_RETRIES) return false;
-  // Only retry transient errors
-  return error.message.includes('ECONNREFUSED') ||
-         error.message.includes('ETIMEDOUT') ||
-         error.message.includes('process exited');
+	if (attempts >= MAX_RETRIES) return false;
+	// Only retry transient errors
+	return (
+		error.message.includes("ECONNREFUSED") ||
+		error.message.includes("ETIMEDOUT") ||
+		error.message.includes("process exited")
+	);
 }
 ```
 

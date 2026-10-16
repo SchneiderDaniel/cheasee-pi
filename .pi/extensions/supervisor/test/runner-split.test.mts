@@ -292,9 +292,8 @@ describe("runner/ split — module-graph invariants", () => {
 	});
 
 	it("SAFE_TASK_CHARS co-located with buildSubprocessArgs in args.ts", async () => {
-		const { SAFE_TASK_CHARS, buildSubprocessArgs, warnIfArgsLarge } = await import(
-			"../agent/runner/args.ts"
-		);
+		const { SAFE_TASK_CHARS, buildSubprocessArgs, warnIfArgsLarge } =
+			await import("../agent/runner/args.ts");
 		assert.equal(SAFE_TASK_CHARS, 1_200_000, "SAFE_TASK_CHARS = 1_200_000");
 		assert.equal(typeof buildSubprocessArgs, "function", "buildSubprocessArgs exported");
 		assert.equal(typeof warnIfArgsLarge, "function", "warnIfArgsLarge exported");
@@ -845,7 +844,10 @@ if (hasMockModule) {
 		it("timedOut: true → true; false/omitted → undefined", async () => {
 			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
 			assert.equal(stateResultFields(baseArgs(createState(), { timedOut: true })).timedOut, true);
-			assert.equal(stateResultFields(baseArgs(createState(), { timedOut: false })).timedOut, undefined);
+			assert.equal(
+				stateResultFields(baseArgs(createState(), { timedOut: false })).timedOut,
+				undefined,
+			);
 			assert.equal(stateResultFields(baseArgs(createState())).timedOut, undefined);
 		});
 
@@ -870,7 +872,8 @@ if (hasMockModule) {
 		it("thinkingOutput joins lines with a blank line; empty → undefined", async () => {
 			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
 			assert.equal(
-				stateResultFields(baseArgs(createState({ thinkingOutputLines: ["a", "b"] }))).thinkingOutput,
+				stateResultFields(baseArgs(createState({ thinkingOutputLines: ["a", "b"] })))
+					.thinkingOutput,
 				"a\n\nb",
 			);
 			assert.equal(stateResultFields(baseArgs(createState())).thinkingOutput, undefined);

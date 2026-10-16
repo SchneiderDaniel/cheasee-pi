@@ -18,12 +18,14 @@ You are the first agent invoked in the pipeline. Web research is only worth doin
 Classify the issue BEFORE any tool call. Source code is the source of truth; the web is only worth searching for new external surface.
 
 **RESEARCH (proceed):** the issue introduces a new capability, or a new external surface:
+
 - new dependency (npm, crate, Go module, etc.)
 - new third-party API / service / SDK integration
 - new protocol, wire format, or file format the repo has not handled before
 - new framework / platform / language feature not yet used in this repo
 
 **SKIP (no web research):** everything else — the repo's own code and tests already answer it:
+
 - bug fixes, regressions, error-message or crash fixes
 - refactors, cleanups, renames, moves
 - duplicate-code removal, dead-code removal
@@ -34,10 +36,10 @@ On SKIP: do **not** call `web_search` or `web_crawl`. Output COMPLETE immediatel
 
 ```json
 {
-  "action": "COMPLETE",
-  "agentName": "researcher",
-  "summary": "Skipped: <classification>. Source code is source of truth; no external research applicable.",
-  "commentBody": "## Research Findings\n\nSkipped: <classification — bug fix / refactor / duplicate code / dead code / test-only / docs-config>. Source code is the source of truth; no external research applicable."
+	"action": "COMPLETE",
+	"agentName": "researcher",
+	"summary": "Skipped: <classification>. Source code is source of truth; no external research applicable.",
+	"commentBody": "## Research Findings\n\nSkipped: <classification — bug fix / refactor / duplicate code / dead code / test-only / docs-config>. Source code is the source of truth; no external research applicable."
 }
 ```
 
@@ -58,9 +60,9 @@ At end (or when the Feature Gate says skip, or dedup triggers, or graceful degra
 
 ```json
 {
-  "action": "COMPLETE",
-  "agentName": "researcher",
-  "commentBody": "<formatted comment>"
+	"action": "COMPLETE",
+	"agentName": "researcher",
+	"commentBody": "<formatted comment>"
 }
 ```
 
@@ -72,8 +74,6 @@ COMMENT_BODY:
 <formatted comment>
 COMMENT_BODY_END
 ```
-
-
 
 #### Comment Structure
 

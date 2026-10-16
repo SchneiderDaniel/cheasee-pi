@@ -7,6 +7,7 @@
 Every response turn costs tokens. Caveman reduces response token count by roughly 30-50% by dropping unnecessary words. Active every session via `AGENTS.md`.
 
 **What it cuts:**
+
 - Articles (a/an/the), filler (just/really/basically/actually/simply)
 - Pleasantries (sure/certainly/of course/happy to)
 - Hedging (I think/perhaps/maybe/kind of)
@@ -25,17 +26,18 @@ Technical terms stay exact. Code blocks unchanged. Errors quoted exact.
 
 ### Levels
 
-| Level | Effect | Example |
-|-------|--------|---------|
+| Level    | Effect                                                 | Example                                                                                                  |
+| -------- | ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
 | **lite** | Professional, tight. Drop filler only. Full sentences. | "Your component re-renders because you create a new object reference each render. Wrap it in `useMemo`." |
-| **full** | Fragments. Drop articles. Short synonyms. | "Bug in auth middleware. Token expiry check uses `<` not `<=`. Fix:" |
-| **off** | No compression. Standard verbose style. | |
+| **full** | Fragments. Drop articles. Short synonyms.              | "Bug in auth middleware. Token expiry check uses `<` not `<=`. Fix:"                                     |
+| **off**  | No compression. Standard verbose style.                |                                                                                                          |
 
 Cycle with `/caveman` command: lite → full → off → lite.
 
 ### Auto-clarity (full level)
 
 Full caveman auto-disables for:
+
 - Security warnings
 - Irreversible action confirmations
 - Multi-step sequences where fragment clarity risks misread
@@ -88,6 +90,7 @@ flowchart TD
 ### Prompt Injection
 
 BASE (always injected when caveman is on):
+
 ```
 ## Caveman Mode -- Active
 
@@ -111,16 +114,16 @@ Full intensity adds fragment rules (drop articles, pleasantries, hedging, use sh
 
 ### Intensity Characteristics
 
-| Aspect | Lite | Full |
-|--------|------|------|
-| Articles | Kept | Dropped |
-| Sentences | Full | Fragments |
-| Filler | Dropped | Dropped |
-| Pleasantries | Dropped | Dropped |
-| Hedging | Dropped | Dropped |
-| Synonyms | Normal | Short (big, fix) |
-| Code blocks | Unchanged | Unchanged |
-| Security warnings | Normal | Auto-clarity |
+| Aspect            | Lite      | Full             |
+| ----------------- | --------- | ---------------- |
+| Articles          | Kept      | Dropped          |
+| Sentences         | Full      | Fragments        |
+| Filler            | Dropped   | Dropped          |
+| Pleasantries      | Dropped   | Dropped          |
+| Hedging           | Dropped   | Dropped          |
+| Synonyms          | Normal    | Short (big, fix) |
+| Code blocks       | Unchanged | Unchanged        |
+| Security warnings | Normal    | Auto-clarity     |
 
 ## License
 

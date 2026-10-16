@@ -374,7 +374,11 @@ describe("createWorktree()", () => {
 		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 8);
-		assert.equal(notifyCalls.filter((c) => c.level === "error").length, 0, "attempt-1 fatal must be swallowed");
+		assert.equal(
+			notifyCalls.filter((c) => c.level === "error").length,
+			0,
+			"attempt-1 fatal must be swallowed",
+		);
 	});
 
 	it("attempt 2 reconcile fatal cascades to dir-exists fallback — { ok: true }, no notify.error", async () => {
@@ -397,7 +401,11 @@ describe("createWorktree()", () => {
 		const result = await createWorktree(pi, "/repo", "../worktrees", "branch", "main", notify);
 		assert.equal(result.ok, true);
 		assert.equal(calls.length, 9);
-		assert.equal(notifyCalls.filter((c) => c.level === "error").length, 0, "attempt-2 fatal must be swallowed");
+		assert.equal(
+			notifyCalls.filter((c) => c.level === "error").length,
+			0,
+			"attempt-2 fatal must be swallowed",
+		);
 	});
 });
 

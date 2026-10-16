@@ -153,7 +153,11 @@ describe("god-object refactor #2004 — the mirror is the pinned detector", () =
 		const mk = (n: number): string =>
 			Array.from({ length: n }, (_, i) => `export function f${i}() {}`).join("\n");
 		assert.equal(countFunctions(mk(15), "ts"), 15);
-		assert.equal(functionCountFlagged(mk(15), "x.ts", 15), false, "15 functions must not be flagged");
+		assert.equal(
+			functionCountFlagged(mk(15), "x.ts", 15),
+			false,
+			"15 functions must not be flagged",
+		);
 		assert.equal(countFunctions(mk(16), "ts"), 16);
 		assert.equal(functionCountFlagged(mk(16), "x.ts", 15), true, "16 functions must be flagged");
 	});
@@ -167,8 +171,16 @@ describe("god-object refactor #2004 — the mirror is the pinned detector", () =
 	it("gates `.mts` out (absent from codeExts) but scores the same text as `.ts`", () => {
 		assert.equal(CODE_EXTS.includes(".mts"), false, "`.mts` is not a code ext");
 		const src = Array.from({ length: 16 }, (_, i) => `export function f${i}() {}`).join("\n");
-		assert.equal(functionCountFlagged(src, "sample.mts", 15), false, "the .mts oracle is never itself scored");
-		assert.equal(functionCountFlagged(src, "sample.ts", 15), true, "the same text as .ts is scored");
+		assert.equal(
+			functionCountFlagged(src, "sample.mts", 15),
+			false,
+			"the .mts oracle is never itself scored",
+		);
+		assert.equal(
+			functionCountFlagged(src, "sample.ts", 15),
+			true,
+			"the same text as .ts is scored",
+		);
 	});
 
 	it("runs the cross-language RULES pass over .go too", () => {
@@ -276,9 +288,19 @@ describe("god-object refactor #2004 — composition roots survive the split", ()
 	it("registries.py stays the barrel and exposes REGISTRIES plus every client", () => {
 		const src = read("scripts/dependency_existence_check/registries.py");
 		for (const sym of [
-			"Registry", "PypiRegistry", "NpmRegistry", "GoRegistry", "CargoRegistry",
-			"MavenRegistry", "NugetRegistry", "VcpkgRegistry", "ConanRegistry",
-			"RubygemsRegistry", "PackagistRegistry", "SwiftRegistry", "PubRegistry",
+			"Registry",
+			"PypiRegistry",
+			"NpmRegistry",
+			"GoRegistry",
+			"CargoRegistry",
+			"MavenRegistry",
+			"NugetRegistry",
+			"VcpkgRegistry",
+			"ConanRegistry",
+			"RubygemsRegistry",
+			"PackagistRegistry",
+			"SwiftRegistry",
+			"PubRegistry",
 			"REGISTRIES",
 		]) {
 			assert.ok(new RegExp(`\\b${sym}\\b`).test(src), `registries.py must still expose ${sym}`);
@@ -297,8 +319,13 @@ describe("god-object refactor #2004 — composition roots survive the split", ()
 	it("the package __init__ still exposes the documented public surface", () => {
 		const src = read("scripts/dependency_existence_check/__init__.py");
 		for (const sym of [
-			"REGISTRIES", "DiskCache", "RealFetcher", "USER_AGENT", "CacheStats",
-			"RateLimiter", "NoCache",
+			"REGISTRIES",
+			"DiskCache",
+			"RealFetcher",
+			"USER_AGENT",
+			"CacheStats",
+			"RateLimiter",
+			"NoCache",
 		]) {
 			assert.ok(new RegExp(`\\b${sym}\\b`).test(src), `__init__.py must still expose ${sym}`);
 		}
@@ -311,8 +338,12 @@ describe("god-object refactor #2004 — composition roots survive the split", ()
 			read("cmd/cheasee-pi/identity_ports.go"),
 		].join("\n");
 		for (const sym of [
-			"parseGitRemote", "portSpec", "resolveUIHostPort", "uiContainerName",
-			"parseGitHubRemote", "repoSlug",
+			"parseGitRemote",
+			"portSpec",
+			"resolveUIHostPort",
+			"uiContainerName",
+			"parseGitHubRemote",
+			"repoSlug",
 		]) {
 			assert.ok(
 				new RegExp(`\\b(?:func|type|var|const)\\s+${sym}\\b`).test(src),

@@ -11,10 +11,11 @@ nav_order: 6
 All prompts were converted to skills with `disable-model-invocation: true`. They no longer live in `.pi/prompts/` but in `.pi/skills/`, invocable via `/skill:<name>`. Agent does NOT load them automatically — manual invocation only.
 
 ## Table of contents
+
 {: .no_toc .text-delta }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ---
 

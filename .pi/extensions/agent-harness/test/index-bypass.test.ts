@@ -12,12 +12,7 @@ import agentHarness from "../index.ts";
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { hasBypassAnnotation } from "../../lib/bash-query.ts";
-import {
-	makeEvent,
-	makeCtx,
-	createMockAPI,
-	makeCtxWithUI,
-} from "./harness-fixtures.ts";
+import { makeEvent, makeCtx, createMockAPI, makeCtxWithUI } from "./harness-fixtures.ts";
 
 // ── Phase 1: hasBypassAnnotation pure function ──
 

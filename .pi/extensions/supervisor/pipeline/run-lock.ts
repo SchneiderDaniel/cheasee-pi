@@ -12,7 +12,14 @@
 // Split out of state-checkpoint.ts (issue #2001); the public surface is
 // re-exported from there.
 
-import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import {
+	writeFileSync,
+	readFileSync,
+	unlinkSync,
+	existsSync,
+	mkdirSync,
+	readdirSync,
+} from "node:fs";
 import { resolve, join } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { Result } from "./result.ts";

@@ -1077,8 +1077,7 @@ describe("structural_search structured contract", () => {
 					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
 				if (cmd === "test") return { code: 1, stdout: "" };
 				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run")
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
+				if (args[0] === "run") return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
 				return { stdout: "", stderr: "", code: 0, killed: false };
 			},
 		});

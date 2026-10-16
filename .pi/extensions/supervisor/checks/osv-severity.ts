@@ -237,9 +237,7 @@ export function cvss3BaseScore(vector: string): number | null {
 	}
 
 	const iss = 1 - (1 - c) * (1 - i) * (1 - a);
-	const impact = scopeChanged
-		? 7.52 * (iss - 0.029) - 3.25 * Math.pow(iss - 0.02, 15)
-		: 6.42 * iss;
+	const impact = scopeChanged ? 7.52 * (iss - 0.029) - 3.25 * Math.pow(iss - 0.02, 15) : 6.42 * iss;
 	const exploitability = 8.22 * av * ac * pr * ui;
 
 	let base: number;

@@ -41,9 +41,7 @@ describe("onDiagnosticsChange removed from DiagnosticsWatcher", () => {
 
 	it("instances no longer carry a diagnosticListeners field", async () => {
 		const mod = await import("../watcher.ts");
-		const cls = mod.DiagnosticsWatcher as unknown as new (
-			path: string,
-		) => Record<string, unknown>;
+		const cls = mod.DiagnosticsWatcher as unknown as new (path: string) => Record<string, unknown>;
 		const w = new cls("/fake/tsconfig.json");
 		assert.strictEqual(
 			w.diagnosticListeners,
@@ -89,9 +87,7 @@ describe("retained DiagnosticsWatcher pull API (guards against over-removal)", (
 
 	it("instances still expose the tsconfigPathValue getter", async () => {
 		const mod = await import("../watcher.ts");
-		const cls = mod.DiagnosticsWatcher as unknown as new (
-			path: string,
-		) => Record<string, unknown>;
+		const cls = mod.DiagnosticsWatcher as unknown as new (path: string) => Record<string, unknown>;
 		const w = new cls("/fake/tsconfig.json");
 		assert.strictEqual(w.tsconfigPathValue, "/fake/tsconfig.json");
 	});

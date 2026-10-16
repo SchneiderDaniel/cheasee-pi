@@ -69,6 +69,7 @@ In `.pi/settings.json`:
 - Falls back to system `grep` if ripgrep unavailable
 
 ## ripgrep Availability Detection
+
 The extension detects `rg` at startup in three stages:
 
 1. **PATH scan** — walks `process.env.PATH` with `accessSync` (zero-overhead, no subprocess)
@@ -78,6 +79,7 @@ The extension detects `rg` at startup in three stages:
 If none succeed, the extension falls back to system `grep`.
 
 ### Common Fix: Symlink into `~/.local/bin`
+
 If `~/.pi/agent/bin` is not on PATH (e.g. WSL interop environment mismatch):
 
 ```bash
@@ -124,13 +126,13 @@ flowchart TD
 
 ### Backend Resolution
 
-| Config | rg available | Backend |
-|--------|-------------|--------|
-| `"auto"` | Yes | ripgrep |
-| `"auto"` | No | grep |
-| `"ripgrep"` | Yes | ripgrep |
-| `"ripgrep"` | No | Error thrown |
-| `"grep"` | Any | grep |
+| Config      | rg available | Backend      |
+| ----------- | ------------ | ------------ |
+| `"auto"`    | Yes          | ripgrep      |
+| `"auto"`    | No           | grep         |
+| `"ripgrep"` | Yes          | ripgrep      |
+| `"ripgrep"` | No           | Error thrown |
+| `"grep"`    | Any          | grep         |
 
 `ripgrepAvailable()` uses 3-tier detection: PATH directory scan (`accessSync`), pi's own bin dir (`~/.pi/agent/bin/rg`), spawn fallback (`rg --version`).
 
@@ -153,16 +155,16 @@ flowchart TD
 
 `ripgrep_search` declares `outputSchema` (`RipgrepSearchOutputSchema` in `types.ts`) and returns `structuredContent` on **every** exit — normal, cache hit, no-match, and error. The model still receives the same human-readable `content` summary; codemode/script callers receive the structured object instead of text.
 
-| Field | Type | Notes |
-|-------|------|-------|
-| `query` | string | request-scoped |
-| `searcher` | string | `"ripgrep"` or `"grep"` |
-| `directory` | string | request-scoped |
-| `total_returned` | number | `0` on no-match and error |
-| `results` | array of `{file, line, column, text}` | `[]` on no-match and error |
-| `truncated` | boolean | `false` when unknown |
-| `error` | string? | stderr, error path only |
-| `code` | number? | exit code, error path only (omitted when null) |
+| Field            | Type                                  | Notes                                          |
+| ---------------- | ------------------------------------- | ---------------------------------------------- |
+| `query`          | string                                | request-scoped                                 |
+| `searcher`       | string                                | `"ripgrep"` or `"grep"`                        |
+| `directory`      | string                                | request-scoped                                 |
+| `total_returned` | number                                | `0` on no-match and error                      |
+| `results`        | array of `{file, line, column, text}` | `[]` on no-match and error                     |
+| `truncated`      | boolean                               | `false` when unknown                           |
+| `error`          | string?                               | stderr, error path only                        |
+| `code`           | number?                               | exit code, error path only (omitted when null) |
 
 The cache stores only the domain `RgResult`; `query`/`directory`/`searcher` are rebuilt from the request scope at the boundary, so a cache hit yields a payload that conforms to the schema too.
 

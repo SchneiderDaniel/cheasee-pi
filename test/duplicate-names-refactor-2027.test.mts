@@ -76,7 +76,12 @@ describe("old defining names are gone", () => {
 	});
 
 	it("no reducer `fn apply(` / `fn ingest_frame(` definitions remain", () => {
-		for (const rel of ["stream.rs", "controls.rs", "extension_ui.rs", "components/session_list.rs"]) {
+		for (const rel of [
+			"stream.rs",
+			"controls.rs",
+			"extension_ui.rs",
+			"components/session_list.rs",
+		]) {
 			const src = read(`${UI}/${rel}`);
 			assert.ok(!/fn\s+apply\s*\(/.test(src), `${rel} must not define fn apply`);
 			assert.ok(!/fn\s+ingest_frame\s*\(/.test(src), `${rel} must not define fn ingest_frame`);

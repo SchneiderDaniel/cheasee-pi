@@ -544,7 +544,10 @@ describe("User-journey: widget progress during pipeline", () => {
 		});
 		ui.setWidget("supervisor-agent", buildWidgetLines(state, "architect"));
 
-		assert.ok(!widgetCalls[0].lines?.[0]?.includes("Analyzing"), "thinking content absent in stats-only widget");
+		assert.ok(
+			!widgetCalls[0].lines?.[0]?.includes("Analyzing"),
+			"thinking content absent in stats-only widget",
+		);
 	});
 
 	it("stats-only widget does not show tool call details", () => {
@@ -556,7 +559,10 @@ describe("User-journey: widget progress during pipeline", () => {
 		});
 		ui.setWidget("supervisor-agent", buildWidgetLines(state, "developer"));
 
-		assert.ok(!widgetCalls[0].lines?.[0]?.includes("$ ls"), "tool call absent in stats-only widget");
+		assert.ok(
+			!widgetCalls[0].lines?.[0]?.includes("$ ls"),
+			"tool call absent in stats-only widget",
+		);
 	});
 
 	it("agent produces text → widget shows live text preview", () => {
@@ -567,7 +573,10 @@ describe("User-journey: widget progress during pipeline", () => {
 		});
 		ui.setWidget("supervisor-agent", buildWidgetLines(state, "developer"));
 
-		assert.ok(!widgetCalls[0].lines?.[0]?.includes("Here is my analysis"), "live text absent in stats-only widget");
+		assert.ok(
+			!widgetCalls[0].lines?.[0]?.includes("Here is my analysis"),
+			"live text absent in stats-only widget",
+		);
 	});
 
 	it("agent completes successfully → widget cleared, final result message shows SUCCESS", () => {

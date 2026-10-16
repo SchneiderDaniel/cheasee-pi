@@ -35,6 +35,7 @@
 No manual install needed. The extension auto-creates a Python virtual environment at `.pi/web-search-venv/` and installs `ddgs` from `requirements.txt` on first use.
 
 Requirements:
+
 - `python3` on system PATH
 - Internet access (pip install on first `web_search` call)
 

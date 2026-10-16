@@ -133,14 +133,14 @@ export interface SearchConfig {
 
 ### File-by-File Breakdown
 
-| File          | Purpose                                                         | ~Lines |
-| ------------- | --------------------------------------------------------------- | ------ |
-| `types.ts`    | RgMatch, RgResult, SearchConfig interfaces                      | 30     |
-| `config.ts`   | `loadSearchConfig()`, `resolveBackend()`, `ripgrepAvailable()`  | 80     |
+| File          | Purpose                                                                         | ~Lines |
+| ------------- | ------------------------------------------------------------------------------- | ------ |
+| `types.ts`    | RgMatch, RgResult, SearchConfig interfaces                                      | 30     |
+| `config.ts`   | `loadSearchConfig()`, `resolveBackend()`, `ripgrepAvailable()`                  | 80     |
 | `backends.ts` | `buildRgArgs()`, `buildGrepArgs()`, `parseVimgrepOutput()`, `parseGrepOutput()` | ~200   |
-| `validate.ts` | `validateQuery()` — collision rule logic                        | 45     |
-| `temp.ts`     | `registerTempDir()`, `cleanupTrackedTempDirs()`                 | 35     |
-| `index.ts`    | Default export, event hooks, tool registration, execute, render | 250    |
+| `validate.ts` | `validateQuery()` — collision rule logic                                        | 45     |
+| `temp.ts`     | `registerTempDir()`, `cleanupTrackedTempDirs()`                                 | 35     |
+| `index.ts`    | Default export, event hooks, tool registration, execute, render                 | 250    |
 
 Total: ~560 lines (vs 806 in monolith) — reduction from de-duplicated import/type overhead.
 

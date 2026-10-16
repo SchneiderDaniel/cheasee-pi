@@ -306,7 +306,12 @@ describe("Phase 3: tool_call gate integration + kill switch", () => {
 	it("non-bash tool_call performs no exec", async () => {
 		const f = makePi(async () => ok("rtk 0.45.0"));
 		await factory(f.pi);
-		const event: any = { type: "tool_call", toolCallId: "t", toolName: "read", input: { path: "x" } };
+		const event: any = {
+			type: "tool_call",
+			toolCallId: "t",
+			toolName: "read",
+			input: { path: "x" },
+		};
 		for (const h of f.handlers.get("tool_call") ?? []) await h(event, {});
 		assert.equal(f.calls.length, 0);
 	});

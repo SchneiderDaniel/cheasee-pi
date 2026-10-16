@@ -22,29 +22,28 @@ Everyone should build their own Pi. This repo is **my personal** Pi agent harnes
 
 Customize ruthlessly. Make it yours.
 
-
 ## Extensions overview
 
-| Extension | Purpose |
-|-----------|---------|
-| **Structural Analyzer** | AST-aware code search via ast-grep |
-| **Ripgrep Search** | Fast literal/regex code search |
-| **Supervisor** | Kanban-driven multi-agent pipeline |
-| **Web Crawler** | Web crawling with Scrapling + Cloudflare bypass |
-| **Web Search** | DuckDuckGo search via ddgs Python lib |
-| **Context Info** | Rich TUI status bar (branch, model, tokens, TPS, cache) |
-| **Session Logger** | Session logging to JSONL with Markdown reports |
-| **Agent Harness** | Runtime tool call validation (blocks dangerous patterns) |
-| **Caveman Protocol** | Token-efficient communication |
-| **Ponytail** | Lazy senior dev mode — YAGNI, stdlib-first, minimal code |
-| **Ask User** | Interactive MC dialogs + CSV logging |
-| **Format on Save** | Auto Prettier + ESLint after write/edit |
-| **TSC Checkpoint** | `/check` command: `tsc --noEmit` |
-| **Worktree Sandbox** | Worktree path enforcement |
-| **RTK** | Token-saving bash rewrite — 60-90% less output per command |
-| **LSP Auditor** | LSP diagnostics pre-audit for pipeline |
+| Extension                    | Purpose                                                     |
+| ---------------------------- | ----------------------------------------------------------- |
+| **Structural Analyzer**      | AST-aware code search via ast-grep                          |
+| **Ripgrep Search**           | Fast literal/regex code search                              |
+| **Supervisor**               | Kanban-driven multi-agent pipeline                          |
+| **Web Crawler**              | Web crawling with Scrapling + Cloudflare bypass             |
+| **Web Search**               | DuckDuckGo search via ddgs Python lib                       |
+| **Context Info**             | Rich TUI status bar (branch, model, tokens, TPS, cache)     |
+| **Session Logger**           | Session logging to JSONL with Markdown reports              |
+| **Agent Harness**            | Runtime tool call validation (blocks dangerous patterns)    |
+| **Caveman Protocol**         | Token-efficient communication                               |
+| **Ponytail**                 | Lazy senior dev mode — YAGNI, stdlib-first, minimal code    |
+| **Ask User**                 | Interactive MC dialogs + CSV logging                        |
+| **Format on Save**           | Auto Prettier + ESLint after write/edit                     |
+| **TSC Checkpoint**           | `/check` command: `tsc --noEmit`                            |
+| **Worktree Sandbox**         | Worktree path enforcement                                   |
+| **RTK**                      | Token-saving bash rewrite — 60-90% less output per command  |
+| **LSP Auditor**              | LSP diagnostics pre-audit for pipeline                      |
 | **CodeFlow Analysis Report** | Save browser-run CodeFlow analysis reports to the workspace |
-| **Dump Context** | Inspect the assembled system prompt and its sources |
+| **Dump Context**             | Inspect the assembled system prompt and its sources         |
 
 ## Quick start
 
@@ -84,20 +83,20 @@ See [Installation guide](installation.md) for prerequisites and step-by-step set
 
 Full documentation is at **[schneiderdaniel.github.io/cheasee-pi](https://schneiderdaniel.github.io/cheasee-pi/)**.
 
-| Section | What's there |
-|---------|-------------|
-| [Installation](https://schneiderdaniel.github.io/cheasee-pi/installation) | Prerequisites, step-by-step setup, verification |
-| [CLI Reference](https://schneiderdaniel.github.io/cheasee-pi/cli) | Commands, flags, environment variables, and sidecars |
-| [Configuration](https://schneiderdaniel.github.io/cheasee-pi/configuration) | Workspace settings, provider defaults, and credentials |
-| [Daily Usage](https://schneiderdaniel.github.io/cheasee-pi/daily-usage) | Docker workflow, parallel sessions, troubleshooting |
-| [Architecture](https://schneiderdaniel.github.io/cheasee-pi/architecture) | System design, extensions vs MCP, git worktrees, pipeline |
-| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions) | All 18 extensions, behavior guides, and published packages |
-| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills) | Skill definitions, invocation modes, and usage |
-| [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts) | Internal prompt and skill conventions |
-| [Security](https://schneiderdaniel.github.io/cheasee-pi/security) | Trust boundaries, credentials, sidecar exposure, and threat model |
-| [SBOM](https://schneiderdaniel.github.io/cheasee-pi/sbom) | Software Bill of Materials |
-| [Acknowledgements](https://schneiderdaniel.github.io/cheasee-pi/acknowledgements) | Credits and licenses |
-| [Development Guide](https://schneiderdaniel.github.io/cheasee-pi/development) | Source map, validation commands, and documentation workflow |
+| Section                                                                           | What's there                                                      |
+| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| [Installation](https://schneiderdaniel.github.io/cheasee-pi/installation)         | Prerequisites, step-by-step setup, verification                   |
+| [CLI Reference](https://schneiderdaniel.github.io/cheasee-pi/cli)                 | Commands, flags, environment variables, and sidecars              |
+| [Configuration](https://schneiderdaniel.github.io/cheasee-pi/configuration)       | Workspace settings, provider defaults, and credentials            |
+| [Daily Usage](https://schneiderdaniel.github.io/cheasee-pi/daily-usage)           | Docker workflow, parallel sessions, troubleshooting               |
+| [Architecture](https://schneiderdaniel.github.io/cheasee-pi/architecture)         | System design, extensions vs MCP, git worktrees, pipeline         |
+| [Extensions](https://schneiderdaniel.github.io/cheasee-pi/extensions)             | All 18 extensions, behavior guides, and published packages        |
+| [Skills](https://schneiderdaniel.github.io/cheasee-pi/skills)                     | Skill definitions, invocation modes, and usage                    |
+| [Prompts](https://schneiderdaniel.github.io/cheasee-pi/prompts)                   | Internal prompt and skill conventions                             |
+| [Security](https://schneiderdaniel.github.io/cheasee-pi/security)                 | Trust boundaries, credentials, sidecar exposure, and threat model |
+| [SBOM](https://schneiderdaniel.github.io/cheasee-pi/sbom)                         | Software Bill of Materials                                        |
+| [Acknowledgements](https://schneiderdaniel.github.io/cheasee-pi/acknowledgements) | Credits and licenses                                              |
+| [Development Guide](https://schneiderdaniel.github.io/cheasee-pi/development)     | Source map, validation commands, and documentation workflow       |
 
 ## Contributing
 
@@ -124,7 +123,6 @@ Full guide: [CONTRIBUTING.md](../CONTRIBUTING.md).
    cd ../cheasee-pi
    git worktree remove --force ../cheasee-pi-my-change
    ```
-
 
 ## License
 

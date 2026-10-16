@@ -12,11 +12,11 @@ GitHub credentials in the user-level `auth.json` file.
 
 ## Configuration files
 
-| File | Scope | Purpose |
-|---|---|---|
-| `<workspace>/cheasee-settings.json` | One workspace | Docker limits, provider/model defaults, Git identity, and installed skill repositories. Its presence marks an initialized workspace. |
-| `<UserConfigDir>/cheasee-pi/auth.json` | Current user | Provider API keys and GitHub OAuth credentials. The CLI writes this file with mode `0600`; `cheasee-pi auth` manages provider keys. |
-| `<workspace>/.pi/settings.json` | One workspace | Pi-owned settings for extensions, skills, prompts, themes, and other Pi configuration. Pi creates this file; Cheasee-Pi does not scaffold it. |
+| File                                   | Scope         | Purpose                                                                                                                                       |
+| -------------------------------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<workspace>/cheasee-settings.json`    | One workspace | Docker limits, provider/model defaults, Git identity, and installed skill repositories. Its presence marks an initialized workspace.          |
+| `<UserConfigDir>/cheasee-pi/auth.json` | Current user  | Provider API keys and GitHub OAuth credentials. The CLI writes this file with mode `0600`; `cheasee-pi auth` manages provider keys.           |
+| `<workspace>/.pi/settings.json`        | One workspace | Pi-owned settings for extensions, skills, prompts, themes, and other Pi configuration. Pi creates this file; Cheasee-Pi does not scaffold it. |
 
 `UserConfigDir` is resolved by the operating system: Linux uses
 `$XDG_CONFIG_HOME` or `~/.config`, macOS uses
@@ -38,45 +38,43 @@ by `init` depend on the selected provider and the host Git configuration.
 
 ```json
 {
-  "defaultProvider": "opencode-go",
-  "defaultModel": "kimi-k2.6",
-  "docker": {
-    "memory": "5G",
-    "cpus": "4.0",
-    "codeflowPort": "",
-    "uiPort": ""
-  },
-  "gitIdentity": {
-    "name": "Example User",
-    "email": "user@example.com"
-  },
-  "oauth": {
-    "clientID": "178c6fc778ccc68e1d6a"
-  },
-  "repository": {
-    "url": "https://github.com/owner/repository.git",
-    "user": "owner"
-  },
-  "skillRepos": [
-    "owner/skills"
-  ]
+	"defaultProvider": "opencode-go",
+	"defaultModel": "kimi-k2.6",
+	"docker": {
+		"memory": "5G",
+		"cpus": "4.0",
+		"codeflowPort": "",
+		"uiPort": ""
+	},
+	"gitIdentity": {
+		"name": "Example User",
+		"email": "user@example.com"
+	},
+	"oauth": {
+		"clientID": "178c6fc778ccc68e1d6a"
+	},
+	"repository": {
+		"url": "https://github.com/owner/repository.git",
+		"user": "owner"
+	},
+	"skillRepos": ["owner/skills"]
 }
 ```
 
-| Key | Meaning | Default or behavior |
-|---|---|---|
-| `defaultProvider` | Provider selected for Pi. | `opencode-go` on a standard initialization. `cheasee-pi auth add <provider>` selects a provider. |
-| `defaultModel` | Model identifier for the selected provider. | `kimi-k2.6` for the default `opencode-go` setup. Adding a provider updates its default model when one is selected. |
-| `docker.memory` | Container memory limit. | `5G`; expressed as a Docker-compatible memory value. |
-| `docker.cpus` | Container CPU limit. | `4.0`; expressed as a Docker Compose CPU quota. |
-| `docker.codeflowPort` | Host port for the CodeFlow sidecar. | Empty means automatic per-repository selection. |
-| `docker.uiPort` | Host port for the web control center. | Omitted or empty means automatic per-repository selection. |
-| `gitIdentity.name` | Git author name used inside the container. | Initialized from the host Git configuration; otherwise `Cheasee-Pi`. |
-| `gitIdentity.email` | Git author email used inside the container. | Initialized from the host Git configuration; otherwise `cheasee-pi@localhost`. |
-| `oauth.clientID` | GitHub OAuth application client ID used by initialization and re-authentication. | Cheasee-Pi's client ID unless `init --client-id` specifies another value. |
-| `repository.url` | Canonical URL of the repository cloned during initialization. | Written by GitHub-enabled `init`; absent in `--no-github` mode. |
-| `repository.user` | GitHub login resolved during initialization. | Written by GitHub-enabled `init`; absent in `--no-github` mode. |
-| `skillRepos` | Git-hosted skill repository specifications installed in the container. | Optional. `init --skill-repo` accepts repeatable `owner/repo`, HTTPS, or `git:host/user/repo[@ref]` values. |
+| Key                   | Meaning                                                                          | Default or behavior                                                                                                |
+| --------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `defaultProvider`     | Provider selected for Pi.                                                        | `opencode-go` on a standard initialization. `cheasee-pi auth add <provider>` selects a provider.                   |
+| `defaultModel`        | Model identifier for the selected provider.                                      | `kimi-k2.6` for the default `opencode-go` setup. Adding a provider updates its default model when one is selected. |
+| `docker.memory`       | Container memory limit.                                                          | `5G`; expressed as a Docker-compatible memory value.                                                               |
+| `docker.cpus`         | Container CPU limit.                                                             | `4.0`; expressed as a Docker Compose CPU quota.                                                                    |
+| `docker.codeflowPort` | Host port for the CodeFlow sidecar.                                              | Empty means automatic per-repository selection.                                                                    |
+| `docker.uiPort`       | Host port for the web control center.                                            | Omitted or empty means automatic per-repository selection.                                                         |
+| `gitIdentity.name`    | Git author name used inside the container.                                       | Initialized from the host Git configuration; otherwise `Cheasee-Pi`.                                               |
+| `gitIdentity.email`   | Git author email used inside the container.                                      | Initialized from the host Git configuration; otherwise `cheasee-pi@localhost`.                                     |
+| `oauth.clientID`      | GitHub OAuth application client ID used by initialization and re-authentication. | Cheasee-Pi's client ID unless `init --client-id` specifies another value.                                          |
+| `repository.url`      | Canonical URL of the repository cloned during initialization.                    | Written by GitHub-enabled `init`; absent in `--no-github` mode.                                                    |
+| `repository.user`     | GitHub login resolved during initialization.                                     | Written by GitHub-enabled `init`; absent in `--no-github` mode.                                                    |
+| `skillRepos`          | Git-hosted skill repository specifications installed in the container.           | Optional. `init --skill-repo` accepts repeatable `owner/repo`, HTTPS, or `git:host/user/repo[@ref]` values.        |
 
 `docker.codeflowPort` and `docker.uiPort` override the automatically derived
 ports. Their corresponding environment variables are `CODEFLOW_PORT` and

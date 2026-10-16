@@ -584,10 +584,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			for (const command of [
-				"cp -t /etc/* src",
-				"cp --target-directory=/etc/* src",
-			]) {
+			for (const command of ["cp -t /etc/* src", "cp --target-directory=/etc/* src"]) {
 				const event = makeToolCallEvent("bash", { command });
 				const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 				const result = await handler(event, ctx);
@@ -602,10 +599,7 @@ describe("worktree-sandbox gates", () => {
 			mod.default(pi as unknown as import("@earendil-works/pi-coding-agent").ExtensionAPI);
 			const handler = pi.handlers.get("tool_call")!;
 
-			for (const command of [
-				"touch -r /etc/* ok.txt",
-				"touch -mr /etc/[ab] ok.txt",
-			]) {
+			for (const command of ["touch -r /etc/* ok.txt", "touch -mr /etc/[ab] ok.txt"]) {
 				const event = makeToolCallEvent("bash", { command });
 				const ctx = makeCtx({ mode: "tui", isProjectTrusted: () => true });
 				const result = await handler(event, ctx);

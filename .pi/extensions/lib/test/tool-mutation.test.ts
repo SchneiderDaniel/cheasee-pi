@@ -12,10 +12,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 
-import {
-	READ_ONLY_TOOL_NAMES,
-	shouldInvalidateSearchCache,
-} from "../tool-mutation.ts";
+import { READ_ONLY_TOOL_NAMES, shouldInvalidateSearchCache } from "../tool-mutation.ts";
 
 describe("shouldInvalidateSearchCache — mutators invalidate", () => {
 	it('"write" → true', () => {
@@ -30,7 +27,7 @@ describe("shouldInvalidateSearchCache — mutators invalidate", () => {
 		assert.strictEqual(shouldInvalidateSearchCache("multiedit", {}), true);
 	});
 
-	it('forward-compatible mutators not in the allowlist → true', () => {
+	it("forward-compatible mutators not in the allowlist → true", () => {
 		for (const name of ["apply_patch", "notebook_edit", "frobnicate"]) {
 			assert.strictEqual(shouldInvalidateSearchCache(name, {}), true, name);
 		}
@@ -42,11 +39,11 @@ describe("shouldInvalidateSearchCache — mutators invalidate", () => {
 		}
 	});
 
-	it('empty string → true', () => {
+	it("empty string → true", () => {
 		assert.strictEqual(shouldInvalidateSearchCache("", {}), true);
 	});
 
-	it('non-string toolName (undefined/null/number) → true, no throw', () => {
+	it("non-string toolName (undefined/null/number) → true, no throw", () => {
 		for (const bad of [undefined, null, 42, {}, ["write"]]) {
 			assert.strictEqual(
 				shouldInvalidateSearchCache(bad as unknown as string, {}),

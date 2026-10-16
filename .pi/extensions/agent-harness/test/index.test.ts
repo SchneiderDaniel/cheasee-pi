@@ -14,15 +14,10 @@ import assert from "node:assert/strict";
 import { AgentHarness } from "../index.ts";
 import type { ToolCallResult, ResolvedHarnessRules } from "../index.ts";
 
-import {
-	CACHE_TTL_TURNS,
-} from "../lib/harness-rules.ts";
+import { CACHE_TTL_TURNS } from "../lib/harness-rules.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import {
-	makeEvent,
-	makeCtx,
-} from "./harness-fixtures.ts";
+import { makeEvent, makeCtx } from "./harness-fixtures.ts";
 
 // ── Basic pass-through ──
 

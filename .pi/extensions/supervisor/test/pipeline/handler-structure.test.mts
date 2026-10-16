@@ -136,8 +136,14 @@ describe("handler package — function size (S138)", () => {
 describe("handler.ts shim — re-export contract", () => {
 	it("shim re-exports both handleSupervisorCommand and handlePostPipeline from the barrel", () => {
 		const graph = readGraph(SHIM_TS);
-		assert.ok(graph.namedReExports.includes("handleSupervisorCommand"), "shim re-exports handleSupervisorCommand");
-		assert.ok(graph.namedReExports.includes("handlePostPipeline"), "shim re-exports handlePostPipeline");
+		assert.ok(
+			graph.namedReExports.includes("handleSupervisorCommand"),
+			"shim re-exports handleSupervisorCommand",
+		);
+		assert.ok(
+			graph.namedReExports.includes("handlePostPipeline"),
+			"shim re-exports handlePostPipeline",
+		);
 		assert.ok(
 			graph.specifiers.includes("./handler/index.ts"),
 			"shim re-exports from the handler package barrel",
@@ -261,7 +267,10 @@ function stagesBarrelSpecifiers(src: string): string {
 describe("stages/checks — pass-through wrappers deleted", () => {
 	it("stages/index.ts barrel no longer re-exports the two checks formatters", () => {
 		const src = readFileSync(STAGES_INDEX_TS, "utf-8");
-		assert.ok(!src.includes("buildDeadCodeContext"), "barrel must not mention buildDeadCodeContext");
+		assert.ok(
+			!src.includes("buildDeadCodeContext"),
+			"barrel must not mention buildDeadCodeContext",
+		);
 		assert.ok(!src.includes("buildVulnContext"), "barrel must not mention buildVulnContext");
 	});
 
@@ -296,10 +305,7 @@ describe("stages/checks — pass-through wrappers deleted", () => {
 
 	it("agent-loop-steps.ts guards the null case before calling the non-null vuln builder", () => {
 		const src = pkgSource("agent-loop-steps.ts");
-		assert.ok(
-			src.includes("buildVulnContext(stageState.vulnResult)"),
-			"vuln call text preserved",
-		);
+		assert.ok(src.includes("buildVulnContext(stageState.vulnResult)"), "vuln call text preserved");
 		assert.ok(
 			src.includes('agentName === "auditor" && stageState.vulnResult'),
 			"null vulnResult must short-circuit to undefined (wrapper policy preserved)",

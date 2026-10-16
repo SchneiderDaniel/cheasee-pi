@@ -47,7 +47,11 @@ describe("dead code removal — Issue #1872 (unused ProjectHarnessConfig)", () =
 
 	it("public contract intact after deletion: loadProjectConfig, ALLOWED_CONFIG_KEYS, loadDefaultRules", async () => {
 		const mod = await import("../lib/load-config.ts");
-		assert.equal(typeof mod.loadProjectConfig, "function", "loadProjectConfig must remain callable");
+		assert.equal(
+			typeof mod.loadProjectConfig,
+			"function",
+			"loadProjectConfig must remain callable",
+		);
 		assert.ok(mod.ALLOWED_CONFIG_KEYS instanceof Set, "ALLOWED_CONFIG_KEYS must remain a Set");
 		assert.equal(typeof mod.loadDefaultRules, "function", "loadDefaultRules must remain callable");
 

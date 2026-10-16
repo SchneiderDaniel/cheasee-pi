@@ -425,8 +425,8 @@ Use `ask_user` to offer a retry:
 
 | Scenario                              | Behavior                                      |
 | ------------------------------------- | --------------------------------------------- |
-| Zero open PRs                          | Report "No open PRs found" and exit           |
-| Exactly one PR                         | Auto-skip selection, go straight to quiz      |
+| Zero open PRs                         | Report "No open PRs found" and exit           |
+| Exactly one PR                        | Auto-skip selection, go straight to quiz      |
 | Draft PR selected                     | Report draft status, return to PR list        |
 | PR with merge conflicts               | Report conflict, return to PR list            |
 | Diff larger than context window       | Truncate to first 3000 lines, note truncation |

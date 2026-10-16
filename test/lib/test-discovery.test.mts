@@ -82,7 +82,10 @@ describe("test-discovery core (#1859)", () => {
 			.map((t) => t.replace(/^(['"])(.*)\1$/, "$2"))
 			.filter((t) => !t.includes("*") && /\.test\.(mts|ts)$/.test(t));
 		assert.deepStrictEqual(bare, [], `literal test tokens found: ${bare.join(", ")}`);
-		assert.ok(testGlobs().every((t) => t.includes("*")), "every registered token must be a glob");
+		assert.ok(
+			testGlobs().every((t) => t.includes("*")),
+			"every registered token must be a glob",
+		);
 	});
 
 	it("expandGlobs boundary cases yield no throw and no matches", () => {
@@ -136,10 +139,7 @@ describe("test-discovery adapters (#1859)", () => {
 	});
 
 	it("isRegistered answers for real, unregistered and non-test paths", () => {
-		assert.strictEqual(
-			isRegistered(".pi/extensions/lsp-auditor/test/lsp-auditor.test.mts"),
-			true,
-		);
+		assert.strictEqual(isRegistered(".pi/extensions/lsp-auditor/test/lsp-auditor.test.mts"), true);
 		assert.strictEqual(isRegistered("test/lib/test-discovery.mts"), false);
 		assert.strictEqual(isRegistered("package.json"), false);
 	});

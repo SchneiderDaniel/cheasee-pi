@@ -67,12 +67,12 @@ parentToolCallId set}
 
 The `bash-query.ts` module classifies bash commands via pure functions:
 
-| Pattern | Detected By | Redirect To |
-|---------|-------------|-------------|
-| `bash | grep` | `getBashSubKey()` token analysis | `ripgrep_search` |
-| `bash cat` | `getBashSubKey()` | `read` |
-| `bash rg` | `getBashSubKey()` | `ripgrep_search` |
-| `bash find . -name` | `getBashSubKey()` | `ripgrep_search` or `bash ls` |
+| Pattern             | Detected By       | Redirect To                      |
+| ------------------- | ----------------- | -------------------------------- |
+| `bash               | grep`             | `getBashSubKey()` token analysis | `ripgrep_search` |
+| `bash cat`          | `getBashSubKey()` | `read`                           |
+| `bash rg`           | `getBashSubKey()` | `ripgrep_search`                 |
+| `bash find . -name` | `getBashSubKey()` | `ripgrep_search` or `bash ls`    |
 
 ### Key Design Decisions
 
@@ -91,12 +91,12 @@ Top-level `cascadeThreshold` is the global default; `toolMeta.<tool>.cascadeThre
 
 ```json
 {
-  "toolMeta": {
-    "read": { "cascadeThreshold": 6, "passThrough": false },
-    "bash": { "cascadeThreshold": 4, "passThrough": false },
-    "ask_user": { "passThrough": true }
-  },
-  "cascadeThreshold": 8
+	"toolMeta": {
+		"read": { "cascadeThreshold": 6, "passThrough": false },
+		"bash": { "cascadeThreshold": 4, "passThrough": false },
+		"ask_user": { "passThrough": true }
+	},
+	"cascadeThreshold": 8
 }
 ```
 
@@ -106,22 +106,23 @@ Allowed top-level keys are `toolMeta` and `cascadeThreshold`. Any other key is r
 
 ```typescript
 class HarnessState {
-  errorTracker: Map<string, number>;       // toolName → consecutive error count
-  cascadeCounter: Map<string, number>;     // toolName → consecutive call count
-  readCache: TimedMap<string, ReadCacheEntry>; // (path|offset|limit) → { turn, timestamp } marker (6 turn / 30 s TTL)
-  turnNumber: number;
+	errorTracker: Map<string, number>; // toolName → consecutive error count
+	cascadeCounter: Map<string, number>; // toolName → consecutive call count
+	readCache: TimedMap<string, ReadCacheEntry>; // (path|offset|limit) → { turn, timestamp } marker (6 turn / 30 s TTL)
+	turnNumber: number;
 
-  handleTurnStart(): void {
-    this.turnNumber++;
-    this.cascadeCounter.clear();
-    // Errors NOT cleared — persists across turns for retry tracking
-  }
+	handleTurnStart(): void {
+		this.turnNumber++;
+		this.cascadeCounter.clear();
+		// Errors NOT cleared — persists across turns for retry tracking
+	}
 }
 ```
 
 ### Testing
 
 Extensive test suite covering:
+
 - All 7 validation steps with pass/fail conditions
 - Tool mismatch detection: 10+ bash command patterns
 - Read cache: set, get, TTL expiry, invalidation on write/edit

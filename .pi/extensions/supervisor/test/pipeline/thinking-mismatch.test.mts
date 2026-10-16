@@ -10,9 +10,7 @@ import { tmpdir } from "node:os";
 
 // ─── Import the module under test ──────────────────────────────────
 
-const { detectThinkingLevelMismatch } = await import(
-	"../../pipeline/thinking-mismatch.ts"
-);
+const { detectThinkingLevelMismatch } = await import("../../pipeline/thinking-mismatch.ts");
 
 // ─── Helpers ───────────────────────────────────────────────────────
 
@@ -93,30 +91,21 @@ await describe("detectThinkingLevelMismatch", async () => {
 
 	await it("returns null when configuredLevel is undefined", async () => {
 		tmpDir = createTempDir();
-		const filePath = createSessionFile(tmpDir, [
-			SESSION_HEADER,
-			thinkingChange("high"),
-		]);
+		const filePath = createSessionFile(tmpDir, [SESSION_HEADER, thinkingChange("high")]);
 		const result = detectThinkingLevelMismatch(filePath, undefined);
 		assert.equal(result, null);
 	});
 
 	await it("returns null when configured level matches effective level", async () => {
 		tmpDir = createTempDir();
-		const filePath = createSessionFile(tmpDir, [
-			SESSION_HEADER,
-			thinkingChange("high"),
-		]);
+		const filePath = createSessionFile(tmpDir, [SESSION_HEADER, thinkingChange("high")]);
 		const result = detectThinkingLevelMismatch(filePath, "high");
 		assert.equal(result, null);
 	});
 
 	await it("returns mismatch when configured level differs from effective level", async () => {
 		tmpDir = createTempDir();
-		const filePath = createSessionFile(tmpDir, [
-			SESSION_HEADER,
-			thinkingChange("high"),
-		]);
+		const filePath = createSessionFile(tmpDir, [SESSION_HEADER, thinkingChange("high")]);
 		const result = detectThinkingLevelMismatch(filePath, "medium");
 		assert.notEqual(result, null);
 		assert.equal(result!.configured, "medium");
@@ -125,10 +114,7 @@ await describe("detectThinkingLevelMismatch", async () => {
 
 	await it("returns mismatch for medium → off clamping", async () => {
 		tmpDir = createTempDir();
-		const filePath = createSessionFile(tmpDir, [
-			SESSION_HEADER,
-			thinkingChange("off"),
-		]);
+		const filePath = createSessionFile(tmpDir, [SESSION_HEADER, thinkingChange("off")]);
 		const result = detectThinkingLevelMismatch(filePath, "medium");
 		assert.notEqual(result, null);
 		assert.equal(result!.configured, "medium");
@@ -152,11 +138,7 @@ await describe("detectThinkingLevelMismatch", async () => {
 
 	await it("returns null when no thinking_level_change entry exists", async () => {
 		tmpDir = createTempDir();
-		const filePath = createSessionFile(tmpDir, [
-			SESSION_HEADER,
-			MODEL_CHANGE,
-			USER_MESSAGE,
-		]);
+		const filePath = createSessionFile(tmpDir, [SESSION_HEADER, MODEL_CHANGE, USER_MESSAGE]);
 		const result = detectThinkingLevelMismatch(filePath, "medium");
 		assert.equal(result, null);
 	});
@@ -190,10 +172,7 @@ await describe("detectThinkingLevelMismatch", async () => {
 
 	await it("returns ThinkingMismatch with correct shape", async () => {
 		tmpDir = createTempDir();
-		const filePath = createSessionFile(tmpDir, [
-			SESSION_HEADER,
-			thinkingChange("off"),
-		]);
+		const filePath = createSessionFile(tmpDir, [SESSION_HEADER, thinkingChange("off")]);
 		const result = detectThinkingLevelMismatch(filePath, "medium");
 		assert.notEqual(result, null);
 		assert.ok(typeof result!.configured === "string");

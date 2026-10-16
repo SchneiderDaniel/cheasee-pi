@@ -226,7 +226,10 @@ describe("sendPipelineSummary()", () => {
 			summaryMsg!.content.includes("effective 3600000ms"),
 			"effective timeout is user-visible",
 		);
-		assert.ok(summaryMsg!.content.includes("preserved 2 file(s)"), "preserved work is user-visible");
+		assert.ok(
+			summaryMsg!.content.includes("preserved 2 file(s)"),
+			"preserved work is user-visible",
+		);
 		assert.ok(
 			!summaryMsg!.content.includes("— agent failed"),
 			"summary does not collapse to the generic agent-failed line",
@@ -440,7 +443,10 @@ describe("buildFailedStatusLine — extracted helper", () => {
 		const summaryMsg = sentMessages.find((m) => m.customType === "supervisor-summary");
 		assert.ok(summaryMsg, "should send supervisor-summary even with empty agent results");
 		assert.ok(summaryMsg!.content.includes("(none)"), "should show (none) row for empty results");
-		assert.ok(summaryMsg!.content.includes("**Error:** Dispatch error"), "should include error message");
+		assert.ok(
+			summaryMsg!.content.includes("**Error:** Dispatch error"),
+			"should include error message",
+		);
 		// Should not set failed status with empty agent results
 		const failedStatus = statusValues.find((s) => s.includes("Failed at"));
 		assert.ok(!failedStatus, "should NOT set failed status with empty agent results");
@@ -569,7 +575,13 @@ describe("sendPipelineError — errorMsg in summary", () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
 		const results: PipelineAgentResult[] = [
-			{ agentName: "developer", status: "SUCCESS", durationMs: 1000, tokenCount: 500, toolCount: 10 },
+			{
+				agentName: "developer",
+				status: "SUCCESS",
+				durationMs: 1000,
+				tokenCount: 500,
+				toolCount: 10,
+			},
 		];
 		sendPipelineError(pi, ctx, results, 42, "Test issue", mockConfig as any, "Something broke");
 		const summaryMsg = sentMessages.find((m) => m.customType === "supervisor-summary");

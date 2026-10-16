@@ -56,15 +56,16 @@ flowchart TD
 
 ### Backend Resolution Strategy
 
-| Config | rg available | Backend |
-|--------|-------------|--------|
-| `"auto"` | Yes | ripgrep |
-| `"auto"` | No | grep |
-| `"ripgrep"` | Yes | ripgrep |
-| `"ripgrep"` | No | Error thrown |
-| `"grep"` | Any | grep |
+| Config      | rg available | Backend      |
+| ----------- | ------------ | ------------ |
+| `"auto"`    | Yes          | ripgrep      |
+| `"auto"`    | No           | grep         |
+| `"ripgrep"` | Yes          | ripgrep      |
+| `"ripgrep"` | No           | Error thrown |
+| `"grep"`    | Any          | grep         |
 
 `ripgrepAvailable()` uses 3-tier detection:
+
 1. **PATH directory scan** — `accessSync()` on each PATH entry for `rg` executable (zero spawn overhead)
 2. **pi's own bin dir** — `~/.pi/agent/bin/rg`
 3. **Spawn fallback** — `rg --version` via exec for exotic environments

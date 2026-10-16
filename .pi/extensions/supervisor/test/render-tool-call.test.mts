@@ -52,7 +52,7 @@ describe("renderToolCallText — read", () => {
 });
 
 describe("renderToolCallText — write", () => {
-	it('formats write with path and content (multi-line, starts with path)', () => {
+	it("formats write with path and content (multi-line, starts with path)", () => {
 		const content = Array.from({ length: 45 }, (_, i) => `line ${i + 1}`).join("\n");
 		const result = renderToolCallText("write", { path: "/path/file.ts", content }, CWD);
 		assert.ok(result.startsWith("write /path/file.ts"));
@@ -74,7 +74,7 @@ describe("renderToolCallText — edit", () => {
 });
 
 describe("renderToolCallText — grep", () => {
-	it('formats grep with pattern and path: includes pattern and path', () => {
+	it("formats grep with pattern and path: includes pattern and path", () => {
 		const result = renderToolCallText("grep", { pattern: "function.*{", path: "/src" }, CWD);
 		assert.ok(result.includes("/function.*{/"));
 		assert.ok(result.includes("/src"));
@@ -114,39 +114,39 @@ describe("renderToolCallText — find", () => {
 // ─── Tests: renderToolCallText() — extension tool fallback ─────
 
 describe("renderToolCallText — extension tool fallback (JSON preview)", () => {
-	it('ripgrep_search uses name: JSON format', () => {
+	it("ripgrep_search uses name: JSON format", () => {
 		const result = renderToolCallText("ripgrep_search", { query: "TODO", directory: "/src" }, CWD);
 		assert.ok(result.startsWith("ripgrep_search: "));
 		assert.ok(result.includes("TODO"));
 	});
 
-	it('web_search uses name: JSON format', () => {
+	it("web_search uses name: JSON format", () => {
 		const result = renderToolCallText("web_search", { query: "typescript" }, CWD);
 		assert.ok(result.startsWith("web_search: "));
 	});
 
-	it('web_crawl uses name: JSON format', () => {
+	it("web_crawl uses name: JSON format", () => {
 		const result = renderToolCallText("web_crawl", { url: "https://example.com" }, CWD);
 		assert.ok(result.startsWith("web_crawl: "));
 	});
 
-	it('ask_user uses name: JSON format', () => {
+	it("ask_user uses name: JSON format", () => {
 		const result = renderToolCallText("ask_user", { question: "Proceed?" }, CWD);
 		assert.ok(result.startsWith("ask_user: "));
 	});
 
-	it('structural_search uses name: JSON format', () => {
+	it("structural_search uses name: JSON format", () => {
 		const result = renderToolCallText("structural_search", { pattern: "console.log($A)" }, CWD);
 		assert.ok(result.startsWith("structural_search: "));
 	});
 
-	it('unknown_tool uses name: JSON format clipped to ≤80 chars', () => {
+	it("unknown_tool uses name: JSON format clipped to ≤80 chars", () => {
 		const result = renderToolCallText("unknown_tool", { a: 1, b: 2 }, CWD);
 		assert.equal(result, 'unknown_tool: {"a":1,"b":2}');
 		assert.ok(result.length <= 80);
 	});
 
-	it('JSON preview is clipped to ≤80 chars for large args', () => {
+	it("JSON preview is clipped to ≤80 chars for large args", () => {
 		const large = { data: "x".repeat(200) };
 		const result = renderToolCallText("ripgrep_search", large, CWD);
 		assert.ok(result.length <= 80, `expected ≤80 chars, got ${result.length}`);
@@ -203,7 +203,13 @@ describe("isToolLine", () => {
 	});
 
 	it("recognizes extension tools with trailing colon", () => {
-		const extTools = new Set(["ripgrep_search", "web_search", "web_crawl", "structural_search", "ask_user"]);
+		const extTools = new Set([
+			"ripgrep_search",
+			"web_search",
+			"web_crawl",
+			"structural_search",
+			"ask_user",
+		]);
 		assert.ok(isToolLine('ripgrep_search: {"query":"TODO"}', extTools));
 		assert.ok(isToolLine('web_search: {"query":"typescript"}', extTools));
 		assert.ok(isToolLine('ask_user: {"question":"Proceed?"}', extTools));
@@ -233,17 +239,27 @@ describe("renderToolCallText — cwd-aware path display", () => {
 	it("cwd resolves relative paths for read", () => {
 		const result = renderToolCallText("read", { path: "relative/file.ts" }, "/home/user");
 		// pi's renderCall resolves relative paths against cwd and may show absolute path
-		assert.ok(result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"));
+		assert.ok(
+			result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"),
+		);
 	});
 
 	it("cwd resolves relative paths for write", () => {
-		const result = renderToolCallText("write", { path: "relative/file.ts", content: "line1" }, "/home/user");
-		assert.ok(result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"));
+		const result = renderToolCallText(
+			"write",
+			{ path: "relative/file.ts", content: "line1" },
+			"/home/user",
+		);
+		assert.ok(
+			result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"),
+		);
 	});
 
 	it("cwd resolves relative paths for edit", () => {
 		const result = renderToolCallText("edit", { path: "relative/file.ts" }, "/home/user");
-		assert.ok(result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"));
+		assert.ok(
+			result.includes("relative/file.ts") || result.includes("/home/user/relative/file.ts"),
+		);
 	});
 
 	it("cwd does not affect absolute paths", () => {

@@ -111,10 +111,7 @@ describe("SupervisorConfigSchema — parse", () => {
 	});
 
 	it("throws ZodError when repo is empty string", () => {
-		assert.throws(
-			() => SupervisorConfigSchema.parse({ ...validMinimal, repo: "" }),
-			z.ZodError,
-		);
+		assert.throws(() => SupervisorConfigSchema.parse({ ...validMinimal, repo: "" }), z.ZodError);
 	});
 
 	// ── projectNumber ────────────────────────────────────────────
@@ -229,8 +226,7 @@ describe("SupervisorConfigSchema — parse", () => {
 
 	it("throws ZodError when enableExperimentalFeatures is string", () => {
 		assert.throws(
-			() =>
-				SupervisorConfigSchema.parse({ ...validMinimal, enableExperimentalFeatures: "yes" }),
+			() => SupervisorConfigSchema.parse({ ...validMinimal, enableExperimentalFeatures: "yes" }),
 			z.ZodError,
 		);
 	});
@@ -244,24 +240,21 @@ describe("SupervisorConfigSchema — parse", () => {
 
 	it("throws ZodError when auditScoreThreshold exceeds 1.0", () => {
 		assert.throws(
-			() =>
-				SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: 1.5 }),
+			() => SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: 1.5 }),
 			z.ZodError,
 		);
 	});
 
 	it("throws ZodError when auditScoreThreshold is below 0", () => {
 		assert.throws(
-			() =>
-				SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: -0.1 }),
+			() => SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: -0.1 }),
 			z.ZodError,
 		);
 	});
 
 	it("throws ZodError when auditScoreThreshold is NaN", () => {
 		assert.throws(
-			() =>
-				SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: NaN }),
+			() => SupervisorConfigSchema.parse({ ...validMinimal, auditScoreThreshold: NaN }),
 			z.ZodError,
 		);
 	});
@@ -282,8 +275,7 @@ describe("SupervisorConfigSchema — parse", () => {
 
 	it("throws ZodError when vulnGateTimeoutSec is negative", () => {
 		assert.throws(
-			() =>
-				SupervisorConfigSchema.parse({ ...validMinimal, vulnGateTimeoutSec: -5 }),
+			() => SupervisorConfigSchema.parse({ ...validMinimal, vulnGateTimeoutSec: -5 }),
 			z.ZodError,
 		);
 	});
@@ -441,7 +433,11 @@ describe("loadConfig — zod integration", () => {
 				codeowners: ["user"],
 			},
 		});
-		writeFileSync(join(testDir, ".gitmodules"), "[submodule \"x\"]\n\tpath = x\n\turl = https://github.com/a/b.git\n", "utf-8");
+		writeFileSync(
+			join(testDir, ".gitmodules"),
+			'[submodule "x"]\n\tpath = x\n\turl = https://github.com/a/b.git\n',
+			"utf-8",
+		);
 		process.chdir(testDir);
 		const config = loadConfig();
 		assert.equal(config.repo, "owner/repo");

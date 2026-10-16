@@ -56,7 +56,12 @@ function makeExec(h: Handlers = {}): Mock {
 		if (cmd.includes("bin/python3") && args[0] === "-m" && args[1] === "patchright") {
 			return h.install ?? OK;
 		}
-		return { code: 1, stdout: "", stderr: `mock: unhandled ${cmd} ${args.join(" ")}`, killed: false };
+		return {
+			code: 1,
+			stdout: "",
+			stderr: `mock: unhandled ${cmd} ${args.join(" ")}`,
+			killed: false,
+		};
 	};
 	return { exec, calls };
 }
@@ -262,7 +267,12 @@ describe("ensureStealthBrowser", () => {
 	it("(error) unparseable revision output → typed error, no install attempted", async () => {
 		const cacheRoot = tempCache();
 		const { exec, calls } = makeExec({
-			revision: { code: 0, stdout: "Traceback (most recent call last)\n", stderr: "", killed: false },
+			revision: {
+				code: 0,
+				stdout: "Traceback (most recent call last)\n",
+				stderr: "",
+				killed: false,
+			},
 		});
 
 		await assert.rejects(

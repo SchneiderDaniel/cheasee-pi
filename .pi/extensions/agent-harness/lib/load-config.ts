@@ -38,10 +38,7 @@ const CONFIG_RELATIVE_PATH = path.join(".pi", "harness-config.json");
  * Single source of truth for validation, the unknown-key error message, and the
  * docs-consistency test — the docs example must stay within this set.
  */
-export const ALLOWED_CONFIG_KEYS: ReadonlySet<string> = new Set([
-	"toolMeta",
-	"cascadeThreshold",
-]);
+export const ALLOWED_CONFIG_KEYS: ReadonlySet<string> = new Set(["toolMeta", "cascadeThreshold"]);
 
 /** ToolMeta fields that must be booleans when present in config. */
 const BOOLEAN_TOOL_META_FIELDS: ReadonlySet<string> = new Set([
@@ -136,14 +133,9 @@ export function loadProjectConfig(
 			}
 			for (const [field, value] of Object.entries(meta as Record<string, unknown>)) {
 				if (BOOLEAN_TOOL_META_FIELDS.has(field) && typeof value !== "boolean") {
-					throw new Error(
-						`toolMeta.${toolName}.${field} must be a boolean (got ${typeof value})`,
-					);
+					throw new Error(`toolMeta.${toolName}.${field} must be a boolean (got ${typeof value})`);
 				}
-				if (
-					field === "cascadeThreshold" &&
-					(typeof value !== "number" || value < 1)
-				) {
+				if (field === "cascadeThreshold" && (typeof value !== "number" || value < 1)) {
 					throw new Error(`toolMeta.${toolName}.cascadeThreshold must be a positive number`);
 				}
 			}

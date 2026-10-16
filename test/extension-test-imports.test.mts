@@ -243,10 +243,9 @@ describe("extension tests — no dead import bindings", () => {
 	it("detector reports a binding used only as a property name (AST)", () => {
 		assert.deepStrictEqual(
 			unusedImports(
-				[
-					'import { existsSync } from "node:fs";',
-					"const options = { existsSync: true };",
-				].join("\n"),
+				['import { existsSync } from "node:fs";', "const options = { existsSync: true };"].join(
+					"\n",
+				),
 			),
 			["existsSync"],
 		);

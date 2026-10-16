@@ -9,10 +9,11 @@ nav_order: 8
 {: .no_toc }
 
 ## Table of contents
+
 {: .no_toc .text-delta }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ---
 
@@ -85,60 +86,60 @@ Configure the project in `.pi/settings.json`:
 
 ```json
 {
-  "supervisor": {
-    "repo": "SchneiderDaniel/cheasee-pi",
-    "projectNumber": 3,
-    "codeowners": ["SchneiderDaniel"],
-    "statusMapping": {
-      "Research": "researcher",
-      "Architecture": "architect",
-      "TestDesign": "test-designer",
-      "Implementation": "developer",
-      "Audit": "auditor"
-    },
-    "statusField": "Status",
-    "defaultBranch": "main",
-    "remote": "origin",
-    "worktreeBase": "../",
-    "branchPrefix": "worktree-git-issue-",
-    "maxRejections": 3,
-    "agentTimeoutsMin": {},
-    "agentTimeoutSec": {},
-    "agentKillGraceSec": 10,
-    "agentTokenBudget": 300000,
-    "maxToolCalls": 0,
-    "ciGatingTimeoutSec": 300,
-    "auditScoreThreshold": 0.75,
-    "enableExperimentalFeatures": false,
-    "bellOnComplete": false
-  }
+	"supervisor": {
+		"repo": "SchneiderDaniel/cheasee-pi",
+		"projectNumber": 3,
+		"codeowners": ["SchneiderDaniel"],
+		"statusMapping": {
+			"Research": "researcher",
+			"Architecture": "architect",
+			"TestDesign": "test-designer",
+			"Implementation": "developer",
+			"Audit": "auditor"
+		},
+		"statusField": "Status",
+		"defaultBranch": "main",
+		"remote": "origin",
+		"worktreeBase": "../",
+		"branchPrefix": "worktree-git-issue-",
+		"maxRejections": 3,
+		"agentTimeoutsMin": {},
+		"agentTimeoutSec": {},
+		"agentKillGraceSec": 10,
+		"agentTokenBudget": 300000,
+		"maxToolCalls": 0,
+		"ciGatingTimeoutSec": 300,
+		"auditScoreThreshold": 0.75,
+		"enableExperimentalFeatures": false,
+		"bellOnComplete": false
+	}
 }
 ```
 
 ### All config fields
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `repo` | string | — (required) | GitHub repo (`owner/name`) |
-| `projectNumber` | number | — (required) | GitHub Project v2 number |
-| `codeowners` | string[] | — (required) | Trusted GitHub usernames for issue filtering |
-| `statusMapping` | object | — (required) | Board status → agent name mapping |
-| `statusField` | string | `"Status"` | GitHub Project status field name |
-| `defaultBranch` | string | `"main"` | Base branch for worktrees + diffs |
-| `remote` | string | `"origin"` | Git remote name |
-| `worktreeBase` | string | `"../"` | Parent dir for git worktrees |
-| `branchPrefix` | string | `"worktree-git-issue-"` | Prefix for worktree branch names |
-| `maxRejections` | number | `3` | Max audit rejection loops before human intervention |
-| `agentTimeoutsMin` | object | `{}` | Per-agent timeout overrides in minutes (legacy alias, lower precedence than `agentTimeoutSec`) |
-| `agentTimeoutSec` | object | `{}` | Per-agent wall-clock timeout in seconds, `0` = no timeout: `{ "developer": 600 }`. Authoritative and **unscaled** (ignores `agentTimeoutTierScale`) |
-| `agentTimeoutTierScale` | object | `{ "small": 1, "medium": 1.5, "large": 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker (e.g. `large` ×2 = 60 min) |
-| `agentKillGraceSec` | number | `10` | SIGTERM→SIGKILL grace for the subprocess kill ladder on timeout |
-| `agentTokenBudget` | number | `300000` | Soft token cap per agent session (0=unlimited) |
-| `maxToolCalls` | number | `0` | Hard tool call cap per agent (0=unlimited) |
-| `ciGatingTimeoutSec` | number | `300` | Max seconds to poll CI before auditor dispatch (0=disable) |
-| `auditScoreThreshold` | number | `0.75` | Minimum passing ratio for audit score gate |
-| `enableExperimentalFeatures` | boolean | `false` | Enable experimental pipeline features |
-| `bellOnComplete` | boolean | `false` | Emit terminal bell on pipeline completion |
+| Field                        | Type     | Default                                     | Description                                                                                                                                         |
+| ---------------------------- | -------- | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo`                       | string   | — (required)                                | GitHub repo (`owner/name`)                                                                                                                          |
+| `projectNumber`              | number   | — (required)                                | GitHub Project v2 number                                                                                                                            |
+| `codeowners`                 | string[] | — (required)                                | Trusted GitHub usernames for issue filtering                                                                                                        |
+| `statusMapping`              | object   | — (required)                                | Board status → agent name mapping                                                                                                                   |
+| `statusField`                | string   | `"Status"`                                  | GitHub Project status field name                                                                                                                    |
+| `defaultBranch`              | string   | `"main"`                                    | Base branch for worktrees + diffs                                                                                                                   |
+| `remote`                     | string   | `"origin"`                                  | Git remote name                                                                                                                                     |
+| `worktreeBase`               | string   | `"../"`                                     | Parent dir for git worktrees                                                                                                                        |
+| `branchPrefix`               | string   | `"worktree-git-issue-"`                     | Prefix for worktree branch names                                                                                                                    |
+| `maxRejections`              | number   | `3`                                         | Max audit rejection loops before human intervention                                                                                                 |
+| `agentTimeoutsMin`           | object   | `{}`                                        | Per-agent timeout overrides in minutes (legacy alias, lower precedence than `agentTimeoutSec`)                                                      |
+| `agentTimeoutSec`            | object   | `{}`                                        | Per-agent wall-clock timeout in seconds, `0` = no timeout: `{ "developer": 600 }`. Authoritative and **unscaled** (ignores `agentTimeoutTierScale`) |
+| `agentTimeoutTierScale`      | object   | `{ "small": 1, "medium": 1.5, "large": 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker (e.g. `large` ×2 = 60 min)                   |
+| `agentKillGraceSec`          | number   | `10`                                        | SIGTERM→SIGKILL grace for the subprocess kill ladder on timeout                                                                                     |
+| `agentTokenBudget`           | number   | `300000`                                    | Soft token cap per agent session (0=unlimited)                                                                                                      |
+| `maxToolCalls`               | number   | `0`                                         | Hard tool call cap per agent (0=unlimited)                                                                                                          |
+| `ciGatingTimeoutSec`         | number   | `300`                                       | Max seconds to poll CI before auditor dispatch (0=disable)                                                                                          |
+| `auditScoreThreshold`        | number   | `0.75`                                      | Minimum passing ratio for audit score gate                                                                                                          |
+| `enableExperimentalFeatures` | boolean  | `false`                                     | Enable experimental pipeline features                                                                                                               |
+| `bellOnComplete`             | boolean  | `false`                                     | Emit terminal bell on pipeline completion                                                                                                           |
 
 Use **Board** layout in GitHub, set **Group by** to `Workflow`.
 
@@ -174,13 +175,13 @@ When you run `/supervisor 42`, here is how it interacts with GitHub:
 
 Each agent posts its findings as a GitHub issue comment:
 
-| # | Agent | Entry Marker | GitHub Action |
-|---|-------|-------------|--------------|
-| 1 | **Researcher** | `Research` | Posts findings comment, moves board (or skipped if findings exist) |
-| 2 | **Architect** | `Architecture` | Posts architecture comment, can loop to Research |
-| 3 | **TestDesigner** | `TestDesign` | Posts test plan comment |
-| 4 | **Developer** | `Implementation` | Commits + pushes to worktree branch |
-| 5 | **Auditor** | `Audit` | Creates PR if approved (uses structured `AUDIT_DECISION: APPROVED` or `AUDIT_DECISION: REJECTED` markers) |
+| #   | Agent            | Entry Marker     | GitHub Action                                                                                             |
+| --- | ---------------- | ---------------- | --------------------------------------------------------------------------------------------------------- |
+| 1   | **Researcher**   | `Research`       | Posts findings comment, moves board (or skipped if findings exist)                                        |
+| 2   | **Architect**    | `Architecture`   | Posts architecture comment, can loop to Research                                                          |
+| 3   | **TestDesigner** | `TestDesign`     | Posts test plan comment                                                                                   |
+| 4   | **Developer**    | `Implementation` | Commits + pushes to worktree branch                                                                       |
+| 5   | **Auditor**      | `Audit`          | Creates PR if approved (uses structured `AUDIT_DECISION: APPROVED` or `AUDIT_DECISION: REJECTED` markers) |
 
 ---
 
@@ -201,6 +202,7 @@ Use **Login with a web browser** when prompted. The session persists across cont
 This documentation site is built with Jekyll + the Just the Docs theme and deployed via [GitHub Actions](https://github.com/SchneiderDaniel/cheasee-pi/blob/main/.github/workflows/pages.yml).
 
 The workflow:
+
 1. Triggers on pushes to `main` that touch `docs/**`
 2. Checks out the repo
 3. Builds with `ruby/setup-ruby` and `bundler-cache`

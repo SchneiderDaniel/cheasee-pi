@@ -16,6 +16,7 @@ nav_order: 8
 **How it works.** Creates `FooterState` on session start, reads config from `.pi/settings.json` (top-level settings: `quietStartup`, `contextStatusBar.showTps`). Detects git worktree name, captures session name and trust status. Installs custom footer via `ctx.ui.setFooter()` (TUI only). Secondary text (labels, timer, cache stats) is appearance-aware: it reads the theme's reported `appearance` once at install and uses `muted` on light backgrounds, `dim` otherwise. Updates reactively on `model_select`, `thinking_level_select`, `turn_end`, `message_end` (token+cache stats), `message_update` (TPS sampling through deduplicated key extraction), `tool_execution_end`. Timer updates session duration display every second. Session_shutdown stops timer.
 
 Registers three `/explain-*` commands for listing discovery:
+
 - `/explain-extensions` — Lists all active extensions with descriptions
 - `/explain-prompts` — Lists all available prompt templates
 - `/explain-skills` — Lists all available skills
@@ -57,7 +58,7 @@ flowchart TD
     D -- no --> F[set worktreeName, sessionName, trustStatus]
     F --> G[installFooter: build TUI component]
     G --> H[startTimer: 1s interval]
-    
+
     H --> I{Event received}
     I -- model_select --> J[update model name, contextWindow, cacheHitRate]
     I -- thinking_level_select --> K[update thinkingLevel]
@@ -91,20 +92,21 @@ Each segment is implemented as a reactive `Widget` that updates when its backing
 
 ### Event → Footer Update Map
 
-| Event | Fields Updated |
-|-------|---------------|
-| `session_start` | worktreeName, sessionName, trustStatus, sessionId, contextWindow |
-| `model_select` | modelName, contextWindow, cacheHitRate, sessionName |
-| `thinking_level_select` | thinkingLevel |
-| `turn_end` | sessionName (re-read) |
-| `message_end` | tokensUsed, tokensMax, cacheRead, cacheWrite, cacheHitRate |
-| `message_update` | TPS samples |
-| `tool_execution_end` | toolCallCount |
-| `session_shutdown` | Timer stopped, state disposed |
+| Event                   | Fields Updated                                                   |
+| ----------------------- | ---------------------------------------------------------------- |
+| `session_start`         | worktreeName, sessionName, trustStatus, sessionId, contextWindow |
+| `model_select`          | modelName, contextWindow, cacheHitRate, sessionName              |
+| `thinking_level_select` | thinkingLevel                                                    |
+| `turn_end`              | sessionName (re-read)                                            |
+| `message_end`           | tokensUsed, tokensMax, cacheRead, cacheWrite, cacheHitRate       |
+| `message_update`        | TPS samples                                                      |
+| `tool_execution_end`    | toolCallCount                                                    |
+| `session_shutdown`      | Timer stopped, state disposed                                    |
 
 ### Testing
 
 Tests cover:
+
 - Footer state: all reactive values, mutations, reset
 - Event handlers: each event → correct field update
 - Timer: start/stop/interval behavior

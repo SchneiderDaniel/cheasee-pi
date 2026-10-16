@@ -92,9 +92,7 @@ export function resolveSkillPathsWithFs(
 	}
 
 	// Pattern-prefixed entries are SDK override patterns, never literal roots.
-	const skillRoots = (roots ?? [resolvePath(cwd, ".pi/skills")]).filter(
-		(r) => !/^[!+-]/.test(r),
-	);
+	const skillRoots = (roots ?? [resolvePath(cwd, ".pi/skills")]).filter((r) => !/^[!+-]/.test(r));
 
 	const result: string[] = [];
 	for (const name of skills) {

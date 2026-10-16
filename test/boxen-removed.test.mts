@@ -28,7 +28,10 @@ function readPackageJson(): PackageJson {
 }
 
 function readLockfile(): {
-	packages: Record<string, { dependencies?: Record<string, string>; devDependencies?: Record<string, string> }>;
+	packages: Record<
+		string,
+		{ dependencies?: Record<string, string>; devDependencies?: Record<string, string> }
+	>;
 } {
 	return JSON.parse(readFileSync(resolve(ROOT, "package-lock.json"), "utf-8"));
 }
@@ -80,10 +83,7 @@ describe("boxen dependency removal", () => {
 
 	it("docs/sbom.md contains no boxen row", () => {
 		const sbom = readFileSync(resolve(ROOT, "docs/sbom.md"), "utf-8");
-		assert.ok(
-			!sbom.includes("`boxen`"),
-			"docs/sbom.md still lists a boxen row",
-		);
+		assert.ok(!sbom.includes("`boxen`"), "docs/sbom.md still lists a boxen row");
 	});
 
 	it("lockfile still contains chalk (shared transitive)", () => {
@@ -91,9 +91,7 @@ describe("boxen dependency removal", () => {
 		// chalk's only consumer is @earendil-works/pi-coding-agent (exact pin 5.6.2).
 		// Placement is npm's choice — hoisted top-level or nested under the consumer —
 		// so assert presence at any node_modules path, not a specific key.
-		const chalkEntries = Object.keys(lock.packages).filter((p) =>
-			p.endsWith("node_modules/chalk"),
-		);
+		const chalkEntries = Object.keys(lock.packages).filter((p) => p.endsWith("node_modules/chalk"));
 		assert.ok(
 			chalkEntries.length > 0,
 			"package-lock.json lost chalk (shared transitive must remain)",

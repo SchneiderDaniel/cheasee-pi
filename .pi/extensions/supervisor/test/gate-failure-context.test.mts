@@ -159,22 +159,26 @@ const HOOK_CONFIG: SupervisorConfig = {
 	agentTimeoutsMin: {},
 };
 
-const HOOK_FIELDS: Array<{ id: string; name: string; type: string; options: Array<{ id: string; name: string }> }> =
-	[
-		{
-			id: "status-field-id",
-			name: "Status",
-			type: "single_select",
-			options: [
-				{ id: "opt-research", name: "Research" },
-				{ id: "opt-architecture", name: "Architecture" },
-				{ id: "opt-test-design", name: "TestDesign" },
-				{ id: "opt-implementation", name: "Implementation" },
-				{ id: "opt-audit", name: "Audit" },
-				{ id: "opt-done", name: "Done" },
-			],
-		},
-	];
+const HOOK_FIELDS: Array<{
+	id: string;
+	name: string;
+	type: string;
+	options: Array<{ id: string; name: string }>;
+}> = [
+	{
+		id: "status-field-id",
+		name: "Status",
+		type: "single_select",
+		options: [
+			{ id: "opt-research", name: "Research" },
+			{ id: "opt-architecture", name: "Architecture" },
+			{ id: "opt-test-design", name: "TestDesign" },
+			{ id: "opt-implementation", name: "Implementation" },
+			{ id: "opt-audit", name: "Audit" },
+			{ id: "opt-done", name: "Done" },
+		],
+	},
+];
 
 // The mocked audit runner's next result; set per test, read at call time.
 let nextAuditResult: Record<string, unknown> = { nextStatus: "Audit", note: "ok" };
@@ -370,7 +374,8 @@ if (hasMockModule) {
 			);
 			assert.equal(blockedMessages.length, 0, "no gate-failure message on a pass");
 			const blocked = notify.mock.calls.find(
-				(c: any) => c.arguments[1] === "warning" && String(c.arguments[0]).includes("Pre-transition"),
+				(c: any) =>
+					c.arguments[1] === "warning" && String(c.arguments[0]).includes("Pre-transition"),
 			);
 			assert.equal(blocked, undefined, "no blocked-transition warning on a pass");
 		});
@@ -431,10 +436,7 @@ describe("Regression — gate wiring module-graph edges (Phase 5, Issue #787)", 
 			graph.importedNames.includes("applyGateFailureContext"),
 			"applyGateFailureContext imported from the stages barrel",
 		);
-		assert.ok(
-			graph.specifiers.includes("../stages/index.ts"),
-			"wired through ../stages/index.ts",
-		);
+		assert.ok(graph.specifiers.includes("../stages/index.ts"), "wired through ../stages/index.ts");
 	});
 
 	it("auditor rejection path consumes the shared anchored matcher — issue #1668/#2044", () => {

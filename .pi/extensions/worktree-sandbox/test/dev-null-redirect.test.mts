@@ -116,7 +116,10 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 				mod.findUnsafeWriteInBash("cp --remove-destination payload /dev/null", SB),
 				"outside sandbox: /dev/null",
 			);
-			assert.equal(mod.findUnsafeWriteInBash("cp -b x /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(
+				mod.findUnsafeWriteInBash("cp -b x /dev/null", SB),
+				"outside sandbox: /dev/null",
+			);
 			assert.equal(
 				mod.findUnsafeWriteInBash("cp --backup=numbered x /dev/null", SB),
 				"outside sandbox: /dev/null",
@@ -128,8 +131,14 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 			// owner; touch mutates metadata — none are side-effect-free for /dev/null.
 			assert.equal(mod.findUnsafeWriteInBash("mv x /dev/null", SB), "outside sandbox: /dev/null");
 			assert.equal(mod.findUnsafeWriteInBash("touch /dev/null", SB), "outside sandbox: /dev/null");
-			assert.equal(mod.findUnsafeWriteInBash("install f /dev/null", SB), "outside sandbox: /dev/null");
-			assert.equal(mod.findUnsafeWriteInBash("ln -s a /dev/null", SB), "outside sandbox: /dev/null");
+			assert.equal(
+				mod.findUnsafeWriteInBash("install f /dev/null", SB),
+				"outside sandbox: /dev/null",
+			);
+			assert.equal(
+				mod.findUnsafeWriteInBash("ln -s a /dev/null", SB),
+				"outside sandbox: /dev/null",
+			);
 			assert.equal(
 				mod.findUnsafeWriteInBash("ln -sf payload /dev/null", SB),
 				"outside sandbox: /dev/null",
@@ -169,20 +178,21 @@ describe("dev-null-redirect: /dev/null device exemption", () => {
 		});
 
 		it("use-case — non-enumerated devices stay blocked", () => {
-			for (const dev of ["/dev/sda", "/dev/mem", "/dev/kmem", "/dev/port", "/dev/kmsg", "/dev/zero"]) {
-				assert.equal(
-					mod.findUnsafeWriteInBash(`echo hi > ${dev}`, SB),
-					`outside sandbox: ${dev}`,
-				);
+			for (const dev of [
+				"/dev/sda",
+				"/dev/mem",
+				"/dev/kmem",
+				"/dev/port",
+				"/dev/kmsg",
+				"/dev/zero",
+			]) {
+				assert.equal(mod.findUnsafeWriteInBash(`echo hi > ${dev}`, SB), `outside sandbox: ${dev}`);
 			}
 		});
 
 		it("use-case — fd-alias devices stay blocked (deliberate)", () => {
 			for (const dev of ["/dev/stdout", "/dev/stderr", "/dev/fd/1"]) {
-				assert.equal(
-					mod.findUnsafeWriteInBash(`echo hi > ${dev}`, SB),
-					`outside sandbox: ${dev}`,
-				);
+				assert.equal(mod.findUnsafeWriteInBash(`echo hi > ${dev}`, SB), `outside sandbox: ${dev}`);
 			}
 		});
 

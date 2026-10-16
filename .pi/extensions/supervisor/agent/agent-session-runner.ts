@@ -72,7 +72,10 @@ function resolveModel(modelStr: string | undefined): { id: string; provider: str
 function buildToolList(agent: ParsedAgent, cwd?: string): string[] {
 	const rawTools = agent.config.tools || "read,bash,write,edit";
 	const toolsStr = resolveTools(rawTools, agent.config.extensions, cwd);
-	return toolsStr.split(",").map((s) => s.trim()).filter(Boolean);
+	return toolsStr
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean);
 }
 
 // ─── buildResourceLoader: create resource loader filtering supervisor ──

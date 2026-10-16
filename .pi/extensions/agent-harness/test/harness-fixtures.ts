@@ -31,7 +31,6 @@ export function callNTimes(
 	return results;
 }
 
-
 export function createMockAPI() {
 	const handlers = new Map<string, (...args: any[]) => any>();
 	const api = {
@@ -95,7 +94,6 @@ export function makeConfigCtx(overrides: Record<string, unknown> = {}) {
 		...overrides,
 	};
 }
-
 
 export function makeCtxWithUI(hasUI: boolean) {
 	return { hasUI } as any;

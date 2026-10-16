@@ -13,7 +13,7 @@ layout follow `god-object-2004.md`, the record for the sibling metric.
 
 ```js
 var longFiles = files.filter(function (f) {
-  return f.isCode !== false && f.lines && f.lines > 500;
+	return f.isCode !== false && f.lines && f.lines > 500;
 });
 ```
 
@@ -21,10 +21,10 @@ with `lines = content.split("\n").length`. Three consequences drive this change:
 
 1. **The count is raw segments, not source lines.** A file whose last line ends
    with a newline gains a trailing empty segment, so a 500-line file that ends in
-   `\n` counts 501 and *is* flagged. Every split below lands its files at `<=
-   500` segments, which is `<= 499` `wc -l` lines for a newline-terminated file.
+   `\n` counts 501 and _is_ flagged. Every split below lands its files at `<=
+500` segments, which is `<= 499` `wc -l` lines for a newline-terminated file.
 2. **The ceiling is strict.** Exactly 500 segments is not flagged; 501 is. A
-   split only moves the metric when *every* original and *every* sibling lands
+   split only moves the metric when _every_ original and _every_ sibling lands
    under the ceiling — one fat sibling keeps the family flagged.
 3. **Only code extensions are scored.** `isCode` gates files whose extension is
    absent from `codeExts`/`scriptContainerExts`. `.mts`, `.json` and `.md` are
@@ -65,10 +65,10 @@ recorded deferrals — so the envelope cannot drift from the delivered source.
 
 ## Before / after (pinned analyzer, same snapshot method)
 
-| | commit | tracked files | `Long File` |
-|---|---|---|---|
-| before | `4dcddf80` (`origin/main` after #2004) | 1194 | **35** |
-| after | `39e62d9e` (last commit changing scored code) | 1239 | **16** |
+|        | commit                                        | tracked files | `Long File` |
+| ------ | --------------------------------------------- | ------------- | ----------- |
+| before | `4dcddf80` (`origin/main` after #2004)        | 1194          | **35**      |
+| after  | `39e62d9e` (last commit changing scored code) | 1239          | **16**      |
 
 The commits after the initial measurement (`7bcbeefd`) add only register
 artifacts (this doc, the fixture, `test/fixtures/long-file-mirror.mts` and the
@@ -115,7 +115,7 @@ kinds of seam:
 - **Python safety-net suite.** `test/dependency-existence-check.test.py` becomes
   a thin `python3` entry over `test/dependency_existence_check_tests/`
   (`_common.py` harness + one module per `TestCase` class). 62 tests before and
-  after. The package is *not* named `dependency_existence_check`: the suite's
+  after. The package is _not_ named `dependency_existence_check`: the suite's
   importlib shim registers the production module under that exact name in
   `sys.modules`, so a package of the same name could not be imported.
 

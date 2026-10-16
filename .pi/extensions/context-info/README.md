@@ -36,13 +36,13 @@ Plus `/explain-extensions`, `/explain-prompts`, `/explain-skills` commands listi
 
 ### Status widgets
 
-| Widget | Shows | Updates |
-|--------|-------|---------|
-| `contextUsage` | Token usage with color thresholds | On every message_end |
-| `contextCache` | Cache read/write + hit rate | On message_end (when cache data available) |
-| `contextFooter` | Full footer bar | On any relevant event |
-| `caveman` | Caveman level indicator | On level change |
-| Themed working indicator | Animated dot pulse | During agent execution |
+| Widget                   | Shows                             | Updates                                    |
+| ------------------------ | --------------------------------- | ------------------------------------------ |
+| `contextUsage`           | Token usage with color thresholds | On every message_end                       |
+| `contextCache`           | Cache read/write + hit rate       | On message_end (when cache data available) |
+| `contextFooter`          | Full footer bar                   | On any relevant event                      |
+| `caveman`                | Caveman level indicator           | On level change                            |
+| Themed working indicator | Animated dot pulse                | During agent execution                     |
 
 ### Configuration (optional)
 
@@ -50,16 +50,16 @@ In `.pi/settings.json`:
 
 ```json
 {
-  "contextInfo": {
-    "showTimer": true,
-    "showWorktree": true,
-    "showToolCount": true,
-    "thresholds": {
-      "tokenGreen": 10000,
-      "tokenYellow": 30000,
-      "tokenRed": 60000
-    }
-  }
+	"contextInfo": {
+		"showTimer": true,
+		"showWorktree": true,
+		"showToolCount": true,
+		"thresholds": {
+			"tokenGreen": 10000,
+			"tokenYellow": 30000,
+			"tokenRed": 60000
+		}
+	}
 }
 ```
 
@@ -135,15 +135,15 @@ Each segment is a reactive Widget that updates when its backing `Reactive` value
 
 ### Event to Footer Update Map
 
-| Event | Fields Updated |
-|-------|---------------|
-| `session_start` | worktreeName, sessionName, trustStatus, sessionId |
-| `model_select` | modelName, contextWindow, cacheHitRate |
-| `thinking_level_select` | thinkingLevel |
-| `turn_end` | sessionName |
-| `message_end` | tokensUsed, tokensMax, cacheRead/Write, hitRate |
-| `message_update` | TPS samples |
-| `tool_execution_end` | toolCallCount |
+| Event                   | Fields Updated                                    |
+| ----------------------- | ------------------------------------------------- |
+| `session_start`         | worktreeName, sessionName, trustStatus, sessionId |
+| `model_select`          | modelName, contextWindow, cacheHitRate            |
+| `thinking_level_select` | thinkingLevel                                     |
+| `turn_end`              | sessionName                                       |
+| `message_end`           | tokensUsed, tokensMax, cacheRead/Write, hitRate   |
+| `message_update`        | TPS samples                                       |
+| `tool_execution_end`    | toolCallCount                                     |
 
 ## License
 

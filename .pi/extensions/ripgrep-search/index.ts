@@ -226,12 +226,7 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 						...summary.details,
 						searchDirectory: resolvedDir,
 					} as Record<string, unknown>,
-					structuredContent: buildStructuredContent(
-						cached.result,
-						searcherName,
-						query,
-						directory,
-					),
+					structuredContent: buildStructuredContent(cached.result, searcherName, query, directory),
 				};
 			}
 
@@ -335,12 +330,7 @@ export default function ripgrepSearch(pi: ExtensionAPI): void {
 			return {
 				content: [{ type: "text" as const, text }],
 				details,
-				structuredContent: buildStructuredContent(
-					searchResult,
-					searcherName,
-					query,
-					directory,
-				),
+				structuredContent: buildStructuredContent(searchResult, searcherName, query, directory),
 			};
 		},
 		renderCall: renderCallImpl,

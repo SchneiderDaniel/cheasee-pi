@@ -204,7 +204,14 @@ describe("fetch-report CLI adapter", () => {
 		const s = await shim(404, "MD", {
 			mdStatuses: [404],
 			runStatus: 202,
-			statuses: [{ state: "failed", reason: "analyzer-error", error: "boom", produced: { markdown: false, json: false } }],
+			statuses: [
+				{
+					state: "failed",
+					reason: "analyzer-error",
+					error: "boom",
+					produced: { markdown: false, json: false },
+				},
+			],
 		});
 		routeTo(s);
 		const cap = capture();

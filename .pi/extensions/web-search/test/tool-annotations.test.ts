@@ -76,9 +76,6 @@ describe("web_search outputSchema — real SDK loader conformance", () => {
 		const schema = webSearchDefinition().outputSchema;
 		assert.ok(schema, "outputSchema should be present");
 		const serialized = JSON.stringify(schema);
-		assert.ok(
-			(serialized.match(/"ok"/g) ?? []).length >= 2,
-			"both ok branches declared",
-		);
+		assert.ok((serialized.match(/"ok"/g) ?? []).length >= 2, "both ok branches declared");
 	});
 });

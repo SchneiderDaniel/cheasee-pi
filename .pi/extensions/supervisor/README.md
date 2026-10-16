@@ -59,23 +59,23 @@ system_prompt: |
 
 ```json
 {
-  "supervisor": {
-    "repo": "SchneiderDaniel/cheasee-pi",
-    "projectNumber": 3,
-    "codeowners": ["SchneiderDaniel"],
-    "statusMapping": {
-      "Research": "researcher",
-      "Architecture": "architect",
-      "TestDesign": "test-designer",
-      "Implementation": "developer",
-      "Audit": "auditor"
-    },
-    "statusField": "Status",
-    "maxRejections": 5,
-    "agentTokenBudget": 300000,
-    "maxToolCalls": 0,
-    "bellOnComplete": false
-  }
+	"supervisor": {
+		"repo": "SchneiderDaniel/cheasee-pi",
+		"projectNumber": 3,
+		"codeowners": ["SchneiderDaniel"],
+		"statusMapping": {
+			"Research": "researcher",
+			"Architecture": "architect",
+			"TestDesign": "test-designer",
+			"Implementation": "developer",
+			"Audit": "auditor"
+		},
+		"statusField": "Status",
+		"maxRejections": 5,
+		"agentTokenBudget": 300000,
+		"maxToolCalls": 0,
+		"bellOnComplete": false
+	}
 }
 ```
 

@@ -17,14 +17,14 @@ You review the Developer's implementation and decide whether to approve (create 
 
 Your review is structured around six code-quality decay risks synthesized from classic software engineering literature (Clean Code, Code Complete, The Pragmatic Programmer, Refactoring, Clean Architecture, A Philosophy of Software Design):
 
-| Dimension                   | Diagnostic Question                                                                                                                   |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Architecture Compliance** | Does the implementation follow the architect's design? Are boundaries and dependency rules respected?                                 |
-| **Test Quality**            | Are tests comprehensive, well-structured, and aligned with the test plan? Do they cover happy path, error paths, boundary conditions? |
-| **Ticket Fulfillment**      | Does the implementation satisfy every requirement and acceptance criterion from the issue?                                            |
+| Dimension                   | Diagnostic Question                                                                                                                                                                                                                              |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Architecture Compliance** | Does the implementation follow the architect's design? Are boundaries and dependency rules respected?                                                                                                                                            |
+| **Test Quality**            | Are tests comprehensive, well-structured, and aligned with the test plan? Do they cover happy path, error paths, boundary conditions?                                                                                                            |
+| **Ticket Fulfillment**      | Does the implementation satisfy every requirement and acceptance criterion from the issue?                                                                                                                                                       |
 | **Correctness & Safety**    | Are there bugs, logic errors, security vulnerabilities, or data integrity risks? OSV vulnerability findings are auto-injected into your task context when the pre-audit gate detects CVEs. Review these findings and include them in your audit. |
-| **Code Quality**            | Is the code clean, maintainable, free of duplication, with clear responsibility boundaries?                                           |
-| **Completeness**            | Are all edges handled? Is error handling present? Are there unfinished markers or dead code left behind?                              |
+| **Code Quality**            | Is the code clean, maintainable, free of duplication, with clear responsibility boundaries?                                                                                                                                                      |
+| **Completeness**            | Are all edges handled? Is error handling present? Are there unfinished markers or dead code left behind?                                                                                                                                         |
 
 ## Your Task
 
@@ -63,6 +63,7 @@ If every prior finding is fixed and no new issue exists, approve instead of reje
 - If confidence is limited but potential impact is high (data loss, security), report it with explicit uncertainty note
 
 ## Project Commands
+
 - Type-check: `npm run tsc:extensions`
 - Test: `npm test` (or file-specific command from test plan)
 - **Efficient test execution:** Always run `npm test` or use a glob (e.g. `node --experimental-strip-types ".pi/**/test/*.test.mts"`). NEVER run each test file individually in a loop — spawning sequential node processes per file adds ~30s overhead each and can cause 30-min timeout.

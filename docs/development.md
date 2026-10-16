@@ -12,15 +12,15 @@ changes in the correct component and validate the affected behavior.
 
 ## Source map
 
-| Path | Component |
-|---|---|
-| `cmd/cheasee-pi/` | Go CLI, command tests, and helpers. |
-| `cmd/cheasee-pi/embedded/` | Resources embedded into the CLI binary, including the Docker stack and workspace scaffold. |
-| `cmd/cheasee-pi/embedded/docker/ui/` | Rust/Axum web control-center service and its tests. |
-| `.pi/extensions/<name>/` | TypeScript Pi extension and extension-local tests. |
-| `.pi/extensions/lib/` | Shared TypeScript extension helpers; this directory is not an extension. |
-| `docs/` | Jekyll documentation site, with extension guides in `docs/extensions/`. |
-| `test/` | Repository-level Node.js tests and documentation or workflow guards. |
+| Path                                 | Component                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `cmd/cheasee-pi/`                    | Go CLI, command tests, and helpers.                                                        |
+| `cmd/cheasee-pi/embedded/`           | Resources embedded into the CLI binary, including the Docker stack and workspace scaffold. |
+| `cmd/cheasee-pi/embedded/docker/ui/` | Rust/Axum web control-center service and its tests.                                        |
+| `.pi/extensions/<name>/`             | TypeScript Pi extension and extension-local tests.                                         |
+| `.pi/extensions/lib/`                | Shared TypeScript extension helpers; this directory is not an extension.                   |
+| `docs/`                              | Jekyll documentation site, with extension guides in `docs/extensions/`.                    |
+| `test/`                              | Repository-level Node.js tests and documentation or workflow guards.                       |
 
 Pi extensions are loaded from `.pi/extensions/`. Changes to embedded Docker
 resources must also be tested through the Go CLI, because the CLI extracts

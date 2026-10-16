@@ -86,4 +86,3 @@ export function extractSummaryLine(
 	}
 	return success ? `${agentName} completed` : `${agentName} failed`;
 }
-

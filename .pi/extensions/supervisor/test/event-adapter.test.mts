@@ -787,9 +787,7 @@ describe("processNormalizedEvent", () => {
 			{
 				kind: "done",
 				message: {
-					content: [
-						{ type: "thinking", thinking: "only thinking content here" },
-					],
+					content: [{ type: "thinking", thinking: "only thinking content here" }],
 				},
 			},
 			state,
@@ -806,7 +804,11 @@ describe("processNormalizedEvent", () => {
 		);
 		assert.equal(state.thinkingPushedThisTurn, true, "thinkingPushedThisTurn should be true");
 		// textPushedThisTurn should remain false since only thinking content was pushed
-		assert.equal(state.textPushedThisTurn, false, "textPushedThisTurn should be false (no text block)");
+		assert.equal(
+			state.textPushedThisTurn,
+			false,
+			"textPushedThisTurn should be false (no text block)",
+		);
 	});
 });
 

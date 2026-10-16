@@ -63,6 +63,7 @@ flowchart LR
 ### Renderer Adaptation
 
 The TUI renderer (`renderer.ts`) shows:
+
 - Summary: "Structural search: N matches"
 - Each match: hyperlinked file path (OSC 8 `file://`), line range, truncated snippet
 - Collapsed view: 5 matches default; expanded view: 20 matches
@@ -72,6 +73,7 @@ The TUI renderer (`renderer.ts`) shows:
 ### Testing
 
 Tests cover:
+
 - NDJSON parsing from ast-grep `--json=stream` output
 - Exit code interpretation (0, 1 empty, 1 with stderr, 2+)
 - Cache FIFO eviction boundary (200 entries)

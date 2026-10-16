@@ -59,7 +59,10 @@ describe("WebSearchOutputSchema — ok-discriminated union", () => {
 	});
 
 	it("(entity) missing or wrong ok discriminator fails", () => {
-		assert.equal(Value.Check(WebSearchOutputSchema, { query: "q", returned: 0, results: [] }), false);
+		assert.equal(
+			Value.Check(WebSearchOutputSchema, { query: "q", returned: 0, results: [] }),
+			false,
+		);
 		assert.equal(
 			Value.Check(WebSearchOutputSchema, { ok: "true", query: "q", returned: 0, results: [] }),
 			false,
@@ -88,7 +91,9 @@ describe("WebSearchOutputSchema — ok-discriminated union", () => {
 	});
 
 	it("(entity) boundary: zero results validate", () => {
-		assert.ok(Value.Check(WebSearchOutputSchema, { ok: true, query: "q", returned: 0, results: [] }));
+		assert.ok(
+			Value.Check(WebSearchOutputSchema, { ok: true, query: "q", returned: 0, results: [] }),
+		);
 	});
 
 	it("(entity) serialized schema round-trips and still validates both branches", () => {
@@ -148,7 +153,8 @@ describe("types.ts exports — SearchResult, SearchParams, SearchCacheEntry", ()
 	});
 
 	it("(D) types.ts re-exports ExecResult from lib/port-types.ts", () => {
-		const reexport = /export\s+type\s*\{[^}]*\bExecResult\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
+		const reexport =
+			/export\s+type\s*\{[^}]*\bExecResult\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
 		assert.ok(
 			reexport.test(typesSource),
 			"types.ts should re-export ExecResult from lib/port-types.ts",
@@ -156,7 +162,8 @@ describe("types.ts exports — SearchResult, SearchParams, SearchCacheEntry", ()
 	});
 
 	it("(D) types.ts re-exports ExecFn from lib/port-types.ts", () => {
-		const reexport = /export\s+type\s*\{[^}]*\bExecFn\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
+		const reexport =
+			/export\s+type\s*\{[^}]*\bExecFn\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
 		assert.ok(
 			reexport.test(typesSource),
 			"types.ts should re-export ExecFn from lib/port-types.ts",
@@ -164,7 +171,8 @@ describe("types.ts exports — SearchResult, SearchParams, SearchCacheEntry", ()
 	});
 
 	it("(D) types.ts re-exports OnUpdateCallback from lib/port-types.ts", () => {
-		const reexport = /export\s+type\s*\{[^}]*\bOnUpdateCallback\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
+		const reexport =
+			/export\s+type\s*\{[^}]*\bOnUpdateCallback\b[^}]*\}\s*from\s+["']\.\.\/lib\/port-types\.ts["']/;
 		assert.ok(
 			reexport.test(typesSource),
 			"types.ts should re-export OnUpdateCallback from lib/port-types.ts",

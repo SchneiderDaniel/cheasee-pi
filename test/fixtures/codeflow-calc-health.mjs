@@ -8,20 +8,31 @@
  * drift from it. Re-run the generator when the pin moves.
  */
 export function calcHealth(data) {
-    if(!data)return{score:0,grade:'F'};
-    var score=100;
-    var deadPct=data.stats.functions>0?(data.stats.dead/data.stats.functions*100):0;
-    score-=Math.min(20,deadPct);
-    var circular=data.issues.filter(function(i){return i.title.includes('Circular');}).length;
-    score-=Math.min(20,circular*5);
-    var god=data.issues.filter(function(i){return i.title.includes('Large');}).length;
-    score-=Math.min(15,god*3);
-    var avgCoup=data.stats.files>0?(data.stats.connections/data.stats.files):0;
-    score-=Math.min(15,Math.max(0,avgCoup-3)*2);
-    var sec=data.securityIssues?data.securityIssues.filter(function(i){return i.severity==='high';}).length:0;
-    score-=Math.min(20,sec*5);
-    score=Math.max(0,Math.round(score));
-    var grade='F';
-    if(score>=90)grade='A';else if(score>=80)grade='B';else if(score>=70)grade='C';else if(score>=60)grade='D';
-    return{score:score,grade:grade};
+	if (!data) return { score: 0, grade: "F" };
+	var score = 100;
+	var deadPct = data.stats.functions > 0 ? (data.stats.dead / data.stats.functions) * 100 : 0;
+	score -= Math.min(20, deadPct);
+	var circular = data.issues.filter(function (i) {
+		return i.title.includes("Circular");
+	}).length;
+	score -= Math.min(20, circular * 5);
+	var god = data.issues.filter(function (i) {
+		return i.title.includes("Large");
+	}).length;
+	score -= Math.min(15, god * 3);
+	var avgCoup = data.stats.files > 0 ? data.stats.connections / data.stats.files : 0;
+	score -= Math.min(15, Math.max(0, avgCoup - 3) * 2);
+	var sec = data.securityIssues
+		? data.securityIssues.filter(function (i) {
+				return i.severity === "high";
+			}).length
+		: 0;
+	score -= Math.min(20, sec * 5);
+	score = Math.max(0, Math.round(score));
+	var grade = "F";
+	if (score >= 90) grade = "A";
+	else if (score >= 80) grade = "B";
+	else if (score >= 70) grade = "C";
+	else if (score >= 60) grade = "D";
+	return { score: score, grade: grade };
 }

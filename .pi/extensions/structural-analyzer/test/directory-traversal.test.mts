@@ -125,7 +125,11 @@ describe("structural_search directory containment guard", () => {
 			executeTool(pi, { pattern: PATTERN, language: "ts", directory: "../../etc" }),
 		);
 		assert.match(err.message, /Directory traversal detected/);
-		assert.equal(getCache(poisonedKey, currentCacheEpoch()), FAKE_RESPONSE, "test premise: entry still present");
+		assert.equal(
+			getCache(poisonedKey, currentCacheEpoch()),
+			FAKE_RESPONSE,
+			"test premise: entry still present",
+		);
 	});
 
 	it("guard blocks a cache entry keyed by the resolved out-of-root path", async () => {

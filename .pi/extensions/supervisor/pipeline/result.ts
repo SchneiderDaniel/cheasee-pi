@@ -25,8 +25,7 @@ import type { NotifyFn } from "./helpers.ts";
  * ```
  */
 export type Result<T, E = string> =
-	| { ok: true; value: T }
-	| { ok: false; error: E; source: string };
+	{ ok: true; value: T } | { ok: false; error: E; source: string };
 
 /**
  * Normalize the pi.exec contract: it resolves `{code}` even on a non-zero

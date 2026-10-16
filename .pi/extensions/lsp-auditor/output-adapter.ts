@@ -70,8 +70,10 @@ function formatTuiWithUris(diagnostics: LspDiagnostic[], worktreePath: string): 
 	const blocks: string[] = [];
 	for (const [filePath, diags] of byFile) {
 		const uri = pathToFileUri(filePath);
-		pushLineBlock(blocks, diags, (d) =>
-			`${uri}:${d.line}:${d.column} — [${d.severity}] ${truncateMessage(d.message)}`,
+		pushLineBlock(
+			blocks,
+			diags,
+			(d) => `${uri}:${d.line}:${d.column} — [${d.severity}] ${truncateMessage(d.message)}`,
 		);
 	}
 

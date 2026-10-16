@@ -11,9 +11,7 @@ import type {
 
 // ─── Parse Dependency Timeline ────────────────────────────────────
 
-export function parseDepsTimeline(
-	nodes: GhTimelineNode[] | null | undefined,
-): DepsResult {
+export function parseDepsTimeline(nodes: GhTimelineNode[] | null | undefined): DepsResult {
 	if (!nodes || nodes.length === 0) {
 		return { blocked: false, blockers: [] };
 	}

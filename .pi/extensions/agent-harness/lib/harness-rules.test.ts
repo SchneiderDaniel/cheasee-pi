@@ -92,9 +92,7 @@ describe("REDIRECT_GUIDANCE", () => {
 
 describe("REDIRECT_GUIDANCE.read drift guard (#1728)", () => {
 	it("forbidden enumerates only commands that actually redirect to read", () => {
-		const tokens = [...REDIRECT_GUIDANCE["read"].forbidden.matchAll(/'([^']+)'/g)].map(
-			(m) => m[1],
-		);
+		const tokens = [...REDIRECT_GUIDANCE["read"].forbidden.matchAll(/'([^']+)'/g)].map((m) => m[1]);
 		assert.ok(tokens.length > 0, "forbidden should enumerate at least one command token");
 		for (const token of tokens) {
 			assert.strictEqual(
@@ -353,14 +351,21 @@ describe("isCodeFilePath removal", () => {
 		assert.equal(typeof m.CACHE_TTL_TURNS, "number", "CACHE_TTL_TURNS should be a number");
 		assert.equal(m.CASCADE_THRESHOLD, 8, "CASCADE_THRESHOLD should be 8");
 		assert.ok(m.MULTI_VERB_TOOLS instanceof Set, "MULTI_VERB_TOOLS should be a Set");
-		assert.ok(typeof m.TOOL_META === "object" && m.TOOL_META !== null, "TOOL_META should be an object");
+		assert.ok(
+			typeof m.TOOL_META === "object" && m.TOOL_META !== null,
+			"TOOL_META should be an object",
+		);
 
 		// Exports
 		assert.equal(typeof m.REDIRECT_GUIDANCE, "object", "REDIRECT_GUIDANCE should be an object");
 
 		// Functions
 		assert.equal(typeof m.loadDefaultRules, "function", "loadDefaultRules should be a function");
-		assert.equal(typeof m.buildRedirectMessage, "function", "buildRedirectMessage should be a function");
+		assert.equal(
+			typeof m.buildRedirectMessage,
+			"function",
+			"buildRedirectMessage should be a function",
+		);
 		assert.equal(typeof m.getToolMeta, "function", "getToolMeta should be a function");
 		assert.equal(typeof m.shouldBlockRetry, "function", "shouldBlockRetry should be a function");
 		assert.equal(typeof m.isRedundantRead, "function", "isRedundantRead should be a function");

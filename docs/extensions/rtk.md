@@ -59,6 +59,7 @@ bash "git status"
 RTK's rewrite registry covers the most token-heavy commands. The registry is defined in the upstream Rust crate (`src/discover/registry.rs`) — add new rules there, not in the extension.
 
 Common rewrites:
+
 - `git status` → `rtk git status` (groups files by status, hides unchanged)
 - `git diff` → `rtk git diff` (hides unchanged hunks, shows only changed)
 - `git log` → `rtk git log` (compact format, one line per commit)
@@ -75,25 +76,25 @@ See [rtk-ai/rtk#command-registry](https://github.com/rtk-ai/rtk) for full list.
 
 ### Fail-open behavior
 
-| Scenario | Behavior |
-|----------|----------|
-| rtk binary not in PATH | Console warning at session start, extension disabled |
-| rtk < 0.23.0 | Console warning at session start, extension disabled |
-| `rtk rewrite` returns error | Pass-through — original command unchanged |
-| `rtk rewrite` times out | Pass-through (2s timeout) |
-| Extension throws | Pass-through, console warning |
-| `RTK_DISABLED=1` set | Extension loaded but skips all rewrites; also suppresses the session-start version probe/spawn |
-| Command starts with `rtk ` | Skipped — prevents recursion |
+| Scenario                    | Behavior                                                                                       |
+| --------------------------- | ---------------------------------------------------------------------------------------------- |
+| rtk binary not in PATH      | Console warning at session start, extension disabled                                           |
+| rtk < 0.23.0                | Console warning at session start, extension disabled                                           |
+| `rtk rewrite` returns error | Pass-through — original command unchanged                                                      |
+| `rtk rewrite` times out     | Pass-through (2s timeout)                                                                      |
+| Extension throws            | Pass-through, console warning                                                                  |
+| `RTK_DISABLED=1` set        | Extension loaded but skips all rewrites; also suppresses the session-start version probe/spawn |
+| Command starts with `rtk `  | Skipped — prevents recursion                                                                   |
 
 ### No conflict with other extensions
 
 RTK only touches `tool_call` → `bash` → `event.input.command`. Extensions that also register `tool_call`:
 
-| Extension | Interaction |
-|-----------|------------|
-| worktree-sandbox | Prepends `cd /sandbox && ` after RTK rewrite — safe order: RTK first, sandbox wraps |
-| agent-harness | Validates tool calls, blocks grep/rg/cat/less/more — RTK-rewritten commands (prefix `rtk`) bypass the filter |
-| session-logger | Read-only observer |
+| Extension        | Interaction                                                                                                  |
+| ---------------- | ------------------------------------------------------------------------------------------------------------ |
+| worktree-sandbox | Prepends `cd /sandbox && ` after RTK rewrite — safe order: RTK first, sandbox wraps                          |
+| agent-harness    | Validates tool calls, blocks grep/rg/cat/less/more — RTK-rewritten commands (prefix `rtk`) bypass the filter |
+| session-logger   | Read-only observer                                                                                           |
 
 ### Analytics
 

@@ -7,3 +7,9 @@ tmp/
 *.min.js
 *.min.css
 package-lock.json
+# Generated renderer byte-goldens: compared byte-for-byte in
+# session-logger-renderer-golden.test.mts, so Prettier must not touch them.
+.pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/
+# Generated snapshot the Rust ui crate embeds via include_str! and Go pins
+# byte-for-byte in TestUIProviderEnvMapParity — must stay 2-space JSON.
+cmd/cheasee-pi/embedded/docker/ui/provider_env_map.json

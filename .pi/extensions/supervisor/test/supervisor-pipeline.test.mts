@@ -166,9 +166,10 @@ function buildArchitectRunContext(opts: {
 	results: AgentRunResult[];
 	postIssueComment: ReturnType<typeof mock.fn>;
 }): RunContext {
-	const runner = mock.fn(async () =>
-		opts.results.shift() ??
-		makeAgentResult("architect", { success: false, textOutput: "failed", textOnly: "failed" }),
+	const runner = mock.fn(
+		async () =>
+			opts.results.shift() ??
+			makeAgentResult("architect", { success: false, textOutput: "failed", textOnly: "failed" }),
 	);
 	return {
 		args: undefined,
@@ -251,7 +252,9 @@ describe("pipeline handler — post-agent-success gate (behavior, issue #1866)",
 	it("architect failure skips post-success processing and stops the pipeline", async () => {
 		const postIssueComment = mock.fn(async () => {});
 		const runCtx = buildArchitectRunContext({
-			results: [makeAgentResult("architect", { success: false, textOutput: "boom", textOnly: "boom" })],
+			results: [
+				makeAgentResult("architect", { success: false, textOutput: "boom", textOnly: "boom" }),
+			],
 			postIssueComment,
 		});
 		const { runAgentLoop } = await import("../pipeline/handler/agent-loop.ts");

@@ -17,7 +17,10 @@ import { join } from "node:path";
 
 /** Temp workspace root with an optional cheasee-settings.json (always written
  * — the file IS the workspace marker; `{}` when not specified). */
-export function makeWorkspace(prefix: string, settingsContent?: string): { root: string; parent: string } {
+export function makeWorkspace(
+	prefix: string,
+	settingsContent?: string,
+): { root: string; parent: string } {
 	const parent = mkdtempSync(join(tmpdir(), prefix));
 	const root = join(parent, "ws");
 	mkdirSync(root, { recursive: true });
@@ -35,7 +38,11 @@ export function makeBareWithRemote(parent: string, url: string): void {
 
 /** Runs `fn` with `name` set to `value` (deleted when undefined), restoring the
  * prior value — including on throw. Touches no other env key. */
-export function withEnvVar(name: string, value: string | undefined, fn: () => Promise<void>): Promise<void> {
+export function withEnvVar(
+	name: string,
+	value: string | undefined,
+	fn: () => Promise<void>,
+): Promise<void> {
 	const saved = process.env[name];
 	return (async () => {
 		try {

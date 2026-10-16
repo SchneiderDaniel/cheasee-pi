@@ -10,12 +10,7 @@
 // flow one-way in here, never out. Callers keep importing from this
 // path; the leaf exports are internal surface, not re-exported.
 
-import type {
-	AgentOutput,
-	FailedParse,
-	ParseResult,
-	RefusedOutput,
-} from "../config/types.ts";
+import type { AgentOutput, FailedParse, ParseResult, RefusedOutput } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { isToolLine } from "../lib/tool-line.ts";
 import {

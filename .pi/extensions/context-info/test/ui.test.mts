@@ -19,7 +19,8 @@ import { makeBareWithRemote, makeWorkspace as makeWorkspaceFor, withEnvVar } fro
 
 /** ui-test- workspace fixture bound to this suite's temp prefix. */
 const makeWorkspace = (settingsContent?: string) => makeWorkspaceFor("ui-test-", settingsContent);
-const withEnv = (port: string | undefined, fn: () => Promise<void>) => withEnvVar("PI_UI_PORT", port, fn);
+const withEnv = (port: string | undefined, fn: () => Promise<void>) =>
+	withEnvVar("PI_UI_PORT", port, fn);
 const withUnresolved = (flag: string | undefined, fn: () => Promise<void>) =>
 	withEnvVar("CHEASEE_UI_PORT_UNRESOLVED", flag, fn);
 
@@ -41,7 +42,10 @@ describe("uiPortFromSlug", () => {
 		const slugs = ["", "a", "repo-alpha", "schneiderdaniel-cheasee-pi", "x".repeat(200)];
 		for (const slug of slugs) {
 			const port = uiPortFromSlug(slug);
-			assert.ok(port >= 9500 && port <= 10523, `port ${port} for slug ${JSON.stringify(slug)} out of range`);
+			assert.ok(
+				port >= 9500 && port <= 10523,
+				`port ${port} for slug ${JSON.stringify(slug)} out of range`,
+			);
 		}
 	});
 });
@@ -93,7 +97,7 @@ describe("uiHostPort", () => {
 		});
 	});
 
-	it("settings docker.uiPort: \"\" treated as absent → falls through", async () => {
+	it('settings docker.uiPort: "" treated as absent → falls through', async () => {
 		const { root } = makeWorkspace(`{"docker":{"uiPort":""}}`);
 		await withEnv("9700", async () => {
 			assert.strictEqual(await uiHostPort(root), "9700");
@@ -126,7 +130,11 @@ describe("uiHostPort", () => {
 		const { root } = makeWorkspace();
 		for (const bad of ["abc", "0", "65536", "12x", "\u001b]8;;evil\u0007", "-1"]) {
 			await withEnv(bad, async () => {
-				assert.strictEqual(await uiHostPort(root), null, `port ${JSON.stringify(bad)} must be rejected`);
+				assert.strictEqual(
+					await uiHostPort(root),
+					null,
+					`port ${JSON.stringify(bad)} must be rejected`,
+				);
 				assert.strictEqual(await uiUrl(root), null);
 			});
 		}
@@ -136,7 +144,10 @@ describe("uiHostPort", () => {
 		const { root } = makeWorkspace(`{"docker":{"uiPort":"\u001b]8;;evil\u0007"}}`);
 		await withEnv(undefined, async () => {
 			const port = await uiHostPort(root);
-			assert.ok(port !== null && /^[0-9]{1,5}$/.test(port), "settings payload must not reach the URL");
+			assert.ok(
+				port !== null && /^[0-9]{1,5}$/.test(port),
+				"settings payload must not reach the URL",
+			);
 			assert.ok(Number(port) >= 9500 && Number(port) <= 10523);
 		});
 	});
@@ -174,7 +185,10 @@ describe("uiUrl", () => {
 		const { root } = makeWorkspace(`{"docker":{"uiPort":"9600"}}`);
 		await withEnv(undefined, async () => {
 			const url = await uiUrl(root);
-			assert.ok(url !== null && !url.includes("localhost"), "UI URL must use the literal IPv4 loopback");
+			assert.ok(
+				url !== null && !url.includes("localhost"),
+				"UI URL must use the literal IPv4 loopback",
+			);
 		});
 	});
 
@@ -190,7 +204,10 @@ describe("uiUrl", () => {
 		const { root } = makeWorkspace();
 		await withEnv(undefined, async () => {
 			const url = await uiUrl(root);
-			assert.ok(url !== null && !/[\u0000-\u001f\u007f]/.test(url), "no control chars may reach the OSC 8 target");
+			assert.ok(
+				url !== null && !/[\u0000-\u001f\u007f]/.test(url),
+				"no control chars may reach the OSC 8 target",
+			);
 		});
 	});
 });

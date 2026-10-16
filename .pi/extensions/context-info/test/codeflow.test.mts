@@ -29,8 +29,10 @@ import { makeBareWithRemote, makeWorkspace as makeWorkspaceFor, withEnvVar } fro
 // ── Fixtures ────────────────────────────────────
 
 /** codeflow-test- workspace fixture bound to this suite's temp prefix. */
-const makeWorkspace = (settingsContent?: string) => makeWorkspaceFor("codeflow-test-", settingsContent);
-const withEnv = (port: string | undefined, fn: () => Promise<void>) => withEnvVar("CODEFLOW_PORT", port, fn);
+const makeWorkspace = (settingsContent?: string) =>
+	makeWorkspaceFor("codeflow-test-", settingsContent);
+const withEnv = (port: string | undefined, fn: () => Promise<void>) =>
+	withEnvVar("CODEFLOW_PORT", port, fn);
 
 afterEach(() => {
 	delete process.env.CODEFLOW_PORT;
@@ -51,10 +53,20 @@ describe("fnv32", () => {
 	});
 
 	it("port always lands in [8470, 9493] inclusive for arbitrary slugs", () => {
-		const slugs = ["", "a", "repo-alpha", "repo-beta", "schneiderdaniel-cheasee-pi", "x".repeat(200)];
+		const slugs = [
+			"",
+			"a",
+			"repo-alpha",
+			"repo-beta",
+			"schneiderdaniel-cheasee-pi",
+			"x".repeat(200),
+		];
 		for (const slug of slugs) {
 			const port = codeflowPortFromSlug(slug);
-			assert.ok(port >= 8470 && port <= 9493, `port ${port} for slug ${JSON.stringify(slug)} out of range`);
+			assert.ok(
+				port >= 8470 && port <= 9493,
+				`port ${port} for slug ${JSON.stringify(slug)} out of range`,
+			);
 		}
 	});
 });
@@ -71,9 +83,18 @@ describe("sanitizeSlug", () => {
 
 describe("parseGitRemote", () => {
 	it("parses scp-like and https remotes, stripping .git", () => {
-		assert.deepStrictEqual(parseGitRemote("git@github.com:owner/repo.git"), { owner: "owner", repo: "repo" });
-		assert.deepStrictEqual(parseGitRemote("https://github.com/owner/repo.git"), { owner: "owner", repo: "repo" });
-		assert.deepStrictEqual(parseGitRemote("https://github.com/owner/repo"), { owner: "owner", repo: "repo" });
+		assert.deepStrictEqual(parseGitRemote("git@github.com:owner/repo.git"), {
+			owner: "owner",
+			repo: "repo",
+		});
+		assert.deepStrictEqual(parseGitRemote("https://github.com/owner/repo.git"), {
+			owner: "owner",
+			repo: "repo",
+		});
+		assert.deepStrictEqual(parseGitRemote("https://github.com/owner/repo"), {
+			owner: "owner",
+			repo: "repo",
+		});
 	});
 
 	it("returns null for empty/unparseable input (fallback path)", () => {
@@ -87,8 +108,23 @@ describe("parseGitRemote", () => {
 describe("validPort", () => {
 	it("accepts decimal ports 1-65535 and rejects everything else", () => {
 		for (const ok of ["1", "80", "9500", "65535"]) assert.strictEqual(validPort(ok), ok);
-		for (const bad of ["", "0", "65536", "abc", "12x", "-1", "1.5", "\u001b]8;;evil\u0007", null, undefined]) {
-			assert.strictEqual(validPort(bad as any), null, `validPort(${JSON.stringify(bad)}) must be null`);
+		for (const bad of [
+			"",
+			"0",
+			"65536",
+			"abc",
+			"12x",
+			"-1",
+			"1.5",
+			"\u001b]8;;evil\u0007",
+			null,
+			undefined,
+		]) {
+			assert.strictEqual(
+				validPort(bad as any),
+				null,
+				`validPort(${JSON.stringify(bad)}) must be null`,
+			);
 		}
 	});
 });
@@ -106,8 +142,14 @@ describe("readDockerPortSetting", () => {
 	it("returns null for absent file, malformed JSON and missing docker key", () => {
 		const absent = mkdtempSync(join(tmpdir(), "codeflow-absent-"));
 		assert.strictEqual(readDockerPortSetting(absent, "codeflowPort"), null);
-		assert.strictEqual(readDockerPortSetting(makeWorkspace(`{not valid json`).root, "codeflowPort"), null);
-		assert.strictEqual(readDockerPortSetting(makeWorkspace(`{"docker":{}}`).root, "codeflowPort"), null);
+		assert.strictEqual(
+			readDockerPortSetting(makeWorkspace(`{not valid json`).root, "codeflowPort"),
+			null,
+		);
+		assert.strictEqual(
+			readDockerPortSetting(makeWorkspace(`{"docker":{}}`).root, "codeflowPort"),
+			null,
+		);
 		assert.strictEqual(readDockerPortSetting(makeWorkspace(`{}`).root, "codeflowPort"), null);
 	});
 
@@ -169,7 +211,10 @@ describe("codeflowHostPort", () => {
 		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"9100"}}`);
 		await withEnv("9123", async () => {
 			assert.strictEqual(await codeflowHostPort(root), "9123");
-			assert.strictEqual(await codeflowUrl(root), "http://localhost:9123/?repo=local/workspace&run=1");
+			assert.strictEqual(
+				await codeflowUrl(root),
+				"http://localhost:9123/?repo=local/workspace&run=1",
+			);
 		});
 	});
 
@@ -205,7 +250,10 @@ describe("codeflowHostPort", () => {
 		const { root } = makeWorkspace(`{"docker":{"codeflowPort":"\u001b]8;;evil\u0007"}}`);
 		await withEnv(undefined, async () => {
 			const port = await codeflowHostPort(root);
-			assert.ok(port !== null && /^[0-9]{1,5}$/.test(port), "settings payload must not reach the URL");
+			assert.ok(
+				port !== null && /^[0-9]{1,5}$/.test(port),
+				"settings payload must not reach the URL",
+			);
 		});
 	});
 
@@ -246,10 +294,9 @@ describe("codeflowHostPort", () => {
 		// Owner-less remote → repo name only.
 		const bareNoOwner = makeWorkspace();
 		mkdirSync(join(bareNoOwner.parent, ".bare"), { recursive: true });
-		execSync(
-			`git --git-dir "${join(bareNoOwner.parent, ".bare")}" init --bare`,
-			{ stdio: "ignore" },
-		);
+		execSync(`git --git-dir "${join(bareNoOwner.parent, ".bare")}" init --bare`, {
+			stdio: "ignore",
+		});
 		execSync(
 			`git --git-dir "${join(bareNoOwner.parent, ".bare")}" config remote.origin.url "https://example.com/onlyrepo.git"`,
 			{ stdio: "ignore" },

@@ -128,9 +128,7 @@ describe("resolveSkillPaths regression (Phase 2)", () => {
 			warnSpy.mock.restore();
 		}
 		assert.ok(warnSpy.mock.calls.length >= 1, "should warn for missing skill");
-		assert.ok(
-			String(warnSpy.mock.calls[0]?.arguments[0] ?? "").includes("nonexistent-skill-xyz"),
-		);
+		assert.ok(String(warnSpy.mock.calls[0]?.arguments[0] ?? "").includes("nonexistent-skill-xyz"));
 	});
 });
 

@@ -59,7 +59,12 @@ describe("parseDepsTimeline()", () => {
 		const nodes: GhTimelineNode[] = [
 			{
 				__typename: "BlockedByAddedEvent",
-				blockingIssue: { id: "i1", number: 456, title: "No state", state: null as unknown as string },
+				blockingIssue: {
+					id: "i1",
+					number: 456,
+					title: "No state",
+					state: null as unknown as string,
+				},
 			},
 		];
 		const result = parseDepsTimeline(nodes);
@@ -233,17 +238,13 @@ describe("extractProjectItemFields()", () => {
 	});
 
 	it("extracts status from field named 'status' (lowercase)", () => {
-		const nodes: ProjectFieldValueNode[] = [
-			{ name: "Done", field: { id: "f1", name: "status" } },
-		];
+		const nodes: ProjectFieldValueNode[] = [{ name: "Done", field: { id: "f1", name: "status" } }];
 		const result = extractProjectItemFields(nodes);
 		assert.equal(result.status, "Done");
 	});
 
 	it("extracts status from field named 'STATUS' (uppercase)", () => {
-		const nodes: ProjectFieldValueNode[] = [
-			{ name: "Todo", field: { id: "f1", name: "STATUS" } },
-		];
+		const nodes: ProjectFieldValueNode[] = [{ name: "Todo", field: { id: "f1", name: "STATUS" } }];
 		const result = extractProjectItemFields(nodes);
 		assert.equal(result.status, "Todo");
 	});
@@ -258,9 +259,7 @@ describe("extractProjectItemFields()", () => {
 	});
 
 	it("skips fields with null/undefined field.id", () => {
-		const nodes: ProjectFieldValueNode[] = [
-			{ name: "Value", field: { id: "", name: "Broken" } },
-		];
+		const nodes: ProjectFieldValueNode[] = [{ name: "Value", field: { id: "", name: "Broken" } }];
 		const result = extractProjectItemFields(nodes);
 		assert.equal(result.fieldValues, undefined);
 	});
@@ -289,9 +288,7 @@ describe("extractProjectItemFields()", () => {
 	});
 
 	it("returns undefined fieldValues when no fields have id", () => {
-		const nodes: ProjectFieldValueNode[] = [
-			{ name: "In Progress" },
-		];
+		const nodes: ProjectFieldValueNode[] = [{ name: "In Progress" }];
 		const result = extractProjectItemFields(nodes);
 		assert.equal(result.status, undefined);
 		assert.equal(result.fieldValues, undefined);

@@ -252,8 +252,15 @@ describe("AgentHarness — session_start config loading", () => {
 
 		assert.equal(notifyCalls.length, 1, "exactly one warning");
 		assert.equal(notifyCalls[0].type, "warning");
-		assert.ok(notifyCalls[0].message.includes("tools"), `message should name the key: ${notifyCalls[0].message}`);
-		assert.equal(await defaultThresholdEndures(api), 7, "7 writes pass — config was discarded, defaults apply");
+		assert.ok(
+			notifyCalls[0].message.includes("tools"),
+			`message should name the key: ${notifyCalls[0].message}`,
+		);
+		assert.equal(
+			await defaultThresholdEndures(api),
+			7,
+			"7 writes pass — config was discarded, defaults apply",
+		);
 	});
 
 	it("mode 'rpc' + unknown-key config → sendUserMessage once naming the key, ui.notify NOT called", async () => {
@@ -272,7 +279,11 @@ describe("AgentHarness — session_start config loading", () => {
 			{ type: "session_start", reason: "new" },
 			makeConfigCtx({
 				mode: "rpc",
-				ui: { notify: () => { notifyCalled = true; } },
+				ui: {
+					notify: () => {
+						notifyCalled = true;
+					},
+				},
 			}),
 		);
 
@@ -291,16 +302,27 @@ describe("AgentHarness — session_start config loading", () => {
 			let sendCalled = false;
 			const errors: unknown[][] = [];
 			const originalError = console.error;
-			console.error = (...args: unknown[]) => { errors.push(args); };
+			console.error = (...args: unknown[]) => {
+				errors.push(args);
+			};
 			try {
 				const api = createMockAPI();
-				(api as any).sendUserMessage = () => { sendCalled = true; };
+				(api as any).sendUserMessage = () => {
+					sendCalled = true;
+				};
 				agentHarness(api);
 
 				await api.fire(
 					"session_start",
 					{ type: "session_start", reason: "new" },
-					makeConfigCtx({ mode, ui: { notify: () => { notifyCalled = true; } } }),
+					makeConfigCtx({
+						mode,
+						ui: {
+							notify: () => {
+								notifyCalled = true;
+							},
+						},
+					}),
 				);
 			} finally {
 				console.error = originalError;
@@ -324,14 +346,22 @@ describe("AgentHarness — session_start config loading", () => {
 		let notifyCalled = false;
 		const errors: unknown[][] = [];
 		const originalError = console.error;
-		console.error = (...args: unknown[]) => { errors.push(args); };
+		console.error = (...args: unknown[]) => {
+			errors.push(args);
+		};
 		try {
 			const api = createMockAPI();
 			agentHarness(api);
 			await api.fire(
 				"session_start",
 				{ type: "session_start", reason: "new" },
-				makeConfigCtx({ ui: { notify: () => { notifyCalled = true; } } }),
+				makeConfigCtx({
+					ui: {
+						notify: () => {
+							notifyCalled = true;
+						},
+					},
+				}),
 			);
 		} finally {
 			console.error = originalError;
@@ -353,7 +383,10 @@ describe("AgentHarness — session_start config loading", () => {
 		await api.fire(
 			"session_start",
 			{ type: "session_start", reason: "new" },
-			makeConfigCtx({ mode: "tui", ui: { notify: (message: string) => notifyCalls.push(message) } }),
+			makeConfigCtx({
+				mode: "tui",
+				ui: { notify: (message: string) => notifyCalls.push(message) },
+			}),
 		);
 
 		assert.equal(notifyCalls.length, 1);
@@ -372,11 +405,23 @@ describe("AgentHarness — session_start config loading", () => {
 		agentHarness(api);
 
 		process.chdir(permissiveDir);
-		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx({ mode: "tui" }));
-		assert.equal(await defaultThresholdEndures(api), 8, "session 1 runs with its threshold-20 rule");
+		await api.fire(
+			"session_start",
+			{ type: "session_start", reason: "new" },
+			makeConfigCtx({ mode: "tui" }),
+		);
+		assert.equal(
+			await defaultThresholdEndures(api),
+			8,
+			"session 1 runs with its threshold-20 rule",
+		);
 
 		process.chdir(brokenDir);
-		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx({ mode: "tui" }));
+		await api.fire(
+			"session_start",
+			{ type: "session_start", reason: "new" },
+			makeConfigCtx({ mode: "tui" }),
+		);
 		assert.equal(
 			await defaultThresholdEndures(api),
 			7,

@@ -1,55 +1,47 @@
 {
-  "defaultModel": "deepseek-v4-flash",
-  "defaultProvider": "opencode-go",
-  "docker": {
-    "memory": "5G",
-    "cpus": "4.0"
-  },
-  "extensions": [
-    "rtk"
-  ],
-  "gitIdentity": {
-    "name": "",
-    "email": ""
-  },
-  "packages": [
-    {
-      "source": "https://github.com/DietrichGebert/ponytail",
-      "skills": [
-        "!ponytail-*"
-      ]
-    },
-    "https://github.com/SchneiderDaniel/private-pi"
-  ],
-  "prompts": [],
-  "sessionDir": ".pi/sessions",
-  "skills": [
-    ".pi/skills"
-  ],
-  "supervisor": {
-    "repo": "SchneiderDaniel/cheasee-pi",
-    "projectNumber": 3,
-    "statusField": "Status",
-    "statusMapping": {
-      "Research": "researcher",
-      "Architecture": "architect",
-      "TestDesign": "test-designer",
-      "Implementation": "developer",
-      "Audit": "auditor"
-    },
-    "maxRejections": 3,
-    "codeowners": [
-      "SchneiderDaniel"
-    ],
-    "agentTimeoutsMin": {},
-    "agentTimeoutTierScale": {
-      "medium": 1.5,
-      "large": 2
-    },
-    "agentTokenBudget": 300000,
-    "bellOnComplete": false,
-    "enableExperimentalFeatures": false
-  },
-  "theme": "cheasee-pi",
-  "tuiMode": "regular"
+	"defaultModel": "deepseek-v4-flash",
+	"defaultProvider": "opencode-go",
+	"docker": {
+		"memory": "5G",
+		"cpus": "4.0"
+	},
+	"extensions": ["rtk"],
+	"gitIdentity": {
+		"name": "",
+		"email": ""
+	},
+	"packages": [
+		{
+			"source": "https://github.com/DietrichGebert/ponytail",
+			"skills": ["!ponytail-*"]
+		},
+		"https://github.com/SchneiderDaniel/private-pi"
+	],
+	"prompts": [],
+	"sessionDir": ".pi/sessions",
+	"skills": [".pi/skills"],
+	"supervisor": {
+		"repo": "SchneiderDaniel/cheasee-pi",
+		"projectNumber": 3,
+		"statusField": "Status",
+		"statusMapping": {
+			"Research": "researcher",
+			"Architecture": "architect",
+			"TestDesign": "test-designer",
+			"Implementation": "developer",
+			"Audit": "auditor"
+		},
+		"maxRejections": 3,
+		"codeowners": ["SchneiderDaniel"],
+		"agentTimeoutsMin": {},
+		"agentTimeoutTierScale": {
+			"medium": 1.5,
+			"large": 2
+		},
+		"agentTokenBudget": 300000,
+		"bellOnComplete": false,
+		"enableExperimentalFeatures": false
+	},
+	"theme": "cheasee-pi",
+	"tuiMode": "regular"
 }

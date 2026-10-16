@@ -49,7 +49,12 @@ if (hasMockModule) {
 		namedExports: {
 			runCiGate: (async () => ({})) as unknown,
 			runDuplicateGate: (async () => ({
-				dupResult: { status: "no_jscpd", clones: [], totalDuplicateLines: 0, changedFilesScanned: [] },
+				dupResult: {
+					status: "no_jscpd",
+					clones: [],
+					totalDuplicateLines: 0,
+					changedFilesScanned: [],
+				},
 			})) as unknown,
 			runDeadCodeGate: (async () => ({
 				deadResult: { status: "no_knip", findings: [], totalDeadLines: 0, changedFilesScanned: [] },
@@ -182,7 +187,14 @@ if (hasMockModule) {
 			tscCheckpointResult = {
 				hasErrors: true,
 				diagnostics: [
-					{ file: "a.ts", line: 1, column: 1, severity: "Error", message: "boom", filePath: "/wt/a.ts" },
+					{
+						file: "a.ts",
+						line: 1,
+						column: 1,
+						severity: "Error",
+						message: "boom",
+						filePath: "/wt/a.ts",
+					},
 				],
 			};
 			const { runTscGate } = await import("../pipeline/audit/tsc-gate.ts");

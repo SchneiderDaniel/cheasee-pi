@@ -53,12 +53,12 @@ read .pi/settings.json
 
 Extract these values (parse manually from the file):
 
-| Variable | JSON path | How to extract |
-|----------|-----------|----------------|
-| `REPO` | `supervisor.repo` | Find `"repo": "OWNER/REPO"` in file |
-| `PROJECT_NUM` | `supervisor.projectNumber` | Find `"projectNumber": N` in file |
-| `STATUS_FIELD` | `supervisor.statusField` | Find `"statusField": "Status"` in file |
-| `STATUS_MAPPING` | `supervisor.statusMapping` | Find mapping object |
+| Variable         | JSON path                  | How to extract                         |
+| ---------------- | -------------------------- | -------------------------------------- |
+| `REPO`           | `supervisor.repo`          | Find `"repo": "OWNER/REPO"` in file    |
+| `PROJECT_NUM`    | `supervisor.projectNumber` | Find `"projectNumber": N` in file      |
+| `STATUS_FIELD`   | `supervisor.statusField`   | Find `"statusField": "Status"` in file |
+| `STATUS_MAPPING` | `supervisor.statusMapping` | Find mapping object                    |
 
 Set variables for later use:
 
@@ -83,11 +83,11 @@ If fails → stop: "Repo `$REPO` not found or no access."
 
 Ask user or infer from request:
 
-| Type | Template file | Default label |
-|------|--------------|---------------|
-| Bug | `.github/ISSUE_TEMPLATE/bug_report.md` | `bug` |
-| Feature request | `.github/ISSUE_TEMPLATE/feature_request.md` | `enhancement` |
-| Other (task, docs, etc.) | No template — use freeform | determine label |
+| Type                     | Template file                               | Default label   |
+| ------------------------ | ------------------------------------------- | --------------- |
+| Bug                      | `.github/ISSUE_TEMPLATE/bug_report.md`      | `bug`           |
+| Feature request          | `.github/ISSUE_TEMPLATE/feature_request.md` | `enhancement`   |
+| Other (task, docs, etc.) | No template — use freeform                  | determine label |
 
 If unclear, ask user: "Is this a bug report, feature request, or other?"
 
@@ -139,12 +139,12 @@ Run for each permutation. Collect results.
 
 #### Evaluate
 
-| Condition | Action |
-|-----------|--------|
-| Exact/near-exact title match | **Stop.** Tell user: "Duplicate of #N. Review before filing." |
+| Condition                          | Action                                                               |
+| ---------------------------------- | -------------------------------------------------------------------- |
+| Exact/near-exact title match       | **Stop.** Tell user: "Duplicate of #N. Review before filing."        |
 | Same root cause, different wording | **Stop.** Tell user: "Likely duplicate of #N. Review before filing." |
-| Related but different | Note them. Proceed with caution. |
-| Clean — no matches | Proceed to step 4. |
+| Related but different              | Note them. Proceed with caution.                                     |
+| Clean — no matches                 | Proceed to step 4.                                                   |
 
 ---
 
@@ -254,21 +254,21 @@ Write to temp file.
 
 #### 5a — Construct the title
 
-| Type | Title format |
-|------|-------------|
-| Bug | `[Bug] <short description>` |
+| Type    | Title format                    |
+| ------- | ------------------------------- |
+| Bug     | `[Bug] <short description>`     |
 | Feature | `[Feature] <short description>` |
-| Other | `<short description>` |
+| Other   | `<short description>`           |
 
 #### 5b — Determine labels
 
 Start with defaults from template frontmatter. Add more based on context:
 
-| Context | Additional labels |
-|---------|------------------|
-| Affects specific area | Use area label if exists |
-| Major impact | `major` |
-| Good for new contributors | `good first issue` |
+| Context                   | Additional labels        |
+| ------------------------- | ------------------------ |
+| Affects specific area     | Use area label if exists |
+| Major impact              | `major`                  |
+| Good for new contributors | `good first issue`       |
 
 List available labels:
 
@@ -347,10 +347,10 @@ If `OWNER_TYPE` is `user`, the GraphQL field is `user`. If `organization`, it's 
 
 Parse the output:
 
-| Extract | Description |
-|---------|-------------|
-| `projectId` | Project node ID (e.g., `PVT_kw...`) |
-| `statusFieldId` | Status field ID (e.g., `PVTSSF_...`) |
+| Extract         | Description                                  |
+| --------------- | -------------------------------------------- |
+| `projectId`     | Project node ID (e.g., `PVT_kw...`)          |
+| `statusFieldId` | Status field ID (e.g., `PVTSSF_...`)         |
 | `statusOptions` | Array of `{id, name}` for each status option |
 
 Build a mapping of status name → option ID from the response.
@@ -375,11 +375,11 @@ rm ignore/project-add-result.json
 
 Map from issue type to status:
 
-| Issue type | Status |
-|-----------|--------|
-| Bug report | `Backlog` |
-| Feature request | `Backlog` |
-| Other / task | `Backlog` |
+| Issue type                    | Status         |
+| ----------------------------- | -------------- |
+| Bug report                    | `Backlog`      |
+| Feature request               | `Backlog`      |
+| Other / task                  | `Backlog`      |
 | User specifies explicit stage | Use that stage |
 
 Find the option ID for the chosen status from the mapping discovered in 6a.
@@ -409,17 +409,17 @@ Project board: added with status "<status-name>"
 
 ## Error Handling
 
-| Scenario | Action |
-|----------|--------|
-| `gh auth status` fails | Stop. "Run `gh auth login` to authenticate." |
-| Duplicate found in step 3 | Stop. Report duplicate #N. Do NOT file. |
-| Template file missing | Fall back to freeform body composition |
-| `gh repo view` fails in step 1 | Stop. "Repo from settings.json not found or no access." |
-| `gh issue create` fails | Show error. Check labels exist, title not empty. |
-| `gh project item-add` fails | Issue created but not on board. Report both. |
-| `gh project item-edit` fails | Issue on board but status not set. Report partial success. |
-| GraphQL query fails in 6a | Issue created but not added to board. Report. |
-| Rate limited (403) | Stop. "GitHub API rate limited. Wait and retry." |
+| Scenario                       | Action                                                     |
+| ------------------------------ | ---------------------------------------------------------- |
+| `gh auth status` fails         | Stop. "Run `gh auth login` to authenticate."               |
+| Duplicate found in step 3      | Stop. Report duplicate #N. Do NOT file.                    |
+| Template file missing          | Fall back to freeform body composition                     |
+| `gh repo view` fails in step 1 | Stop. "Repo from settings.json not found or no access."    |
+| `gh issue create` fails        | Show error. Check labels exist, title not empty.           |
+| `gh project item-add` fails    | Issue created but not on board. Report both.               |
+| `gh project item-edit` fails   | Issue on board but status not set. Report partial success. |
+| GraphQL query fails in 6a      | Issue created but not added to board. Report.              |
+| Rate limited (403)             | Stop. "GitHub API rate limited. Wait and retry."           |
 
 ## Writing Rules
 
@@ -427,7 +427,7 @@ Project board: added with status "<status-name>"
 2. **Reproducible steps** — Clear imperatives, ordered sequence.
 3. **Exact versions** — Cite pi version, OS, package versions where relevant.
 4. **Template sections** — Follow template order exactly. Do not reorder.
-5. **Markdown** — Use headings (`##`), code blocks (```` ``` ````), and lists only.
+5. **Markdown** — Use headings (`##`), code blocks (` ``` `), and lists only.
 6. **Temp file** — Always use `--body-file`, never `--body` inline.
 7. **Cleanup** — Delete temp files after use.
 

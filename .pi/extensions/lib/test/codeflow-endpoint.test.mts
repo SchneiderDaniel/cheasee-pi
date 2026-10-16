@@ -38,7 +38,15 @@ describe("codeflowServiceUrl", () => {
 	});
 
 	it("rejects empty, whitespace, scheme-bearing, path-bearing and control-char hosts", () => {
-		for (const bad of ["", "   ", "http://x", "codeflow/api", "co deflow", "codeflow\rhack", "\u0000"]) {
+		for (const bad of [
+			"",
+			"   ",
+			"http://x",
+			"codeflow/api",
+			"co deflow",
+			"codeflow\rhack",
+			"\u0000",
+		]) {
 			process.env.CODEFLOW_SERVICE_HOST = bad;
 			assert.throws(
 				() => codeflowServiceUrl(),
@@ -50,7 +58,10 @@ describe("codeflowServiceUrl", () => {
 
 	it("does not import the host-port resolver (confusion guard)", () => {
 		const source = readFileSync(MODULE_PATH, "utf-8");
-		const imports = source.split("\n").filter((l) => /^\s*import\b/.test(l)).join("\n");
+		const imports = source
+			.split("\n")
+			.filter((l) => /^\s*import\b/.test(l))
+			.join("\n");
 		assert.ok(!imports.includes("codeflowHostPort"), "must not import codeflowHostPort");
 		assert.ok(!imports.includes("context-info/codeflow"), "must not import context-info/codeflow");
 	});

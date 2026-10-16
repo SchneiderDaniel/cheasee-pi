@@ -57,12 +57,18 @@ describe("formatTrend removed from index.ts", () => {
 
 	it("diagnosticToTscDiagnostic is still re-exported from index.ts", async () => {
 		const mod = await import("../index.ts");
-		assert.strictEqual(typeof (mod as Record<string, unknown>).diagnosticToTscDiagnostic, "function");
+		assert.strictEqual(
+			typeof (mod as Record<string, unknown>).diagnosticToTscDiagnostic,
+			"function",
+		);
 	});
 
 	it("resolveDiagnosticFilePath is still re-exported from index.ts", async () => {
 		const mod = await import("../index.ts");
-		assert.strictEqual(typeof (mod as Record<string, unknown>).resolveDiagnosticFilePath, "function");
+		assert.strictEqual(
+			typeof (mod as Record<string, unknown>).resolveDiagnosticFilePath,
+			"function",
+		);
 	});
 
 	it("DiagnosticsWatcher is still re-exported from index.ts", async () => {

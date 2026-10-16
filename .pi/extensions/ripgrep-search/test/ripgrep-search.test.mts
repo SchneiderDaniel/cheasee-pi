@@ -39,10 +39,7 @@ import {
 	renderResultImpl,
 	wrapOsc8Link,
 } from "../index.ts";
-import {
-	setTestCtxMode,
-	getCtxMode,
-} from "../internal.ts";
+import { setTestCtxMode, getCtxMode } from "../internal.ts";
 import {
 	validateQuery,
 	registerTempDir,
@@ -1109,7 +1106,10 @@ describe("cache module", () => {
 		});
 
 		it("same width, different directory — cache miss (existing dimension preserved)", () => {
-			setCachedResult("q", "src", 10, { result: { total_returned: 1, results: [] }, rawStdout: "" });
+			setCachedResult("q", "src", 10, {
+				result: { total_returned: 1, results: [] },
+				rawStdout: "",
+			});
 			assert.strictEqual(getCachedResult("q", "lib", 10), undefined);
 		});
 	});
@@ -1316,7 +1316,6 @@ describe("cache module", () => {
 			assert.strictEqual(getCachedResult("q", ".", 500), undefined);
 		});
 	});
-
 });
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -1341,10 +1340,9 @@ describe("execute — resolved maxCount keyed into cache (Issue 1731)", () => {
 			const mIdx = args.indexOf("-m");
 			const width = mIdx >= 0 ? parseInt(args[mIdx + 1]!, 10) : 0;
 			const n = Math.min(Number.isFinite(width) ? width : 0, 500);
-			const stdout = Array.from(
-				{ length: n },
-				(_, i) => `src/a.ts:${i + 1}:match ${i + 1}`,
-			).join("\n");
+			const stdout = Array.from({ length: n }, (_, i) => `src/a.ts:${i + 1}:match ${i + 1}`).join(
+				"\n",
+			);
 			return { code: n > 0 ? 0 : 1, stdout, stderr: "" };
 		};
 		const pi = {
@@ -2626,10 +2624,9 @@ describe("execute — structuredContent + annotations (Issue 1791)", () => {
 		bold: (s: string) => `*${s}*`,
 	} as any;
 
-	const HAPPY_STDOUT = Array.from(
-		{ length: 3 },
-		(_, i) => `src/a.ts:${i + 1}:match ${i + 1}`,
-	).join("\n");
+	const HAPPY_STDOUT = Array.from({ length: 3 }, (_, i) => `src/a.ts:${i + 1}:match ${i + 1}`).join(
+		"\n",
+	);
 
 	// vimgrep output (file:line:column:text) — the rg backend's parse format.
 	const VIMGREP_STDOUT = [
@@ -2930,7 +2927,7 @@ describe("cache invalidation on tool_result (Issue 1900)", () => {
 		assert.strictEqual(resultCache.size, 0);
 	});
 
-	it('read-only tools leave seeded entries intact', async () => {
+	it("read-only tools leave seeded entries intact", async () => {
 		seed("a", ".");
 		seed("b", ".");
 		await fireToolResult({ toolName: "read" });
@@ -3135,7 +3132,10 @@ describe("backend output parsers", () => {
 			const raw = "\n\t\na.ts:1:1:x\n   \nb.ts:2:1:y\n\n";
 			const r = parseVimgrepOutput(raw);
 			assert.strictEqual(r.total_returned, 2);
-			assert.deepStrictEqual(r.results.map((m) => m.file), ["a.ts", "b.ts"]);
+			assert.deepStrictEqual(
+				r.results.map((m) => m.file),
+				["a.ts", "b.ts"],
+			);
 		});
 
 		it("malformed lines are skipped without counting", () => {
@@ -3177,10 +3177,7 @@ describe("backend output parsers", () => {
 		});
 
 		it("file path with a ./ prefix is preserved verbatim", () => {
-			assert.strictEqual(
-				parseVimgrepOutput("./src/a.ts:5:3:x").results[0].file,
-				"./src/a.ts",
-			);
+			assert.strictEqual(parseVimgrepOutput("./src/a.ts:5:3:x").results[0].file, "./src/a.ts");
 			assert.strictEqual(parseGrepOutput("./src/a.ts:5:x").results[0].file, "./src/a.ts");
 		});
 	});
@@ -3225,12 +3222,7 @@ describe("backend output parsers", () => {
 			for (const name of ["vimgrep", "grep"] as const) {
 				const raw = name === "vimgrep" ? vimLines(1) : grepLines(1);
 				const entry = parsers[name](raw).results[0];
-				assert.deepStrictEqual(Object.keys(entry).sort(), [
-					"column",
-					"file",
-					"line",
-					"text",
-				]);
+				assert.deepStrictEqual(Object.keys(entry).sort(), ["column", "file", "line", "text"]);
 				assert.strictEqual(typeof entry.line, "number");
 				assert.strictEqual(typeof entry.column, "number");
 				assert.ok(!Number.isNaN(entry.line));
@@ -3263,4 +3255,3 @@ describe("backend output parsers", () => {
 		});
 	});
 });
-

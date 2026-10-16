@@ -73,10 +73,7 @@ describe("buildNestedStats", () => {
 	it("nestedCalls absent → recorded:0 without throwing; calls:[] → recorded:0", () => {
 		assert.equal(buildNestedStats(undefined).recorded, 0);
 		assert.equal(buildNestedStats({}).recorded, 0);
-		assert.equal(
-			buildNestedStats({ nestedCalls: { calls: [], complete: true } }).recorded,
-			0,
-		);
+		assert.equal(buildNestedStats({ nestedCalls: { calls: [], complete: true } }).recorded, 0);
 	});
 
 	it("dropped-error boundary: recorded list has no error, totalErrors carries the true count", () => {
@@ -202,6 +199,9 @@ describe("nested-stats purity", () => {
 	it("imports no TUI or host package", () => {
 		const source = readFileSync(join(__dirname, "..", "session", "nested-stats.ts"), "utf8");
 		assert.ok(!source.includes("@earendil-works/pi-tui"), "must not import pi-tui");
-		assert.ok(!source.includes("@earendil-works/pi-coding-agent"), "must not import pi-coding-agent");
+		assert.ok(
+			!source.includes("@earendil-works/pi-coding-agent"),
+			"must not import pi-coding-agent",
+		);
 	});
 });

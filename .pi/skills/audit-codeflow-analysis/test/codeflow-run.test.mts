@@ -11,7 +11,12 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { ensureReport, parseRunStatus, type RunFetchFn, type SleepFn } from "../lib/codeflow-run.ts";
+import {
+	ensureReport,
+	parseRunStatus,
+	type RunFetchFn,
+	type SleepFn,
+} from "../lib/codeflow-run.ts";
 
 const BASE = "http://shim";
 
@@ -74,10 +79,22 @@ describe("ensureReport", () => {
 			}
 			polls++;
 			if (polls < 3) return json(statusBody());
-			return json(statusBody({ state: "succeeded", finishedAt: 9, reportAt: 1767225600000, produced: { markdown: true, json: true } }));
+			return json(
+				statusBody({
+					state: "succeeded",
+					finishedAt: 9,
+					reportAt: 1767225600000,
+					produced: { markdown: true, json: true },
+				}),
+			);
 		});
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.deepStrictEqual(res, { ok: true, reportAt: 1767225600000 });
 		assert.strictEqual(h.postCount(), 1, "exactly one trigger POST");
@@ -93,10 +110,21 @@ describe("ensureReport", () => {
 			polls++;
 			return polls === 1
 				? json(statusBody({ runId: "r9" }))
-				: json(statusBody({ runId: "r9", state: "succeeded", produced: { markdown: true, json: false } }));
+				: json(
+						statusBody({
+							runId: "r9",
+							state: "succeeded",
+							produced: { markdown: true, json: false },
+						}),
+					);
 		});
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.strictEqual(res.ok, true);
 		assert.strictEqual(h.postCount(), 1, "no second POST after a 409");
@@ -131,7 +159,12 @@ describe("ensureReport", () => {
 				: json(statusBody({ state: "failed", reason: "analyzer-error", error: "boom" })),
 		);
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.strictEqual(res.ok, false);
 		if (res.ok) return;
@@ -146,7 +179,12 @@ describe("ensureReport", () => {
 				: json(statusBody({ state: "failed", reason: "no-markdown" })),
 		);
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.strictEqual(res.ok, false);
 		if (res.ok) return;
@@ -161,7 +199,12 @@ describe("ensureReport", () => {
 				: json(statusBody({ state: "succeeded", produced: { markdown: false, json: true } })),
 		);
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.strictEqual(res.ok, false);
 		if (res.ok) return;
@@ -172,7 +215,12 @@ describe("ensureReport", () => {
 	it("returns the run-route-absent sentinel on POST 404 without polling", async () => {
 		const h = harness(() => json({ message: "Not Found" }, 404));
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.deepStrictEqual(res, { ok: false, kind: "run-route-absent" });
 		assert.strictEqual(h.statusPolls(), 0, "must not poll when the route is absent");
@@ -181,7 +229,12 @@ describe("ensureReport", () => {
 	it("names analyzer unavailability on POST 503 without polling", async () => {
 		const h = harness(() => json({ reason: "analyzer-unavailable" }, 503));
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.strictEqual(res.ok, false);
 		if (res.ok) return;
@@ -192,10 +245,17 @@ describe("ensureReport", () => {
 
 	it("fails closed on a malformed status body (no unbounded poll)", async () => {
 		const h = harness((path, init) =>
-			init?.method === "POST" ? json({ runId: "r1", state: "running" }, 202) : json({ state: "running" }),
+			init?.method === "POST"
+				? json({ runId: "r1", state: "running" }, 202)
+				: json({ state: "running" }),
 		);
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.strictEqual(res.ok, false);
 		if (res.ok) return;
@@ -211,7 +271,12 @@ describe("ensureReport", () => {
 				: json(statusBody({ state: "exploded" })),
 		);
 
-		const res = await ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE });
+		const res = await ensureReport({
+			fetchFn: h.fetchFn,
+			sleepFn: h.sleepFn,
+			nowFn: h.nowFn,
+			base: BASE,
+		});
 
 		assert.strictEqual(res.ok, false);
 		if (res.ok) return;
@@ -233,7 +298,14 @@ describe("ensureReport", () => {
 		});
 
 		await assert.rejects(
-			() => ensureReport({ fetchFn: h.fetchFn, sleepFn: h.sleepFn, nowFn: h.nowFn, base: BASE, signal: controller.signal }),
+			() =>
+				ensureReport({
+					fetchFn: h.fetchFn,
+					sleepFn: h.sleepFn,
+					nowFn: h.nowFn,
+					base: BASE,
+					signal: controller.signal,
+				}),
 			/cancelled/,
 		);
 	});
@@ -244,7 +316,9 @@ describe("ensureReport", () => {
 			new Promise((_resolve, reject) => {
 				const signal = init?.signal;
 				if (signal?.aborted) return reject(signal.reason ?? new Error("aborted"));
-				signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true });
+				signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), {
+					once: true,
+				});
 			});
 
 		const start = Date.now();
@@ -270,7 +344,9 @@ describe("ensureReport", () => {
 			return new Promise((_resolve, reject) => {
 				const signal = init?.signal;
 				if (signal?.aborted) return reject(signal.reason ?? new Error("aborted"));
-				signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), { once: true });
+				signal?.addEventListener("abort", () => reject(signal.reason ?? new Error("aborted")), {
+					once: true,
+				});
 			});
 		};
 

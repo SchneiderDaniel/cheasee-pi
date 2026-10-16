@@ -378,7 +378,12 @@ if (hasMockModule) {
 		namedExports: {
 			runCiGate: (async () => ({})) as unknown,
 			runDuplicateGate: (async () => ({
-				dupResult: { status: "no_jscpd", clones: [], totalDuplicateLines: 0, changedFilesScanned: [] },
+				dupResult: {
+					status: "no_jscpd",
+					clones: [],
+					totalDuplicateLines: 0,
+					changedFilesScanned: [],
+				},
 			})) as unknown,
 			runDeadCodeGate: (async () => ({
 				deadResult: { status: "no_knip", findings: [], totalDeadLines: 0, changedFilesScanned: [] },
@@ -489,4 +494,3 @@ if (hasMockModule) {
 		});
 	});
 }
-

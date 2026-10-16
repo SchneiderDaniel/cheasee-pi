@@ -9,10 +9,11 @@ nav_order: 4
 {: .no_toc }
 
 ## Table of contents
+
 {: .no_toc .text-delta }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ---
 
@@ -135,17 +136,18 @@ shared workspace mount, not the daemon.
 
 The `.pi/extensions/lib/` directory contains shared TypeScript modules used across multiple extensions, avoiding code duplication:
 
-| Module | Used by | Purpose |
-|--------|---------|---------|
-| `extension-state.ts` | session-logger, caveman | File-backed state persistence with sequential write queue |
-| `bash-query.ts` | agent-harness | Pure-function bash classification — detect `grep`/`cat` misuse, pipe patterns |
-| `ensureVenv.ts` | scrapling, web-search | Python venv auto-creation and dependency installation |
-| `proper-lockfile-ambient.ts` | session-logger | Ambient type declarations for proper-lockfile. **Mandatory:** any consumer of `lockfile.lock()` MUST pass a custom `onCompromised` handler that logs a warning via `onUpdate` instead of throwing (otherwise the upstream default `throw` crashes the process from inside a `setTimeout` callback — see #1136). The canonical handler is in `ensureVenv.ts:acquireLock`. |
-| `tsc-types.ts` | tsc-checkpoint | Reusable TypeScript compiler API types |
+| Module                       | Used by                 | Purpose                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `extension-state.ts`         | session-logger, caveman | File-backed state persistence with sequential write queue                                                                                                                                                                                                                                                                                                                |
+| `bash-query.ts`              | agent-harness           | Pure-function bash classification — detect `grep`/`cat` misuse, pipe patterns                                                                                                                                                                                                                                                                                            |
+| `ensureVenv.ts`              | scrapling, web-search   | Python venv auto-creation and dependency installation                                                                                                                                                                                                                                                                                                                    |
+| `proper-lockfile-ambient.ts` | session-logger          | Ambient type declarations for proper-lockfile. **Mandatory:** any consumer of `lockfile.lock()` MUST pass a custom `onCompromised` handler that logs a warning via `onUpdate` instead of throwing (otherwise the upstream default `throw` crashes the process from inside a `setTimeout` callback — see #1136). The canonical handler is in `ensureVenv.ts:acquireLock`. |
+| `tsc-types.ts`               | tsc-checkpoint          | Reusable TypeScript compiler API types                                                                                                                                                                                                                                                                                                                                   |
 
 These are not extensions themselves — they are imported by extension code via relative imports.
 
 The repo root is bind-mounted at `/workspaces/main`. Host UID/GID are mapped to container user `agentuser`.
+
 ## Workspace layout & settings split
 
 `cheasee-pi start` gates on the workspace state instead of “is a git repo”:
