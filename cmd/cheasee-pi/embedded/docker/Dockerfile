@@ -328,11 +328,14 @@ RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts 
 # install; the expensive clone/npm-ci layers stay cached. Kept BEFORE
 # Layer 7's entrypoint COPY because that layer changes most frequently:
 # if pi sat absolute-last, every entrypoint/lib change would reinstall it.
+# PI_VERSION defaults to the pinned released version (matches the compose
+# default); `PI_VERSION=latest` is the explicit override.
 ARG PI_VERSION=1.0.2
-# Cache-busting stamp: any change to this ARG invalidates the npm layer,
-# so @latest is re-resolved on every build instead of reusing a stale layer.
-# Set it to a per-build value (e.g. $(date +%s)) via `docker compose build
-# --build-arg PI_BUILD_STAMP=$(date +%s)`.
+# Cache-busting stamp: any change to this ARG invalidates the npm layer, so
+# the requested PI_VERSION is re-resolved on every build instead of reusing a
+# stale layer. Scoped to this service by docker-compose.yml build.args (the
+# CLI supplies it via the compose env); the ui sidecar deliberately does not
+# declare it.
 ARG PI_BUILD_STAMP
 RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
     && npm cache clean --force \

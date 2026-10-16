@@ -84,8 +84,10 @@ cheasee-pi start
 ```
 
 Without `--build`, a running container is reused — start execs pi directly
-(~2s). A stopped container is rebuilt first (the pi layer re-resolves
-`@latest` via the build stamp), so the first start after `down` is slower.
+(~2s). A stopped container is rebuilt first (the pi layer re-resolves its
+pinned `PI_VERSION` via the build stamp), so the first start after `down` is
+slower. `PI_VERSION=latest` is the explicit opt-in for the floating npm
+latest.
 
 ### Raw docker compose (power users)
 

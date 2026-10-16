@@ -111,12 +111,12 @@ RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x
 # pi-coding-agent — the `pi --mode rpc` child the server spawns (AC3/AC5).
 # PI_VERSION is pinned equal to the pi image's value by
 # TestUI_DockerfilePiVersionMatchesPiImage so the two clients never diverge.
+# The cache-busting PI_BUILD_STAMP is deliberately absent here: it is scoped to
+# the agent image only (docker-compose.yml build.args).
 ARG PI_VERSION=1.0.2
-ARG PI_BUILD_STAMP
 RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
  && npm cache clean --force \
- && rm -rf /tmp/* \
- && echo "${PI_BUILD_STAMP}" >/var/lib/pi-build-stamp
+ && rm -rf /tmp/*
 
 # Non-root runtime: the image is a loopback-pinned sidecar; port 3000 is
 # unprivileged, so the bind needs no elevation.

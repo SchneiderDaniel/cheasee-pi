@@ -170,9 +170,11 @@ In cheasee-pi workspaces the entrypoint re-points the global symlink at the
 live mounted repo file, so edits are live; in other repos the baked image
 copy is used (refreshed on image rebuild).
 
-Pi is installed as `@latest` at image build time, and `cheasee-pi start`
-rebuilds the image whenever the container isn't running — pi updates to the
-latest version automatically on every start. No manual update needed.
+Pi is installed at image build time pinned to a released version (currently
+`1.0.2`, matching the Dockerfile and compose defaults). `cheasee-pi start`
+rebuilds the image whenever the container isn't running, re-resolving that
+pinned version. To track the floating npm latest instead, opt in explicitly:
+`PI_VERSION=latest cheasee-pi start`.
 
 Stop the container when done:
 

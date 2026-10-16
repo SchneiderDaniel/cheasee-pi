@@ -23,10 +23,21 @@ func TestRunRebuildE_StampNonEmpty(t *testing.T) {
 	if err := runRebuildE(&cobra.Command{}, nil); err != nil {
 		t.Fatalf("runRebuildE: %v", err)
 	}
+	if len(stub.compose) != 1 {
+		t.Fatalf("expected exactly one compose build, got %d", len(stub.compose))
+	}
 	argv := stub.composeArgv()
-	stamp := strings.TrimPrefix(argv[6], "PI_BUILD_STAMP=")
+	if slices.Contains(argv, "--build-arg") {
+		t.Errorf("stamp must ride the compose env, not the argv, got %v", argv)
+	}
+	var stamp string
+	for _, e := range stub.compose[0].env {
+		if strings.HasPrefix(e, "PI_BUILD_STAMP=") {
+			stamp = strings.TrimPrefix(e, "PI_BUILD_STAMP=")
+		}
+	}
 	if stamp == "" {
-		t.Errorf("PI_BUILD_STAMP must be non-empty (cache-busting contract), got %q", argv[6])
+		t.Errorf("PI_BUILD_STAMP must be non-empty in the compose env (cache-busting contract), got %v", stub.compose[0].env)
 	}
 }
 
@@ -95,9 +106,12 @@ func TestComposeBuild_StampExtrasAndNoticeOrder(t *testing.T) {
 	workspace := t.TempDir()
 
 	var recorded [][]string
+	var built *mockCmd
 	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
 		if name == "docker" {
 			recorded = append(recorded, append([]string(nil), arg...))
+			built = &mockCmd{}
+			return built
 		}
 		return &mockCmd{}
 	})
@@ -116,15 +130,21 @@ func TestComposeBuild_StampExtrasAndNoticeOrder(t *testing.T) {
 		t.Fatalf("expected one docker invocation, got %v", recorded)
 	}
 	argv := recorded[0]
-	wantPrefix := []string{"compose", "-f", filepath.Join(composeDir, "docker-compose.yml"), "build", "--build-arg"}
-	if len(argv) != 8 || !slices.Equal(argv[:5], wantPrefix) {
+	wantPrefix := []string{"compose", "-f", filepath.Join(composeDir, "docker-compose.yml"), "build"}
+	if len(argv) != 6 || !slices.Equal(argv[:4], wantPrefix) {
 		t.Fatalf("unexpected argv = %v", argv)
 	}
-	if !strings.HasPrefix(argv[5], "PI_BUILD_STAMP=") || argv[5] == "PI_BUILD_STAMP=" {
-		t.Fatalf("stamp build-arg must be non-empty, got %v", argv)
-	}
-	if argv[6] != "--no-cache" || argv[7] != "--pull" {
+	if argv[4] != "--no-cache" || argv[5] != "--pull" {
 		t.Fatalf("caller extras must be appended in order, got %v", argv)
+	}
+	var stamp string
+	for _, e := range built.env {
+		if strings.HasPrefix(e, "PI_BUILD_STAMP=") {
+			stamp = strings.TrimPrefix(e, "PI_BUILD_STAMP=")
+		}
+	}
+	if stamp == "" {
+		t.Fatalf("stamp must ride the compose env, got %v", built.env)
 	}
 	noticeIdx := strings.Index(stderr, "First start downloads ~1GB")
 	labelIdx := strings.Index(stderr, "Building container image (no cache), full rebuild")

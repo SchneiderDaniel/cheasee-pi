@@ -17,8 +17,9 @@ use serde_json::{Map, Value};
 // Two rules hold for every type below:
 //
 // * **Forward compatible.** Each family carries a catch-all (`Unknown`) and no
-//   type denies unknown fields. pi ships as `PI_VERSION=latest`, so a release
-//   that adds a command, event, or field must not hard-error the record stream
+//   type denies unknown fields. The pinned `PI_VERSION` can be advanced (or
+//   overridden to `latest`), so a release that adds a command, event, or
+//   field must not hard-error the record stream
 //   (AC5: no parse failure may kill the stream).
 // * **Partially typed on purpose.** Payloads that a later slice owns (model
 //   objects, agent messages, tool results) stay raw `Value` until that slice
