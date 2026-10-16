@@ -71,3 +71,70 @@ func TestDockerfile_PiLayerAfterCloneBeforeEntrypoint(t *testing.T) {
 		t.Error("moved pi RUN must retain 'npm cache clean --force'")
 	}
 }
+
+func TestUIDockerfile_PiInstallAfterArtifactCopies(t *testing.T) {
+	content := uiAsset(t, "Dockerfile")
+	// Issue #2051: PI_BUILD_STAMP busts the pi install layer on every build.
+	// In the ui runtime stage the pi install must therefore be the LAST
+	// executable layer — after the expensive wasm-bundle COPYs and the
+	// recursive chown — so a stamp-only rebuild re-runs only that layer.
+	markers := []struct {
+		name string
+		text string
+	}{
+		{"ui binary COPY", "COPY --from=builder /build/target/server/release/cheasee-pi-ui"},
+		{"hash.txt COPY", "COPY --from=builder /build/target/server/release/hash.txt"},
+		{"site COPY", "COPY --from=builder /build/target/site"},
+		{"chown", "RUN chown -R ui:ui /app"},
+		{"ARG PI_VERSION", "ARG PI_VERSION="},
+		{"pi install", "npm install -g --force @earendil-works/pi-coding-agent"},
+		{"USER ui", "USER ui"},
+	}
+	idxs := make([]int, len(markers))
+	for i, m := range markers {
+		idx := strings.Index(content, m.text)
+		if idx == -1 {
+			t.Fatalf("ui/Dockerfile must contain %s marker %q (missing anchor — a reorder could silently pass)", m.name, m.text)
+		}
+		idxs[i] = idx
+	}
+	for i := 1; i < len(idxs); i++ {
+		if idxs[i-1] > idxs[i] {
+			t.Errorf("ui layer order broken: %s (offset %d) must precede %s (offset %d); the stamp-busted pi install must sit after the artifact COPYs and the chown", markers[i-1].name, idxs[i-1], markers[i].name, idxs[i])
+		}
+	}
+	// A half-move that re-adds an early install would keep the expensive COPYs
+	// busted — no `npm install -g` may appear before the ui binary COPY.
+	if early := content[:idxs[0]]; strings.Contains(early, "npm install -g") {
+		t.Error("no 'npm install -g' may appear before the cheasee-pi-ui COPY — it would re-layer every artifact layer on each build")
+	}
+	// Exactly one install, one version ARG, one stamp ARG: a moved copy must
+	// replace, not duplicate, and the version regex must not see a stale default.
+	for _, m := range []struct{ name, text string }{
+		{"pi install", "npm install -g --force @earendil-works/pi-coding-agent"},
+		{"ARG PI_VERSION", "ARG PI_VERSION="},
+		{"ARG PI_BUILD_STAMP", "ARG PI_BUILD_STAMP"},
+	} {
+		if got := strings.Count(content, m.text); got != 1 {
+			t.Errorf("exactly one %q required, got %d", m.name, got)
+		}
+	}
+	// Stamp contract stays inside the moved RUN: exactly one echo, between the
+	// install line and USER ui, alongside the npm cache cleanup.
+	echoLine := `echo "${PI_BUILD_STAMP}" >/var/lib/pi-build-stamp`
+	if got := strings.Count(content, echoLine); got != 1 {
+		t.Errorf("exactly one stamp echo (%q) required, got %d", echoLine, got)
+	}
+	echoIdx := strings.Index(content, echoLine)
+	installIdx, userIdx := idxs[5], idxs[6]
+	if !(installIdx < echoIdx && echoIdx < userIdx) {
+		t.Errorf("stamp echo (offset %d) must sit inside the pi RUN: after the install line (offset %d) and before USER ui (offset %d)", echoIdx, installIdx, userIdx)
+	}
+	if block := content[installIdx:userIdx]; !strings.Contains(block, "npm cache clean --force") || !strings.Contains(block, "rm -rf /tmp/*") {
+		t.Error("moved pi RUN must retain 'npm cache clean --force' and 'rm -rf /tmp/*'")
+	}
+	// The stamp ARG must move with the RUN, not linger above the COPYs.
+	if stampIdx := strings.Index(content, "ARG PI_BUILD_STAMP"); stampIdx < idxs[4] {
+		t.Errorf("ARG PI_BUILD_STAMP (offset %d) must sit after the chown offset %d", stampIdx, idxs[3])
+	}
+}
