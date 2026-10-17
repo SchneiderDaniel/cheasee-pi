@@ -41,7 +41,8 @@ workflow    cheasee-pi init → auth add <provider> → cheasee-pi start; docs b
   provider    LLM vendor; key in ~/.config/cheasee-pi/auth.json, injected as env vars
   skill repo  reusable pi instructions; installed via pi install -l (writes .pi/settings.json)
   CodeFlow    optional browser sidecar; port 8470 + fnv32(repo-slug) % 1024
-  CHEASEE_REF Dockerfile build ARG (default main); which cheasee-pi ref the image clones
+  CHEASEE_REF Dockerfile build ARG (default main); which cheasee-pi ref the image
+              clones. The baked commit is recorded at /opt/cheasee-pi/BUILD_COMMIT
 `
 
 // aboutFooter reuses root.go's docsDailyUsageURL (single source for the

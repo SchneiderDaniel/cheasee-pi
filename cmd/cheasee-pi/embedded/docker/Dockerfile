@@ -298,7 +298,18 @@ RUN groupadd --gid 1001 agentuser && \
 # package layout would run a second npm install at build and break the
 # dogfooding dedup.
 ARG CHEASEE_REF=main
+# Content-addressed cache-bust for the clone below (issue #2054): the CLI
+# resolves CHEASEE_REF's upstream commit (git ls-remote) and supplies it here,
+# so this layer re-runs exactly when upstream moves and stays cached when it
+# does not — never a bare constant that can freeze in the Docker layer cache
+# for months. Best-effort: an offline CLI leaves it empty and the build reuses
+# the cached layer. Referenced in the RUN so BuildKit folds it into the cache
+# key (an unreferenced ARG would not invalidate anything).
+ARG CHEASEE_COMMIT
 RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
+    && BAKED_COMMIT="$(git -C /opt/cheasee-pi rev-parse HEAD)" \
+    && if [ -n "${CHEASEE_COMMIT}" ] && [ "${CHEASEE_COMMIT}" != "${BAKED_COMMIT}" ]; then echo "warning: upstream moved mid-build (resolved ${CHEASEE_COMMIT}, baked ${BAKED_COMMIT})" >&2; fi \
+    && echo "${BAKED_COMMIT}" > /opt/cheasee-pi/BUILD_COMMIT \
     && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
     && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
     && npm cache clean --force \
