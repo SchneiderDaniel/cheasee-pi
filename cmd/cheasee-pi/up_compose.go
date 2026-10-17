@@ -17,6 +17,11 @@ const cheaseePiRepoURL = "https://github.com/SchneiderDaniel/cheasee-pi"
 // remote cannot stall a build behind git's default connect timeout.
 const cheaseeCommitProbeTimeout = 10 * time.Second
 
+// cheaseeCommitCacheFile (in the version-keyed compose dir) records the last
+// successfully resolved upstream commit, so an offline build keeps the clone
+// layer's cache key unchanged instead of forcing a network clone.
+const cheaseeCommitCacheFile = "cheasee-commit"
+
 // cheaseeRef is the ref the baked copy tracks: a user-supplied CHEASEE_REF or
 // the compose/Dockerfile default main.
 func cheaseeRef() string {
@@ -92,17 +97,8 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 	build.SetDir(composeDir)
 	build.SetStdout(os.Stderr)
 	build.SetStderr(os.Stderr)
-	// Resolve the upstream commit AFTER the disk gate so a refused build never
-	// probes the network. Best-effort: an unreachable upstream warns and leaves
-	// CHEASEE_COMMIT empty, and the clone layer falls back to its cached state.
-	commit := ""
-	probeCtx, cancel := context.WithTimeout(ctx, cheaseeCommitProbeTimeout)
-	if c, err := resolveCheaseeCommit(probeCtx, cheaseeRef()); err != nil {
-		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit probe: %v\n", err)
-	} else {
-		commit = c
-	}
-	cancel()
+	// Resolved AFTER the disk gate so a refused build never probes the network.
+	commit := bakedCommitForBuild(ctx, composeDir)
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
 	// cpus/git identity from settings.json ride along).
@@ -122,6 +118,35 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 		return err
 	}
 	return nil
+}
+
+// bakedCommitForBuild returns the clone layer's cache-bust input for one
+// build. On a failed probe it reuses the last successfully resolved commit:
+// passing an empty value there would change the layer's cache key and force a
+// network clone despite a usable cached layer (issue #2054).
+func bakedCommitForBuild(ctx context.Context, composeDir string) string {
+	cachePath := filepath.Join(composeDir, cheaseeCommitCacheFile)
+	probeCtx, cancel := context.WithTimeout(ctx, cheaseeCommitProbeTimeout)
+	commit, err := resolveCheaseeCommit(probeCtx, cheaseeRef())
+	cancel()
+	if err == nil && commit != "" {
+		if werr := atomicWrite(cachePath, []byte(commit+"\n"), 0644, false); werr != nil {
+			fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit cache: %v\n", werr)
+		}
+		return commit
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit probe: %v\n", err)
+	}
+	prior, rerr := os.ReadFile(cachePath)
+	if rerr != nil {
+		return ""
+	}
+	if s := strings.TrimSpace(string(prior)); s != "" {
+		fmt.Fprintf(os.Stderr, "  \u2139 reusing last resolved cheasee-pi commit %s\n", s)
+		return s
+	}
+	return ""
 }
 
 // dockerComposeUp builds and starts the container from the cache dir. The
