@@ -302,9 +302,10 @@ ARG CHEASEE_REF=main
 # resolves CHEASEE_REF's upstream commit (git ls-remote) and supplies it here,
 # so this layer re-runs exactly when upstream moves and stays cached when it
 # does not — never a bare constant that can freeze in the Docker layer cache
-# for months. Best-effort: an offline CLI leaves it empty and the build reuses
-# the cached layer. Referenced in the RUN so BuildKit folds it into the cache
-# key (an unreferenced ARG would not invalidate anything).
+# for months. An offline CLI keeps passing its last resolved commit (cached on
+# the host), so the cache key is unchanged and the cached layer is reused.
+# Referenced in the RUN so BuildKit folds it into the cache key (an
+# unreferenced ARG would not invalidate anything).
 ARG CHEASEE_COMMIT
 RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
     && BAKED_COMMIT="$(git -C /opt/cheasee-pi rev-parse HEAD)" \

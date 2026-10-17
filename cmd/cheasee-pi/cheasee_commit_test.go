@@ -118,6 +118,61 @@ func TestComposeBuild_SuppliesResolvedCheaseeCommit(t *testing.T) {
 	}
 }
 
+// TestComposeBuild_ProbeFailureReusesLastCommit pins the offline fallback: a
+// probe that fails after a successful resolution must keep passing the last
+// resolved commit, because a changed (e.g. empty) ARG would give the clone
+// layer a new cache key and force a network clone even though a usable cached
+// layer exists.
+func TestComposeBuild_ProbeFailureReusesLastCommit(t *testing.T) {
+	stubStatfsAmple(t)
+	var built []*mockCmd
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		if name == "docker" && slices.Contains(arg, "{{.DockerRootDir}}") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
+		}
+		if name == "docker" && slices.Contains(arg, "compose") {
+			built = append(built, &mockCmd{})
+			return built[len(built)-1]
+		}
+		return &mockCmd{}
+	})
+
+	saved := resolveCheaseeCommit
+	t.Cleanup(func() { resolveCheaseeCommit = saved })
+	composeDir := t.TempDir()
+	buildCommit := func() string {
+		t.Helper()
+		testutil.CaptureStderr(t, func() {
+			if err := composeBuild(context.Background(), composeDir, t.TempDir(), "cheasee-pi-x", composeBuildSpec{label: "Building container image"}); err != nil {
+				t.Fatalf("composeBuild: %v", err)
+			}
+		})
+		if len(built) == 0 {
+			t.Fatal("no compose build invocation captured")
+		}
+		var hits []string
+		for _, e := range built[len(built)-1].env {
+			if k, v, ok := strings.Cut(e, "="); ok && k == "CHEASEE_COMMIT" {
+				hits = append(hits, v)
+			}
+		}
+		if len(hits) != 1 {
+			t.Fatalf("exactly one CHEASEE_COMMIT entry expected, got %v", hits)
+		}
+		return hits[0]
+	}
+
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "abc123", nil }
+	if got := buildCommit(); got != "abc123" {
+		t.Fatalf("first build must pass the resolved commit, got %q", got)
+	}
+
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "", errors.New("network down") }
+	if got := buildCommit(); got != "abc123" {
+		t.Errorf("failed probe must reuse the last resolved commit (cache key unchanged), got %q", got)
+	}
+}
+
 func TestResolveCheaseeCommit_ParsesLsRemote(t *testing.T) {
 	var gotName string
 	var gotArg []string

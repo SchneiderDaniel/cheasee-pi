@@ -192,12 +192,15 @@ resolves the upstream commit of `CHEASEE_REF` (`git ls-remote`) and passes it
 to the clone layer as the `CHEASEE_COMMIT` build ARG, so the layer re-runs
 exactly when that commit changes and stays cached (keeping the expensive
 clone + `npm ci` off the critical path of a pi-only rebuild) when it does not.
-If upstream is unreachable the probe warns and leaves the ARG empty — the
-build then reuses the cached layer. To force a refresh regardless, run
-`cheasee-pi rebuild` (no-cache). The commit baked into the running image is
-recorded at `/opt/cheasee-pi/BUILD_COMMIT` and can be read with
-`docker exec <container> cat /opt/cheasee-pi/BUILD_COMMIT`, so a stale copy is
-visible rather than silent.
+If upstream is unreachable the probe warns and the CLI reuses the last
+successfully resolved commit (cached in `~/.cache/cheasee-pi/<version>/`), so
+the cache key is unchanged and the cached layer is still used — an offline
+rebuild does not force a network clone. Only a first-ever build with no
+resolved commit to fall back on leaves the ARG empty. To force a refresh
+regardless, run `cheasee-pi rebuild` (no-cache). The commit baked into the
+running image is recorded at `/opt/cheasee-pi/BUILD_COMMIT` and can be read
+with `docker exec <container> cat /opt/cheasee-pi/BUILD_COMMIT`, so a stale
+copy is visible rather than silent.
 
 Pi is installed at image build time pinned to a released version (currently
 `1.0.2`, matching the Dockerfile and compose defaults). `cheasee-pi start`
