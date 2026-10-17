@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -149,10 +150,13 @@ func TestComposeBuild_ProbeFailureReusesLastCommit(t *testing.T) {
 	saved := resolveCheaseeCommit
 	t.Cleanup(func() { resolveCheaseeCommit = saved })
 	composeDir := t.TempDir()
+	// One workspace across both builds: the record is keyed by image, so a
+	// fresh temp dir per build would legitimately miss it.
+	workspace := t.TempDir()
 	buildCommit := func() string {
 		t.Helper()
 		testutil.CaptureStderr(t, func() {
-			if err := composeBuild(context.Background(), composeDir, t.TempDir(), "cheasee-pi-x", composeBuildSpec{label: "Building container image"}); err != nil {
+			if err := composeBuild(context.Background(), composeDir, workspace, "cheasee-pi-x", composeBuildSpec{label: "Building container image"}); err != nil {
 				t.Fatalf("composeBuild: %v", err)
 			}
 		})
@@ -191,15 +195,16 @@ func TestComposeBuild_ProbeFailureDoesNotReuseCrossRefCommit(t *testing.T) {
 	t.Cleanup(func() { resolveCheaseeCommit = saved })
 
 	composeDir := t.TempDir()
+	workspace := t.TempDir()
 	t.Setenv("CHEASEE_REF", "main")
 	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "abc123", nil }
-	if got := runComposeBuildCommitArg(t, composeDir, ""); got != "abc123" {
+	if got := runComposeBuildCommitArg(t, composeDir, workspace, ""); got != "abc123" {
 		t.Fatalf("main build must pass the resolved commit, got %q", got)
 	}
 
 	t.Setenv("CHEASEE_REF", "v2.0.0")
 	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "", errors.New("network down") }
-	if got := runComposeBuildCommitArg(t, composeDir, ""); got != "" {
+	if got := runComposeBuildCommitArg(t, composeDir, workspace, ""); got != "" {
 		t.Errorf("failed probe on a NEW ref must not reuse main's commit, got %q", got)
 	}
 }
@@ -215,18 +220,83 @@ func TestComposeBuild_FirstBuildFailedProbeCapturesBakedCommit(t *testing.T) {
 	t.Setenv("CHEASEE_REF", "main")
 
 	composeDir := t.TempDir()
-	if got := runComposeBuildCommitArg(t, composeDir, "baked999\n"); got != "" {
+	workspace := t.TempDir()
+	if got := runComposeBuildCommitArg(t, composeDir, workspace, "baked999\n"); got != "" {
 		t.Fatalf("failed first-build probe must pass an empty cache-bust input, got %q", got)
 	}
-	if got := readBakedCommit(composeDir); got.ref != "main" || got.commit != "baked999" {
+	if got := readBakedCommit(composeDir, cheaseeImageRef(workspace)); got.ref != "main" || got.commit != "baked999" {
 		t.Errorf("baked commit must be captured from the built image, got %+v", got)
 	}
 }
 
-// runComposeBuildCommitArg runs one composeBuild against a shared composeDir
-// with the standard docker stubs and returns the CHEASEE_COMMIT it passed.
-// imageOutput is what the capture probe reads back from the built image.
-func runComposeBuildCommitArg(t *testing.T, composeDir, imageOutput string) string {
+// TestComposeBuild_RecordsCommitPerImage pins the audit finding that a single
+// version-wide record let a build in workspace B overwrite what `cheasee-pi
+// about` reports for workspace A: each workspace image owns its record.
+func TestComposeBuild_RecordsCommitPerImage(t *testing.T) {
+	saved := resolveCheaseeCommit
+	t.Cleanup(func() { resolveCheaseeCommit = saved })
+	t.Setenv("CHEASEE_REF", "main")
+
+	composeDir := t.TempDir()
+	wsA, wsB := t.TempDir(), t.TempDir()
+	if cheaseeImageRef(wsA) == cheaseeImageRef(wsB) {
+		t.Fatal("test setup: workspaces must map to distinct images")
+	}
+
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "aaaa1111", nil }
+	if got := runComposeBuildCommitArg(t, composeDir, wsA, ""); got != "aaaa1111" {
+		t.Fatalf("workspace A build must pass its commit, got %q", got)
+	}
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "bbbb2222", nil }
+	if got := runComposeBuildCommitArg(t, composeDir, wsB, ""); got != "bbbb2222" {
+		t.Fatalf("workspace B build must pass its commit, got %q", got)
+	}
+
+	if got := readBakedCommit(composeDir, cheaseeImageRef(wsA)); got.commit != "aaaa1111" {
+		t.Errorf("workspace A's record must survive workspace B's build, got %+v", got)
+	}
+	if got := readBakedCommit(composeDir, cheaseeImageRef(wsB)); got.commit != "bbbb2222" {
+		t.Errorf("workspace B must have its own record, got %+v", got)
+	}
+}
+
+// TestComposeBuild_CaptureFailureIsSurfaced pins the audit remedy for the
+// post-build read: with an empty cache-bust ARG the image is the only source
+// of truth, so a failed (or empty) read must reach stderr and must not be
+// recorded as if it were a known revision — a silent blank record is what left
+// `about` reporting nothing with no warning.
+func TestComposeBuild_CaptureFailureIsSurfaced(t *testing.T) {
+	saved := resolveCheaseeCommit
+	t.Cleanup(func() { resolveCheaseeCommit = saved })
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "", errors.New("network down") }
+	t.Setenv("CHEASEE_REF", "main")
+
+	for _, tc := range []struct {
+		name string
+		out  string
+		err  error
+	}{
+		{name: "docker run fails", err: errors.New("no such image")},
+		{name: "BUILD_COMMIT empty", out: "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			composeDir, workspace := t.TempDir(), t.TempDir()
+			stderr := runComposeBuildCapture(t, composeDir, workspace, tc.out, tc.err)
+			if !strings.Contains(stderr, "baked cheasee-pi commit") {
+				t.Errorf("a failed read of the baked commit must be surfaced on stderr, got:\n%s", stderr)
+			}
+			if got := readBakedCommit(composeDir, cheaseeImageRef(workspace)); got.commit != "" {
+				t.Errorf("a failed read must not record a commit, got %+v", got)
+			}
+		})
+	}
+}
+
+// runComposeBuildCommitArg runs one composeBuild for `workspace` against a
+// shared composeDir with the standard docker stubs and returns the
+// CHEASEE_COMMIT it passed. imageOutput is what the capture probe reads back
+// from the built image.
+func runComposeBuildCommitArg(t *testing.T, composeDir, workspace, imageOutput string) string {
 	t.Helper()
 	stubStatfsAmple(t)
 	var built *mockCmd
@@ -244,7 +314,7 @@ func runComposeBuildCommitArg(t *testing.T, composeDir, imageOutput string) stri
 	})
 
 	testutil.CaptureStderr(t, func() {
-		if err := composeBuild(context.Background(), composeDir, t.TempDir(), "cheasee-pi-x", composeBuildSpec{label: "Building container image"}); err != nil {
+		if err := composeBuild(context.Background(), composeDir, workspace, "cheasee-pi-x", composeBuildSpec{label: "Building container image"}); err != nil {
 			t.Fatalf("composeBuild: %v", err)
 		}
 	})
@@ -261,6 +331,28 @@ func runComposeBuildCommitArg(t *testing.T, composeDir, imageOutput string) stri
 		t.Fatalf("exactly one CHEASEE_COMMIT entry expected, got %v", hits)
 	}
 	return hits[0]
+}
+
+// runComposeBuildCapture runs one composeBuild whose post-build image read
+// returns imageOutput/imageErr, and returns what the build wrote to stderr.
+func runComposeBuildCapture(t *testing.T, composeDir, workspace, imageOutput string, imageErr error) string {
+	t.Helper()
+	stubStatfsAmple(t)
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		switch {
+		case name == "docker" && slices.Contains(arg, "{{.DockerRootDir}}"):
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
+		case name == "docker" && len(arg) > 0 && arg[0] == "run":
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(imageOutput), imageErr }}
+		}
+		return &mockCmd{}
+	})
+
+	return testutil.CaptureStderr(t, func() {
+		if err := composeBuild(context.Background(), composeDir, workspace, "cheasee-pi-x", composeBuildSpec{label: "Building container image"}); err != nil {
+			t.Fatalf("composeBuild: %v", err)
+		}
+	})
 }
 
 func TestResolveCheaseeCommit_ParsesLsRemote(t *testing.T) {
@@ -340,17 +432,17 @@ func TestResolveCheaseeCommit_ErrorsAreSurfaced(t *testing.T) {
 	}
 }
 
-func TestAbout_reportsBakedCommitValue(t *testing.T) {
+func TestAbout_reportsWorkspaceImageCommit(t *testing.T) {
 	// about must surface the actual baked SHA (audit finding, issue #2054), not
-	// just the file path. readBakedCommit consumes what recordBakedCommit
-	// writes; point aboutCacheDir at a temp dir and seed that record.
-	saved := aboutCacheDir
+	// just the file path — and it must be THIS workspace image's commit: a
+	// record written by another workspace's build must never be reported.
+	savedDir, savedRef := aboutCacheDir, aboutImageRef
 	dir := t.TempDir()
 	aboutCacheDir = func() (string, error) { return dir, nil }
-	t.Cleanup(func() { aboutCacheDir = saved })
-	if err := atomicWrite(filepath.Join(dir, cheaseeCommitCacheFile), []byte("main cafebabe\n"), 0644, false); err != nil {
-		t.Fatalf("seed baked commit: %v", err)
-	}
+	aboutImageRef = func() string { return "cheasee-pi-mine-cheasee-pi" }
+	t.Cleanup(func() { aboutCacheDir, aboutImageRef = savedDir, savedRef })
+	recordBakedCommit(dir, "cheasee-pi-mine-cheasee-pi", "main", "cafebabe")
+	recordBakedCommit(dir, "cheasee-pi-other-cheasee-pi", "main", "deadbeef")
 
 	cmd := &cobra.Command{Use: "about"}
 	var out bytes.Buffer
@@ -362,6 +454,9 @@ func TestAbout_reportsBakedCommitValue(t *testing.T) {
 	if !strings.Contains(out.String(), "cafebabe") {
 		t.Errorf("about must report the baked cheasee-pi commit value\n--- about:\n%s", out.String())
 	}
+	if strings.Contains(out.String(), "deadbeef") {
+		t.Errorf("about must report only THIS workspace image's commit\n--- about:\n%s", out.String())
+	}
 	if !strings.Contains(aboutText, "/opt/cheasee-pi/BUILD_COMMIT") {
 		t.Errorf("about must report where the baked cheasee-pi commit is recorded\n--- about text:\n%s", aboutText)
 	}
@@ -370,9 +465,10 @@ func TestAbout_reportsBakedCommitValue(t *testing.T) {
 // TestAbout_omitsCommitWithoutBuildRecord pins that an unbuilt machine shows
 // no commit line rather than a bogus one.
 func TestAbout_omitsCommitWithoutBuildRecord(t *testing.T) {
-	saved := aboutCacheDir
+	savedDir, savedRef := aboutCacheDir, aboutImageRef
 	aboutCacheDir = func() (string, error) { return t.TempDir(), nil }
-	t.Cleanup(func() { aboutCacheDir = saved })
+	aboutImageRef = func() string { return "cheasee-pi-mine-cheasee-pi" }
+	t.Cleanup(func() { aboutCacheDir, aboutImageRef = savedDir, savedRef })
 
 	cmd := &cobra.Command{Use: "about"}
 	var out bytes.Buffer
@@ -383,6 +479,25 @@ func TestAbout_omitsCommitWithoutBuildRecord(t *testing.T) {
 	}
 	if strings.Contains(out.String(), "baked cheasee-pi commit") {
 		t.Errorf("about must not invent a baked commit when none is recorded\n--- about:\n%s", out.String())
+	}
+}
+
+// TestAboutImageRef_resolvesCurrentWorkspace pins the scoping key: the image
+// ref comes from the workspace containing the cwd, and is empty outside a
+// cheasee-pi workspace (no image to describe).
+func TestAboutImageRef_resolvesCurrentWorkspace(t *testing.T) {
+	ws := t.TempDir()
+	if err := os.WriteFile(cheaseeSettingsPath(ws), []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("seed workspace marker: %v", err)
+	}
+	t.Chdir(ws)
+	if got, want := aboutImageRef(), cheaseeImageRef(ws); got != want {
+		t.Errorf("aboutImageRef = %q, want the cwd workspace's image %q", got, want)
+	}
+
+	t.Chdir(t.TempDir())
+	if got := aboutImageRef(); got != "" {
+		t.Errorf("aboutImageRef outside a workspace = %q, want empty", got)
 	}
 }
 
