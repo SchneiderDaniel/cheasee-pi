@@ -159,12 +159,14 @@ export function resolveNextStatusFromAgentOutput(
 		const output = parseResult as AgentOutput;
 		const action = output.action;
 
-		// targetStatus: explicit override — bypasses all markerMap filtering, action branches,
-		// and text marker fallbacks. Agents use this to signal feedback loops (architect → Research)
-		// or to target any valid workflow status directly.
+		// targetStatus can select an allowed transition (e.g. architect → Research),
+		// but must not skip workflow stages.
 		if (output.targetStatus && typeof output.targetStatus === "string") {
 			const trimmed = output.targetStatus.trim();
-			if (trimmed.length > 0) return trimmed;
+			const allowedTarget = Object.values(step.markerMap).find(
+				(status) => status.toLowerCase() === trimmed.toLowerCase(),
+			);
+			if (allowedTarget) return allowedTarget;
 		}
 
 		// Map action to appropriate marker key in the step's markerMap
