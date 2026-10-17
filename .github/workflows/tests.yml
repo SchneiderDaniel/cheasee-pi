@@ -84,7 +84,8 @@ jobs:
       - name: Run standalone node test files
         run: |
           node --experimental-strip-types --test \
-            docker/test/unbreak-worktrees.test.mts
+            docker/test/unbreak-worktrees.test.mts \
+            docker/test/unbreak-worktrees-part2.test.mts
 
       - name: Type-check extensions
         run: npx tsc --noEmit --project .pi/tsconfig.json

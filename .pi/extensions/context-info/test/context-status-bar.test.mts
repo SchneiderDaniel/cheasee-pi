@@ -1,21 +1,13 @@
-/**
- * Tests for context-info extension (Agent Castle Terminal Revamp)
- *
- * Covers: formatTokens, resolveColor, pickThreshold, loadConfig,
- * getWorktreeName, getGitBranch, thinking-level footer rendering,
- * and integration with custom footer.
- *
- * Run with:
- *   node --experimental-strip-types --test .pi/extensions/context-info/test/context-status-bar.test.mts
- */
-
 import assert from "node:assert";
+
 import { describe, it } from "node:test";
-import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+
+import { existsSync, readFileSync } from "node:fs";
+
 import { createDefaultFooterConfig } from "../footer-state.ts";
+
 import { installFooter } from "../footer.ts";
+
 import { formatTokens } from "../../lib/format-tokens.ts";
 
 interface ThresholdEntry {
@@ -70,7 +62,6 @@ interface ContextStatusBarConfig {
 	showCache: boolean;
 }
 
-/** Compute tokens per second from rolling buffer (30s window) */
 function computeTps(samples: TpsSample[]): number | null {
 	if (samples.length < 2) return null;
 
@@ -92,7 +83,6 @@ function computeTps(samples: TpsSample[]): number | null {
 	return (tokenDelta / timeDelta) * 1000;
 }
 
-/** Format TPS value to display string */
 function formatTps(tps: number | null): string {
 	if (tps === null) return "-- t/s";
 	if (tps < 0.1) return "0.0 t/s";
@@ -196,9 +186,78 @@ function loadConfig(rawSettings: Record<string, unknown> | null): {
 	return { config: { enabled, thresholds, showTimer, showTps, showCache }, warnings };
 }
 
-// ---------------------------------------------------------------------------
-// formatTokens tests
-// ---------------------------------------------------------------------------
+function formatCacheStats(
+	cacheRead: number | undefined | null,
+	cacheWrite: number | undefined | null,
+): string {
+	if (
+		cacheRead === undefined ||
+		cacheRead === null ||
+		cacheWrite === undefined ||
+		cacheWrite === null
+	) {
+		return "\u{1F4E6} --/--";
+	}
+	return `\u{1F4E6} ${_fmtTokens(cacheRead)}/${_fmtTokens(cacheWrite)}`;
+}
+
+function _fmtTokens(n: number): string {
+	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+	return String(n);
+}
+
+interface FooterFixture {
+	rows: string[];
+	fgCalls: Array<[string, string]>;
+}
+
+function renderFooterWithThinkingLevel(thinkingLevel: string): FooterFixture {
+	const config = {
+		enabled: true,
+		thresholds: [],
+		showTimer: false,
+		showTps: false,
+		showCache: false,
+		welcomeTimeoutMs: 0,
+	};
+	const footerConfig = createDefaultFooterConfig();
+	footerConfig.thinkingLevel = thinkingLevel;
+
+	const fgCalls: Array<[string, string]> = [];
+	let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
+	const ctx = {
+		mode: "tui",
+		ui: {
+			setFooter: (fn: unknown) => {
+				if (typeof fn === "function") {
+					footerComponent = fn(
+						{ requestRender: () => {}, setClearOnShrink: () => {} },
+						{
+							fg: (color: string, text: string) => {
+								fgCalls.push([color, text]);
+								return text;
+							},
+						},
+						{
+							onBranchChange: () => () => {},
+							getGitBranch: () => "main",
+							getExtensionStatuses: () => new Map(),
+						},
+					);
+				}
+			},
+			setStatus: () => {},
+		},
+		getContextUsage: () => undefined,
+		model: { id: "test-model" },
+	};
+
+	installFooter(ctx as any, config as any, footerConfig);
+
+	if (!footerComponent) throw new Error("footer component was not created");
+	return { rows: footerComponent.render(80), fgCalls };
+}
 
 describe("formatTokens", () => {
 	it("formats K values", () => {
@@ -219,11 +278,6 @@ describe("formatTokens", () => {
 		assert.strictEqual(formatTokens(42), "42");
 	});
 });
-
-// ---------------------------------------------------------------------------
-// pickThreshold tests
-// ---------------------------------------------------------------------------
-
 describe("pickThreshold", () => {
 	const thresholds = DEFAULT_THRESHOLDS;
 
@@ -271,11 +325,6 @@ describe("pickThreshold", () => {
 		assert.strictEqual(pickThreshold(100_000, unsorted).color, "red");
 	});
 });
-
-// ---------------------------------------------------------------------------
-// Config loading tests
-// ---------------------------------------------------------------------------
-
 describe("loadConfig", () => {
 	it("returns defaults when key is absent", () => {
 		const result = loadConfig({ supervisor: {} });
@@ -412,447 +461,5 @@ describe("loadConfig", () => {
 		});
 		assert.ok(result.config);
 		assert.strictEqual(result.config!.thresholds[0]!.maxTokens, null);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// getWorktreeName tests
-// ---------------------------------------------------------------------------
-
-describe("getWorktreeName", () => {
-	it("returns null when .git does not exist", () => {
-		const dir = join(tmpdir(), `pi-test-no-git-${Date.now()}`);
-		mkdirSync(dir, { recursive: true });
-		try {
-			assert.strictEqual(getWorktreeName(dir), null);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("returns null for regular git repo (.git is directory)", () => {
-		const dir = join(tmpdir(), `pi-test-regular-${Date.now()}`);
-		mkdirSync(dir, { recursive: true });
-		// Create .git as a directory (regular repo)
-		mkdirSync(join(dir, ".git"));
-		try {
-			assert.strictEqual(getWorktreeName(dir), null);
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("detects worktree name from .git file", () => {
-		const dir = join(tmpdir(), `pi-test-worktree-${Date.now()}`);
-		mkdirSync(dir, { recursive: true });
-		writeFileSync(join(dir, ".git"), "gitdir: /home/user/.git/worktrees/my-feature-branch\n");
-		try {
-			assert.strictEqual(getWorktreeName(dir), "my-feature-branch");
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-
-	it("returns 'worktree' for unknown worktree path format", () => {
-		const dir = join(tmpdir(), `pi-test-bad-worktree-${Date.now()}`);
-		mkdirSync(dir, { recursive: true });
-		writeFileSync(join(dir, ".git"), "gitdir: /some/weird/path\n");
-		try {
-			assert.strictEqual(getWorktreeName(dir), "worktree");
-		} finally {
-			rmSync(dir, { recursive: true, force: true });
-		}
-	});
-});
-
-// ---------------------------------------------------------------------------
-// TPS config tests
-// ---------------------------------------------------------------------------
-
-describe("loadConfig — showTps", () => {
-	it("showTps defaults to true when key absent", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showTps, true);
-	});
-
-	it("showTps: true → showTps true", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				showTps: true,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showTps, true);
-	});
-
-	it("showTps: false → showTps false", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				showTps: false,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showTps, false);
-	});
-
-	it("showTps false with showTimer false → both false", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				showTimer: false,
-				showTps: false,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showTimer, false);
-		assert.strictEqual(result.config!.showTps, false);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// computeTps tests
-// ---------------------------------------------------------------------------
-
-describe("computeTps", () => {
-	it("empty buffer → null", () => {
-		assert.strictEqual(computeTps([]), null);
-	});
-
-	it("single sample → null", () => {
-		assert.strictEqual(computeTps([{ time: Date.now(), cumulativeTokens: 100 }]), null);
-	});
-
-	it("two samples with positive delta → tps", () => {
-		const now = Date.now();
-		const samples: TpsSample[] = [
-			{ time: now - 10_000, cumulativeTokens: 0 },
-			{ time: now, cumulativeTokens: 500 },
-		];
-		// 500 tokens in 10s = 50 t/s
-		const tps = computeTps(samples);
-		assert.ok(tps !== null);
-		assert.strictEqual(tps, 50);
-	});
-
-	it("samples outside 30s window are pruned", () => {
-		const now = Date.now();
-		// Old sample 60s ago — outside 30s window
-		const samples: TpsSample[] = [
-			{ time: now - 60_000, cumulativeTokens: 0 },
-			{ time: now - 5_000, cumulativeTokens: 0 },
-			{ time: now, cumulativeTokens: 300 },
-		];
-		const tps = computeTps(samples);
-		assert.ok(tps !== null);
-		// After pruning old 60s sample: 300 tokens in 5s = 60 t/s
-		assert.strictEqual(tps, 60);
-	});
-
-	it("zero token delta → null", () => {
-		const now = Date.now();
-		const samples: TpsSample[] = [
-			{ time: now - 10_000, cumulativeTokens: 100 },
-			{ time: now, cumulativeTokens: 100 },
-		];
-		assert.strictEqual(computeTps(samples), null);
-	});
-
-	it("zero time delta → null", () => {
-		const now = Date.now();
-		const samples: TpsSample[] = [
-			{ time: now, cumulativeTokens: 0 },
-			{ time: now, cumulativeTokens: 100 },
-		];
-		assert.strictEqual(computeTps(samples), null);
-	});
-
-	it("all samples older than 30s → null", () => {
-		const now = Date.now();
-		const samples: TpsSample[] = [
-			{ time: now - 60_000, cumulativeTokens: 0 },
-			{ time: now - 45_000, cumulativeTokens: 500 },
-		];
-		assert.strictEqual(computeTps(samples), null);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// formatTps tests
-// ---------------------------------------------------------------------------
-
-describe("formatTps", () => {
-	it("null → -- t/s", () => {
-		assert.strictEqual(formatTps(null), "-- t/s");
-	});
-
-	it("42.5 → 42.5 t/s", () => {
-		assert.strictEqual(formatTps(42.5), "42.5 t/s");
-	});
-
-	it("0 → 0.0 t/s", () => {
-		assert.strictEqual(formatTps(0), "0.0 t/s");
-	});
-
-	it("0.05 → 0.0 t/s (very slow)", () => {
-		assert.strictEqual(formatTps(0.05), "0.0 t/s");
-	});
-
-	it("0.1 → 0.1 t/s", () => {
-		assert.strictEqual(formatTps(0.1), "0.1 t/s");
-	});
-
-	it("999.9 → 999.9 t/s", () => {
-		assert.strictEqual(formatTps(999.9), "999.9 t/s");
-	});
-
-	it("1000 → 1000 t/s (integer, no decimal)", () => {
-		assert.strictEqual(formatTps(1000), "1000 t/s");
-	});
-
-	it("1234.5 → 1235 t/s (rounded integer)", () => {
-		assert.strictEqual(formatTps(1234.5), "1235 t/s");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// formatCacheStats tests
-// ---------------------------------------------------------------------------
-
-function formatCacheStats(
-	cacheRead: number | undefined | null,
-	cacheWrite: number | undefined | null,
-): string {
-	if (
-		cacheRead === undefined ||
-		cacheRead === null ||
-		cacheWrite === undefined ||
-		cacheWrite === null
-	) {
-		return "\u{1F4E6} --/--";
-	}
-	return `\u{1F4E6} ${_fmtTokens(cacheRead)}/${_fmtTokens(cacheWrite)}`;
-}
-
-function _fmtTokens(n: number): string {
-	if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-	if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-	return String(n);
-}
-
-describe("formatCacheStats", () => {
-	it("formatCacheStats(76288, 0) → 📦 76.3K/0 using formatTokens for each value", () => {
-		assert.strictEqual(formatCacheStats(76288, 0), "\u{1F4E6} 76.3K/0");
-	});
-
-	it("formatCacheStats(1200000, 500) → 📦 1.2M/500 (mixed suffix and plain)", () => {
-		assert.strictEqual(formatCacheStats(1200000, 500), "\u{1F4E6} 1.2M/500");
-	});
-
-	it("formatCacheStats(0, 0) → 📦 0/0 (valid data, not placeholder)", () => {
-		assert.strictEqual(formatCacheStats(0, 0), "\u{1F4E6} 0/0");
-	});
-
-	it("formatCacheStats(undefined, undefined) → 📦 --/-- (no data yet)", () => {
-		assert.strictEqual(formatCacheStats(undefined, undefined), "\u{1F4E6} --/--");
-	});
-
-	it("formatCacheStats(null, undefined) → 📦 --/-- (null treated as unavailable)", () => {
-		assert.strictEqual(formatCacheStats(null, undefined), "\u{1F4E6} --/--");
-	});
-
-	it("formatCacheStats(0, undefined) → 📦 --/-- (partial data treated as unavailable)", () => {
-		assert.strictEqual(formatCacheStats(0, undefined), "\u{1F4E6} --/--");
-	});
-
-	it("formatCacheStats(undefined, 0) → 📦 --/-- (partial data treated as unavailable)", () => {
-		assert.strictEqual(formatCacheStats(undefined, 0), "\u{1F4E6} --/--");
-	});
-});
-
-// ---------------------------------------------------------------------------
-// showCache config tests
-// ---------------------------------------------------------------------------
-
-describe("loadConfig — showCache", () => {
-	it("showCache defaults to true when key absent", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showCache, true);
-	});
-
-	it("showCache: true → showCache true", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				showCache: true,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showCache, true);
-	});
-
-	it("showCache: false → showCache false", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				showCache: false,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showCache, false);
-	});
-
-	it("showCache: invalid (non-boolean) → emits warning, defaults to true", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				showCache: "yes",
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showCache, true);
-		assert.ok(result.warnings.some((w) => w.includes("showCache")));
-	});
-
-	it("showCache false with showTimer false and showTps false → all three false", () => {
-		const result = loadConfig({
-			contextStatusBar: {
-				enabled: true,
-				showTimer: false,
-				showTps: false,
-				showCache: false,
-				thresholds: [{ maxTokens: null, color: "red" }],
-			},
-		});
-		assert.ok(result.config);
-		assert.strictEqual(result.config!.showTimer, false);
-		assert.strictEqual(result.config!.showTps, false);
-		assert.strictEqual(result.config!.showCache, false);
-	});
-});
-
-// ---------------------------------------------------------------------------
-// Footer thinking-level rendering — wired to lib/thinking-level.ts (no local
-// switch/case copies; byte-identical output, canonical icon/color mapping).
-// ---------------------------------------------------------------------------
-
-interface FooterFixture {
-	rows: string[];
-	fgCalls: Array<[string, string]>;
-}
-
-/** Render the context-info footer with the given thinking level (empty string == unset). */
-function renderFooterWithThinkingLevel(thinkingLevel: string): FooterFixture {
-	const config = {
-		enabled: true,
-		thresholds: [],
-		showTimer: false,
-		showTps: false,
-		showCache: false,
-		welcomeTimeoutMs: 0,
-	};
-	const footerConfig = createDefaultFooterConfig();
-	footerConfig.thinkingLevel = thinkingLevel;
-
-	const fgCalls: Array<[string, string]> = [];
-	let footerComponent: { render: (w: number) => string[]; dispose: () => void } | undefined;
-	const ctx = {
-		mode: "tui",
-		ui: {
-			setFooter: (fn: unknown) => {
-				if (typeof fn === "function") {
-					footerComponent = fn(
-						{ requestRender: () => {}, setClearOnShrink: () => {} },
-						{
-							fg: (color: string, text: string) => {
-								fgCalls.push([color, text]);
-								return text;
-							},
-						},
-						{
-							onBranchChange: () => () => {},
-							getGitBranch: () => "main",
-							getExtensionStatuses: () => new Map(),
-						},
-					);
-				}
-			},
-			setStatus: () => {},
-		},
-		getContextUsage: () => undefined,
-		model: { id: "test-model" },
-	};
-
-	installFooter(ctx as any, config as any, footerConfig);
-
-	if (!footerComponent) throw new Error("footer component was not created");
-	return { rows: footerComponent.render(80), fgCalls };
-}
-
-describe("footer thinking-level rendering (lib/thinking-level.ts wired)", () => {
-	it("thinkingLevel='medium' renders '· ◒ medium' center segment colored accent", () => {
-		const { rows, fgCalls } = renderFooterWithThinkingLevel("medium");
-		assert.ok(rows[0]!.includes("· ◒ medium"), `should contain '· ◒ medium', got: ${rows[0]}`);
-		assert.ok(
-			fgCalls.some(([color, text]) => color === "accent" && text === "◒ medium"),
-			"'◒ medium' should be rendered with the canonical 'accent' color",
-		);
-	});
-
-	it("renders '· ○ off' fallback when thinkingLevel is unset/empty", () => {
-		for (const level of ["", " "]) {
-			const { rows, fgCalls } = renderFooterWithThinkingLevel(level);
-			assert.ok(rows[0]!.includes("· ○ off"), `should contain '· ○ off', got: ${rows[0]}`);
-			assert.ok(
-				fgCalls.some(([color, text]) => color === "dim" && text === "○ off"),
-				"'○ off' should be rendered with the canonical 'dim' color",
-			);
-		}
-	});
-
-	it("unknown level 'bogus' renders '· bogus' fallback in dim (identical to pre-change)", () => {
-		const { rows, fgCalls } = renderFooterWithThinkingLevel("bogus");
-		assert.ok(rows[0]!.includes("· bogus"), `fallback should render '· bogus', got: ${rows[0]}`);
-		assert.ok(
-			fgCalls.some(([color, text]) => color === "dim" && text === "· bogus"),
-			"fallback color should be the canonical 'dim'",
-		);
-	});
-
-	it("all 6 known levels render icons identical to canonical lib mapping", () => {
-		const iconMap: Record<string, string> = {
-			off: "○",
-			minimal: "◐",
-			low: "◑",
-			medium: "◒",
-			high: "◓",
-			xhigh: "●",
-		};
-		for (const [level, icon] of Object.entries(iconMap)) {
-			const { rows } = renderFooterWithThinkingLevel(level);
-			assert.ok(
-				rows[0]!.includes(`${icon} ${level}`),
-				`'${level}' should render '${icon} ${level}', got: ${rows[0]}`,
-			);
-		}
 	});
 });

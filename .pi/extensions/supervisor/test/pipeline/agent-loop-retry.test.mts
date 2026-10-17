@@ -1,29 +1,30 @@
-// ─── Tests: runAgentLoop retry path — one PipelineAgentResult per dispatch ───
-// Issue #1495: when an agent's first run fails and the in-iteration retry
-// succeeds, the overview table must document BOTH runs. The retry block
-// pushes the validated failed initial run (FAILED row) plus the retry run
-// (SUCCESS (after retry) row) instead of overwriting the result.
-//
-// Harness runs the real runAgentLoop with an injected mock agent runner
-// (RunContext._runner, pattern from handler.test.mts Phase 3) so no
-// subprocess is spawned. Loop starts at Implementation (developer dispatch).
-
 import { describe, it, mock } from "node:test";
-import assert from "node:assert/strict";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AgentRunResult, SupervisorConfig } from "../../config/types.ts";
-import type { RunContext } from "../../pipeline/handler/shared.ts";
-import type { PortCall } from "../helper/mock-github-port.ts";
-import { createMockGitHubPort } from "../helper/mock-github-port.ts";
-import { runAgentLoop } from "../../pipeline/handler/agent-loop.ts";
-import { createStageState } from "../../pipeline/stages/index.ts";
-import { ErrorCollector } from "../../pipeline/error-collector.ts";
-import { buildPipelineSummary } from "../../pipeline/output.ts";
-import { mkdtempSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 
-// ─── Mock helpers (mirror handler.test.mts Phase 3) ──────────────
+import assert from "node:assert/strict";
+
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+
+import type { AgentRunResult, SupervisorConfig } from "../../config/types.ts";
+
+import type { RunContext } from "../../pipeline/handler/shared.ts";
+
+import type { PortCall } from "../helper/mock-github-port.ts";
+
+import { createMockGitHubPort } from "../helper/mock-github-port.ts";
+
+import { runAgentLoop } from "../../pipeline/handler/agent-loop.ts";
+
+import { createStageState } from "../../pipeline/stages/index.ts";
+
+import { ErrorCollector } from "../../pipeline/error-collector.ts";
+
+import { buildPipelineSummary } from "../../pipeline/output.ts";
+
+import { mkdtempSync } from "node:fs";
+
+import { join } from "node:path";
+
+import { tmpdir } from "node:os";
 
 interface ExecCall {
 	cmd: string;
@@ -98,8 +99,6 @@ const SUMMARY_CONFIG: SupervisorConfig = {
 	statusMapping: { todo: "developer" },
 };
 
-// ─── Developer result factory ─────────────────────────────────────
-
 function makeDevResult(overrides: Partial<AgentRunResult>): AgentRunResult {
 	return {
 		output: "raw output",
@@ -116,8 +115,6 @@ function makeDevResult(overrides: Partial<AgentRunResult>): AgentRunResult {
 	};
 }
 
-// Serves a fixed queue of results, one per dispatch. Any unexpected extra
-// dispatch (past the queue) fails hard so the test notices.
 function createQueueRunner(results: AgentRunResult[], agentName = "developer") {
 	return mock.fn(async (...args: any[]) => {
 		const next = results.shift();
@@ -153,8 +150,6 @@ function makeAuditResult(overrides: Partial<AgentRunResult>): AgentRunResult {
 		...overrides,
 	};
 }
-
-// ─── RunContext builder ───────────────────────────────────────────
 
 const FIELDS: Array<{
 	id: string;
@@ -262,13 +257,94 @@ function buildRetryRunContext(opts: {
 	} as unknown as RunContext;
 }
 
-// ─── Tests ────────────────────────────────────────────────────────
+const TEST_PLAN_QUOTE =
+	'## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment';
+
+function trustedComment(body: string): { author: { login: string }; body: string } {
+	// Genuine rejections are authored by the automation account (the port's
+	// getAuthenticatedLogin returns "user1" in this harness), so the pipeline
+	// treats them as its own output (issue #2044); quoted Test Plan text does
+	// not start with the heading and is never selected.
+	return { author: { login: "user1" }, body };
+}
+
+function makeRejectWorktree(): string {
+	return mkdtempSync(join(tmpdir(), "agent-loop-reject-wt-"));
+}
+
+async function runLoopWithComments(opts: {
+	comments: Array<{ author?: { login?: string }; body?: string | null }>;
+	loopStatus: string;
+	queue: AgentRunResult[];
+	queueAgent: string;
+}): Promise<{
+	runCtx: RunContext;
+	runner: ReturnType<typeof mock.fn>;
+	notifyLog: Array<{ msg: string; type: string }>;
+}> {
+	const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-reject-cwd-"));
+	const wt = makeRejectWorktree();
+	const portCalls: PortCall[] = [];
+	const notifyLog: Array<{ msg: string; type: string }> = [];
+	const runner = createQueueRunner(opts.queue, opts.queueAgent);
+	const runCtx = buildRetryRunContext({
+		runner,
+		portCalls,
+		tmpCwd,
+		wt,
+		comments: opts.comments,
+		loopStatus: opts.loopStatus,
+		notifyLog,
+	});
+	await runAgentLoop(runCtx);
+	return { runCtx, runner, notifyLog };
+}
+
+const LARGE_TEST_PLAN = "## Test Plan\n**Tier:** Large";
+
+function timedOutDevResult(overrides: Partial<AgentRunResult> = {}): AgentRunResult {
+	return makeDevResult({
+		success: false,
+		textOutput: "Timed out",
+		textOnly: "Timed out",
+		timedOut: true,
+		killReason: "timeout",
+		durationMs: 3_600_000,
+		configuredTimeoutMs: 3_600_000,
+		errorOutput: "[Timeout: developer exceeded 3600s]",
+		...overrides,
+	});
+}
+
+function runDeveloper(opts: {
+	comments?: Array<{ author?: { login?: string }; body?: string | null }>;
+	config?: Partial<SupervisorConfig>;
+	queue?: AgentRunResult[];
+	loopStatus?: string;
+	queueAgent?: string;
+	gitHandler?: (args: string[]) => GitReply;
+}): { runner: ReturnType<typeof mock.fn>; runCtx: RunContext } {
+	const runner = createQueueRunner(
+		opts.queue ?? [makeDevResult({})],
+		opts.queueAgent ?? "developer",
+	);
+	const runCtx = buildRetryRunContext({
+		runner,
+		portCalls: [],
+		tmpCwd: mkdtempSync(join(tmpdir(), "agent-loop-tier-cwd-")),
+		wt: mkdtempSync(join(tmpdir(), "agent-loop-tier-wt-")),
+		comments: opts.comments,
+		loopStatus: opts.loopStatus,
+		config: opts.config,
+		gitHandler: opts.gitHandler,
+	});
+	return { runner, runCtx };
+}
 
 describe("runAgentLoop — retry path documents every dispatch (issue #1495)", () => {
 	function makeWorktree(): string {
 		return mkdtempSync(join(tmpdir(), "agent-loop-retry-wt-"));
 	}
-
 	it("fail-then-success: FAILED row (first stats) + SUCCESS (after retry) row (retry stats)", async () => {
 		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-retry-cwd-"));
 		const wt = makeWorktree();
@@ -312,7 +388,6 @@ describe("runAgentLoop — retry path documents every dispatch (issue #1495)", (
 		assert.equal(retried.tokenCount, 60_000);
 		assert.equal(retried.toolCount, 80);
 	});
-
 	it("issue #1494 data renders both rows + totals include the failed run", async () => {
 		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-retry-cwd-"));
 		const wt = makeWorktree();
@@ -360,7 +435,6 @@ describe("runAgentLoop — retry path documents every dispatch (issue #1495)", (
 			"totals sum both runs incl. the failed attempt",
 		);
 	});
-
 	it("retry also fails → two FAILED rows, both counted, pipeline stops", async () => {
 		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-retry-cwd-"));
 		const wt = makeWorktree();
@@ -407,662 +481,5 @@ describe("runAgentLoop — retry path documents every dispatch (issue #1495)", (
 			summary.includes("**Total:** 2 runs · 13m 20s · 18.0K tokens · 35 tool calls"),
 			"totals count both failed runs",
 		);
-	});
-
-	it("budget-exceeded first run → retry skipped, single entry (unchanged)", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-retry-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		const runner = createQueueRunner([
-			makeDevResult({
-				success: false,
-				textOutput: "Exceeded budget",
-				textOnly: "Exceeded budget",
-				budgetExceeded: true,
-				durationMs: 600_000,
-				tokenCount: 120_000,
-				toolCount: 300,
-			}),
-		]);
-
-		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
-		await runAgentLoop(runCtx);
-
-		assert.equal(runCtx.agentResults.length, 1, "budget-exceeded is not retried");
-		assert.equal(runCtx.agentResults[0]?.status, "FAILED");
-		assert.equal(runCtx.agentResults[0]?.durationMs, 600_000);
-	});
-
-	it("successful first run → single SUCCESS entry, usedRetry=false (unchanged)", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-retry-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		const runner = createQueueRunner([
-			makeDevResult({
-				success: true,
-				textOutput: "Implemented\nIMPLEMENTATION_COMPLETE",
-				durationMs: 900_000,
-				tokenCount: 50_000,
-				toolCount: 60,
-			}),
-		]);
-
-		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
-		await runAgentLoop(runCtx);
-
-		assert.equal(runCtx.agentResults.length, 1, "single dispatch → single entry");
-		assert.equal(runCtx.agentResults[0]?.status, "SUCCESS");
-		assert.equal(runCtx.agentResults[0]?.durationMs, 900_000);
-	});
-
-	it("validateAgentResult ordering preserved: derated run retries and FAILED row shows sanity check", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-retry-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		// First run claims success but has 0 tokens with >5 tools — the sanity
-		// check derates it to failed BEFORE the retry decision, so it retries
-		// and the FAILED row carries the sanity-check errorOutput.
-		const runner = createQueueRunner([
-			makeDevResult({
-				success: true,
-				tokenCount: 0,
-				toolCount: 10,
-				durationMs: 400_000,
-			}),
-			makeDevResult({ success: true, durationMs: 200_000, tokenCount: 30_000, toolCount: 40 }),
-		]);
-
-		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
-		await runAgentLoop(runCtx);
-
-		assert.equal(runCtx.agentResults.length, 2, "derated run still retried");
-		const [failed, retried] = runCtx.agentResults;
-		assert.equal(failed.status, "FAILED");
-		assert.ok(
-			failed.errorOutput?.includes("Sanity check failed"),
-			"FAILED row surfaces the derate diagnostics",
-		);
-		assert.equal(failed.tokenCount, 0, "derated run keeps its 0 tokens");
-		assert.equal(retried.status, "SUCCESS (after retry)");
-	});
-});
-
-// ─── Timeout (issue #1710): non-retryable, structured failure state ─
-
-describe("runAgentLoop — per-agent wall-clock timeout (issue #1710)", () => {
-	function makeWorktree(): string {
-		return mkdtempSync(join(tmpdir(), "agent-loop-timeout-wt-"));
-	}
-
-	it("timed-out first run → retry skipped, single FAILED entry with timedOut state", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		const runner = createQueueRunner([
-			makeDevResult({
-				success: false,
-				textOutput: "Timed out",
-				textOnly: "Timed out",
-				timedOut: true,
-				configuredTimeoutMs: 60_000,
-				killReason: "timeout",
-				durationMs: 60_000,
-				errorOutput: "[Timeout: developer exceeded 60s (actual 60000ms)]",
-			}),
-		]);
-
-		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
-		await runAgentLoop(runCtx);
-
-		assert.equal(runner.mock.calls.length, 1, "timeout is NOT retried — hard 1× bound");
-		assert.equal(runCtx.agentResults.length, 1, "single dispatch → single row");
-		const entry = runCtx.agentResults[0]!;
-		assert.equal(entry.status, "FAILED");
-		assert.equal(entry.timedOut, true, "timedOut recorded on pipeline state");
-		assert.equal(entry.configuredTimeoutMs, 60_000, "configured duration recorded");
-		assert.ok(
-			(entry.errorOutput ?? "").includes("[Timeout: developer exceeded 60s"),
-			"timeout failure note retained in errorOutput",
-		);
-	});
-
-	it("timeout failure stops the pipeline with stopReason naming agent + duration", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		const runner = createQueueRunner([
-			makeDevResult({
-				success: false,
-				textOutput: "Timed out",
-				textOnly: "Timed out",
-				timedOut: true,
-				configuredTimeoutMs: 60_000,
-				durationMs: 60_000,
-			}),
-		]);
-
-		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
-		await runAgentLoop(runCtx);
-
-		assert.ok(
-			runCtx.stopReason?.includes("timed out"),
-			`stopReason names the timeout: ${runCtx.stopReason}`,
-		);
-		assert.ok(
-			runCtx.stopReason?.includes("developer"),
-			`stopReason names the agent: ${runCtx.stopReason}`,
-		);
-		assert.ok(
-			runCtx.stopReason?.includes("configured 60s"),
-			`stopReason carries the configured duration: ${runCtx.stopReason}`,
-		);
-	});
-
-	it("researcher timeout does NOT take the budget-degradation continue path", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		const runner = createQueueRunner(
-			[
-				{
-					output: "raw",
-					success: false,
-					agentName: "researcher",
-					toolCount: 0,
-					tokenCount: 0,
-					durationMs: 30_000,
-					textOutput: "Research timed out",
-					textOnly: "Research timed out",
-					summaryLine: "Research timed out",
-					errorOutput: "[Timeout: researcher exceeded 30s (actual 30000ms)]",
-					timedOut: true,
-					configuredTimeoutMs: 30_000,
-					killReason: "timeout",
-				},
-			],
-			"researcher",
-		);
-
-		const runCtx = buildRetryRunContext({
-			runner,
-			portCalls,
-			tmpCwd,
-			wt,
-			loopStatus: "Research",
-		});
-		await runAgentLoop(runCtx);
-
-		assert.equal(runCtx.agentResults.length, 1, "no retry for researcher timeout");
-		assert.ok(
-			runCtx.stopReason?.includes("timed out"),
-			`researcher timeout stops the pipeline: ${runCtx.stopReason}`,
-		);
-		assert.ok(
-			!portCalls.some((c) => c.method === "setItemStatusField"),
-			"no Research → Architecture transition (budget path would have continued)",
-		);
-	});
-
-	it("timed-out developer with a partial IMPLEMENTATION_COMPLETE marker still STOPS (audit #3)", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		// success=false + timedOut + a forward marker in the partial output.
-		// Before the fix, hadExplicitMarker=true let this bypass the Bug #711
-		// failure guard and transition Implementation → Audit on partial work.
-		const runner = createQueueRunner([
-			makeDevResult({
-				success: false,
-				timedOut: true,
-				configuredTimeoutMs: 60_000,
-				killReason: "timeout",
-				durationMs: 60_000,
-				textOutput:
-					"Implemented partially\nIMPLEMENTATION_COMPLETE\n(work incomplete — ran out of time)",
-				textOnly: "IMPLEMENTATION_COMPLETE",
-				errorOutput: "[Timeout: developer exceeded 60s (actual 60000ms)]",
-			}),
-		]);
-
-		const runCtx = buildRetryRunContext({ runner, portCalls, tmpCwd, wt });
-		await runAgentLoop(runCtx);
-
-		assert.equal(runner.mock.calls.length, 1, "single dispatch — no retry on timeout");
-		assert.equal(runCtx.agentResults.length, 1);
-		assert.equal(runCtx.agentResults[0]?.status, "FAILED");
-		assert.ok(
-			runCtx.stopReason?.includes("timed out"),
-			`stopReason names the timeout, not a transition: ${runCtx.stopReason}`,
-		);
-		assert.equal(
-			portCalls.filter((c) => c.method === "setItemStatusField").length,
-			0,
-			"NO Implementation → Audit transition despite the forward marker (unconditional stop)",
-		);
-	});
-
-	it("timed-out auditor with an approval marker still STOPS — no Done transition (audit #3)", async () => {
-		const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-timeout-cwd-"));
-		const wt = makeWorktree();
-		const portCalls: PortCall[] = [];
-		// success=false + timedOut + a partial approval marker. Before the
-		// fix the explicit-marker guard let this advance towards Done / PR
-		// creation on partial audit output.
-		const runner = createQueueRunner(
-			[
-				makeAuditResult({
-					success: false,
-					timedOut: true,
-					configuredTimeoutMs: 60_000,
-					killReason: "timeout",
-					durationMs: 60_000,
-					textOutput: "AUDIT_DECISION: APPROVED\n(partial audit — timed out before completion)",
-					textOnly: "AUDIT_DECISION: APPROVED",
-					errorOutput: "[Timeout: auditor exceeded 60s (actual 60000ms)]",
-				}),
-			],
-			"auditor",
-		);
-
-		const runCtx = buildRetryRunContext({
-			runner,
-			portCalls,
-			tmpCwd,
-			wt,
-			loopStatus: "Audit",
-		});
-		await runAgentLoop(runCtx);
-
-		assert.equal(runner.mock.calls.length, 1, "single dispatch — no retry on timeout");
-		assert.ok(
-			runCtx.stopReason?.includes("timed out"),
-			`stopReason names the timeout: ${runCtx.stopReason}`,
-		);
-		assert.equal(
-			portCalls.filter((c) => c.method === "setItemStatusField").length,
-			0,
-			"NO Audit → Done transition despite the approval marker (unconditional stop)",
-		);
-		assert.equal(
-			portCalls.filter((c) => c.method === "postIssueComment").length,
-			0,
-			"no approval/verdict comment posted on a timed-out audit",
-		);
-	});
-});
-
-// ─── Tests: rejection-limit gate + auditFeedback (issue #1668) ────
-// Full-loop harness: real runAgentLoop, gh exec returns the injected
-// comments, mock.fn queue runner (pattern above). The Audit workflow step
-// carries maxRejections: 5; other steps have no threshold.
-
-const TEST_PLAN_QUOTE =
-	'## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment';
-
-function trustedComment(body: string): { author: { login: string }; body: string } {
-	// Genuine rejections are authored by the automation account (the port's
-	// getAuthenticatedLogin returns "user1" in this harness), so the pipeline
-	// treats them as its own output (issue #2044); quoted Test Plan text does
-	// not start with the heading and is never selected.
-	return { author: { login: "user1" }, body };
-}
-
-function makeRejectWorktree(): string {
-	return mkdtempSync(join(tmpdir(), "agent-loop-reject-wt-"));
-}
-
-async function runLoopWithComments(opts: {
-	comments: Array<{ author?: { login?: string }; body?: string | null }>;
-	loopStatus: string;
-	queue: AgentRunResult[];
-	queueAgent: string;
-}): Promise<{
-	runCtx: RunContext;
-	runner: ReturnType<typeof mock.fn>;
-	notifyLog: Array<{ msg: string; type: string }>;
-}> {
-	const tmpCwd = mkdtempSync(join(tmpdir(), "agent-loop-reject-cwd-"));
-	const wt = makeRejectWorktree();
-	const portCalls: PortCall[] = [];
-	const notifyLog: Array<{ msg: string; type: string }> = [];
-	const runner = createQueueRunner(opts.queue, opts.queueAgent);
-	const runCtx = buildRetryRunContext({
-		runner,
-		portCalls,
-		tmpCwd,
-		wt,
-		comments: opts.comments,
-		loopStatus: opts.loopStatus,
-		notifyLog,
-	});
-	await runAgentLoop(runCtx);
-	return { runCtx, runner, notifyLog };
-}
-
-describe("runAgentLoop — rejection-limit gate (issue #1668)", () => {
-	it("4 genuine rejections + 1 quoted Test Plan, max 5 → gate does NOT trip, auditor dispatched", async () => {
-		const comments = [
-			trustedComment("## Audit Rejected\nFirst"),
-			trustedComment("## Audit Rejected\nSecond"),
-			trustedComment("## Audit Rejected\nThird"),
-			trustedComment(TEST_PLAN_QUOTE),
-			trustedComment("## Audit Rejected\nFourth"),
-		];
-		const { runCtx, runner, notifyLog } = await runLoopWithComments({
-			comments,
-			loopStatus: "Audit",
-			queue: [makeAuditResult({})],
-			queueAgent: "auditor",
-		});
-
-		assert.ok(runner.mock.calls.length >= 1, "auditor was dispatched — gate did not trip");
-		const firstAgent = (runner.mock.calls[0]!.arguments[0] as any)?.agent?.config?.name;
-		assert.equal(firstAgent, "auditor", "first dispatch is the auditor, not a hard stop");
-		assert.equal(
-			runCtx.agentResults[0]?.agentName,
-			"auditor",
-			"auditor run recorded — loop advanced past the Audit step",
-		);
-		assert.ok(
-			!runCtx.stopReason?.includes("Rejection limit"),
-			`quoted Test Plan must not trip the limit, got: ${runCtx.stopReason}`,
-		);
-		assert.ok(
-			notifyLog.every((n) => !n.msg.includes("rejected 5 times")),
-			"no rejection-limit notify fired",
-		);
-	});
-
-	it("5 genuine rejections, max 5 → hard stop BEFORE any dispatch, stopReason + notify use count", async () => {
-		const comments = Array.from({ length: 5 }, (_, i) =>
-			trustedComment(`## Audit Rejected\nIssue ${i + 1}`),
-		);
-		const { runCtx, runner, notifyLog } = await runLoopWithComments({
-			comments,
-			loopStatus: "Audit",
-			queue: [makeAuditResult({})],
-			queueAgent: "auditor",
-		});
-
-		assert.equal(runner.mock.calls.length, 0, "no dispatch before the hard stop");
-		assert.equal(runCtx.stopReason, "Rejection limit reached (5)");
-		assert.ok(
-			notifyLog.some(
-				(n) => n.msg.includes("rejected 5 times") && n.msg.includes("Human intervention required"),
-			),
-			"operator notify reports the actual rejection count",
-		);
-	});
-
-	it("7 genuine rejections, max 5 → reports the actual count (7), not the threshold", async () => {
-		const comments = Array.from({ length: 7 }, (_, i) =>
-			trustedComment(`## Audit Rejected\nIssue ${i + 1}`),
-		);
-		const { runCtx, notifyLog } = await runLoopWithComments({
-			comments,
-			loopStatus: "Audit",
-			queue: [makeAuditResult({})],
-			queueAgent: "auditor",
-		});
-
-		assert.equal(runCtx.stopReason, "Rejection limit reached (7)");
-		assert.ok(
-			notifyLog.some((n) => n.msg.includes("rejected 7 times")),
-			"notify reports 7 (count), not 5 (threshold)",
-		);
-	});
-
-	it("mid-body quote only, max 5 → not counted, auditor dispatched", async () => {
-		const comments = [trustedComment("intro\n\n## Audit Rejected\n...")];
-		const { runCtx, runner } = await runLoopWithComments({
-			comments,
-			loopStatus: "Audit",
-			queue: [makeAuditResult({})],
-			queueAgent: "auditor",
-		});
-
-		assert.ok(runner.mock.calls.length >= 1, "mid-body quote is not a rejection");
-		assert.ok(!runCtx.stopReason?.includes("Rejection limit"));
-	});
-});
-
-describe("runAgentLoop — auditFeedback scan (issue #1668)", () => {
-	it("newest Test Plan quoting the heading is skipped; genuine rejection fed to developer", async () => {
-		const comments = [
-			trustedComment("## Audit Rejected\nOldest genuine rejection details"),
-			trustedComment(TEST_PLAN_QUOTE),
-		];
-		const { runner } = await runLoopWithComments({
-			comments,
-			loopStatus: "Implementation",
-			queue: [makeDevResult({})],
-			queueAgent: "developer",
-		});
-
-		assert.ok(runner.mock.calls.length >= 1, "developer dispatched");
-		const task = (runner.mock.calls[0]!.arguments[0] as any)?.task as string;
-		assert.ok(
-			task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
-			"audit feedback block present",
-		);
-		assert.ok(
-			task.includes("## Audit Rejected\nOldest genuine rejection details"),
-			"genuine rejection (not the quote) is the feedback body",
-		);
-	});
-
-	it("quote-only comment set → no audit feedback block", async () => {
-		const comments = [trustedComment(TEST_PLAN_QUOTE)];
-		const { runner } = await runLoopWithComments({
-			comments,
-			loopStatus: "Implementation",
-			queue: [makeDevResult({})],
-			queueAgent: "developer",
-		});
-
-		const task = (runner.mock.calls[0]!.arguments[0] as any)?.task as string;
-		assert.ok(
-			!task.includes("AUDITOR REJECTED YOUR PREVIOUS IMPLEMENTATION"),
-			"quoted heading alone must not be handed to the developer as rejection feedback",
-		);
-	});
-
-	it("newest matching position-0 rejection wins (reverse-scan order preserved)", async () => {
-		const comments = [
-			trustedComment("## Audit Rejected\nFirst rejection"),
-			trustedComment("## Audit Rejected\nNEWEST rejection"),
-		];
-		const { runner } = await runLoopWithComments({
-			comments,
-			loopStatus: "Implementation",
-			queue: [makeDevResult({})],
-			queueAgent: "developer",
-		});
-
-		const task = (runner.mock.calls[0]!.arguments[0] as any)?.task as string;
-		assert.ok(
-			task.includes("## Audit Rejected\nNEWEST rejection"),
-			"newest genuine rejection wins the reverse scan",
-		);
-	});
-});
-
-// ─── Tests: size-tier timeout scaling + reporting (issue #1987) ───
-// runAgentLoop parses the test plan's `**Tier:**` marker and scales the
-// default developer deadline; the timeout stop names the tier + base +
-// effective + actual durations, and preserves partial work.
-
-const LARGE_TEST_PLAN = "## Test Plan\n**Tier:** Large";
-
-function timedOutDevResult(overrides: Partial<AgentRunResult> = {}): AgentRunResult {
-	return makeDevResult({
-		success: false,
-		textOutput: "Timed out",
-		textOnly: "Timed out",
-		timedOut: true,
-		killReason: "timeout",
-		durationMs: 3_600_000,
-		configuredTimeoutMs: 3_600_000,
-		errorOutput: "[Timeout: developer exceeded 3600s]",
-		...overrides,
-	});
-}
-
-function runDeveloper(opts: {
-	comments?: Array<{ author?: { login?: string }; body?: string | null }>;
-	config?: Partial<SupervisorConfig>;
-	queue?: AgentRunResult[];
-	loopStatus?: string;
-	queueAgent?: string;
-	gitHandler?: (args: string[]) => GitReply;
-}): { runner: ReturnType<typeof mock.fn>; runCtx: RunContext } {
-	const runner = createQueueRunner(
-		opts.queue ?? [makeDevResult({})],
-		opts.queueAgent ?? "developer",
-	);
-	const runCtx = buildRetryRunContext({
-		runner,
-		portCalls: [],
-		tmpCwd: mkdtempSync(join(tmpdir(), "agent-loop-tier-cwd-")),
-		wt: mkdtempSync(join(tmpdir(), "agent-loop-tier-wt-")),
-		comments: opts.comments,
-		loopStatus: opts.loopStatus,
-		config: opts.config,
-		gitHandler: opts.gitHandler,
-	});
-	return { runner, runCtx };
-}
-
-describe("runAgentLoop — size-tier timeout scaling (issue #1987)", () => {
-	it("Large test plan → developer runner receives 3_600_000ms", async () => {
-		const { runner, runCtx } = runDeveloper({ comments: [trustedComment(LARGE_TEST_PLAN)] });
-		await runAgentLoop(runCtx);
-		assert.equal((runner.mock.calls[0]!.arguments[0] as any).timeoutMs, 3_600_000);
-	});
-
-	it("no tier comment → developer runner receives the 30-min default", async () => {
-		const { runner, runCtx } = runDeveloper({ comments: [trustedComment("just a note")] });
-		await runAgentLoop(runCtx);
-		assert.equal((runner.mock.calls[0]!.arguments[0] as any).timeoutMs, 1_800_000);
-	});
-
-	it("explicit agentTimeoutSec override stays authoritative (unscaled) on Large", async () => {
-		const { runner, runCtx } = runDeveloper({
-			comments: [trustedComment(LARGE_TEST_PLAN)],
-			config: { agentTimeoutSec: { developer: 900 } },
-		});
-		await runAgentLoop(runCtx);
-		assert.equal((runner.mock.calls[0]!.arguments[0] as any).timeoutMs, 900_000);
-	});
-
-	it("developer timeout on Large → stopReason names agent, tier, base, effective and actual", async () => {
-		const { runCtx } = runDeveloper({
-			comments: [trustedComment(LARGE_TEST_PLAN)],
-			queue: [timedOutDevResult({ durationMs: 3_600_123 })],
-		});
-		await runAgentLoop(runCtx);
-		const stop = runCtx.stopReason ?? "";
-		assert.ok(stop.includes("developer"), stop);
-		assert.ok(stop.includes("tier large"), stop);
-		assert.ok(stop.includes("base 1800000ms"), stop);
-		assert.ok(stop.includes("effective 3600000ms"), stop);
-		assert.ok(stop.includes("actual 3600123ms"), stop);
-	});
-
-	it("timeout is not retried — exactly one dispatch even on Large", async () => {
-		const { runner, runCtx } = runDeveloper({
-			comments: [trustedComment(LARGE_TEST_PLAN)],
-			queue: [timedOutDevResult()],
-		});
-		await runAgentLoop(runCtx);
-		assert.equal(runner.mock.calls.length, 1, "timeout stays a hard 1× bound");
-	});
-});
-
-// ─── Tests: resume-instead-of-restart context (issue #1987) ───────
-
-describe("runAgentLoop — resume-instead-of-restart (issue #1987)", () => {
-	const WIP_SHA = "abcdef1234567890abcdef1234567890abcdef12";
-	const wipGit = (args: string[]): GitReply =>
-		args[0] === "log"
-			? { code: 0, stdout: `${WIP_SHA} wip(#1494): partial work preserved on timeout\n` }
-			: null;
-
-	it("developer task includes a continue/do-not-restart block naming the WIP commit", async () => {
-		const { runner, runCtx } = runDeveloper({ gitHandler: wipGit });
-		await runAgentLoop(runCtx);
-		const task = (runner.mock.calls[0]!.arguments[0] as any).task as string;
-		assert.ok(task.includes("continue, do not restart"), "resume block present");
-		assert.ok(task.includes(WIP_SHA), "resume block names the WIP commit sha");
-	});
-
-	it("no WIP commit on the branch → no resume block (no false positive)", async () => {
-		const { runner, runCtx } = runDeveloper({
-			gitHandler: (args) =>
-				args[0] === "log" ? { code: 0, stdout: "deadbeef feat(#1494): work\n" } : null,
-		});
-		await runAgentLoop(runCtx);
-		const task = (runner.mock.calls[0]!.arguments[0] as any).task as string;
-		assert.ok(!task.includes("continue, do not restart"), "no resume block without a WIP commit");
-	});
-
-	it("auditor task is unchanged even when a WIP log is present", async () => {
-		const { runner, runCtx } = runDeveloper({
-			loopStatus: "Audit",
-			queueAgent: "auditor",
-			queue: [makeAuditResult({})],
-			gitHandler: wipGit,
-		});
-		await runAgentLoop(runCtx);
-		const task = (runner.mock.calls[0]!.arguments[0] as any).task as string;
-		assert.ok(!task.includes("continue, do not restart"), "resume block is developer-only");
-	});
-});
-
-describe("runAgentLoop — timeout work preservation scope (issue #1987)", () => {
-	/** Records `git status` calls — only preserveTimedOutWork issues them. */
-	function statusRecorder(): { handler: (args: string[]) => GitReply; status: string[] } {
-		const status: string[] = [];
-		return {
-			status,
-			handler: (args) => {
-				if (args[0] === "status") status.push("status");
-				return null;
-			},
-		};
-	}
-
-	it("runs ONLY for a timed-out developer — not on success", async () => {
-		const rec = statusRecorder();
-		const { runCtx } = runDeveloper({ gitHandler: rec.handler, queue: [makeDevResult({})] });
-		await runAgentLoop(runCtx);
-		assert.equal(rec.status.length, 0, "no preservation on a successful run");
-	});
-
-	it("runs ONLY for a timed-out developer — not for a timed-out auditor", async () => {
-		const rec = statusRecorder();
-		const { runCtx } = runDeveloper({
-			loopStatus: "Audit",
-			queueAgent: "auditor",
-			queue: [
-				makeAuditResult({
-					success: false,
-					timedOut: true,
-					configuredTimeoutMs: 60_000,
-					killReason: "timeout",
-					durationMs: 60_000,
-				}),
-			],
-			gitHandler: rec.handler,
-		});
-		await runAgentLoop(runCtx);
-		assert.equal(rec.status.length, 0, "preservation is developer-only");
-	});
-
-	it("runs for a timed-out developer (status probe issued)", async () => {
-		const rec = statusRecorder();
-		const { runCtx } = runDeveloper({ queue: [timedOutDevResult()], gitHandler: rec.handler });
-		await runAgentLoop(runCtx);
-		assert.equal(rec.status.length, 1, "preservation probes the worktree once");
 	});
 });

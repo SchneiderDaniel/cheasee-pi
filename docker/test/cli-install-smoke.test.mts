@@ -1,57 +1,23 @@
-/**
- * CLI installation smoke test (DinD, full user flow).
- *
- * Simulates a real user's machine:
- *   1. Download cheasee-pi binary (pre-built by workflow)
- *   2. git config --global (avoids prompts in scaffold)
- *   3. cheasee-pi init --no-github ... into an EMPTY folder (init is
- *      empty-folder-only: it sets the workspace up itself — the GitHub path
- *      bare-clones + worktrees; the legacy --no-github path scaffolds only)
- *   4. Verify scaffolded files (checkpoint 3)
- *   5. git init the workdir so build/start can mount it (the GitHub path's
- *      clone is replaced by the plain repo in this API-key-only smoke run)
- *   6. cheasee-pi build — extracts cache tree, compose build (checkpoint 4)
- *   7. docker compose up -d (checkpoint 5)
- *   8. Health check reaches healthy (checkpoint 6)
- *   9. pi --version inside container (checkpoint 7)
- *   10. cheasee-pi start with PTY (checkpoint 8)
- *   11. cheasee-pi down (checkpoint 9)
- *
- * compose/Dockerfile no longer live in the user repo — init is
- * scaffold-only (no docker/ dir, no clone, no fork) and start extracts the
- * embedded compose tree into the version-keyed CLI cache dir
- * (<XDG_CACHE_HOME>/cheasee-pi/<cliVersion>/). This test computes that path
- * the same way the CLI does (cache.go CacheDir + cliVersionKey).
- *
- * Run with:
- *   CHEASEE_PI_BIN=/path/to/cheasee-pi \
- *     node --experimental-strip-types --test docker/test/cli-install-smoke.test.mts
- *
- * Workflow sets CHEASEE_PI_BIN and DOCKER_HOST for DinD.
- */
-
 import assert from "node:assert";
+
 import { describe, it, before, after } from "node:test";
-import {
-	mkdtempSync,
-	existsSync,
-	readFileSync,
-	rmSync,
-	chmodSync,
-	mkdirSync,
-	writeFileSync,
-} from "node:fs";
+
+import { mkdtempSync, existsSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+
 import { join, resolve } from "node:path";
+
 import { tmpdir, homedir } from "node:os";
+
 import { spawnSync } from "node:child_process";
+
 import type { SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 
-// Redirect auth.json to a test-only location so `init` subprocesses
-// don't clobber the real ~/.config/cheasee-pi/auth.json on the host.
-// The cache dir follows XDG_CACHE_HOME too (os.UserCacheDir honors it).
 const testXdgHome = mkdtempSync(join(tmpdir(), "cheasee-pi-test-xdg-"));
+
 process.env.XDG_CONFIG_HOME = testXdgHome;
+
 process.env.XDG_CACHE_HOME = testXdgHome;
+
 process.on("exit", () => {
 	try {
 		rmSync(testXdgHome, { recursive: true, force: true });
@@ -60,40 +26,22 @@ process.on("exit", () => {
 	}
 });
 
-// ═══════════════════════════════════════════════════════════════════
-// Configuration
-// ═══════════════════════════════════════════════════════════════════
-
 const BINARY_PATH = process.env.CHEASEE_PI_BIN ?? resolve(process.cwd(), "cheasee-pi");
 
-// The smoke workspace's sibling bare repo is seeded with this remote
-// (before() below) so the CLI's per-repo slug derivation is deterministic:
-// repoSlug reads remote.origin.url from <parent>/.bare and maps it to
-// <owner>-<repo> — the remote is seeded owner-less (https://github.com/<SLUG>)
-// so the derived slug equals SLUG exactly and the container/project names
-// below match what `cheasee-pi start`/`down` resolve. Falling back to the
-// workspace basename would not (mkdtemp names are random).
-// Container, compose project and codeflow sidecar names all carry the slug,
-// so `cheasee-pi down` (checkpoint 9) resolves the exact project
-// `cheasee-pi start` used.
 const SLUG = "cli-install-smoke";
+
 const CONTAINER_NAME = `cheasee-pi-${SLUG}`;
+
 const COMPOSE_PROJECT = CONTAINER_NAME;
+
 const CODEFLOW_CONTAINER = `codeflow-${SLUG}`;
+
 const HEALTH_TIMEOUT_MS = 120_000;
+
 const POLL_INTERVAL_MS = 5_000;
 
-/**
- * CLI version key — must match cliVersionKey in cmd/cheasee-pi/cache.go.
- * The cache dir is version-keyed so an upgraded binary never mixes stale
- * compose/Dockerfile content with new embedded assets.
- */
 const CLI_VERSION = "0.67.0";
 
-/**
- * Compute the CLI cache dir (compose/Dockerfile live there,
- * extracted by `cheasee-pi start`, never in the user repo).
- */
 function composeDir(): string {
 	return join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "cheasee-pi", CLI_VERSION);
 }
@@ -108,12 +56,6 @@ interface ExecResult {
 	status: number;
 }
 
-/**
- * Run a command via spawnSync with timeout and string encoding.
- * Always returns { stdout, stderr, status } — never throws.
- * Uses spawnSync (not execSync) so stderr is captured on both
- * success and failure paths.
- */
 function exec(
 	cmd: string,
 	opts?: { timeout?: number; cwd?: string; env?: Record<string, string> },
@@ -139,9 +81,6 @@ function exec(
 	};
 }
 
-/**
- * Check whether the cheasee-pi binary exists at BINARY_PATH.
- */
 function binaryExists(): boolean {
 	return existsSync(BINARY_PATH);
 }
@@ -150,10 +89,6 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/**
- * Poll `docker inspect --format='{{.State.Health.Status}}'` until
- * the container reports "healthy" or timeout elapses.
- */
 async function waitForHealthy(timeoutMs: number): Promise<string> {
 	const startTime = Date.now();
 	const deadline = startTime + timeoutMs;
@@ -173,10 +108,6 @@ async function waitForHealthy(timeoutMs: number): Promise<string> {
 	}
 	return "timeout";
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// Smoke test — full user flow (checkpoints 1-9)
-// ═══════════════════════════════════════════════════════════════════
 
 describe("CLI install smoke", { timeout: 600_000 }, () => {
 	let workdir: string;
@@ -461,11 +392,6 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		);
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// Error paths (independent, no compose dependency)
-// ═══════════════════════════════════════════════════════════════════
-
 describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 	let errWorkdir: string;
 
@@ -528,233 +454,5 @@ describe("CLI install smoke — error paths", { timeout: 60_000 }, () => {
 	it("adapter — non-existent binary exits non-zero", () => {
 		const result = exec("/tmp/nonexistent-cheasee-pi --version", { timeout: 10_000 });
 		assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-existent binary");
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// Boundary checks (generated file content validation)
-// ═══════════════════════════════════════════════════════════════════
-
-describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
-	let initWorkdir: string;
-
-	before(() => {
-		if (!binaryExists()) {
-			throw new Error(
-				`cheasee-pi binary not found at ${BINARY_PATH}. ` +
-					"Set CHEASEE_PI_BIN env var or place the binary in the cwd.",
-			);
-		}
-		initWorkdir = mkdtempSync(join(tmpdir(), "cli-install-boundary-"));
-		// Run init once for boundary checks
-		const result = exec(
-			`"${BINARY_PATH}" init ` +
-				"--no-github " +
-				"" +
-				"--no-input " +
-				"--no-docker-check " +
-				"--api-key ci-test-key " +
-				"--provider opencode-go " +
-				`--workdir "${initWorkdir}"`,
-			{ timeout: 60_000 },
-		);
-		if (result.status !== 0) {
-			throw new Error(`init failed for boundary tests: ${result.stderr}`);
-		}
-	});
-
-	after(() => {
-		if (initWorkdir) {
-			rmSync(initWorkdir, { recursive: true, force: true });
-		}
-	});
-
-	it("adapter — down extracts compose/Dockerfile into the version-keyed cache dir", () => {
-		// down resolves the compose project from the cache dir, extracting the
-		// embedded docker tree on the way (regenerable).
-		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000, cwd: initWorkdir });
-		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
-		for (const f of ["docker-compose.yml", "Dockerfile", "entrypoint.sh", "lib/worktree-fix.sh"]) {
-			const fullPath = join(composeDir(), f);
-			assert.ok(existsSync(fullPath), `expected cache dir file to exist: ${f} (${fullPath})`);
-			assert.ok(readFileSync(fullPath, "utf-8").length > 0, `expected non-empty file: ${f}`);
-		}
-	});
-
-	it("adapter — start --dry-run on an empty folder prints the auto-init plan and touches nothing", () => {
-		// dry-run is side-effect-free: on an empty folder it prints what the
-		// start gate would do (auto-init) and exits — no scaffold, no compose,
-		// no clone, no .bare, no settings file. Nested under a fresh parent so
-		// the sibling .bare assertion can't collide with other suites' mounts.
-		const parent = mkdtempSync(join(tmpdir(), "cli-install-dryrun-parent-"));
-		const dryDir = join(parent, "ws");
-		mkdirSync(dryDir);
-		try {
-			const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
-				timeout: 30_000,
-				cwd: dryDir,
-			});
-			assert.strictEqual(
-				result.status,
-				0,
-				`start --dry-run exited ${result.status}: ${result.stderr}`,
-			);
-			assert.ok(
-				result.stderr.includes("would run `cheasee-pi init`"),
-				`expected auto-init plan in stderr, got: ${result.stderr}`,
-			);
-			assert.ok(
-				!existsSync(join(dryDir, "cheasee-settings.json")),
-				"dry-run must not scaffold cheasee-settings.json",
-			);
-			assert.ok(
-				!existsSync(join(dryDir, "..", ".bare")),
-				"dry-run must not create the sibling .bare",
-			);
-		} finally {
-			rmSync(parent, { recursive: true, force: true });
-		}
-	});
-
-	it("adapter — start --dry-run on an initialized workspace prints the docker command", () => {
-		// initWorkdir has cheasee-settings.json (initialized marker), so the
-		// gate passes and dry-run prints the would-be docker command without
-		// touching anything (no scaffold, no compose, no cache extraction).
-		const result = exec(`"${BINARY_PATH}" start --no-docker-check --dry-run`, {
-			timeout: 30_000,
-			cwd: initWorkdir,
-		});
-		assert.strictEqual(
-			result.status,
-			0,
-			`start --dry-run exited ${result.status}: ${result.stderr}`,
-		);
-		assert.ok(
-			result.stderr.includes("Docker command"),
-			`expected dry-run docker command in stderr, got: ${result.stderr}`,
-		);
-		assert.ok(
-			!existsSync(join(initWorkdir, ".pi", "settings.json")),
-			"dry-run must not scaffold .pi/settings.json",
-		);
-	});
-
-	it("adapter — cheasee-settings.json is valid JSON with expected keys", () => {
-		const settingsPath = join(initWorkdir, "cheasee-settings.json");
-		const content = readFileSync(settingsPath, "utf-8");
-		let parsed: Record<string, unknown>;
-		try {
-			parsed = JSON.parse(content) as Record<string, unknown>;
-		} catch {
-			assert.fail(`cheasee-settings.json is not valid JSON: ${content}`);
-		}
-		assert.ok("defaultProvider" in parsed, "cheasee-settings.json missing defaultProvider");
-		assert.ok("defaultModel" in parsed, "cheasee-settings.json missing defaultModel");
-		assert.ok("docker" in parsed, "cheasee-settings.json missing docker");
-		const docker = parsed.docker as Record<string, unknown>;
-		assert.ok(docker?.memory, "cheasee-settings.json missing docker.memory");
-		assert.ok(docker?.cpus, "cheasee-settings.json missing docker.cpus");
-		assert.ok("gitIdentity" in parsed, "cheasee-settings.json missing gitIdentity");
-		assert.ok("oauth" in parsed, "cheasee-settings.json missing oauth");
-		assert.strictEqual(
-			parsed.defaultProvider,
-			"opencode-go",
-			`expected defaultProvider to be "opencode-go", got: ${parsed.defaultProvider}`,
-		);
-		// pi's own settings file is NOT scaffolded by init (pi self-scaffolds
-		// on first run); the dedicated file is the only settings output.
-		assert.ok(
-			!existsSync(join(initWorkdir, ".pi", "settings.json")),
-			"init must not scaffold .pi/settings.json",
-		);
-	});
-
-	it("adapter — init on an already-initialized folder refuses (presence = marker)", () => {
-		// cheasee-settings.json presence marks the workspace initialized; a
-		// second init must refuse outright instead of re-applying.
-		const result = exec(
-			`"${BINARY_PATH}" init ` +
-				"--no-github " +
-				"" +
-				"--no-input " +
-				"--no-docker-check " +
-				"--api-key ci-test-key " +
-				"--provider opencode-go " +
-				`--workdir "${initWorkdir}"`,
-			{ timeout: 60_000 },
-		);
-		assert.notStrictEqual(
-			result.status,
-			0,
-			`second init should be refused, exited ${result.status}: ${result.stderr}`,
-		);
-		assert.ok(
-			result.stderr.includes("already initialized"),
-			`expected "already initialized" refusal, got: ${result.stderr}`,
-		);
-
-		// The existing file must be untouched by the refused re-init.
-		const settingsPath = join(initWorkdir, "cheasee-settings.json");
-		const content = readFileSync(settingsPath, "utf-8");
-		const parsed = JSON.parse(content) as Record<string, unknown>;
-		assert.strictEqual(
-			parsed.defaultProvider,
-			"opencode-go",
-			`refused re-init should keep defaultProvider`,
-		);
-	});
-
-	it("adapter — init without --provider flag uses default provider", () => {
-		const noProvDir = mkdtempSync(join(tmpdir(), "cli-install-noprov-"));
-		try {
-			const result = exec(
-				`"${BINARY_PATH}" init ` +
-					"--no-github " +
-					"" +
-					"--no-input " +
-					"--no-docker-check " +
-					"--api-key ci-test-key " +
-					`--workdir "${noProvDir}"`,
-				{ timeout: 60_000 },
-			);
-			assert.strictEqual(
-				result.status,
-				0,
-				`init without --provider exited ${result.status}: ${result.stderr}`,
-			);
-			const settingsPath = join(noProvDir, "cheasee-settings.json");
-			const content = readFileSync(settingsPath, "utf-8");
-			const parsed = JSON.parse(content) as Record<string, unknown>;
-			assert.strictEqual(
-				parsed.defaultProvider,
-				"opencode-go",
-				`expected defaultProvider to be "opencode-go", got: ${parsed.defaultProvider}`,
-			);
-		} finally {
-			rmSync(noProvDir, { recursive: true, force: true });
-		}
-	});
-
-	it("adapter — init in workdir whose parent is non-writable exits non-zero", () => {
-		const parentDir = mkdtempSync(join(tmpdir(), "cli-install-nonwritable-"));
-		const childWorkdir = join(parentDir, "sub");
-		try {
-			chmodSync(parentDir, 0o444); // remove write permission
-			const result = exec(
-				`"${BINARY_PATH}" init ` +
-					"--no-github " +
-					"" +
-					"--no-input " +
-					"--no-docker-check " +
-					"--api-key ci-test-key " +
-					"--provider opencode-go " +
-					`--workdir "${childWorkdir}"`,
-				{ timeout: 10_000 },
-			);
-			assert.notStrictEqual(result.status, 0, "expected non-zero exit for non-writable parent");
-		} finally {
-			chmodSync(parentDir, 0o755); // restore for cleanup
-			rmSync(parentDir, { recursive: true, force: true });
-		}
 	});
 });

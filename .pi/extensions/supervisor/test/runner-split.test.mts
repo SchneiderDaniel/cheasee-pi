@@ -1,37 +1,27 @@
-/**
- * runner-split.test.mts — barrel contract + size guards for the runner/ split
- * (Clean Code Audit #1405, issue #1408).
- *
- * Guards the behavior-preserving file split:
- *  - agent/runner.ts remains a 1-line shim re-exporting runner/index.ts
- *  - all 4 public symbols still resolve through the shim
- *  - runner/index.ts uses star re-exports only (no TS1205-fragile named
- *    type re-export), matching event/adapter/index.ts
- *  - per-module nbnc (non-blank/non-comment) line budget ≤ 500 (S104)
- *  - per-module max function span ≤ 100, runAgentSubprocess span < 100 (S138)
- *  - only runner/spawn.ts imports node:child_process (module-mock intercept)
- *  - spawn exit/close wiring: 'exit' reaps but does not resolve, 'close'
- *    resolves after stdio drains (Bug 3 contract)
- *  - stream line parse incl. unterminated-final-line flush + symmetric
- *    500K caps; malformed JSON line survives the split
- *  - budget exactly-once kill + classifyKillReason
- *  - cleanup result assembly byte-for-byte corpus + failResult shape
- *  - widget debounce/heartbeat/dispose idempotency
- */
-
 import { describe, it, mock } from "node:test";
+
 import assert from "node:assert/strict";
+
 import { readFileSync, existsSync } from "node:fs";
+
 import { join, dirname } from "node:path";
+
 import { fileURLToPath } from "node:url";
+
 import { EventEmitter } from "node:events";
+
 import { DEFAULT_AGENT_TIMEOUT_MS as CONFIG_TIMEOUT } from "../config/config.ts";
+
 import type { AgentRunState } from "../config/types.ts";
+
 import { readGraph, importersOf } from "../../lib/test/source-graph.ts";
 
 const __filename = fileURLToPath(import.meta.url);
+
 const __dirname = dirname(__filename);
+
 const RUNNER_DIR = join(__dirname, "../agent/runner");
+
 const SHIM_FILE = join(__dirname, "../agent/runner.ts");
 
 const MODULES = [
@@ -46,10 +36,6 @@ const MODULES = [
 	"spawned-run.ts",
 	"index.ts",
 ];
-
-// ─── Mock child process harness ───────────────────────────────────
-// Mirrors test/agent-runner-subprocess.test.mts: mock.module intercepts
-// `spawn` at module load; all real exports are preserved.
 
 import * as childProcessModule from "node:child_process";
 
@@ -104,8 +90,6 @@ if (hasMockModule) {
 	});
 }
 
-// ─── Fixtures ─────────────────────────────────────────────────────
-
 const mockAgent = {
 	config: {
 		name: "test-agent",
@@ -134,8 +118,6 @@ function resetMock(): void {
 	mockCtx.ui.setWorkingMessage = mock.fn();
 	mockCtx.ui.setStatus = mock.fn();
 }
-
-// ─── Granular event emitters (data → exit → close ordering is caller-controlled) ──
 
 function emitStdoutLines(lines: string[]): void {
 	const child = currentMockChild;
@@ -167,7 +149,6 @@ function emitClose(code: number | null, signal: string | null): void {
 	for (const h of child._ref.closeHandlers) h(code, signal);
 }
 
-/** Full harness flow: stdout data → stderr data → 'exit' → 'close'. */
 function emitMockEvents(opts: {
 	stdoutLines?: string[];
 	stderrLines?: string[];
@@ -180,9 +161,6 @@ function emitMockEvents(opts: {
 	emitClose(opts.exitCode ?? 0, opts.exitSignal ?? null);
 }
 
-// ─── Structure-guard helpers (mirror adapter-split.test.mts) ─────
-
-/** Non-blank/non-comment line count — mirrors the issue's awk-style measure. */
 function nbnc(source: string): number {
 	return source.split("\n").filter((line) => {
 		const t = line.trim();
@@ -192,7 +170,6 @@ function nbnc(source: string): number {
 	}).length;
 }
 
-/** Line span of a named function in a single module source. */
 function functionSpan(source: string, fnName: string): number | null {
 	const lines = source.split("\n");
 	const startIdx = lines.findIndex((l) => new RegExp(`function\\s+${fnName}\\s*\\(`).test(l));
@@ -210,7 +187,6 @@ function functionSpan(source: string, fnName: string): number | null {
 	return null;
 }
 
-/** Max brace-balanced span of any function (named or const-arrow) in a module. */
 function maxFunctionSpan(source: string): number {
 	const lines = source.split("\n");
 	let maxSpan = 0;
@@ -266,17 +242,11 @@ function createState(overrides?: Partial<AgentRunState>): AgentRunState {
 	};
 }
 
-// ─── Tests ────────────────────────────────────────────────────────
-// If mock.module unavailable, skip all tests (requires --experimental-test-module-mocks).
-
 if (!hasMockModule) {
 	describe("runner-split", () => {
 		it("requires --experimental-test-module-mocks flag (Node.js < 23)", (t) => t.skip());
 	});
 }
-
-// Structural invariants are parse/behavior-level and need no module mocks —
-// they run in the default suite so a reformat can't hide a regression.
 describe("runner/ split — module-graph invariants", () => {
 	it("runner/index.ts uses star re-exports only (no TS1205-fragile named re-export)", () => {
 		const graph = readGraph(join(RUNNER_DIR, "index.ts"));
@@ -307,10 +277,7 @@ describe("runner/ split — module-graph invariants", () => {
 		);
 	});
 });
-
 if (hasMockModule) {
-	// ── Phase 1: shim + export surface + size guards ──────────────
-
 	describe("runner/ split — shim + export surface", () => {
 		it("agent/runner.ts remains a file: 1-line re-export shim", () => {
 			assert.ok(existsSync(SHIM_FILE), "agent/runner.ts exists (shim, not directory)");
@@ -370,9 +337,6 @@ if (hasMockModule) {
 			assert.ok(orchSpan! < 100, `runAgentSubprocess span ${orchSpan} < 100`);
 		});
 	});
-
-	// ── Phase 2: spawn.ts exit/close wiring ───────────────────────
-
 	describe("runner/spawn.ts — exit/close wiring", () => {
 		it("sub-module is standalone-importable with no top-level I/O or spawn", async () => {
 			const mod = await import("../agent/runner/spawn.ts");
@@ -419,9 +383,6 @@ if (hasMockModule) {
 			);
 		});
 	});
-
-	// ── Phase 3: stream.ts line parse + caps ──────────────────────
-
 	describe("runner/stream.ts — line parse + caps", () => {
 		it("unterminated final JSON line is flushed at child 'close'", async () => {
 			resetMock();
@@ -532,439 +493,6 @@ if (hasMockModule) {
 			assert.ok(
 				streamWarns.some((r) => r.message.includes("JSON parse error: Error: sendMessage boom")),
 				"errorCollector received the parse-error warn",
-			);
-		});
-	});
-
-	// ── Phase 4: budget.ts kill policy ─────────────────────────────
-
-	describe("runner/budget.ts — kill policy", () => {
-		it("multiple budget-exceeding events → exactly one SIGTERM", async () => {
-			resetMock();
-			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-				maxToolCalls: 1,
-			});
-
-			emitMockEvents({
-				stdoutLines: [
-					JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
-					JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
-					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-				],
-				exitCode: 0,
-				exitSignal: "SIGTERM",
-			});
-
-			const result = await resultPromise;
-			assert.equal(result.budgetExceeded, true);
-			const child = currentMockChild!;
-			assert.equal(
-				child.kill.mock.calls.length,
-				1,
-				"kill called exactly once despite repeated budget events",
-			);
-			assert.equal(child.kill.mock.calls[0]?.arguments?.[0], "SIGTERM");
-		});
-
-		it("budgetExceeded event after 'exit' → NO kill (childExited guard)", async () => {
-			resetMock();
-			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-				maxToolCalls: 1,
-			});
-
-			emitStdoutLines([
-				JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
-				JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
-			]);
-			emitExit(0, null); // childExited = true
-			// budget-exceeding event arrives AFTER exit
-			emitStdoutLines([JSON.stringify({ type: "message_end", message: { role: "assistant" } })]);
-			emitClose(0, null);
-
-			const result = await resultPromise;
-			assert.equal(result.budgetExceeded, true);
-			assert.equal(currentMockChild!.kill.mock.calls.length, 0, "no kill after childExited");
-		});
-
-		it("classifyKillReason uses state.budgetExceeded, not signal", async () => {
-			const { classifyKillReason, maybeKillOnBudgetExceeded } =
-				await import("../agent/runner/budget.ts");
-			assert.equal(classifyKillReason(createState({ budgetExceeded: true })), "budget");
-			assert.equal(classifyKillReason(createState({ budgetExceeded: false })), "timeout");
-
-			// maybeKillOnBudgetExceeded: guards on !childExited, idempotent via handle.kill
-			let killedWith: string | null = null;
-			const fakeHandle = {
-				childExited: false,
-				kill: (sig: string) => {
-					killedWith = sig;
-				},
-			} as any;
-			maybeKillOnBudgetExceeded(createState({ budgetExceeded: true }), fakeHandle);
-			assert.equal(killedWith, "SIGTERM");
-			fakeHandle.childExited = true;
-			maybeKillOnBudgetExceeded(createState({ budgetExceeded: true }), fakeHandle);
-			assert.equal(killedWith, "SIGTERM", "no second kill after childExited");
-		});
-	});
-
-	// ── Phase 5: cleanup.ts + ui.ts result assembly + widget ──────
-
-	describe("runner/cleanup.ts — result assembly", () => {
-		it("byte-for-byte corpus: rawOutput/textOutput/errorOutput/summaryLine", async () => {
-			resetMock();
-			const stdoutLines = [
-				JSON.stringify({ type: "message_update", delta: { type: "text_start" } }),
-				JSON.stringify({
-					type: "message_update",
-					delta: { type: "text_delta", text_delta: "Task complete." },
-				}),
-				JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-				JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-			];
-			const stderrLines = ["Warning: some diagnostic info"];
-
-			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-			});
-			emitMockEvents({ stdoutLines, stderrLines, exitCode: 0, exitSignal: null });
-
-			const result = await resultPromise;
-			// output = rawStdout + "\n[STDERR]\n" + stderr — event stream byte-for-byte
-			const expectedRaw =
-				stdoutLines.map((l) => l + "\n").join("") +
-				"\n[STDERR]\n" +
-				stderrLines.map((l) => l + "\n").join("");
-			assert.equal(result.output, expectedRaw, "rawOutput bytes unchanged");
-			assert.equal(result.textOutput, "Task complete.");
-			assert.equal(result.textOnly, "Task complete.");
-			assert.equal(result.errorOutput, "Warning: some diagnostic info");
-			assert.equal(result.summaryLine, "Task complete.");
-			assert.equal(result.success, true);
-		});
-
-		it("budget-kill corpus: label bytes preserved, textOutput unchanged", async () => {
-			resetMock();
-			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const resultPromise = runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-				maxToolCalls: 1,
-			});
-
-			emitMockEvents({
-				stdoutLines: [
-					JSON.stringify({ type: "tool_execution_start", toolName: "read" }),
-					JSON.stringify({ type: "tool_execution_end", toolName: "read" }),
-					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-				],
-				exitCode: 0,
-				exitSignal: "SIGTERM",
-			});
-
-			const result = await resultPromise;
-			assert.equal(result.budgetExceeded, true);
-			assert.equal(result.success, false);
-			assert.equal(
-				result.textOutput,
-				"read ...\n✓ read",
-				"textOutput keeps pre-kill content (no relabeling leaked in)",
-			);
-		});
-
-		it("assembleResult pushes the exact [Timeout: …] label to fullLog", async () => {
-			const { assembleResult } = await import("../agent/runner/cleanup.ts");
-			const state = createState();
-			assembleResult({
-				state,
-				agentName: "test-agent",
-				startedAt: Date.now() - 5_000,
-				rawStdout: "",
-				stderr: "",
-				code: null,
-				signal: "SIGTERM",
-			});
-			assert.equal(state.fullLog.length, 1);
-			assert.match(
-				state.fullLog[0]!,
-				/^\[Timeout: test-agent killed by SIGTERM after [0-9ms ]+\]$/,
-				`label bytes preserved: ${state.fullLog[0]}`,
-			);
-		});
-
-		it("failResult shared shape for setup/existsSync/spawn-error paths", async () => {
-			resetMock();
-			const { failResult } = await import("../agent/runner/cleanup.ts");
-			const r = failResult({
-				agentName: "test-agent",
-				startedAt: Date.now(),
-				errorMessage: "boom",
-				summaryLine: "s",
-				output: "o",
-			});
-			assert.equal(r.success, false);
-			assert.equal(r.output, "o");
-			assert.equal(r.errorOutput, "boom");
-			assert.equal(r.summaryLine, "s");
-			assert.equal(r.budgetExceeded, undefined);
-			assert.equal(r.textOutput, "");
-			assert.equal(r.toolCount, 0);
-
-			// existsSync guard path through the orchestrator (identical shape)
-			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const badCwd = await runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-				cwd: "/nonexistent-path-xyz",
-			});
-			assert.equal(badCwd.success, false);
-			assert.ok(badCwd.summaryLine.includes("Worktree missing"));
-			assert.equal(badCwd.budgetExceeded, undefined);
-			assert.equal(badCwd.errorOutput, `cwd does not exist: /nonexistent-path-xyz`);
-
-			// spawn-error path through the orchestrator (identical shape)
-			resetMock();
-			const errPromise = runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-			});
-			for (const h of currentMockChild!._ref.errorHandlers) {
-				h(new Error("ENOENT: spawn pi ENOENT"));
-			}
-			const spawnErr = await errPromise;
-			assert.equal(spawnErr.success, false);
-			assert.ok(spawnErr.output.includes("Failed to start pi"));
-			assert.equal(spawnErr.errorOutput, "ENOENT: spawn pi ENOENT");
-			assert.equal(spawnErr.budgetExceeded, undefined);
-		});
-	});
-
-	describe("runner/cleanup.ts — stateResultFields (state→fields mapping)", () => {
-		const baseArgs = (
-			state: AgentRunState,
-			over?: Partial<Parameters<typeof import("../agent/runner/cleanup.ts").stateResultFields>[0]>,
-		) => ({
-			state,
-			agentName: "test-agent",
-			durationMs: 1234,
-			textOutput: "Task complete.",
-			success: true,
-			...over,
-		});
-
-		it("omits the four caller-injected fields", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			const fields = stateResultFields(baseArgs(createState())) as Record<string, unknown>;
-			for (const key of ["output", "success", "errorOutput", "textOutput"]) {
-				assert.ok(!(key in fields), `${key} must be injected by the caller, not the builder`);
-			}
-		});
-
-		it("thinkingLevel passes through (present or undefined)", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			assert.equal(
-				stateResultFields(baseArgs(createState({ thinkingLevel: "medium" }))).thinkingLevel,
-				"medium",
-			);
-			assert.equal(stateResultFields(baseArgs(createState())).thinkingLevel, undefined);
-		});
-
-		it("failedToolCount: undefined → undefined; 0 → 0 (boundary); 3 → 3", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			assert.equal(stateResultFields(baseArgs(createState())).failedToolCount, undefined);
-			assert.equal(
-				stateResultFields(baseArgs(createState({ failedToolCount: 0 }))).failedToolCount,
-				0,
-			);
-			assert.equal(
-				stateResultFields(baseArgs(createState({ failedToolCount: 3 }))).failedToolCount,
-				3,
-			);
-		});
-
-		it("nestedCalls deep-equals nestedCallsFromState; nestedErrors passes through", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			const { nestedCallsFromState } = await import("../agent/state-helpers.ts");
-			const state = createState({
-				nestedCalls: [{ name: "read", status: "ok" }] as AgentRunState["nestedCalls"],
-				nestedErrorCount: 2,
-			});
-			const fields = stateResultFields(baseArgs(state));
-			assert.deepEqual(fields.nestedCalls, nestedCallsFromState(state));
-			assert.equal(fields.nestedErrors, 2);
-			assert.equal(stateResultFields(baseArgs(createState())).nestedErrors, undefined);
-		});
-
-		it("budgetExceeded: false → undefined; true → true", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			assert.equal(stateResultFields(baseArgs(createState())).budgetExceeded, undefined);
-			assert.equal(
-				stateResultFields(baseArgs(createState({ budgetExceeded: true }))).budgetExceeded,
-				true,
-			);
-		});
-
-		it("killReason ternary: timeout > budget > undefined", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			assert.equal(
-				stateResultFields(baseArgs(createState({ budgetExceeded: true }), { timedOut: true }))
-					.killReason,
-				"timeout",
-			);
-			assert.equal(
-				stateResultFields(baseArgs(createState({ budgetExceeded: true }), { timedOut: false }))
-					.killReason,
-				"budget",
-			);
-			assert.equal(stateResultFields(baseArgs(createState())).killReason, undefined);
-		});
-
-		it("timedOut: true → true; false/omitted → undefined", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			assert.equal(stateResultFields(baseArgs(createState(), { timedOut: true })).timedOut, true);
-			assert.equal(
-				stateResultFields(baseArgs(createState(), { timedOut: false })).timedOut,
-				undefined,
-			);
-			assert.equal(stateResultFields(baseArgs(createState())).timedOut, undefined);
-		});
-
-		it("configuredTimeoutMs only when timedOut and value present", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			assert.equal(
-				stateResultFields(baseArgs(createState(), { timedOut: true, configuredTimeoutMs: 5000 }))
-					.configuredTimeoutMs,
-				5000,
-			);
-			assert.equal(
-				stateResultFields(baseArgs(createState(), { timedOut: true })).configuredTimeoutMs,
-				undefined,
-			);
-			assert.equal(
-				stateResultFields(baseArgs(createState(), { timedOut: false, configuredTimeoutMs: 5000 }))
-					.configuredTimeoutMs,
-				undefined,
-			);
-		});
-
-		it("thinkingOutput joins lines with a blank line; empty → undefined", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			assert.equal(
-				stateResultFields(baseArgs(createState({ thinkingOutputLines: ["a", "b"] })))
-					.thinkingOutput,
-				"a\n\nb",
-			);
-			assert.equal(stateResultFields(baseArgs(createState())).thinkingOutput, undefined);
-		});
-
-		it("toolCalls is the state reference; textOnly trims joined text lines", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			const state = createState({ toolCalls: ["read", "write"], textOutputLines: ["  hi  "] });
-			const fields = stateResultFields(baseArgs(state));
-			assert.equal(fields.toolCalls, state.toolCalls);
-			assert.equal(fields.textOnly, "hi");
-		});
-
-		it("summaryLine derives from the passed textOutput/success/agentName", async () => {
-			const { stateResultFields } = await import("../agent/runner/cleanup.ts");
-			const fields = stateResultFields(
-				baseArgs(createState({ textOutputLines: ["ignored"] }), {
-					textOutput: "Did the thing.",
-				}),
-			);
-			assert.equal(fields.summaryLine, "Did the thing.");
-		});
-	});
-
-	describe("runner/ui.ts — widget cadence", () => {
-		it("300ms debounce fires setWidget during execution", async () => {
-			resetMock();
-			const { createWidgetFlusher } = await import("../agent/runner/ui.ts");
-			const state = createState();
-			const flusher = createWidgetFlusher({
-				ctx: mockCtx,
-				widgetId: "agent-test-agent",
-				agentName: "test-agent",
-				model: "m",
-				state,
-			});
-			flusher.scheduleFlush();
-			await new Promise((r) => setTimeout(r, 400));
-			const setWidget = mockCtx.ui.setWidget as ReturnType<typeof mock.fn>;
-			assert.ok(setWidget.mock.calls.length >= 1, "debounced flush rendered the widget");
-			flusher.dispose();
-			flusher.dispose(); // idempotent — no double-clear, no throw
-		});
-
-		it("clears widget + working message + status on completion and on spawn error", async () => {
-			// completion path
-			resetMock();
-			const { runAgentSubprocess } = await import("../agent/runner.ts");
-			const okPromise = runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-			});
-			emitMockEvents({
-				stdoutLines: [
-					JSON.stringify({
-						type: "message_update",
-						delta: { type: "text_delta", text_delta: "done" },
-					}),
-					JSON.stringify({ type: "message_update", delta: { type: "text_end" } }),
-					JSON.stringify({ type: "message_end", message: { role: "assistant" } }),
-				],
-				exitCode: 0,
-				exitSignal: null,
-			});
-			await okPromise;
-			const setWidget = mockCtx.ui.setWidget as ReturnType<typeof mock.fn>;
-			const lastWidget = setWidget.mock.calls[setWidget.mock.calls.length - 1];
-			assert.ok(lastWidget, "setWidget called at least once");
-			assert.equal(lastWidget?.arguments?.[1], undefined, "widget cleared on completion");
-
-			// spawn-error path
-			resetMock();
-			const errPromise = runAgentSubprocess({
-				agent: mockAgent as any,
-				task: "test task",
-				ctx: mockCtx,
-				timeoutMs: 5000,
-			});
-			for (const h of currentMockChild!._ref.errorHandlers) {
-				h(new Error("ENOENT"));
-			}
-			await errPromise;
-			const setWidget2 = mockCtx.ui.setWidget as ReturnType<typeof mock.fn>;
-			const last2 = setWidget2.mock.calls[setWidget2.mock.calls.length - 1];
-			assert.equal(last2?.arguments?.[1], undefined, "widget cleared on spawn error");
-			const setWorking = mockCtx.ui.setWorkingMessage as ReturnType<typeof mock.fn>;
-			assert.ok(
-				setWorking.mock.calls.some((c: any) => c.arguments?.[0] === undefined),
-				"working message cleared on spawn error",
 			);
 		});
 	});

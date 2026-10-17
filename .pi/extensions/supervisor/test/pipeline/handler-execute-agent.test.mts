@@ -1,16 +1,10 @@
-// ─── Tests: executeAgent() — subprocess dispatch path ──────────────
-// Verifies executeAgent (from pipeline/execute-agent.ts) covers all paths.
-//
-// executeAgent accepts an optional runner parameter (last arg) for injecting
-// a mock runAgentSubprocess. This avoids real process spawn and module-level
-// mocking (which requires --experimental-test-module-mocks).
-
 import { describe, it, mock, afterEach } from "node:test";
-import assert from "node:assert/strict";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { AgentRunResult } from "../../config/types.ts";
 
-// ─── Helpers ─────────────────────────────────────────────────────
+import assert from "node:assert/strict";
+
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+
+import type { AgentRunResult } from "../../config/types.ts";
 
 function createMockCtx(): ExtensionCommandContext {
 	return {
@@ -51,7 +45,6 @@ const mockAgent = {
 	systemPrompt: "You are a test agent.",
 };
 
-// Factory for mock runAgentSubprocess
 function mockRunner(result: Partial<AgentRunResult> = {}) {
 	return mock.fn(
 		async (..._args: any[]) =>
@@ -74,8 +67,6 @@ function mockRunner(result: Partial<AgentRunResult> = {}) {
 afterEach(() => {
 	mock.reset();
 });
-
-// ─── Tests ─────────────────────────────────────────────────────────
 
 describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 	it("success path: returns result", async () => {
@@ -101,7 +92,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.equal(result.success, true);
 		assert.equal(result.agentName, "developer");
 	});
-
 	it("success path: calls runAgentSubprocess exactly once", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -130,7 +120,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.equal(call?.timeoutMs, 30000);
 		assert.equal(call?.cwd, "/worktree");
 	});
-
 	it("sends start message before subprocess", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -157,7 +146,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.equal(startMsg.details?.eventType, "phase-change");
 		assert.ok(startMsg.content.includes("developer"), "start message should include agent name");
 	});
-
 	it("sends final subagent-result message after completion", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -187,7 +175,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 			"final message should include status label",
 		);
 	});
-
 	it("calls replaySessionFile after successful subprocess (via side effects)", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -216,7 +203,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		);
 		assert.ok(resultMsgs.length >= 1, "should have at least one subagent-result message");
 	});
-
 	it("skips replay when subprocess fails", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -240,7 +226,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		const lastMsg = pi.sendMessageCalls[pi.sendMessageCalls.length - 1];
 		assert.ok(lastMsg.content.includes("FAILED"), "final message should indicate failure");
 	});
-
 	it("budget exceeded path: returns budgetExceeded=true, usedRetry=false", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -270,7 +255,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.equal(result.budgetExceeded, true);
 		assert.equal(result.success, false, "budget exceeded should have success=false");
 	});
-
 	it("budget exceeded path renders ⚠ BUDGET_EXCEEDED in the final message", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -303,7 +287,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 			"budget outcome renders ⚠ BUDGET_EXCEEDED",
 		);
 	});
-
 	it("success wins over budgetExceeded in the rendered message (precedence)", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -332,7 +315,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 			"success branch wins over budgetExceeded",
 		);
 	});
-
 	it("empty summaryLine still renders the status line without crashing", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -361,7 +343,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 			"status line renders with empty summaryLine",
 		);
 	});
-
 	it("passes sessionPath to runAgentSubprocess", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -395,7 +376,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 			"sessionPath should contain pi-session- prefix",
 		);
 	});
-
 	it("handles undefined agentCwd gracefully", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -418,7 +398,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 
 		assert.equal(result.success, true);
 	});
-
 	it("verify dispatch order: start → subprocess → result", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -453,7 +432,6 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 		assert.ok(resultIdx >= 0, "should have a subagent-result message");
 		assert.ok(startIdx < resultIdx, "start message should come before result message");
 	});
-
 	it("uses eventType discriminator (phase-change, subagent-result)", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();
@@ -483,7 +461,8 @@ describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 			}
 		}
 	});
-
+});
+describe("executeAgent() — subprocess dispatch (Phase 1 promotion)", () => {
 	it("returns correct AgentRunResult shape on success", async () => {
 		const pi = createMockPi();
 		const ctx = createMockCtx();

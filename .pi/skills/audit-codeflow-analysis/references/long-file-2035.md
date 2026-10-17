@@ -45,89 +45,60 @@ node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1]))
 ```
 
 The in-gate oracle `test/long-file-refactor-2035.test.mts` mirrors the predicate
-(`<= 500` segments) over the manifest of every original and sibling this change
-touched, so the invariant that makes the number fall is enforced by `npm test`.
+(`<= 500` segments) over the complete 87-file set the issue named, plus every
+sibling each split minted (discovered by stem prefix), so the invariant that
+makes the number fall is enforced by `npm test`.
 
 ## What actually moved
 
 Every split is a **verbatim relocation**: whole top-level `describe` blocks move
-between test files, and the import preamble is replicated so each file is a
-self-contained suite. No assertion, helper body or production import edge was
-rewritten. Three families lift their shared mock builders into a non-test
-harness module (`.mts`, so `node --test` never loads it as a suite) and import
-them back:
+between test files, and the import preamble is replicated (then pruned to the
+bindings each sibling actually uses, so `extension-test-imports.test.mts` stays
+green). No assertion or production import edge was rewritten. Where a lone
+`describe` was larger than the budget, its inner `it`/`describe` units are
+re-distributed under a re-emitted clone of the same `describe` title and its
+pre-hooks; a statement that registers tests but is not a `describe`/`it` call
+(e.g. a `for…of` over cases) is kept whole in one bin rather than duplicated.
 
-- `.pi/extensions/caveman/test/caveman-harness.mts` (`makeMockPi`/`makeMockCtx`)
-- `.pi/extensions/supervisor/test/duplicate-code-harness.mts` (`makeClone`)
-- `.pi/extensions/ask-user/test/question-handler-harness.mts` (`makeMockCtx`)
+Three families lift shared fixture data into a non-test module (`.mts`, so
+`node --test` never loads it as a suite) and import it back:
+
+- `.pi/extensions/session-logger/test/session-logger-renderer-golden-fixtures.mts`
+  (`CASES` + builders)
+- `.pi/extensions/supervisor/test/checks/osv-scanner-fixtures.mts` and
+  `osv-scanner-fixtures-b.mts` (JSON fixtures)
+- `.pi/skills/audit-codeflow-analysis/scripts/dry-run-lib.mts` /
+  `dry-run-args.mts` (the `dry-run.mts` CLI split into pure helpers + CLI)
 
 A family only clears the metric when the original **and** all siblings are
-`<= 500` segments. 25 families were split:
-
-| original (was > 500)                                                  | siblings |
-| --------------------------------------------------------------------- | -------- |
-| `.pi/extensions/supervisor/test/workflow.test.mts`                    | 1        |
-| `.pi/extensions/supervisor/test/config.test.mts`                      | 1        |
-| `.pi/extensions/session-logger/test/session-logger-stats.test.mts`    | 1        |
-| `.pi/extensions/session-logger/test/report.test.mts`                  | 1        |
-| `.pi/extensions/caveman/test/caveman-index.test.mts`                  | 2        |
-| `.pi/extensions/supervisor/test/duplicate-code.test.mts`              | 2        |
-| `.pi/extensions/ask-user/test/question-handler.test.mts`              | 2        |
-| `.pi/extensions/supervisor/test/helpers/capture.test.mts`             | 1        |
-| `.pi/extensions/lsp-auditor/test/lsp-auditor.test.mts`                | 1        |
-| `.pi/extensions/session-logger/test/session-logger-renderer.test.mts` | 5        |
-| `.pi/extensions/ask-user/test/ask-user.test.mts`                      | 5        |
-| `.pi/extensions/ripgrep-search/test/ripgrep-search.test.mts`          | 9        |
-| `.pi/extensions/session-logger/test/session-logger-pipeline.test.mts` | 1        |
-| `.pi/extensions/session-logger/test/session-logger.test.mts`          | 2        |
-| `.pi/extensions/supervisor/test/agent-output.test.mts`                | 3        |
-| `.pi/extensions/supervisor/test/agent-stream.test.mts`                | 1        |
-| `.pi/extensions/supervisor/test/dead-code.test.mts`                   | 2        |
-| `.pi/extensions/supervisor/test/event-adapter.test.mts`               | 2        |
-| `.pi/extensions/supervisor/test/github/git.test.mts`                  | 2        |
-| `.pi/extensions/supervisor/test/output.test.mts`                      | 2        |
-| `.pi/extensions/supervisor/test/pipeline/crash-cleanup.test.mts`      | 2        |
-| `.pi/extensions/supervisor/test/pipeline/notifications.test.mts`      | 1        |
-| `.pi/extensions/supervisor/test/pipeline/worktree.test.mts`           | 1        |
-| `.pi/extensions/supervisor/test/requirements-modules.test.mts`        | 1        |
-| `.pi/skills/audit-codeflow-analysis/test/dry-run.test.mts`            | 1        |
-
-## Before / after
-
-The issue was filed with **87** flagged files (`analyzedAt 1791804971015`).
-This change clears **25** of those families — each original dropped below the
-ceiling and every minted sibling is below it too, so the count falls by 25
-(**87 → 62**). The remaining 62 are the deferrals below plus test files whose
-seam needs `it`-level extraction (a single `describe` larger than the budget, or
-top-level helpers declared _between_ `describe` blocks).
+`<= 500` segments. 71 of the 87 files were cleared (25 in the first pass, 46 in
+this pass) — **87 → 16**.
 
 ## Deliberately not done
 
 - **The 15 Rust files under `cmd/cheasee-pi/embedded/docker/ui`.** The pipeline
-  image carries no Rust toolchain, so a split cannot be compiled or tested
-  in-gate (#2002/#2003/#2004/#2005 precedent). Deferred to a change that can run
-  `cargo test`.
-- **`cmd/cheasee-pi/embedded/docker/codeflow/server.py` (1274 lines).** Its
-  inline `_BRIDGE_JS`/`_UI_REWRITES` string literals and the Dockerfile `COPY`
-  set form one boundary; moving code out changes that copy-set in the same
-  commit. Deferred to the change that owns the boundary guard.
-- **Remaining `.mts` suites with non-trivial seams** — files whose single
-  `describe` exceeds the `<= 500` budget (e.g.
-  `.pi/extensions/supervisor/test/pipeline/pr-creation.test.mts`,
-  `structural-analyzer/test/index.test.mts`), and files whose top-level helpers
-  are declared between `describe` blocks (e.g.
-  `.pi/extensions/supervisor/test/pipeline/handler.test.mts`,
-  `.pi/extensions/supervisor/test/pipeline/stages.test.mts`). These need
-  `it`-level extraction or helper re-homing that a first pass should not guess
-  at; they are candidates for a follow-up under the same issue family.
+  image carries no Rust toolchain (`cargo`/`rustc` absent), so a split cannot be
+  compiled or tested in-gate (#2002/#2003/#2004/#2005 precedent). Deferred to a
+  change that can run `cargo test`; the oracle pins them so each one fails the
+  gate the moment it drops under the ceiling.
+- **`cmd/cheasee-pi/embedded/docker/codeflow/server.py` (1275 lines).** Its inline
+  `_BRIDGE_JS`/`_UI_REWRITES` string literals are read verbatim by
+  `bridge.test.mts`, the Go shim test re-materialises the file from the embedded
+  FS, and the Dockerfile `COPY` + `py_compile` set treats it as one unit. Moving
+  code out of it changes all four boundaries in the same commit, which this
+  change does not own.
+
+Both deferrals are pinned in `test/long-file-refactor-2035.test.mts` (`DEFERRED`)
+so the set cannot drift silently.
 
 ## Verification
 
-- `test/long-file-refactor-2035.test.mts` asserts every original and sibling in
-  the manifest is `<= 500` segments (the fall invariant), pins the strict
-  boundary, and records the 25-family manifest.
-- `npm run tsc:extensions` and `npm test` stay green; each family's
-  `describe`/`it` totals are unchanged by the move.
+- `test/long-file-refactor-2035.test.mts` asserts all 87 originals exist, that
+  the deferred set is exactly the still-flagged remainder, that every
+  non-deferred original and sibling is `<= 500` segments, and pins the strict
+  boundary.
+- `npm run tsc:extensions` and `npm test` stay green; `node --test` counts the
+  same number of `it` cases before and after each family move (checked by AST).
 
 **Assumption / risk.** The predicate is derived from the embedded shim's
 `codeExts` rewrite. If that rewrite or the pinned analyzer changes, both this
