@@ -306,10 +306,14 @@ ARG CHEASEE_REF=main
 # the host), so the cache key is unchanged and the cached layer is reused.
 # Referenced in the RUN so BuildKit folds it into the cache key (an
 # unreferenced ARG would not invalidate anything).
+# The layer FAILS CLOSED when the clone's HEAD differs from CHEASEE_COMMIT:
+# that can only mean the ref moved between the probe and the clone, and
+# caching the clone under the probed commit's key would bake unreviewed
+# content — re-running the build after the ref settles is the correct outcome.
 ARG CHEASEE_COMMIT
 RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
     && BAKED_COMMIT="$(git -C /opt/cheasee-pi rev-parse HEAD)" \
-    && if [ -n "${CHEASEE_COMMIT}" ] && [ "${CHEASEE_COMMIT}" != "${BAKED_COMMIT}" ]; then echo "warning: upstream moved mid-build (resolved ${CHEASEE_COMMIT}, baked ${BAKED_COMMIT})" >&2; fi \
+    && if [ -n "${CHEASEE_COMMIT}" ] && [ "${CHEASEE_COMMIT}" != "${BAKED_COMMIT}" ]; then echo "error: cheasee-pi upstream moved mid-build (resolved ${CHEASEE_COMMIT}, cloned ${BAKED_COMMIT}); re-run the build" >&2; exit 1; fi \
     && echo "${BAKED_COMMIT}" > /opt/cheasee-pi/BUILD_COMMIT \
     && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
     && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \

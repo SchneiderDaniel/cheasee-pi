@@ -17,9 +17,10 @@ const cheaseePiRepoURL = "https://github.com/SchneiderDaniel/cheasee-pi"
 // remote cannot stall a build behind git's default connect timeout.
 const cheaseeCommitProbeTimeout = 10 * time.Second
 
-// cheaseeCommitCacheFile (in the version-keyed compose dir) records the last
-// successfully resolved upstream commit, so an offline build keeps the clone
-// layer's cache key unchanged instead of forcing a network clone.
+// cheaseeCommitCacheFile (in the version-keyed compose dir) records the commit
+// of the last SUCCESSFUL build, so (a) an offline build keeps the clone
+// layer's cache key unchanged instead of forcing a network clone and (b)
+// `cheasee-pi about` can report the baked /opt/cheasee-pi revision.
 const cheaseeCommitCacheFile = "cheasee-commit"
 
 // cheaseeRef is the ref the baked copy tracks: a user-supplied CHEASEE_REF or
@@ -117,34 +118,52 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 		}
 		return err
 	}
+	// Dockerfile Layer 6b fails unless the clone's HEAD equals CHEASEE_COMMIT,
+	// so a successful build bakes exactly this commit — safe to persist as the
+	// image's baked revision (read back by `cheasee-pi about`).
+	recordBakedCommit(composeDir, commit)
 	return nil
 }
 
-// bakedCommitForBuild returns the clone layer's cache-bust input for one
-// build. On a failed probe it reuses the last successfully resolved commit:
-// passing an empty value there would change the layer's cache key and force a
-// network clone despite a usable cached layer (issue #2054).
+// recordBakedCommit persists the commit a successful build baked into
+// /opt/cheasee-pi. An empty commit (first build with a failed probe) is not a
+// known revision and is never recorded.
+func recordBakedCommit(composeDir, commit string) {
+	if commit == "" {
+		return
+	}
+	if err := atomicWrite(filepath.Join(composeDir, cheaseeCommitCacheFile), []byte(commit+"\n"), 0644, false); err != nil {
+		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit cache: %v\n", err)
+	}
+}
+
+// readBakedCommit returns the commit recorded by recordBakedCommit, or "" when
+// no successful build has been recorded yet.
+func readBakedCommit(composeDir string) string {
+	b, err := os.ReadFile(filepath.Join(composeDir, cheaseeCommitCacheFile))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// bakedCommitForBuild returns the clone layer's cache-bust input for one build:
+// the upstream commit of CHEASEE_REF, or — when the probe fails — the last
+// baked commit, so the layer's cache key (and thus the cached layer) stays
+// unchanged instead of forcing a network clone.
 func bakedCommitForBuild(ctx context.Context, composeDir string) string {
-	cachePath := filepath.Join(composeDir, cheaseeCommitCacheFile)
 	probeCtx, cancel := context.WithTimeout(ctx, cheaseeCommitProbeTimeout)
 	commit, err := resolveCheaseeCommit(probeCtx, cheaseeRef())
 	cancel()
 	if err == nil && commit != "" {
-		if werr := atomicWrite(cachePath, []byte(commit+"\n"), 0644, false); werr != nil {
-			fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit cache: %v\n", werr)
-		}
 		return commit
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit probe: %v\n", err)
 	}
-	prior, rerr := os.ReadFile(cachePath)
-	if rerr != nil {
-		return ""
-	}
-	if s := strings.TrimSpace(string(prior)); s != "" {
-		fmt.Fprintf(os.Stderr, "  \u2139 reusing last resolved cheasee-pi commit %s\n", s)
-		return s
+	if prior := readBakedCommit(composeDir); prior != "" {
+		fmt.Fprintf(os.Stderr, "  \u2139 reusing last baked cheasee-pi commit %s\n", prior)
+		return prior
 	}
 	return ""
 }
