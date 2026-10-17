@@ -1137,3 +1137,83 @@ describe("vba god module metric oracle (issue #2006)", () => {
 		}
 	});
 });
+
+// ─── VBA god module oracle (issue #2036) ──────────────────────────
+// The re-filed `VBA God Module` metric. This block replays the recorded
+// envelope and guards its shape; the per-sibling structural oracle lives in
+// `test/vba-god-module-refactor-2036.test.mts`.
+const VBA_GOD_2036_BASELINE = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "vba-god-module-baseline-2036.json"), "utf-8"),
+) as {
+	provenance: {
+		issue: number;
+		ref: string;
+		metric: string;
+		filedCount: number;
+		filedAnalyzedAt: number;
+	};
+	before: { commit: string; files: number; vbaGodModuleCount: number };
+	after: { ref: string; files: number; vbaGodModuleCount: number };
+	reducedBy: string[];
+	deferred: { reason: string; files?: string[] }[];
+};
+
+describe("vba god module metric oracle (issue #2036)", () => {
+	it("records a real drop on the pinned analyzer", () => {
+		assert.strictEqual(VBA_GOD_2036_BASELINE.provenance.issue, 2036);
+		assert.strictEqual(VBA_GOD_2036_BASELINE.provenance.filedCount, 25);
+		assert.strictEqual(VBA_GOD_2036_BASELINE.provenance.filedAnalyzedAt, 1791804971015);
+		assert.match(VBA_GOD_2036_BASELINE.provenance.ref, /^[0-9a-f]{40}$/, "pinned analyzer ref");
+		assert.match(
+			VBA_GOD_2036_BASELINE.provenance.metric,
+			/functions\.length > 20/,
+			"the metric names the exact predicate",
+		);
+		assert.match(
+			VBA_GOD_2036_BASELINE.provenance.metric,
+			/isCode !== false/,
+			"the metric names the `isCode` gate",
+		);
+		assert.match(VBA_GOD_2036_BASELINE.before.commit, /^[0-9a-f]{40}$/, "immutable base commit");
+		assert.ok(
+			VBA_GOD_2036_BASELINE.after.vbaGodModuleCount <
+				VBA_GOD_2036_BASELINE.before.vbaGodModuleCount,
+			"the flagged-file count must fall",
+		);
+		assert.ok(
+			VBA_GOD_2036_BASELINE.after.files > VBA_GOD_2036_BASELINE.before.files,
+			"the split adds files; the drop is not from dropping files",
+		);
+	});
+
+	it("cites only existing, non-test-only reduction sources", () => {
+		assert.ok(VBA_GOD_2036_BASELINE.reducedBy.length > 0, "reducedBy must be non-empty");
+		for (const rel of VBA_GOD_2036_BASELINE.reducedBy) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing reduction source: ${rel}`);
+			assert.ok(!rel.endsWith(".mts"), `${rel} is test-only: the analyzer never counts a .mts`);
+		}
+	});
+
+	it("accounts for every leftover flag (no silent omission)", () => {
+		const files = VBA_GOD_2036_BASELINE.deferred.flatMap((d) => d.files ?? []);
+		assert.strictEqual(
+			VBA_GOD_2036_BASELINE.before.vbaGodModuleCount,
+			VBA_GOD_2036_BASELINE.reducedBy.length + files.length,
+			"the base count must equal reduced + deferred",
+		);
+		assert.strictEqual(
+			VBA_GOD_2036_BASELINE.after.vbaGodModuleCount,
+			files.length,
+			"every file still flagged on the delivered tree is a recorded deferral",
+		);
+	});
+
+	it("names the per-sibling oracle and the reference doc next to the fixture", () => {
+		for (const rel of [
+			"test/vba-god-module-refactor-2036.test.mts",
+			".pi/skills/audit-codeflow-analysis/references/vba-god-module-2036.md",
+		]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing register artifact: ${rel}`);
+		}
+	});
+});
