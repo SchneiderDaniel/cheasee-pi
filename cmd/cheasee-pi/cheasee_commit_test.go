@@ -182,6 +182,87 @@ func TestComposeBuild_ProbeFailureReusesLastCommit(t *testing.T) {
 	}
 }
 
+// TestComposeBuild_ProbeFailureDoesNotReuseCrossRefCommit pins the ref-keyed
+// fallback (issue #2054 audit): switching CHEASEE_REF and then losing probe
+// connectivity must NOT reuse another ref's commit — the clone layer's cache
+// key and HEAD guard would then describe the wrong revision.
+func TestComposeBuild_ProbeFailureDoesNotReuseCrossRefCommit(t *testing.T) {
+	saved := resolveCheaseeCommit
+	t.Cleanup(func() { resolveCheaseeCommit = saved })
+
+	composeDir := t.TempDir()
+	t.Setenv("CHEASEE_REF", "main")
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "abc123", nil }
+	if got := runComposeBuildCommitArg(t, composeDir, ""); got != "abc123" {
+		t.Fatalf("main build must pass the resolved commit, got %q", got)
+	}
+
+	t.Setenv("CHEASEE_REF", "v2.0.0")
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "", errors.New("network down") }
+	if got := runComposeBuildCommitArg(t, composeDir, ""); got != "" {
+		t.Errorf("failed probe on a NEW ref must not reuse main's commit, got %q", got)
+	}
+}
+
+// TestComposeBuild_FirstBuildFailedProbeCapturesBakedCommit pins the second
+// audit finding: with no prior same-ref record a failed probe leaves the ARG
+// empty, so after a SUCCESSFUL build the commit the image actually baked must
+// be captured into the host record — otherwise `about` reports nothing.
+func TestComposeBuild_FirstBuildFailedProbeCapturesBakedCommit(t *testing.T) {
+	saved := resolveCheaseeCommit
+	t.Cleanup(func() { resolveCheaseeCommit = saved })
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "", errors.New("network down") }
+	t.Setenv("CHEASEE_REF", "main")
+
+	composeDir := t.TempDir()
+	if got := runComposeBuildCommitArg(t, composeDir, "baked999\n"); got != "" {
+		t.Fatalf("failed first-build probe must pass an empty cache-bust input, got %q", got)
+	}
+	if got := readBakedCommit(composeDir); got.ref != "main" || got.commit != "baked999" {
+		t.Errorf("baked commit must be captured from the built image, got %+v", got)
+	}
+}
+
+// runComposeBuildCommitArg runs one composeBuild against a shared composeDir
+// with the standard docker stubs and returns the CHEASEE_COMMIT it passed.
+// imageOutput is what the capture probe reads back from the built image.
+func runComposeBuildCommitArg(t *testing.T, composeDir, imageOutput string) string {
+	t.Helper()
+	stubStatfsAmple(t)
+	var built *mockCmd
+	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+		switch {
+		case name == "docker" && slices.Contains(arg, "{{.DockerRootDir}}"):
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
+		case name == "docker" && len(arg) > 0 && arg[0] == "run":
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(imageOutput), nil }}
+		case name == "docker" && slices.Contains(arg, "compose"):
+			built = &mockCmd{}
+			return built
+		}
+		return &mockCmd{}
+	})
+
+	testutil.CaptureStderr(t, func() {
+		if err := composeBuild(context.Background(), composeDir, t.TempDir(), "cheasee-pi-x", composeBuildSpec{label: "Building container image"}); err != nil {
+			t.Fatalf("composeBuild: %v", err)
+		}
+	})
+	if built == nil {
+		t.Fatal("no compose build invocation captured")
+	}
+	var hits []string
+	for _, e := range built.env {
+		if k, v, ok := strings.Cut(e, "="); ok && k == "CHEASEE_COMMIT" {
+			hits = append(hits, v)
+		}
+	}
+	if len(hits) != 1 {
+		t.Fatalf("exactly one CHEASEE_COMMIT entry expected, got %v", hits)
+	}
+	return hits[0]
+}
+
 func TestResolveCheaseeCommit_ParsesLsRemote(t *testing.T) {
 	var gotName string
 	var gotArg []string
@@ -267,7 +348,7 @@ func TestAbout_reportsBakedCommitValue(t *testing.T) {
 	dir := t.TempDir()
 	aboutCacheDir = func() (string, error) { return dir, nil }
 	t.Cleanup(func() { aboutCacheDir = saved })
-	if err := atomicWrite(filepath.Join(dir, cheaseeCommitCacheFile), []byte("cafebabe\n"), 0644, false); err != nil {
+	if err := atomicWrite(filepath.Join(dir, cheaseeCommitCacheFile), []byte("main cafebabe\n"), 0644, false); err != nil {
 		t.Fatalf("seed baked commit: %v", err)
 	}
 
