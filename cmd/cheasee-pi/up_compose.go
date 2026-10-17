@@ -18,10 +18,20 @@ const cheaseePiRepoURL = "https://github.com/SchneiderDaniel/cheasee-pi"
 const cheaseeCommitProbeTimeout = 10 * time.Second
 
 // cheaseeCommitCacheFile (in the version-keyed compose dir) records the commit
-// of the last SUCCESSFUL build, so (a) an offline build keeps the clone
-// layer's cache key unchanged instead of forcing a network clone and (b)
-// `cheasee-pi about` can report the baked /opt/cheasee-pi revision.
+// and ref of the last SUCCESSFUL build of ONE image, so (a) an offline build
+// keeps the clone layer's cache key unchanged instead of forcing a network
+// clone and (b) `cheasee-pi about` can report the baked /opt/cheasee-pi
+// revision. One record per image ref (cheaseeCommitCachePath): the compose dir
+// is shared by every workspace on this CLI version, so a single record would
+// let a build in workspace B overwrite what `about` reports for workspace A
+// (issue #2054 audit).
 const cheaseeCommitCacheFile = "cheasee-commit"
+
+// cheaseeCommitCachePath is one image's baked-commit record. imageRef is a
+// compose image name (sanitizeSlug charset only), so it is filename-safe.
+func cheaseeCommitCachePath(composeDir, imageRef string) string {
+	return filepath.Join(composeDir, cheaseeCommitCacheFile+"-"+imageRef)
+}
 
 // cheaseeCommitRecord is the last successful build's baked revision: the ref
 // it was resolved from and the commit it baked. Storing the ref alongside the
@@ -120,8 +130,11 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 	build.SetDir(composeDir)
 	build.SetStdout(os.Stderr)
 	build.SetStderr(os.Stderr)
+	// The record this build writes and the image it reads back are keyed by the
+	// workspace's image ref, never by the shared compose dir alone.
+	imageRef := cheaseeImageRef(workspaceHostPath)
 	// Resolved AFTER the disk gate so a refused build never probes the network.
-	commit := bakedCommitForBuild(ctx, composeDir)
+	commit := bakedCommitForBuild(ctx, composeDir, imageRef)
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
 	// cpus/git identity from settings.json ride along).
@@ -143,48 +156,60 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 	// Dockerfile Layer 6b writes the clone's HEAD to /opt/cheasee-pi/BUILD_COMMIT
 	// and fails unless it equals CHEASEE_COMMIT, so a successful build bakes
 	// exactly `commit` — except when the probe left it empty (offline build
-	// with no same-ref record), where the image's own BUILD_COMMIT is the
+	// with no record for this image yet), where the image's own BUILD_COMMIT is the
 	// source of truth. Persisting the ACTUAL baked commit keeps `cheasee-pi
 	// about` truthful even then (issue #2054 audit).
 	baked := commit
 	if baked == "" {
-		baked = captureBakedCommit(ctx, cheaseeImageRef(workspaceHostPath))
+		captured, err := captureBakedCommit(ctx, imageRef)
+		if err != nil {
+			// Never silent: an unreadable baked commit after a successful build
+			// leaves `about` reporting nothing, and the user must know why
+			// (issue #2054 audit). The image itself is built, so the build stands.
+			fmt.Fprintf(os.Stderr, "  \u26a0 baked cheasee-pi commit: %v — `cheasee-pi about` will not report one\n", err)
+		}
+		baked = captured
 	}
-	recordBakedCommit(composeDir, cheaseeRef(), baked)
+	recordBakedCommit(composeDir, imageRef, cheaseeRef(), baked)
 	return nil
 }
 
 // captureBakedCommit reads the commit the built image actually baked at
 // /opt/cheasee-pi/BUILD_COMMIT. Only needed when the upstream probe left the
 // cache-bust ARG empty: the image is then the source of truth, so `about`
-// still reports the baked revision instead of nothing. Best-effort — a failed
-// read never fails an otherwise successful build (the record just stays unset).
-func captureBakedCommit(ctx context.Context, imageRef string) string {
+// still reports the baked revision instead of nothing. The error is returned
+// rather than swallowed — a failed read of an already-built image is abnormal,
+// and an empty result is a missing commit, not a revision.
+func captureBakedCommit(ctx context.Context, imageRef string) (string, error) {
 	out, err := runCommandContext(ctx, "docker", "run", "--rm", "--entrypoint", "cat", imageRef, "/opt/cheasee-pi/BUILD_COMMIT").Output()
 	if err != nil {
-		return ""
+		return "", err
 	}
-	return strings.TrimSpace(string(out))
+	commit := strings.TrimSpace(string(out))
+	if commit == "" {
+		return "", fmt.Errorf("%s:/opt/cheasee-pi/BUILD_COMMIT is empty", imageRef)
+	}
+	return commit, nil
 }
 
-// recordBakedCommit persists the ref+commit a successful build baked into
-// /opt/cheasee-pi. An empty commit is not a known revision and is never
-// recorded.
-func recordBakedCommit(composeDir, ref, commit string) {
+// recordBakedCommit persists the ref+commit a successful build of imageRef
+// baked into /opt/cheasee-pi. An empty commit is not a known revision and is
+// never recorded.
+func recordBakedCommit(composeDir, imageRef, ref, commit string) {
 	if commit == "" {
 		return
 	}
-	if err := atomicWrite(filepath.Join(composeDir, cheaseeCommitCacheFile), []byte(ref+" "+commit+"\n"), 0644, false); err != nil {
+	if err := atomicWrite(cheaseeCommitCachePath(composeDir, imageRef), []byte(ref+" "+commit+"\n"), 0644, false); err != nil {
 		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit cache: %v\n", err)
 	}
 }
 
-// readBakedCommit returns the last recorded ref+commit, or a zero record when
-// none exists. Git refs contain no whitespace, so "<ref> <commit>" round-trips
-// unambiguously; a record without the separator yields a zero record
-// (conservative — no fallback, never a misattributed commit).
-func readBakedCommit(composeDir string) cheaseeCommitRecord {
-	b, err := os.ReadFile(filepath.Join(composeDir, cheaseeCommitCacheFile))
+// readBakedCommit returns the last recorded ref+commit of imageRef, or a zero
+// record when none exists. Git refs contain no whitespace, so "<ref> <commit>"
+// round-trips unambiguously; a record without the separator yields a zero
+// record (conservative — no fallback, never a misattributed commit).
+func readBakedCommit(composeDir, imageRef string) cheaseeCommitRecord {
+	b, err := os.ReadFile(cheaseeCommitCachePath(composeDir, imageRef))
 	if err != nil {
 		return cheaseeCommitRecord{}
 	}
@@ -195,13 +220,14 @@ func readBakedCommit(composeDir string) cheaseeCommitRecord {
 	return cheaseeCommitRecord{ref: ref, commit: strings.TrimSpace(commit)}
 }
 
-// bakedCommitForBuild returns the clone layer's cache-bust input for one build:
-// the upstream commit of CHEASEE_REF, or — when the probe fails — the last
-// baked commit of the SAME ref, so the layer's cache key (and thus the cached
-// layer) stays unchanged instead of forcing a network clone. A commit recorded
-// for a different ref is never reused: the cache key and HEAD guard must
-// describe the ref actually being built (issue #2054 audit).
-func bakedCommitForBuild(ctx context.Context, composeDir string) string {
+// bakedCommitForBuild returns the clone layer's cache-bust input for one build
+// of imageRef: the upstream commit of CHEASEE_REF, or — when the probe fails —
+// the last commit that image baked from the SAME ref, so the layer's cache key
+// (and thus the cached layer) stays unchanged instead of forcing a network
+// clone. A commit recorded for a different ref is never reused: the cache key
+// and HEAD guard must describe the ref actually being built (issue #2054
+// audit).
+func bakedCommitForBuild(ctx context.Context, composeDir, imageRef string) string {
 	ref := cheaseeRef()
 	probeCtx, cancel := context.WithTimeout(ctx, cheaseeCommitProbeTimeout)
 	commit, err := resolveCheaseeCommit(probeCtx, ref)
@@ -212,7 +238,7 @@ func bakedCommitForBuild(ctx context.Context, composeDir string) string {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit probe: %v\n", err)
 	}
-	if prior := readBakedCommit(composeDir); prior.commit != "" && prior.ref == ref {
+	if prior := readBakedCommit(composeDir, imageRef); prior.commit != "" && prior.ref == ref {
 		fmt.Fprintf(os.Stderr, "  \u2139 reusing last baked cheasee-pi commit %s\n", prior.commit)
 		return prior.commit
 	}
