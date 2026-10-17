@@ -196,8 +196,8 @@ If upstream is unreachable the probe warns and the CLI reuses the last
 successfully baked commit **of the same `CHEASEE_REF`** (recorded per
 workspace image in `~/.cache/cheasee-pi/<version>/`), so the cache key is
 unchanged and the cached layer is still used — an offline rebuild does not
-force a network clone. A commit recorded for a *different* ref or a
-*different* workspace image is never reused: the cache key must describe the
+force a network clone. A commit recorded for a _different_ ref or a
+_different_ workspace image is never reused: the cache key must describe the
 ref actually being built. A first build with no record for the current ref
 leaves the ARG empty; the build then reads the commit the image itself baked
 (`/opt/cheasee-pi/BUILD_COMMIT`) back into the host record after it succeeds,
