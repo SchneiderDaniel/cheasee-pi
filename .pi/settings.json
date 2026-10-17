@@ -5,9 +5,7 @@
 		"memory": "5G",
 		"cpus": "4.0"
 	},
-	"extensions": [
-		"rtk"
-	],
+	"extensions": ["rtk"],
 	"gitIdentity": {
 		"name": "",
 		"email": ""
@@ -15,16 +13,13 @@
 	"packages": [
 		{
 			"source": "https://github.com/DietrichGebert/ponytail",
-			"skills": [
-				"!ponytail-*"
-			]
+			"skills": ["!ponytail-*"]
 		},
 		"https://github.com/SchneiderDaniel/private-pi"
 	],
+	"prompts": [],
 	"sessionDir": ".pi/sessions",
-	"skills": [
-		".pi/skills"
-	],
+	"skills": [".pi/skills"],
 	"supervisor": {
 		"repo": "SchneiderDaniel/cheasee-pi",
 		"projectNumber": 3,
@@ -37,9 +32,7 @@
 			"Audit": "auditor"
 		},
 		"maxRejections": 3,
-		"codeowners": [
-			"SchneiderDaniel"
-		],
+		"codeowners": ["SchneiderDaniel"],
 		"agentTimeoutsMin": {},
 		"agentTimeoutTierScale": {
 			"medium": 1.5,
