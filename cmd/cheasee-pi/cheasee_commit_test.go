@@ -204,6 +204,44 @@ func TestResolveCheaseeCommit_ParsesLsRemote(t *testing.T) {
 	}
 }
 
+// TestResolveCheaseeCommit_PeelsAnnotatedTag pins the annotated-tag case (#2054
+// audit): ls-remote lists the tag object AND its peeled commit, and only the
+// peeled hash is what `git clone --branch <tag>` checks out — so the tag object
+// must never be returned, or the clone layer's HEAD comparison fails the build.
+func TestResolveCheaseeCommit_PeelsAnnotatedTag(t *testing.T) {
+	stubRunCommandContext(t, func(context.Context, string, ...string) runner {
+		return &mockCmd{outputFn: func() ([]byte, error) {
+			return []byte("1111111111111111111111111111111111111111\trefs/tags/v1.2.3\n2222222222222222222222222222222222222222\trefs/tags/v1.2.3^{}\n"), nil
+		}}
+	})
+
+	got, err := resolveCheaseeCommitFn(context.Background(), "v1.2.3")
+	if err != nil {
+		t.Fatalf("resolveCheaseeCommitFn: %v", err)
+	}
+	if got != "2222222222222222222222222222222222222222" {
+		t.Errorf("annotated tag must resolve to its peeled commit, got %q (tag object?)", got)
+	}
+}
+
+// TestResolveCheaseeCommit_LightweightTag pins that a tag with no peeled line
+// (a lightweight tag points straight at the commit) still resolves.
+func TestResolveCheaseeCommit_LightweightTag(t *testing.T) {
+	stubRunCommandContext(t, func(context.Context, string, ...string) runner {
+		return &mockCmd{outputFn: func() ([]byte, error) {
+			return []byte("3333333333333333333333333333333333333333\trefs/tags/v1.2.3\n"), nil
+		}}
+	})
+
+	got, err := resolveCheaseeCommitFn(context.Background(), "v1.2.3")
+	if err != nil {
+		t.Fatalf("resolveCheaseeCommitFn: %v", err)
+	}
+	if got != "3333333333333333333333333333333333333333" {
+		t.Errorf("lightweight tag must resolve to its commit, got %q", got)
+	}
+}
+
 func TestResolveCheaseeCommit_ErrorsAreSurfaced(t *testing.T) {
 	sentinel := errors.New("network down")
 	stubRunCommandContext(t, func(context.Context, string, ...string) runner {

@@ -37,15 +37,21 @@ func cheaseeRef() string {
 // tests never reach the network (helpers_stub_test.go stubs it).
 var resolveCheaseeCommit = resolveCheaseeCommitFn
 
-// resolveCheaseeCommitFn is the real probe: the short SHA/refs pair from
-// `git ls-remote <repo> <ref>`, preferring an exact refs/heads/<ref> match.
+// resolveCheaseeCommitFn is the real probe: the SHA/refs pairs from
+// `git ls-remote <repo> <ref>`, preferring an exact refs/heads/<ref> match and
+// then an annotated tag's peeled commit (refs/tags/<ref>^{}).
 func resolveCheaseeCommitFn(ctx context.Context, ref string) (string, error) {
 	out, err := runCommandContext(ctx, "git", "ls-remote", cheaseePiRepoURL, ref).Output()
 	if err != nil {
 		return "", err
 	}
-	want := "refs/heads/" + ref
-	var first string
+	// An annotated tag is listed twice: the tag object and its peeled commit
+	// (refs/tags/<ref>^{}). Only the peeled hash is a commit — `git clone
+	// --branch <tag>` checks that out, and the clone layer compares HEAD
+	// against it — so a peeled match must win over the first line.
+	heads := "refs/heads/" + ref
+	peeled := "refs/tags/" + ref + "^{}"
+	var first, peeledCommit string
 	for _, line := range strings.Split(string(out), "\n") {
 		f := strings.Fields(line)
 		if len(f) < 2 {
@@ -54,9 +60,15 @@ func resolveCheaseeCommitFn(ctx context.Context, ref string) (string, error) {
 		if first == "" {
 			first = f[0]
 		}
-		if f[1] == want {
+		if f[1] == heads {
 			return f[0], nil
 		}
+		if f[1] == peeled {
+			peeledCommit = f[0]
+		}
+	}
+	if peeledCommit != "" {
+		return peeledCommit, nil
 	}
 	if first != "" {
 		return first, nil
