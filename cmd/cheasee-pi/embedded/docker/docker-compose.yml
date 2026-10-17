@@ -28,6 +28,12 @@ services:
         # `PI_VERSION=latest` is the explicit opt-in override.
         PI_VERSION: ${PI_VERSION:-1.0.2}
         CHEASEE_REF: ${CHEASEE_REF:-main}
+        # Content-addressed cache-bust for the baked /opt/cheasee-pi clone
+        # (Dockerfile Layer 6b): the CLI resolves CHEASEE_REF's upstream
+        # commit and passes it here, so the clone re-runs exactly when
+        # upstream moves and stays cached when it does not. Scoped to THIS
+        # service only — the ui/codeflow images bake no clone.
+        CHEASEE_COMMIT: ${CHEASEE_COMMIT:-}
         # Cache-busting stamp owned by the CLI (applyComposeEnv) and declared
         # on THIS service only: the agent's pi layer must re-resolve the
         # requested version on every build, while the ui sidecar tracks

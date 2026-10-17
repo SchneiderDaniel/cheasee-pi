@@ -5,8 +5,58 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
+
+// cheaseePiRepoURL is the upstream cloned into /opt/cheasee-pi by Dockerfile
+// Layer 6b and probed for the baked-copy cache-bust commit (issue #2054).
+const cheaseePiRepoURL = "https://github.com/SchneiderDaniel/cheasee-pi"
+
+// cheaseeCommitProbeTimeout bounds the upstream commit probe so an unreachable
+// remote cannot stall a build behind git's default connect timeout.
+const cheaseeCommitProbeTimeout = 10 * time.Second
+
+// cheaseeRef is the ref the baked copy tracks: a user-supplied CHEASEE_REF or
+// the compose/Dockerfile default main.
+func cheaseeRef() string {
+	if ref := os.Getenv("CHEASEE_REF"); ref != "" {
+		return ref
+	}
+	return "main"
+}
+
+// resolveCheaseeCommit is the upstream-commit probe feeding CHEASEE_COMMIT —
+// the clone layer's content-addressed cache-bust input. Injectable so unit
+// tests never reach the network (helpers_stub_test.go stubs it).
+var resolveCheaseeCommit = resolveCheaseeCommitFn
+
+// resolveCheaseeCommitFn is the real probe: the short SHA/refs pair from
+// `git ls-remote <repo> <ref>`, preferring an exact refs/heads/<ref> match.
+func resolveCheaseeCommitFn(ctx context.Context, ref string) (string, error) {
+	out, err := runCommandContext(ctx, "git", "ls-remote", cheaseePiRepoURL, ref).Output()
+	if err != nil {
+		return "", err
+	}
+	want := "refs/heads/" + ref
+	var first string
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		if first == "" {
+			first = f[0]
+		}
+		if f[1] == want {
+			return f[0], nil
+		}
+	}
+	if first != "" {
+		return first, nil
+	}
+	return "", fmt.Errorf("git ls-remote returned no commit for %q", ref)
+}
 
 // composeBuildSpec parameterizes composeBuild: the caller owns the extra
 // args, the label text, the optional pre-build notice, and the error wrap;
@@ -42,10 +92,21 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 	build.SetDir(composeDir)
 	build.SetStdout(os.Stderr)
 	build.SetStderr(os.Stderr)
+	// Resolve the upstream commit AFTER the disk gate so a refused build never
+	// probes the network. Best-effort: an unreachable upstream warns and leaves
+	// CHEASEE_COMMIT empty, and the clone layer falls back to its cached state.
+	commit := ""
+	probeCtx, cancel := context.WithTimeout(ctx, cheaseeCommitProbeTimeout)
+	if c, err := resolveCheaseeCommit(probeCtx, cheaseeRef()); err != nil {
+		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit probe: %v\n", err)
+	} else {
+		commit = c
+	}
+	cancel()
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
 	// cpus/git identity from settings.json ride along).
-	applyComposeEnv(build, workspaceHostPath, containerName, composeDir)
+	applyComposeEnv(build, workspaceHostPath, containerName, composeDir, "CHEASEE_COMMIT="+commit)
 	if spec.notice != "" {
 		// The notice precedes the build label with blank-line separation so
 		// buildx tty inline rendering (compose build paints over preceding
@@ -119,7 +180,10 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 // (the caller already holds it). SELinux-enforcing hosts opt in to
 // bind-mount relabeling via CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every
 // bind mount — documented, not default: relabel cost).
-func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir string) {
+// extraEnv carries per-invocation entries the caller owns (e.g. the build
+// path's resolved CHEASEE_COMMIT); they are appended after the derived env so
+// a single entry always wins.
+func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir string, extraEnv ...string) {
 	// Derived identity env is authoritative — strip inherited keys so
 	// duplicate KEY= entries (nondeterministic resolution across libc/exec)
 	// can never leak in. A user-set CODEFLOW_PORT / PI_UI_PORT is not
@@ -129,7 +193,7 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		"COMPOSE_PROJECT_NAME", "CODEFLOW_PORT",
 		"CHEASEEPI_CONTAINER", "CODEFLOW_CONTAINER",
 		"PI_UI_PORT", "PI_UI_CONTAINER",
-		"PI_BUILD_STAMP",
+		"PI_BUILD_STAMP", "CHEASEE_COMMIT",
 		codeflowSpecEnv,
 	)
 	env = append(env,
@@ -204,5 +268,6 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 			env = append(env, "HOST_GIT_EMAIL="+s.GitIdentity.Email)
 		}
 	}
+	env = append(env, extraEnv...)
 	cmd.SetEnv(env)
 }
