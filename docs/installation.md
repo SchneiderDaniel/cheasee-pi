@@ -193,14 +193,18 @@ to the clone layer as the `CHEASEE_COMMIT` build ARG, so the layer re-runs
 exactly when that commit changes and stays cached (keeping the expensive
 clone + `npm ci` off the critical path of a pi-only rebuild) when it does not.
 If upstream is unreachable the probe warns and the CLI reuses the last
-successfully resolved commit (cached in `~/.cache/cheasee-pi/<version>/`), so
+successfully baked commit (recorded in `~/.cache/cheasee-pi/<version>/`), so
 the cache key is unchanged and the cached layer is still used — an offline
 rebuild does not force a network clone. Only a first-ever build with no
-resolved commit to fall back on leaves the ARG empty. To force a refresh
-regardless, run `cheasee-pi rebuild` (no-cache). The commit baked into the
-running image is recorded at `/opt/cheasee-pi/BUILD_COMMIT` and can be read
-with `docker exec <container> cat /opt/cheasee-pi/BUILD_COMMIT`, so a stale
-copy is visible rather than silent.
+record to fall back on leaves the ARG empty. Should `CHEASEE_REF` move between
+the probe and the clone, the clone layer fails the build instead of caching
+the clone under the wrong commit's key; re-run the build.
+
+The commit baked into the running image is recorded at
+`/opt/cheasee-pi/BUILD_COMMIT` and printed by `cheasee-pi about`, so a stale
+copy is visible rather than silent: when the clone layer next re-runs, the
+build is guaranteed to have baked exactly the commit `about` reports. To force
+a refresh regardless of upstream movement, run `cheasee-pi rebuild` (no-cache).
 
 Pi is installed at image build time pinned to a released version (currently
 `1.0.2`, matching the Dockerfile and compose defaults). `cheasee-pi start`

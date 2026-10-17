@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
+	"github.com/spf13/cobra"
 )
 
 // Issue #2054: the baked /opt/cheasee-pi clone layer must be invalidated
@@ -30,6 +33,12 @@ func TestDockerfile_CloneLayerCacheBustCommit(t *testing.T) {
 	}
 	if !strings.Contains(content[cloneIdx:], "${CHEASEE_COMMIT}") {
 		t.Error("clone RUN must reference ${CHEASEE_COMMIT} so a changed upstream commit invalidates the layer")
+	}
+	// Fail closed on a mid-build ref move: caching the clone under the probed
+	// commit's cache key is only safe when the clone's HEAD actually IS that
+	// commit; otherwise the layer would pin unreviewed content to a stale key.
+	if !strings.Contains(content[cloneIdx:], "upstream moved mid-build") || !strings.Contains(content[cloneIdx:], "exit 1") {
+		t.Error("clone RUN must fail the build when the clone's HEAD differs from CHEASEE_COMMIT")
 	}
 	// The baked commit is recorded for observability (AC2).
 	if !strings.Contains(content, "/opt/cheasee-pi/BUILD_COMMIT") {
@@ -212,13 +221,49 @@ func TestResolveCheaseeCommit_ErrorsAreSurfaced(t *testing.T) {
 	}
 }
 
-func TestAbout_reportsBakedCommitLocation(t *testing.T) {
-	// Assert on the source const rather than a `RunCobra(about)` run: an
-	// earlier `about --help` test leaves cobra's shared help flag set, which
-	// would short-circuit a plain run into a help print. runAboutE writes
-	// aboutText verbatim, so the const is the printed body.
+func TestAbout_reportsBakedCommitValue(t *testing.T) {
+	// about must surface the actual baked SHA (audit finding, issue #2054), not
+	// just the file path. readBakedCommit consumes what recordBakedCommit
+	// writes; point aboutCacheDir at a temp dir and seed that record.
+	saved := aboutCacheDir
+	dir := t.TempDir()
+	aboutCacheDir = func() (string, error) { return dir, nil }
+	t.Cleanup(func() { aboutCacheDir = saved })
+	if err := atomicWrite(filepath.Join(dir, cheaseeCommitCacheFile), []byte("cafebabe\n"), 0644, false); err != nil {
+		t.Fatalf("seed baked commit: %v", err)
+	}
+
+	cmd := &cobra.Command{Use: "about"}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	if err := runAboutE(cmd, nil); err != nil {
+		t.Fatalf("runAboutE: %v", err)
+	}
+	if !strings.Contains(out.String(), "cafebabe") {
+		t.Errorf("about must report the baked cheasee-pi commit value\n--- about:\n%s", out.String())
+	}
 	if !strings.Contains(aboutText, "/opt/cheasee-pi/BUILD_COMMIT") {
 		t.Errorf("about must report where the baked cheasee-pi commit is recorded\n--- about text:\n%s", aboutText)
+	}
+}
+
+// TestAbout_omitsCommitWithoutBuildRecord pins that an unbuilt machine shows
+// no commit line rather than a bogus one.
+func TestAbout_omitsCommitWithoutBuildRecord(t *testing.T) {
+	saved := aboutCacheDir
+	aboutCacheDir = func() (string, error) { return t.TempDir(), nil }
+	t.Cleanup(func() { aboutCacheDir = saved })
+
+	cmd := &cobra.Command{Use: "about"}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(io.Discard)
+	if err := runAboutE(cmd, nil); err != nil {
+		t.Fatalf("runAboutE: %v", err)
+	}
+	if strings.Contains(out.String(), "baked cheasee-pi commit") {
+		t.Errorf("about must not invent a baked commit when none is recorded\n--- about:\n%s", out.String())
 	}
 }
 

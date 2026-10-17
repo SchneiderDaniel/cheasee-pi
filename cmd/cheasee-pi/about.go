@@ -50,12 +50,34 @@ workflow    cheasee-pi init → auth add <provider> → cheasee-pi start; docs b
 // codeflow_hint.go relative-path convention).
 const aboutFooter = "Full workflow: docs/daily-usage.md — " + docsDailyUsageURL
 
+// aboutBakedCommit reports the commit baked into the image at
+// /opt/cheasee-pi (issue #2054). It reads the CLI's record of the last
+// successful build: Dockerfile Layer 6b fails when the clone's HEAD differs
+// from CHEASEE_COMMIT, so that record equals the baked copy. Empty when no
+// build has been recorded yet (the glossary then omits the line).
+func aboutBakedCommit() string {
+	dir, err := aboutCacheDir()
+	if err != nil {
+		return ""
+	}
+	return readBakedCommit(dir)
+}
+
+// aboutCacheDir resolves the dir holding the baked-commit record; injectable
+// so tests never touch the real user cache.
+var aboutCacheDir = CacheDir
+
 func runAboutE(cmd *cobra.Command, _ []string) error {
 	// A broken stdout writer must fail the command, not silently succeed
 	// with partial output: check each write, stop on the first failure.
 	out := cmd.OutOrStdout()
 	if _, err := fmt.Fprint(out, aboutText); err != nil {
 		return fmt.Errorf("writing about glossary: %w", err)
+	}
+	if commit := aboutBakedCommit(); commit != "" {
+		if _, err := fmt.Fprintf(out, "\n  baked cheasee-pi commit  %s   (/opt/cheasee-pi/BUILD_COMMIT)\n", commit); err != nil {
+			return fmt.Errorf("writing about baked commit: %w", err)
+		}
 	}
 	if _, err := fmt.Fprintln(out, aboutFooter); err != nil {
 		return fmt.Errorf("writing about footer: %w", err)
