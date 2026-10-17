@@ -1,22 +1,25 @@
 // ─── VBA-god-module refactor contract (issue #2036) ───────────────
 // The issue re-files the `VBA God Module` metric with a new file set (25).
-// On the immutable base (origin/main c89a4d27) the analyzer reports 25 files,
-// of which four `.pi/extensions` modules are reduced here by verbatim moves into
-// siblings (each <= 15) with re-export barrels; the rest are measured and
-// deferred with a reason.
+// On the immutable base (origin/main c89a4d27) the pinned analyzer's
+// acorn-babel branch reports 25 flagged files. This branch reduces six of the
+// cited modules by verbatim moves into siblings (each <= 15) with re-export
+// barrels; the rest are measured and deferred with a reason.
 //
-// The detector is the acorn-babel branch of the pinned analyzer — object-literal
-// methods and arrow properties count, so a plain `function`/`def` regex misses
-// the TS/JS flags. The measurement therefore stays out of the in-gate suite; the
-// recorded envelope is `test/fixtures/vba-god-module-baseline-2036.json` and
-// this oracle guards the split's structure and the ledger.
+// Unlike a recorded-count ledger, this oracle re-runs the detector over the
+// CURRENT tree: `acorn-babel-mirror.mts` reproduces the acorn branch (the one
+// the browser export used — object-literal methods and arrow properties count)
+// and `function-count-mirror.mts` reproduces the regex branch used for
+// `.py/.go/.rs`. A regression that leaves a split module over the ceiling, or
+// a deferred file under it, fails here.
 //
 // Run: node --experimental-strip-types --test test/vba-god-module-refactor-2036.test.mts
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { createMockAPI, makeEvent } from "../.pi/extensions/agent-harness/test/harness-fixtures.ts";
@@ -35,14 +38,32 @@ import {
 } from "../.pi/extensions/supervisor/lib/debug.ts";
 import { formatTimestamp } from "../.pi/extensions/supervisor/lib/debug-format.ts";
 import { makeSentinelTheme } from "../.pi/extensions/caveman/test/config-ui-test-theme.ts";
+import {
+	createMockPi,
+	createMockTheme,
+	createMockUI,
+	createMockSessionManager,
+	createMockModelRegistry,
+} from "../.pi/extensions/supervisor/test/helpers/mock-pi.ts";
+import { CapturedOutput } from "../.pi/extensions/supervisor/test/helpers/capture-core.ts";
+import { acornBabelFlagged, countAcornBabelFunctions } from "./fixtures/acorn-babel-mirror.mts";
+import { countFunctions } from "./fixtures/function-count-mirror.mts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
 
+const ACORN_EXTS = new Set(["js", "jsx", "ts", "tsx", "mjs", "cjs"]);
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf-8");
 const missingPaths = (paths: string[]): string[] =>
 	paths.filter((rel) => !existsSync(resolve(ROOT, rel)));
 const overlap = (a: string[], b: string[]): string[] => a.filter((rel) => b.includes(rel));
+
+/** Re-run the pinned detector over one path in the current tree. */
+function measure(rel: string): number {
+	const ext = rel.split(".").pop()!;
+	const src = read(rel);
+	return ACORN_EXTS.has(ext) ? countAcornBabelFunctions(src, ext) : countFunctions(src, ext);
+}
 
 const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as {
 	provenance: {
@@ -50,10 +71,12 @@ const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as
 		title: string;
 		ref: string;
 		parserMode: string;
+		mirror: string;
 		metric: string;
 		filedCount: number;
 		filedAnalyzedAt: number;
 	};
+	threshold: number;
 	before: { commit: string; files: number; vbaGodModuleCount: number };
 	after: { ref: string; files: number; vbaGodModuleCount: number };
 	tradeoffs: Record<string, string>;
@@ -68,28 +91,34 @@ const DEFERRED = B.deferred.flatMap((d) => d.files ?? []);
 // ─── Manifest ─────────────────────────────────────────────────────
 
 describe("vba god module refactor #2036 — manifest", () => {
-	it("pins the 40-hex analyzer ref and the acorn-babel parser branch", () => {
+	it("pins the 40-hex analyzer ref, the acorn-babel parser branch and its mirror", () => {
 		assert.match(B.provenance.ref, /^[0-9a-f]{40}$/);
 		assert.equal(B.provenance.parserMode, "acorn-babel");
+		assert.ok(existsSync(resolve(ROOT, B.provenance.mirror)), "mirror module exists");
+		assert.equal(B.threshold, 20, "the VBA God Module ceiling");
 	});
 
-	it("cites the four reduced modules and their siblings", () => {
+	it("cites the six reduced modules and their 22 siblings", () => {
 		assert.deepStrictEqual(Object.keys(B.splitFamilies).sort(), [...B.reducedBy].sort());
-		assert.equal(SIBLINGS.length, 10, "ten new siblings for the four families");
+		assert.equal(SIBLINGS.length, 22, "twenty-two new siblings for the six families");
 		assert.equal(new Set(SIBLINGS).size, SIBLINGS.length, "a sibling is listed twice");
 	});
 
-	it("every reduced module and every sibling exists and is never a `.mts`", () => {
+	it("every reduced module and every sibling exists and is a scored extension", () => {
 		for (const mod of [...B.reducedBy, ...SIBLINGS]) {
 			assert.ok(existsSync(resolve(ROOT, mod)), `missing manifest module: ${mod}`);
 			assert.ok(!mod.endsWith(".mts"), `${mod} is never scored by the analyzer`);
-			assert.ok(mod.endsWith(".ts"), `${mod} must be a scored .ts file`);
+			assert.ok(
+				/\.(ts|js|mjs|py|rs|go)$/.test(mod),
+				`${mod} must be a scored source file extension`,
+			);
 		}
 	});
 
 	it("no sibling is itself a reduction source or a deferral", () => {
 		assert.deepStrictEqual(overlap(SIBLINGS, B.reducedBy), []);
 		assert.deepStrictEqual(overlap(SIBLINGS, DEFERRED), []);
+		assert.deepStrictEqual(overlap(B.reducedBy, DEFERRED), []);
 	});
 });
 
@@ -159,6 +188,46 @@ describe("vba god module refactor #2036 — moved declarations live in the sibli
 			/export function makeSentinelTheme\(/,
 		);
 	});
+
+	it("mock-pi spreads per-responsibility stub groups and re-exports every factory", () => {
+		const barrel = read(".pi/extensions/supervisor/test/helpers/mock-pi.ts");
+		for (const sib of [
+			"mock-pi-api-commands.ts",
+			"mock-pi-api-tools.ts",
+			"mock-pi-api-runtime.ts",
+		]) {
+			assert.match(barrel, new RegExp(sib.replace(".", "\\.")), `mock-pi spreads ${sib}`);
+		}
+		for (const factory of [
+			"createMockTheme",
+			"createMockUI",
+			"createMockSessionManager",
+			"createMockModelRegistry",
+		]) {
+			assert.match(
+				barrel,
+				new RegExp(`export \\{ ${factory} \\}`),
+				`mock-pi re-exports ${factory}`,
+			);
+		}
+		assert.ok(
+			!barrel.includes("registerTool(_tool: any)"),
+			"the ExtensionAPI stub object moved out of mock-pi.ts",
+		);
+		assert.match(
+			read(".pi/extensions/supervisor/test/helpers/mock-pi-api-tools.ts"),
+			/registerTool\(_tool: any\)/,
+		);
+	});
+
+	it("run-analysis.mjs inlined its single-use string skipper", () => {
+		const src = read("cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs");
+		assert.ok(!src.includes("function skipString("), "the helper was inlined, not kept");
+		assert.ok(
+			src.includes("if (src[i] === ch)") && src.includes('if (src[i] === "\\\\")'),
+			"the inlined scan preserves the escape/terminator handling",
+		);
+	});
 });
 
 // ─── The public surface still resolves through the barrels ─────────
@@ -217,27 +286,79 @@ describe("vba god module refactor #2036 — public surface preserved", () => {
 		assert.deepEqual(fgCalls, ["t"]);
 		assert.deepEqual(boldCalls, ["b"]);
 	});
+
+	it("mock-pi still composes a working ExtensionAPI from the stub groups", () => {
+		const captured = new CapturedOutput();
+		const pi = createMockPi(captured);
+		pi.sendMessage({ customType: "oracle", content: "hi", display: true });
+		assert.equal(captured.messages.length, 1);
+		assert.equal(pi.getFlag("none"), undefined);
+		assert.deepEqual(pi.getActiveTools(), []);
+		pi.registerTool({});
+		assert.equal(typeof createMockTheme().fg, "function");
+		const ui = createMockUI(captured);
+		ui.notify("hello", "info");
+		assert.equal(captured.notifications.at(-1)?.msg, "hello");
+		assert.equal(createMockSessionManager().getSessionId(), "mock-session-id");
+		assert.equal(createMockModelRegistry().getModel(), undefined);
+	});
 });
 
-// ─── Recorded envelope ────────────────────────────────────────────
+// ─── The detector re-measures the current tree ────────────────────
 
-describe("vba god module refactor #2036 — recorded envelope", () => {
-	it("records a real drop between two immutable snapshots on the pinned analyzer", () => {
-		assert.strictEqual(B.provenance.issue, 2036);
-		assert.strictEqual(B.provenance.title, "VBA God Module");
-		assert.strictEqual(B.provenance.filedCount, 25, "the issue's filed count");
-		assert.strictEqual(B.provenance.filedAnalyzedAt, 1791804971015);
-		assert.match(B.provenance.metric, /functions\.length > 20/, "the exact predicate");
-		assert.match(B.provenance.metric, /isCode !== false/, "the `isCode` gate");
-		assert.match(B.before.commit, /^[0-9a-f]{40}$/, "before must be an immutable commit");
-		assert.ok(
-			B.after.vbaGodModuleCount < B.before.vbaGodModuleCount,
-			"the flagged-file count must fall",
-		);
-		assert.ok(
-			B.after.files > B.before.files,
-			"the split adds files; the drop is not from dropping files",
-		);
+describe("vba god module refactor #2036 — live detector over the current tree", () => {
+	it("the acorn-babel mirror reproduces the recorded base envelope", (t) => {
+		// The mirror is only trustworthy if it matches the analyzer on the base
+		// snapshot the fixture records (the issue's filed numbers). The base
+		// commit is a local ref in the pipeline worktree; where it is absent
+		// (e.g. a shallow CI checkout) the current-tree checks below still run.
+		try {
+			execFileSync("git", ["cat-file", "-e", `${B.before.commit}^{commit}`], { stdio: "ignore" });
+		} catch {
+			return t.skip(`base commit ${B.before.commit} is not present in this checkout`);
+		}
+		const recorded: Record<string, number> = {
+			".pi/extensions/agent-harness/test/harness-fixtures.ts": 37,
+			".pi/extensions/caveman/test/config-ui.test.ts": 36,
+			".pi/extensions/supervisor/event/adapter/normalize.ts": 22,
+			".pi/extensions/supervisor/lib/debug.ts": 32,
+			".pi/extensions/supervisor/test/helpers/mock-pi.ts": 93,
+			"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs": 21,
+		};
+		const dir = mkdtempSync(join(tmpdir(), "vba-2036-base-"));
+		execFileSync("bash", ["-c", `git archive ${B.before.commit} | tar -x -C ${dir}`]);
+		for (const [rel, n] of Object.entries(recorded)) {
+			const ext = rel.split(".").pop()!;
+			assert.equal(
+				countAcornBabelFunctions(readFileSync(join(dir, rel), "utf-8"), ext),
+				n,
+				`mirror drift against ${B.before.commit} on ${rel}`,
+			);
+		}
+	});
+
+	it("every reduced module and sibling is under the ceiling in the current tree", () => {
+		for (const rel of B.reducedBy) {
+			assert.ok(
+				!acornBabelFlagged(read(rel), rel, B.threshold),
+				`${rel} is still over the ceiling (${measure(rel)} > ${B.threshold})`,
+			);
+		}
+		for (const rel of SIBLINGS) {
+			assert.ok(
+				measure(rel) <= 15,
+				`${rel} lands at ${measure(rel)}, which would mint a God Object (> 15)`,
+			);
+		}
+	});
+
+	it("every deferred file is still over the ceiling in the current tree (not silently passed)", () => {
+		for (const rel of DEFERRED) {
+			assert.ok(
+				measure(rel) > B.threshold,
+				`${rel} measures ${measure(rel)} <= ${B.threshold}: it is no longer flagged`,
+			);
+		}
 	});
 
 	it("accounts for every leftover flag (no silent omission)", () => {
@@ -251,37 +372,18 @@ describe("vba god module refactor #2036 — recorded envelope", () => {
 			DEFERRED.length,
 			"every file still flagged on the delivered tree is a recorded deferral",
 		);
-	});
-
-	it("defers the Rust set, the two embedded boundaries and mock-pi, all existing", () => {
-		for (const entry of B.deferred) {
-			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
-		}
-		assert.deepStrictEqual(missingPaths(DEFERRED), [], "a deferred path does not exist");
-		const rust = B.deferred.find(
-			(d) => (d.files?.length ?? 0) > 0 && d.files!.every((f) => f.endsWith(".rs")),
+		assert.strictEqual(
+			B.after.files,
+			B.before.files + SIBLINGS.length,
+			"the drop is from splitting, not deleting: files grow by the sibling count",
 		);
-		assert.ok(rust, "the Rust set is recorded as deferred");
-		assert.equal(rust.files!.length, 16, "the whole measured Rust set is deferred");
-		for (const rel of [
-			"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
-			"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
-			".pi/extensions/supervisor/test/helpers/mock-pi.ts",
-		]) {
-			assert.ok(DEFERRED.includes(rel), `${rel} must be deferred`);
-		}
 	});
 
 	it("fails closed on a missing or doubly-cited path", () => {
-		assert.deepStrictEqual(missingPaths(["test/fixtures/vba-god-module-baseline-2036.json"]), []);
+		assert.deepStrictEqual(missingPaths(["test/fixtures/acorn-babel-mirror.mts"]), []);
 		assert.deepStrictEqual(missingPaths(["test/no-such-sibling-2036.ts"]), [
 			"test/no-such-sibling-2036.ts",
 		]);
 		assert.deepStrictEqual(overlap(["a.ts", "b.ts"], ["b.ts"]), ["b.ts"]);
-		assert.deepStrictEqual(
-			overlap(B.reducedBy, DEFERRED),
-			[],
-			"no path is both a reduction source and a deferral",
-		);
 	});
 });

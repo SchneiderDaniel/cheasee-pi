@@ -5,46 +5,41 @@
 		"analyzer": "https://github.com/braedonsaunders/codeflow",
 		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
 		"parserMode": "acorn-babel",
+		"mirror": "test/fixtures/acorn-babel-mirror.mts",
 		"method": "git archive <commit> | tar -x -C <dir> && node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs <dir> <codeflow-ui> <out>",
-		"metric": "patterns[name === \"VBA God Module\"].files — analyzed files where isCode !== false && functions.length > 20 (index.html:1414 detectPatterns `vbaGodFiles`). `VBA God Module` is `God Object` (> 15) at a higher ceiling over the same parser count, so every sibling is landed <= 15 where the reduction is in-gate. `functions` comes from the headless parser: for `.js/.jsx/.ts/.tsx/.mjs/.cjs/.vue/.svelte` the served UI parses with acorn (after Babel strips TS/JSX), so object-literal methods and arrow properties count; the codeflow `run-analysis.mjs` sandbox leaves acorn/Babel undefined and falls back to `heuristic-regex`, which does NOT count them. The browser export that filed this issue used the acorn-babel mode (totalFunctions 4975 on the filed snapshot); the regex mode reports a different, smaller set (19 on the base).",
-		"filesNote": "`files` is the analyzer's own `summary.totalFiles` for the snapshot. Only its ordering matters here: `after.files > before.files` proves the drop did not come from deleting files. `.mts`/`.json`/`.md` are not in `codeExts`, so the oracle and this fixture add no parsed file.",
+		"metric": "patterns[name === \"VBA God Module\"].files — analyzed files where isCode !== false && functions.length > 20 (index.html:1414 detectPatterns `vbaGodFiles`). `VBA God Module` is `God Object` (> 15) at a higher ceiling over the same parser count, so every sibling is landed <= 15 where the reduction is in-gate. `functions` comes from the headless parser: for `.js/.jsx/.ts/.tsx/.mjs/.cjs/.vue/.svelte` the served UI parses with acorn (after Babel strips TS/JSX), so object-literal methods and arrow properties count; for `.py/.go/.rs/...` the regex extractor counts. This fixture's `acornBabelMirror` re-runs the acorn branch over the CURRENT tree in-gate, so a regression that leaves a split module over the ceiling cannot pass.",
+		"filesNote": "`files` is the analyzer's own `summary.totalFiles` for the snapshot. Only its ordering matters here: `after.files === before.files + splitFamilies sibling count` proves the drop did not come from deleting files. `.mts`/`.json`/`.md` are not in `codeExts`, so the mirror and this fixture add no parsed file.",
 		"filedAnalyzedAt": 1791804971015,
 		"filedCount": 25,
 		"filedNote": "the issue was filed with 25 files at analyzedAt 1791804971015 against the then-main. That snapshot predates #2006 (the two Python test modules still counted 21 each) and #2057. The re-measured immutable base below (origin/main c89a4d27) also reports 25, but with those two Python modules already split and two files the issue did not cite (disk_space_test.go, fp-filter.js) newly over the ceiling.",
-		"afterNote": "`after` is the delivered working tree measured before the pipeline's commit: the four `.pi/extensions` splits add ten `.ts` siblings (`.ts` is scored, every sibling lands <= 15) and no scored function is added, renamed or removed beyond the moved declarations."
+		"afterNote": "`after` is the delivered working tree. The six split families add 22 scored `.ts`/`.mjs` siblings (every sibling lands <= 15); the acorn-babel mirror re-measures every cited and deferred path in this tree."
 	},
+	"threshold": 20,
 	"before": {
 		"ref": "origin/main",
 		"commit": "c89a4d276b8847e6f5e70a3857e21b86a69fc50e",
 		"files": 956,
-		"vbaGodModuleCount": 25,
-		"godObjectCount": 36,
-		"functions": 4244,
-		"connections": 3479,
-		"loc": 159416
+		"vbaGodModuleCount": 25
 	},
 	"after": {
 		"ref": "worktree-git-issue-2036-refactor-break-up-the-25-vba-god-module-files-flag",
-		"commit": null,
-		"files": 966,
-		"vbaGodModuleCount": 21,
-		"godObjectCount": 32,
-		"functions": 4241,
-		"connections": 3486,
-		"loc": 159497
+		"files": 978,
+		"vbaGodModuleCount": 19
 	},
 	"tradeoffs": {
-		"vbaGodModule": "25 -> 21 flagged files (-4). The four reduced `.pi/extensions` modules carried object-literal stubs, JSON-kind extractors and dialog helpers the acorn-babel parser counts as declarations; whole cohesive blocks moved verbatim into siblings, and each reduced module re-exports its public surface so no importer changed.",
-		"godObject": "36 -> 32 flagged files: the expected co-benefit (VBA God Module is a strict subset of God Object). Every sibling lands <= 15, so no sibling mints a God Object regression.",
-		"functions": "4244 -> 4241 parsed declarations. No test was added, removed or renamed: the four suites still run the same tests, and every public export keeps its name.",
-		"approach": "verbatim moves plus re-export barrels: `harness-fixtures.ts` spreads two new stub factories, `normalize.ts` merges two kind tables and re-exports the moved types, `debug.ts` re-exports the logger factory, `config-ui.test.ts` hands its dialog suite to a sibling with a shared theme mock. `npm test` and `npm run tsc:extensions` are the verification burden.",
-		"notDone": "the 16 `.rs` files (no toolchain), the embedded `run-analysis.mjs` and `server.py` (Dockerfile COPY / served-contract boundaries) and `mock-pi.ts` (needs ~8 modules) stay flagged and are recorded as deferred with a reason each."
+		"vbaGodModule": "25 -> 19 flagged files (-6). The six reduced modules carried object-literal stubs, JSON-kind extractors, dialog helpers and a 93-declaration ExtensionAPI mock the acorn-babel parser counts as declarations; whole cohesive blocks moved verbatim into siblings, and each reduced module re-exports its public surface so no importer changed.",
+		"godObject": "the expected co-benefit (VBA God Module is a strict subset of God Object): every sibling lands <= 15, so no sibling mints a God Object regression.",
+		"functions": "No test was added, removed or renamed: the four suites still run the same tests, `mock-pi.ts` composes the same stub object, and every public export keeps its name.",
+		"approach": "verbatim moves plus re-export barrels: `harness-fixtures.ts` spreads two new stub factories, `normalize.ts` merges two kind tables and re-exports the moved types, `debug.ts` re-exports the logger factory, `config-ui.test.ts` hands its dialog suite to a sibling, `mock-pi.ts` spreads per-responsibility API/UI stub groups, and `run-analysis.mjs` inlines its single-use string skipper. `npm test` and `npm run tsc:extensions` are the verification burden.",
+		"notDone": "the 16 `.rs` files (no Rust toolchain) and the embedded `server.py` (Dockerfile COPY / served-contract boundary) stay flagged and are recorded as deferred with a reason each; two files the issue does not cite (disk_space_test.go, fp-filter.js) also remain flagged and are recorded so the ledger balances."
 	},
 	"reducedBy": [
 		".pi/extensions/agent-harness/test/harness-fixtures.ts",
 		".pi/extensions/caveman/test/config-ui.test.ts",
 		".pi/extensions/supervisor/event/adapter/normalize.ts",
-		".pi/extensions/supervisor/lib/debug.ts"
+		".pi/extensions/supervisor/lib/debug.ts",
+		".pi/extensions/supervisor/test/helpers/mock-pi.ts",
+		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs"
 	],
 	"splitFamilies": {
 		".pi/extensions/agent-harness/test/harness-fixtures.ts": [
@@ -64,21 +59,24 @@
 			".pi/extensions/supervisor/lib/debug-format.ts",
 			".pi/extensions/supervisor/lib/debug-sanitize.ts",
 			".pi/extensions/supervisor/lib/debug-logger.ts"
-		]
+		],
+		".pi/extensions/supervisor/test/helpers/mock-pi.ts": [
+			".pi/extensions/supervisor/test/helpers/mock-pi-theme.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-ui.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-ui-core.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-ui-editor.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-ui-theme-ctx.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-session.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-session-core.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-session-tree.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-model.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-api-commands.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-api-tools.ts",
+			".pi/extensions/supervisor/test/helpers/mock-pi-api-runtime.ts"
+		],
+		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs": []
 	},
 	"deferred": [
-		{
-			"reason": "mock-pi.ts (93 declarations under the acorn-babel parser) is one ExtensionScore mock whose whole surface is object-literal stubs; bringing every sibling <= 15 needs roughly eight section modules and is deferred to its own recorded change (architecture trade-off), matching #2004's deferral of the 106-declaration test suite.",
-			"files": [".pi/extensions/supervisor/test/helpers/mock-pi.ts"]
-		},
-		{
-			"reason": "the embedded headless analyzer: a split adds an `.mjs` sibling that the codeflow Dockerfile COPY set, the `//go:embed embedded` set and the Go asset/run tests must own in the same change, so it is deferred to the change that owns that boundary (#2004 precedent).",
-			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs"]
-		},
-		{
-			"reason": "`server.py` (51 declarations) is the codeflow bridge: moving code out of it changes the Dockerfile COPY set and the `_BRIDGE_JS`/`_UI_REWRITES` served contract pinned by the shim smoke/bridge tests, so it is deferred to the change that owns that boundary guard (#2006 reason).",
-			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
-		},
 		{
 			"reason": "no Rust toolchain in the pipeline image — `which cargo/rustc` is empty, there is no Docker in-gate and no workflow compiles `embedded/docker/ui` (its builder image needs `rust:1.99`), so a split under that tree could not be compiled or tested before landing (#2002–#2006 precedent).",
 			"files": [
@@ -99,6 +97,10 @@
 				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
 				"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
 			]
+		},
+		{
+			"reason": "`server.py` (51 declarations) is the codeflow bridge: moving code out of it changes the Dockerfile COPY set and the `_BRIDGE_JS`/`_UI_REWRITES` served contract pinned by the shim smoke/bridge tests, so it is deferred to the change that owns that boundary guard (#2006 reason).",
+			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
 		},
 		{
 			"reason": "flagged on the delivered tree but NOT cited by #2036 (the issue's list predates #2057, which reshaped these files); owned by the long-file / anti-pattern issues that share the same file set, not by this reduction.",
