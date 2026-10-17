@@ -20,15 +20,9 @@ func TestCodeFlowServer_FpFilterRewritePure(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
 	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
 	serverPath := filepath.Join(dir, "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
 	script := `import runpy, sys, os
 
 m = runpy.run_path(sys.argv[1])
@@ -108,23 +102,10 @@ func TestCodeFlowServer_FpFilterWrapperBehavior(t *testing.T) {
 	if err != nil {
 		t.Skip("node not available")
 	}
-	serverSrc, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
-	filterSrc, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/fp-filter.js")
-	if err != nil {
-		t.Fatalf("read embedded fp-filter.js: %v", err)
-	}
 	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
 	serverPath := filepath.Join(dir, "server.py")
 	filterPath := filepath.Join(dir, "fp-filter.js")
-	if err := os.WriteFile(serverPath, serverSrc, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
-	if err := os.WriteFile(filterPath, filterSrc, 0644); err != nil {
-		t.Fatalf("write fp-filter.js: %v", err)
-	}
 
 	// Emit three CommonJS harnesses: one with a real `const data`, one whose
 	// sanitizer throws, and one whose `data` is frozen so the in-place write

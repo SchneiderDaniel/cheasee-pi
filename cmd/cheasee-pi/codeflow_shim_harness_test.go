@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -79,23 +78,9 @@ func startShim(t *testing.T, repoRoot, uiDir string, extraEnv ...string) string 
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
-	serverPath := filepath.Join(t.TempDir(), "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
-	// The shim serves /fp-filter.js from its own directory; the container gets
-	// the file from the Dockerfile COPY, so the harness must place it too.
-	filterSrc, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/fp-filter.js")
-	if err != nil {
-		t.Fatalf("read embedded fp-filter.js: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(filepath.Dir(serverPath), "fp-filter.js"), filterSrc, 0644); err != nil {
-		t.Fatalf("write fp-filter.js: %v", err)
-	}
+	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
+	serverPath := filepath.Join(dir, "server.py")
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -11,15 +11,20 @@ FROM python:3.13-alpine
 ARG CODEFLOW_REF=b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 
 COPY server.py /opt/codeflow/server.py
+# server.py is a thin facade; these modules hold the config, served-page
+# rewrites, report/bridge stores, headless runner and committed-tree listing.
+COPY server_config.py server_rewrites.py server_store.py server_run.py server_tree.py /opt/codeflow/
 COPY config.json /opt/codeflow/config.json
 COPY run-analysis.mjs /opt/codeflow/run-analysis.mjs
 # False-positive policy, shared by the headless runner and the served page
 # (server.py requires it from this same directory).
 COPY fp-filter.js /opt/codeflow/fp-filter.js
 
-# Fail the build loudly if server.py is corrupt. A SyntaxError here would
+# Fail the build loudly if any module is corrupt. A SyntaxError here would
 # otherwise build fine and crash the container silently at startup.
-RUN python3 -m py_compile /opt/codeflow/server.py
+RUN python3 -m py_compile /opt/codeflow/server.py /opt/codeflow/server_config.py \
+    /opt/codeflow/server_rewrites.py /opt/codeflow/server_store.py \
+    /opt/codeflow/server_run.py /opt/codeflow/server_tree.py
 
 # nodejs: the on-demand headless analyzer (run-analysis.mjs). No npm packages —
 # the runner imports only node: builtins and the pinned UI checkout's own code.

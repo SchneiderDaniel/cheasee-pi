@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -55,14 +54,9 @@ func startShimFull(t *testing.T, repoRoot, uiDir, configFile string, extraEnv ..
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	serverPath := filepath.Join(t.TempDir(), "server.py")
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
+	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
+	serverPath := filepath.Join(dir, "server.py")
 
 	s := &reportShim{
 		base:   fmt.Sprintf("http://127.0.0.1:%d", port),

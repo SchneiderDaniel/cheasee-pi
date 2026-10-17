@@ -71,32 +71,49 @@ Three families lift shared fixture data into a non-test module (`.mts`, so
   `dry-run-args.mts` (the `dry-run.mts` CLI split into pure helpers + CLI)
 
 A family only clears the metric when the original **and** all siblings are
-`<= 500` segments. 71 of the 87 files were cleared (25 in the first pass, 46 in
-this pass) — **87 → 16**.
+`<= 500` segments. All 87 files are cleared — **87 → 0**. The first two passes
+split the TypeScript/Go/Python families (25, then 46); this pass completes the
+set with the 15 Rust sources and `server.py` (below).
 
-## Deliberately not done
+## The Rust family
 
-- **The 15 Rust files under `cmd/cheasee-pi/embedded/docker/ui`.** The pipeline
-  image carries no Rust toolchain (`cargo`/`rustc` absent), so a split cannot be
-  compiled or tested in-gate (#2002/#2003/#2004/#2005 precedent). Deferred to a
-  change that can run `cargo test`; the oracle pins them so each one fails the
-  gate the moment it drops under the ceiling.
-- **`cmd/cheasee-pi/embedded/docker/codeflow/server.py` (1275 lines).** Its inline
-  `_BRIDGE_JS`/`_UI_REWRITES` string literals are read verbatim by
-  `bridge.test.mts`, the Go shim test re-materialises the file from the embedded
-  FS, and the Dockerfile `COPY` + `py_compile` set treats it as one unit. Moving
-  code out of it changes all four boundaries in the same commit, which this
-  change does not own.
+The 15 Rust sources under `cmd/cheasee-pi/embedded/docker/ui` are split with the
+`include!` macro rather than new `mod` declarations. Each original keeps its
+opening items and pulls the rest in with `include!("<stem>_partN.rs");` calls at
+top-level, `impl`-method and `mod tests` item boundaries. `include!` is a
+token-identical header include, so the compiler sees exactly the original token
+stream — the split is behaviour-preserving by construction and needs no Rust
+toolchain to trust (the pipeline image has none). Integration-test parts live
+under `ui/tests/parts/` so Cargo never auto-discovers them as separate targets;
+the parent test crate pulls them in with `include!("parts/...")`.
 
-Both deferrals are pinned in `test/long-file-refactor-2035.test.mts` (`DEFERRED`)
-so the set cannot drift silently.
+## The server.py facade
+
+`cmd/cheasee-pi/embedded/docker/codeflow/server.py` (1275 lines) becomes a thin
+facade over five modules:
+
+- `server_config.py` — deployment config (JSON/env) and the API-base regex.
+- `server_rewrites.py` — `_BRIDGE_JS`/`_BRIDGE_SCRIPT`/`_UI_REWRITES` and the
+  MIME override (the served-page byte assets the bridge suites read).
+- `server_store.py` — the report and bridge-telemetry single-slot stores.
+- `server_run.py` — the headless producer (single-flight state, git-archive
+  snapshot, subprocess lifecycle).
+- `server_tree.py` — committed-HEAD listing, scan cache and fingerprint.
+
+The `server.py` module namespace re-exports every name the bridge suites read via
+`runpy`, so the served contract is unchanged. The Dockerfile `COPY` set and the
+`py_compile` gate now cover all six files, and the Go harness materialises the
+whole directory (`copyCodeflowDir`) rather than `server.py` alone.
+
+Both families are pinned by `test/long-file-refactor-2035.test.mts` (`DEFERRED`
+is now empty, so a dropped file cannot slip under the ceiling unnoticed).
 
 ## Verification
 
 - `test/long-file-refactor-2035.test.mts` asserts all 87 originals exist, that
-  the deferred set is exactly the still-flagged remainder, that every
-  non-deferred original and sibling is `<= 500` segments, and pins the strict
-  boundary.
+  the deferred set (now empty) is exactly the still-flagged remainder, that every
+  original and every sibling of any extension (`.mts`/`.ts`/`.rs`/`.py`, including
+  `tests/parts/`) lands `<= 500` segments, and pins the strict boundary.
 - `npm run tsc:extensions` and `npm test` stay green; `node --test` counts the
   same number of `it` cases before and after each family move (checked by AST).
 

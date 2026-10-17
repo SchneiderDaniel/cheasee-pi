@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -60,14 +59,9 @@ func TestCodeFlowServer_Smoke(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	serverPath := filepath.Join(t.TempDir(), "server.py")
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
+	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
+	serverPath := filepath.Join(dir, "server.py")
 
 	cmd := exec.Command(python, serverPath)
 	cmd.Env = append(os.Environ(),

@@ -413,24 +413,18 @@ describe("long file metric oracle (issue #2005)", () => {
 		}
 	});
 
-	it("defers the Rust set and the embedded server.py, never omitting a leftover flag", () => {
+	it("records the remaining served-asset deferral, never omitting a leftover flag", () => {
 		const deferred = LONG_FILE_BASELINE.deferred;
-		assert.ok(deferred.length >= 2, "the Rust and server.py deferrals are recorded");
+		assert.ok(deferred.length >= 1, "the remaining deferrals are recorded");
 		for (const entry of deferred) {
 			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
-		}
-		const withFiles = deferred.filter((d) => (d.files ?? []).length > 0);
-		const rust = withFiles.find((d) => d.files!.every((f) => f.endsWith(".rs")));
-		const serverPy = withFiles.find((d) => d.files!.every((f) => f.endsWith("server.py")));
-		assert.ok(rust, "the Rust set is recorded as deferred");
-		assert.ok(serverPy, "the embedded server.py is recorded as deferred");
-		assert.ok(rust.files!.length >= 8);
-		for (const rel of [...rust.files!, ...serverPy.files!]) {
-			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
-			assert.ok(
-				!LONG_FILE_BASELINE.reducedBy.includes(rel),
-				`${rel} is both deferred and cited as reduced`,
-			);
+			for (const rel of entry.files ?? []) {
+				assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
+				assert.ok(
+					!LONG_FILE_BASELINE.reducedBy.includes(rel),
+					`${rel} is both deferred and cited as reduced`,
+				);
+			}
 		}
 	});
 

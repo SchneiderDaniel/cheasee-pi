@@ -58,9 +58,9 @@ const REPORT_ROUTES: Record<string, string> = {
 };
 
 function extractBridgeJs(): string {
-	const py = readFileSync(SERVER_PY, "utf-8");
+	const py = readFileSync(resolve(SERVER_PY, "..", "server_rewrites.py"), "utf-8");
 	const m = /_BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
-	assert.ok(m, "_BRIDGE_JS constant not found in server.py");
+	assert.ok(m, "_BRIDGE_JS constant not found in codeflow_rewrites.py");
 	return m[1];
 }
 
@@ -329,9 +329,9 @@ describe("codeflow bridge capture", () => {
 		);
 	});
 	it("serves the false-positive filter the headless runner applies", () => {
-		const py = readFileSync(SERVER_PY, "utf-8");
+		const py = readFileSync(resolve(SERVER_PY, "..", "server_rewrites.py"), "utf-8");
 		const tag = /_BRIDGE_SCRIPT = b(['"])([\s\S]*?)\1/.exec(py)?.[2];
-		assert.ok(tag, "_BRIDGE_SCRIPT not found in server.py");
+		assert.ok(tag, "_BRIDGE_SCRIPT not found in codeflow_rewrites.py");
 		assert.strictEqual((tag.match(/fp-filter\.js/g) ?? []).length, 1, "one fp-filter tag");
 		assert.strictEqual((tag.match(/codeflow-bridge\.js/g) ?? []).length, 1, "one bridge tag");
 		assert.match(py, /_FP_FILTER_ROUTE = "\/fp-filter\.js"/);

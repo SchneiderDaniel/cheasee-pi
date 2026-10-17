@@ -28,7 +28,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -126,60 +126,42 @@ const AFFECTED = [
 ];
 
 /**
- * Still over the ceiling on purpose, with the reason. Rust needs a toolchain the
- * pipeline image does not carry (cargo/rustc absent), so a split cannot be
- * compiled or tested in-gate; `server.py`'s inline `_BRIDGE_JS`/`_UI_REWRITES`
- * literals and the Dockerfile `COPY` set form one boundary.
+ * Nothing is deferred any more: the fifteen Rust files were split into
+ * `include!`-joined part files (a token-identical relocation, so the splice is
+ * correct without a Rust toolchain) and `server.py` became a thin facade over
+ * the `server_*.py` modules. The map stays here so a future deferral must be
+ * declared explicitly rather than silently dropping a file.
  */
-const DEFERRED: Record<string, string> = {
-	"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/session.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/main.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs":
-		"Rust: no toolchain in the pipeline image — cannot compile/test a split",
-	"cmd/cheasee-pi/embedded/docker/codeflow/server.py":
-		"embedded-codeflow boundary (inline JS literals + Dockerfile COPY set)",
-};
+const DEFERRED: Record<string, string> = {};
 
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf8");
 const segments = (s: string): number => s.split("\n").length;
 const isFlagged = (rel: string): boolean => segments(read(rel)) > CEILING;
 
-/** Sibling files minted by a split of `rel`, matched by stem prefix. */
+/**
+ * Sibling files minted by a split of `rel`, matched by stem prefix. TS test
+ * parts are `<stem>-partN.test.mts`, Rust parts are `<stem>_partN.rs` (with
+ * `tests/` parts nested under `tests/parts/` so Cargo never auto-discovers them
+ * as targets), and Python parts are `<stem>_*.py`.
+ */
 function siblings(rel: string): string[] {
 	const dir = resolve(ROOT, dirname(rel));
-	const stem = basename(rel)
-		.replace(/\.test\.mts$/, "")
-		.replace(/\.mts$/, "");
+	const base = basename(rel);
+	const stem = base.replace(/\.test\.(mts|ts)$/, "").replace(/\.(mts|ts|cts|rs|py)$/, "");
 	if (!existsSync(dir)) return [];
-	return readdirSync(dir)
-		.filter((n) => /\.[cm]?ts$/.test(n) && n.startsWith(`${stem}-`))
-		.map((n) => `${dirname(rel)}/${n}`);
+	const out: string[] = [];
+	const scan = (absDir: string, prefix: string): void => {
+		if (!existsSync(absDir)) return;
+		for (const n of readdirSync(absDir)) {
+			if (n === base || !/\.(mts|ts|cts|rs|py)$/.test(n)) continue;
+			if (n.startsWith(`${stem}-`) || n.startsWith(`${stem}_`)) {
+				out.push(join(dirname(rel), prefix, n));
+			}
+		}
+	};
+	scan(dir, "");
+	scan(resolve(dir, "parts"), "parts");
+	return out;
 }
 
 describe("long-file refactor #2035 — the ceiling is the pinned detector's", () => {

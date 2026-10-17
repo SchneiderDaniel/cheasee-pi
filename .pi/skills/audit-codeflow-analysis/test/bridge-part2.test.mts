@@ -23,6 +23,15 @@ const SERVER_PY = resolve(
 	"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
 );
 
+const REWRITES_PY = resolve(
+	import.meta.dirname,
+	"..",
+	"..",
+	"..",
+	"..",
+	"cmd/cheasee-pi/embedded/docker/codeflow/server_rewrites.py",
+);
+
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 
 const MD_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8");
@@ -56,7 +65,7 @@ const REPORT_ROUTES: Record<string, string> = {
 };
 
 function extractBridgeJs(): string {
-	const py = readFileSync(SERVER_PY, "utf-8");
+	const py = readFileSync(REWRITES_PY, "utf-8");
 	const m = /_BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
 	assert.ok(m, "_BRIDGE_JS constant not found in server.py");
 	return m[1];

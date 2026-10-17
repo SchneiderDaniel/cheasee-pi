@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,11 +14,7 @@ import (
 // fallbacks) must be intact, and the file must still compile under python3 —
 // mirroring the Dockerfile gate (RUN python3 -m py_compile /opt/codeflow/server.py).
 func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
-	code := string(src)
+	code := embeddedCodeflowSources(t)
 
 	// Name split so a repo-wide literal grep for the removed helper stays clean.
 	removed := "_as" + "_bool"
@@ -69,13 +64,20 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	// Compile a temp copy so __pycache__ stays out of the worktree.
-	copyPath := filepath.Join(t.TempDir(), "server.py")
-	if err := os.WriteFile(copyPath, src, 0644); err != nil {
-		t.Fatalf("write temp server.py: %v", err)
+	// Compile temp copies (whole package) so __pycache__ stays out of the worktree.
+	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("read copied codeflow dir: %v", err)
 	}
-	if out, err := exec.Command(python, "-m", "py_compile", copyPath).CombinedOutput(); err != nil {
-		t.Errorf("python3 -m py_compile failed: %v\n%s", err, out)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".py") {
+			continue
+		}
+		if out, err := exec.Command(python, "-m", "py_compile", filepath.Join(dir, e.Name())).CombinedOutput(); err != nil {
+			t.Errorf("python3 -m py_compile %s failed: %v\n%s", e.Name(), err, out)
+		}
 	}
 }
 
@@ -87,15 +89,9 @@ func TestCodeFlowServer_FingerprintPure(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
 	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
 	serverPath := filepath.Join(dir, "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
 	script := `import re, runpy, sys
 
 m = runpy.run_path(sys.argv[1])
@@ -152,15 +148,9 @@ func TestCodeFlowServer_ScanCacheSlowWorkspace(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
 	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
 	serverPath := filepath.Join(dir, "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
 	repoRoot := t.TempDir()
 	writeShimFile(t, repoRoot, "a.txt", "hello\n")
 	initGitRepo(t, repoRoot)

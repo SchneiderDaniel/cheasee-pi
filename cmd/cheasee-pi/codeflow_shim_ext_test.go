@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,15 +19,9 @@ func TestCodeFlowServer_TypeScriptExtensionsPure(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
 	dir := t.TempDir()
+	copyCodeflowDir(t, dir)
 	serverPath := filepath.Join(dir, "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
 	script := `import runpy, sys
 
 m = runpy.run_path(sys.argv[1])
