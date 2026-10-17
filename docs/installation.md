@@ -193,12 +193,17 @@ to the clone layer as the `CHEASEE_COMMIT` build ARG, so the layer re-runs
 exactly when that commit changes and stays cached (keeping the expensive
 clone + `npm ci` off the critical path of a pi-only rebuild) when it does not.
 If upstream is unreachable the probe warns and the CLI reuses the last
-successfully baked commit (recorded in `~/.cache/cheasee-pi/<version>/`), so
-the cache key is unchanged and the cached layer is still used — an offline
-rebuild does not force a network clone. Only a first-ever build with no
-record to fall back on leaves the ARG empty. Should `CHEASEE_REF` move between
-the probe and the clone, the clone layer fails the build instead of caching
-the clone under the wrong commit's key; re-run the build.
+successfully baked commit **of the same `CHEASEE_REF`** (recorded in
+`~/.cache/cheasee-pi/<version>/`), so the cache key is unchanged and the
+cached layer is still used — an offline rebuild does not force a network
+clone. A commit recorded for a *different* ref is never reused: the cache key
+must describe the ref actually being built. A first build with no record for
+the current ref leaves the ARG empty; the build then reads the commit the
+image itself baked (`/opt/cheasee-pi/BUILD_COMMIT`) back into the host record
+after it succeeds, so `cheasee-pi about` still reports the truth. Should
+`CHEASEE_REF` move between the probe and the clone, the clone layer fails the
+build instead of caching the clone under the wrong commit's key; re-run the
+build.
 
 The commit baked into the running image is recorded at
 `/opt/cheasee-pi/BUILD_COMMIT` and printed by `cheasee-pi about`, so a stale

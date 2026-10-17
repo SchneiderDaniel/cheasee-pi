@@ -52,15 +52,15 @@ const aboutFooter = "Full workflow: docs/daily-usage.md — " + docsDailyUsageUR
 
 // aboutBakedCommit reports the commit baked into the image at
 // /opt/cheasee-pi (issue #2054). It reads the CLI's record of the last
-// successful build: Dockerfile Layer 6b fails when the clone's HEAD differs
-// from CHEASEE_COMMIT, so that record equals the baked copy. Empty when no
-// build has been recorded yet (the glossary then omits the line).
+// successful build — the resolved commit, or (when the upstream probe failed)
+// the commit the built image itself recorded — so it equals the baked copy.
+// Empty when no build has been recorded yet (the glossary then omits the line).
 func aboutBakedCommit() string {
 	dir, err := aboutCacheDir()
 	if err != nil {
 		return ""
 	}
-	return readBakedCommit(dir)
+	return readBakedCommit(dir).commit
 }
 
 // aboutCacheDir resolves the dir holding the baked-commit record; injectable
