@@ -171,8 +171,19 @@ The pipeline image has no C linker, so `cargo check` cannot run even though a
   `src/main.rs` and each `tests/*.rs` crate root (it caught three stale inner
   `mod` declarations and eight integration-test children that needed `#[path]`);
 - `rustfmt --check` over those crate roots, which parses every reachable module;
+- `rust-analyzer diagnostics` over the crate in both trees (the tree with
+  `default = ["ssr"]` temporarily flipped, then restored) — after mapping each
+  sibling to the module it was split from, the delivered tree reports the same
+  error classes as the pinned base on the equivalent modules (only `E0277`
+  `Serialize not satisfied` / `E0282` / macro `SyntaxError` artifacts from
+  unbuilt proc-macro derives), and no unresolved-module, unresolved-import or
+  privacy error on either side, so the split introduced no new diagnostic;
 - `go test ./cmd/cheasee-pi/` for the codeflow shim (it compiles every module
-  with `py_compile` and drives the served contract), plus the Python suite.
+  with `py_compile` and drives the served contract), plus the Python suite. Its
+  `TestUI_WSClientLifecycleWiring` layout gate now reads `retry.rs` and
+  `retry/wiring.rs` concatenated: the wiring declarations moved to the sibling,
+  and `mod wiring;` compiles both into the same targets, so a deletion in
+  either file still fails the gate.
 
 The first full `cargo check`/build remains the browser (Docker) build.
 
@@ -198,9 +209,9 @@ mirror and its fixture must be re-derived (same contract as `god-object-2004.md`
 and `vba-god-module-2006.md`).
 
 The Rust and Python splits carry no in-gate type-check (no linker, no Rust
-toolchain component set for `cargo build`): syntax, the module tree and the
-Python `py_compile` gate are covered, while the first full compile lands in the
-Docker build.
+toolchain component set for `cargo build`): syntax, the module tree and
+rust-analyzer's diagnostic parity with the base are covered, plus the Python
+`py_compile` gate, while the first full compile lands in the Docker build.
 
 The exact set, the measured envelope and the guards are pinned in
 `test/fixtures/vba-god-module-baseline-2036.json`, asserted per family by
