@@ -1,0 +1,20 @@
+# Accepted-risk allowlist for the Rust web control center.
+#
+# osv-scanner auto-loads this file when it scans the Cargo.lock next to it, so
+# the two advisories below stop re-reporting on every run while the reasons
+# stay reviewable. Both are unmaintained-only findings (no exploitable CVE, no
+# patched version published); the inventory lives in docs/sbom.md.
+#
+# Every entry needs a `reason` and an `ignoreUntil`. When the expiry passes,
+# osv-scanner reports the advisory again — that is the review trigger. Delete an
+# entry once upstream no longer pulls the crate.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+ignoreUntil = 2027-04-01
+reason = "paste 1.0.15 is unmaintained, not vulnerable: no patched version exists and leptos 0.8 pulls it through leptos, tachys, reactive_graph, reactive_stores and either_of, so removal means leaving the pinned leptos line. Accepted risk, see docs/sbom.md."
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0173"
+ignoreUntil = 2027-04-01
+reason = "proc-macro-error2 2.0.1 is unmaintained, not vulnerable: no patched version exists and it enters via rstml -> syn_derive in the leptos macro stack. Accepted risk, see docs/sbom.md."

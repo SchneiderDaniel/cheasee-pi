@@ -73,6 +73,15 @@ newest published releases of their crates, and neither RUSTSEC advisory has a
 patched version — both are unmaintained-only and carry no assigned severity.
 `osv-scanner scan source -L cmd/cheasee-pi/embedded/docker/ui/Cargo.lock`
 reports exactly these two, so the inventory above is the current, rerun result.
+The machine-readable side of that acceptance is
+`embedded/docker/ui/osv-scanner.toml`: osv-scanner auto-loads an allowlist only
+when it sits next to the scanned lockfile, so that file holds one
+`[[IgnoredVulns]]` entry per advisory with a `reason` and an `ignoreUntil`
+expiry (currently 2027-04-01). Past the expiry the findings reappear — that is
+the re-review trigger, not a failure. `go test ./cmd/cheasee-pi/ -run
+OsvAllowlist` fails if an entry loses its reason or expiry, if the allowed crate
+leaves `Cargo.lock` (the entry must then be deleted), or if a `COPY` would sweep
+the allowlist into an image layer.
 Re-checked while resolving #2026: crates.io still reports `paste` 1.0.15
 (published 2024-05-07) and `proc-macro-error2` 2.0.1 (2024-09-06) as the newest
 releases of their crates, and the pipeline image carries no Rust toolchain, so
