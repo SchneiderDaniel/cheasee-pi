@@ -89,6 +89,14 @@ bust one package layer (edit a version pin), rebuild with
 A cold build still fetches — the digest pins and the `scrapling` stage are what
 keep that fetch out of the agent stage's dependency chain.
 
+Baseline recorded for issue #2053 (maintainer host, cold rebuild of the agent
+image, only one layer cache-hit): ~9 min and ~1.1 GB, of which the Chromium
+bundle is ~646 MB / 100 s and the two pip venvs are 113 MB + 12 MB of wheels /
+~56 s. Those two steps are what the `scrapling` stage now owns, so an agent
+layer change re-fetches neither. Re-measure on a Docker host — a container
+without a daemon cannot produce the wall clock — and record both sides in the
+issue.
+
 ## Documentation changes
 
 We keep user documentation alongside its implementation:

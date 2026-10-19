@@ -135,6 +135,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x && \
     bash /tmp/nodesource-setup.sh && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         nodejs \
     && rm -rf /tmp/nodesource-setup.sh \

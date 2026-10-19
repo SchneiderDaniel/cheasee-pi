@@ -47,6 +47,32 @@ func TestDockerfiles_AptRunsMountAptCaches(t *testing.T) {
 	}
 }
 
+func TestDockerfiles_AptInstallFollowsUpdate(t *testing.T) {
+	// With /var/lib/apt mounted, a cold builder starts with no package indexes:
+	// the RUN that installs must refresh them itself, or apt-get install cannot
+	// resolve a single package. Ordering matters — an update after the install
+	// is dead weight.
+	covered := 0
+	for _, df := range dockerfiles(t) {
+		for i, r := range runInstructions(df.content) {
+			install := strings.Index(r.body, "apt-get install")
+			if install < 0 {
+				continue
+			}
+			covered++
+			update := strings.Index(r.body, "apt-get update")
+			if update < 0 {
+				t.Errorf("%s RUN #%d installs packages without 'apt-get update' in the same RUN (a cold builder has an empty /var/lib/apt mount)", df.name, i+1)
+			} else if update > install {
+				t.Errorf("%s RUN #%d updates the apt indexes after 'apt-get install'", df.name, i+1)
+			}
+		}
+	}
+	if covered == 0 {
+		t.Fatal("no apt-get install RUN found — the update check would be vacuous")
+	}
+}
+
 func TestDockerfiles_NpmRunsMountNpmCache(t *testing.T) {
 	covered := 0
 	for _, df := range dockerfiles(t) {
