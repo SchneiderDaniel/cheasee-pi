@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -32,11 +33,32 @@ func TestBuildCostDoc_RecordsBothScenarios(t *testing.T) {
 		"docker buildx du",
 		"docker images --format",
 		"--progress=plain",
-		"cdn.playwright.dev", // recipe that measures transfer volume without a daemon
+		"content-range", // recipe that measures transfer volume without a daemon
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("docs/development.md §Measuring image build cost must contain %q", want)
 		}
+	}
+}
+
+func TestBuildCostDoc_RecordsMeasuredTransferInventory(t *testing.T) {
+	// #2053's last acceptance criterion asks for a measured after-number. The
+	// docker build wall clock needs a daemon, but the transfer volume does not:
+	// every artifact is measured byte-for-byte over HTTP. A section that drops
+	// those rows (back to "not measured" everywhere, or to a derived guess) must
+	// fail, otherwise the recorded measurement can silently disappear.
+	section := buildCostDocSection(t)
+	row := regexp.MustCompile(`(?m)^\|.*\|\s*[0-9,]{6,} B\s*\|`)
+	if got := len(row.FindAllString(section, -1)); got < 8 {
+		t.Errorf("§Measuring image build cost must record the measured per-artifact byte inventory (found %d byte rows, want >=8)", got)
+	}
+	for _, stage := range []string{"scrapling", "agent"} {
+		if !strings.Contains(section, "| "+stage) {
+			t.Errorf("the byte inventory must attribute rows to the %s stage", stage)
+		}
+	}
+	if !strings.Contains(section, "apt-get --print-uris") {
+		t.Error("the apt rows must state how they were measured (--print-uris against an empty package database)")
 	}
 }
 
