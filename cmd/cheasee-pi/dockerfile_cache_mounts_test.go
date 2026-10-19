@@ -142,6 +142,34 @@ func TestDockerfiles_MountedTargetsSurviveInRunCleanup(t *testing.T) {
 	}
 }
 
+func TestDockerfiles_AptRunsDisableDockerCleanHook(t *testing.T) {
+	// The Debian base images ship /etc/apt/apt.conf.d/docker-clean. Its
+	// DPkg::Post-Invoke deletes /var/cache/apt/archives/*.deb after dpkg runs,
+	// which empties the archive cache the /var/cache/apt mount exists to reuse —
+	// so a mount alone is not enough. Removal must precede the first apt-get of
+	// the same RUN, otherwise that RUN still fires the hook.
+	const hook = "rm -f /etc/apt/apt.conf.d/docker-clean"
+	covered := 0
+	for _, df := range dockerfiles(t) {
+		for i, r := range runInstructions(df.content) {
+			at := strings.Index(r.body, "apt-get")
+			if at < 0 {
+				continue
+			}
+			covered++
+			hookAt := strings.Index(r.body, hook)
+			if hookAt < 0 {
+				t.Errorf("%s RUN #%d runs apt-get without removing the docker-clean hook (it deletes the mounted .deb archives)", df.name, i+1)
+			} else if hookAt > at {
+				t.Errorf("%s RUN #%d removes the docker-clean hook after apt-get — the hook still runs", df.name, i+1)
+			}
+		}
+	}
+	if covered == 0 {
+		t.Fatal("no apt-get RUN found — the docker-clean check would be vacuous")
+	}
+}
+
 func TestDockerfiles_TmpCleanupRetained(t *testing.T) {
 	// The mounts only cover the package caches; the /tmp scratch still has to
 	// be cleaned inside the layer that writes it.

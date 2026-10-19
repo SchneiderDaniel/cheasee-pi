@@ -25,7 +25,8 @@ WORKDIR /build
 # linked, so only `bin/wasm-opt` needs extracting).
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  --mount=type=cache,target=/var/lib/apt,sharing=locked \
- rustup target add wasm32-unknown-unknown \
+ rm -f /etc/apt/apt.conf.d/docker-clean \
+ && rustup target add wasm32-unknown-unknown \
  && apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
  && ARCH="$(uname -m)" \
@@ -91,9 +92,14 @@ FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595
 # NodeSource repo setup below. Both apt steps use cache mounts: a re-run reads
 # the .deb archives and package lists from the builder cache instead of the
 # network, so the mounted /var/lib/apt replaces the lists cleanup.
+#
+# The docker-clean hook shipped in the Debian base images deletes the downloaded
+# .deb archives (and the pkgcache in /var/cache/apt) after every apt run, which
+# would empty the cache mount the next build reads — so it goes first.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  --mount=type=cache,target=/var/lib/apt,sharing=locked \
- apt-get update \
+ rm -f /etc/apt/apt.conf.d/docker-clean \
+ && apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates gnupg
 
 # Node.js 22 (NodeSource): the runtime for the pi-coding-agent CLI this server
@@ -105,7 +111,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # result so a future fallback can never be cached as "successful" again.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  --mount=type=cache,target=/var/lib/apt,sharing=locked \
- curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x \
+ rm -f /etc/apt/apt.conf.d/docker-clean \
+ && curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x \
  && bash /tmp/nodesource-setup.sh \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /tmp/nodesource-setup.sh \

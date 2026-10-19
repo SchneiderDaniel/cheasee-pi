@@ -25,8 +25,15 @@ ARG BASE_IMAGE=debian:12-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681f
 # one cache-mounted apt layer.
 FROM ${BASE_IMAGE} AS scrapling
 
+# Every apt RUN below starts by deleting /etc/apt/apt.conf.d/docker-clean. The
+# Debian base images ship that hook, and its DPkg::Post-Invoke deletes
+# /var/cache/apt/archives/*.deb after each apt run — under a /var/cache/apt
+# cache mount that empties the archive cache the mount exists to reuse. It also
+# blanks Dir::Cache::pkgcache, which lives in the same mount. (The copy is a
+# layer file, not a mount target, so removing it is safe for the cache.)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
@@ -109,6 +116,7 @@ FROM ${BASE_IMAGE} AS agent
 # throw away the cached lists, the very download the mount exists to avoid.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
@@ -124,6 +132,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # result so a future fallback can never be cached as "successful" again.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
     curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x && \
     bash /tmp/nodesource-setup.sh && \
     apt-get install -y --no-install-recommends \
@@ -146,6 +155,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # fd-find ships as fdfind; symlink to fd so pi finds it
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
@@ -184,6 +194,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # ---------------------------------------------------------------
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
     curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
     chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \

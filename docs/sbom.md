@@ -79,6 +79,11 @@ releases of their crates, and the pipeline image carries no Rust toolchain, so
 neither a replacement nor a removal is reachable in-gate. The accepted
 maintenance risk stands.
 
+#2053 (image build cost) leaves the Rust dependency graph untouched —
+`ui/Cargo.lock` is byte-identical in that change — so the accepted risk above is
+unchanged there; both crates enter only through `leptos` and the `leptos_meta`
+macro stack.
+
 ## System dependencies
 
 | Tool                       | Version | License        | Purpose                                 |

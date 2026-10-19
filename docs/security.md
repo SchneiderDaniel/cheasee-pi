@@ -103,6 +103,12 @@ layer, the cleanups that used to remove those paths (`rm -rf /var/lib/apt/lists`
 `npm cache clean --force`, `rm -rf /root/.cache`) are gone — running them would
 only empty the cache the next build reads.
 
+A mount alone is not sufficient for apt: the Debian base images ship
+`/etc/apt/apt.conf.d/docker-clean`, whose `DPkg::Post-Invoke` deletes
+`/var/cache/apt/archives/*.deb` (and blanks the pkgcache) after every apt run.
+Every apt RUN therefore removes that hook before its first `apt-get`; without
+it the mounted archive cache is emptied on each build.
+
 Cache mounts are **per-builder** and **evictable**: `docker buildx prune`,
 docker's garbage collection, or a switch to a different builder drops them
 (`#2050` saw a data-root reset take the cache from 6.045 GB to 50 MB). They

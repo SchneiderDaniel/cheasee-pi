@@ -54,6 +54,28 @@ standard Go test command does not run Docker-backed integration tests. Those
 tests require a working Docker Engine and use an explicit integration build
 tag. The Rust UI service test suite runs during its Docker image build.
 
+## Measuring image build cost
+
+The image build is download-heavy, and a populated builder cache hides almost
+all of it. Quote numbers only from a cold build:
+
+```bash
+docker buildx prune -af                      # drop the builder cache = the cold case
+time cheasee-pi build                       # build time
+docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep cheasee-pi
+docker system df -v                         # total data-root occupancy
+```
+
+Re-run the same four commands after a change and record both sides in the
+issue. The build cache is per-builder and evictable, so `docker buildx prune`,
+a builder switch, or a full data root all reproduce the cold case.
+
+Cache mounts (`RUN --mount=type=cache`) are only visible in the *re-run* case:
+bust one package layer (edit a version pin), rebuild with
+`--progress=plain`, and confirm the apt/npm/pip step reports no downloads.
+A cold build still fetches — the digest pins and the `scrapling` stage are what
+keep that fetch out of the agent stage's dependency chain.
+
 ## Documentation changes
 
 We keep user documentation alongside its implementation:
