@@ -80,8 +80,8 @@ questions:
 2. **Agent-layer invalidation** — the case this work is about: with a warm
    cache, change one early agent layer (add a package to an `apt-get install`
    line), then time `cheasee-pi build` and re-read `docker buildx du`. Before
-   the stage split this re-downloaded the ~646 MB Chromium bundle; now the venvs
-   and the browser come from the unchanged `scrapling` stage.
+   the stage split this re-downloaded the Chromium bundle (~646 MB unpacked);
+   now the venvs and the browser come from the unchanged `scrapling` stage.
 
 Cache mounts (`RUN --mount=type=cache`) are only visible in the _re-run_ case:
 bust one package layer (edit a version pin), rebuild with
@@ -91,28 +91,56 @@ keep that fetch out of the agent stage's dependency chain.
 
 ### Recorded numbers for issue #2053
 
-Baseline measured on the maintainer host before the stage split, cold rebuild of
-the agent image with only one layer cache-hit: **~9 min and ~1.1 GB**, of which
-the Chromium bundle is ~646 MB / 100 s (`#31`) and the two pip venvs are 113 MB
-(`#29`, 55.6 s) + 12 MB (`#18`, 18.8 s) of wheels. The other measured re-runs
-were `#12` NodeSource 97.9 s, `#13` apt toolchain 55.9 s, `#14` GitHub CLI
-17.4 s, `#15` npm globals 34.8 s, `#16` rust-analyzer 10.0 s, `#17` rtk 4.1 s,
-`#84` pi install 23.1 s.
+**Baseline, measured on the maintainer host** before the stage split, cold
+rebuild of the agent image with only one layer cache-hit: **~9 min and ~1.1 GB
+transferred**. Per layer, from `--progress=plain`: `#12` NodeSource 97.9 s,
+`#13` apt toolchain 55.9 s, `#14` GitHub CLI 17.4 s, `#15` npm globals 34.8 s,
+`#16` rust-analyzer 10.0 s, `#17` rtk 4.1 s, `#18` web-search venv 18.8 s /
+12 MB, `#29` scrapling venv 55.6 s / 113 MB, `#31` Chromium 100.5 s /
+~646 MB, `#84` pi install 23.1 s.
 
-After the split, each scenario is:
+**Transfer volume of the layers the split moves out of the agent stage,
+measured** by sending `HEAD` to the exact URLs patchright resolves. No Docker
+daemon is involved, so this half of the number is reproducible anywhere:
 
-| Scenario                             | Before                                           | After                                                                                                                     |
-| ------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (measured)                        | both stages run, so the fetched volume is unchanged plus one cache-mounted apt layer for the `scrapling` stage, paid once |
-| Agent-layer invalidation (the point) | 9 min / 1.1 GB (measured)                        | ~6.1 min / ~0.33 GB — the measured baseline minus `#18`, `#29` and `#31` (175 s / 771 MB), which no longer sit downstream |
-| Re-run of one busted package layer   | that layer's full fetch (34.8 s npm, 55.6 s pip) | local archive reuse from the cache mounts, so the step re-runs without fetching                                           |
+```bash
+# patchright 1.62.2 (scrapling-constraints.txt) → chromium rev 1234 / CfT 151.0.7922.34
+for u in builds/cft/151.0.7922.34/linux64/chrome-linux64.zip \
+         builds/cft/151.0.7922.34/linux64/chrome-headless-shell-linux64.zip \
+         builds/ffmpeg/1011/ffmpeg-linux.zip; do
+  curl -sSIL "https://cdn.playwright.dev/$u" | tr -d '\r' |
+    awk 'tolower($1) == "content-length:" { print $2 }'
+done
+```
 
-The first two `After` cells are derived from the measured per-layer baseline,
-not freshly timed: a container without a Docker daemon cannot produce the wall
-clock, and the `scrapling` stage's isolation from agent-layer churn is what the
-build-contract tests in `cmd/cheasee-pi/dockerfile_stage_split_test.go` assert.
-Replacing the derived cell with a measurement is the four commands above, run
-between a clean `buildx prune -af` and one edit to an early agent layer.
+| Re-fetched on agent-layer invalidation, before | Transferred                | Wall clock |
+| ---------------------------------------------- | -------------------------- | ---------- |
+| `chromium` CfT 151.0.7922.34                   | 193,282,658 B              |            |
+| `chromium-headless-shell` 151.0.7922.34        | 120,231,126 B              |            |
+| `ffmpeg` 1011                                  | 2,376,500 B                |            |
+| Chromium bundle (`#31`)                        | 315,890,284 B = 316 MB     | 100.5 s    |
+| `scrapling` venv (`#29`)                       | 113 MB (baseline)          | 55.6 s     |
+| `web-search` venv (`#18`)                      | 12,217,088 B (re-measured) | 18.8 s     |
+
+The ~646 MB quoted for the browser in the issue is the layer the two zips
+unpack to, not the bytes on the wire: the download is 316 MB. What the split
+removes from agent-layer invalidation is therefore **~0.44 GB of transfer and
+~175 s of wall clock**, not the 771 MB the first draft of this table subtracted.
+
+Scenario status after the split:
+
+| Scenario                             | Before                                           | After                                                                                                                                                           |
+| ------------------------------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (measured)                        | both stages run, so the volume is unchanged plus one cache-mounted apt layer for the `scrapling` stage, paid once — not measured                                |
+| Agent-layer invalidation (the point) | 9 min / 1.1 GB (measured)                        | ~0.66 GB and ~6.1 min: the measured baseline minus the measured layers above. Transfer is measured per artifact; the wall clock is arithmetic, **not measured** |
+| Re-run of one busted package layer   | that layer's full fetch (34.8 s npm, 55.6 s pip) | archive reuse from the cache mounts, so the step re-runs without fetching — confirm with `--progress=plain` on a busted pin                                     |
+
+The wall clock in the second `After` cell is the one figure still owed: it needs
+a Docker host, and the pipeline container that wrote this section has no daemon.
+It is labelled rather than dropped so the gap stays visible — and so nobody
+reads a derived number as a timed build. Closing it is the four commands at the
+top of this section, run between a clean `buildx prune -af` and one edit to an
+early agent layer.
 
 ## Documentation changes
 
