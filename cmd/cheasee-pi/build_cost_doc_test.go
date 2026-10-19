@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -58,8 +59,66 @@ func TestBuildCostDoc_RecordsMeasuredTransferInventory(t *testing.T) {
 		}
 	}
 	if !strings.Contains(section, "apt-get --print-uris") {
-		t.Error("the apt rows must state how they were measured (--print-uris against an empty package database)")
+		t.Error("the apt rows must state how they were measured (--print-uris against the pinned base image's package set)")
 	}
+}
+
+func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
+	// The audit of #2053 found the aggregate carrying bounded apt rows that the
+	// per-artifact rows did not support. A subtotal that does not equal the rows
+	// above it is that same defect, so it is checked arithmetically instead of
+	// trusted.
+	section := buildCostDocSection(t)
+	row := regexp.MustCompile(`^\|\s*(scrapling|agent|\*\*stage\*\*|\*\*both\*\*)\s*\|\s*([^|]*?)\s*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|`)
+
+	var stage, artifact string
+	perStage := map[string]int{}
+	var subtotals, total map[string]int64
+	subtotals = map[string]int64{}
+	total = map[string]int64{}
+	for _, line := range strings.Split(section, "\n") {
+		m := row.FindStringSubmatch(strings.TrimSpace(line))
+		if m == nil {
+			continue
+		}
+		stage, artifact = m[1], m[2]
+		bytes, err := strconv.ParseInt(strings.ReplaceAll(m[3], ",", ""), 10, 64)
+		if err != nil {
+			t.Fatalf("unparsable byte count in %q: %v", line, err)
+		}
+		switch stage {
+		case "scrapling", "agent":
+			perStage[stage]++
+			subtotals["rows:"+stage] += bytes
+		case "**stage**":
+			subtotals["stated:"+artifactKey(artifact)] = bytes
+		case "**both**":
+			total["stated"] = bytes
+		}
+	}
+
+	for _, name := range []string{"scrapling", "agent"} {
+		if perStage[name] < 3 {
+			t.Fatalf("expected the byte inventory to list at least 3 %s rows, parsed %d", name, perStage[name])
+		}
+		if got, want := subtotals["rows:"+name], subtotals["stated:"+name]; got != want {
+			t.Errorf("%s subtotal states %d B but its rows sum to %d B", name, want, got)
+		}
+	}
+	if got, want := subtotals["rows:scrapling"]+subtotals["rows:agent"], total["stated"]; got != want {
+		t.Errorf("the `both` total states %d B but the stage subtotals sum to %d B", want, got)
+	}
+}
+
+// artifactKey turns a subtotal's artifact cell into the stage name it belongs
+// to, so a subtotal row cannot claim a different stage than the rows above it.
+func artifactKey(artifact string) string {
+	for _, name := range []string{"scrapling", "agent"} {
+		if strings.Contains(artifact, name) {
+			return name
+		}
+	}
+	return ""
 }
 
 func TestBuildCostDoc_LabelsUnmeasuredWallClock(t *testing.T) {
