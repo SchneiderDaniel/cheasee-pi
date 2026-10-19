@@ -83,19 +83,36 @@ questions:
    the stage split this re-downloaded the ~646 MB Chromium bundle; now the venvs
    and the browser come from the unchanged `scrapling` stage.
 
-Cache mounts (`RUN --mount=type=cache`) are only visible in the *re-run* case:
+Cache mounts (`RUN --mount=type=cache`) are only visible in the _re-run_ case:
 bust one package layer (edit a version pin), rebuild with
 `--progress=plain`, and confirm the apt/npm/pip step reports no downloads.
 A cold build still fetches — the digest pins and the `scrapling` stage are what
 keep that fetch out of the agent stage's dependency chain.
 
-Baseline recorded for issue #2053 (maintainer host, cold rebuild of the agent
-image, only one layer cache-hit): ~9 min and ~1.1 GB, of which the Chromium
-bundle is ~646 MB / 100 s and the two pip venvs are 113 MB + 12 MB of wheels /
-~56 s. Those two steps are what the `scrapling` stage now owns, so an agent
-layer change re-fetches neither. Re-measure on a Docker host — a container
-without a daemon cannot produce the wall clock — and record both sides in the
-issue.
+### Recorded numbers for issue #2053
+
+Baseline measured on the maintainer host before the stage split, cold rebuild of
+the agent image with only one layer cache-hit: **~9 min and ~1.1 GB**, of which
+the Chromium bundle is ~646 MB / 100 s (`#31`) and the two pip venvs are 113 MB
+(`#29`, 55.6 s) + 12 MB (`#18`, 18.8 s) of wheels. The other measured re-runs
+were `#12` NodeSource 97.9 s, `#13` apt toolchain 55.9 s, `#14` GitHub CLI
+17.4 s, `#15` npm globals 34.8 s, `#16` rust-analyzer 10.0 s, `#17` rtk 4.1 s,
+`#84` pi install 23.1 s.
+
+After the split, each scenario is:
+
+| Scenario                             | Before                                           | After                                                                                                                     |
+| ------------------------------------ | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (measured)                        | both stages run, so the fetched volume is unchanged plus one cache-mounted apt layer for the `scrapling` stage, paid once |
+| Agent-layer invalidation (the point) | 9 min / 1.1 GB (measured)                        | ~6.1 min / ~0.33 GB — the measured baseline minus `#18`, `#29` and `#31` (175 s / 771 MB), which no longer sit downstream |
+| Re-run of one busted package layer   | that layer's full fetch (34.8 s npm, 55.6 s pip) | local archive reuse from the cache mounts, so the step re-runs without fetching                                           |
+
+The first two `After` cells are derived from the measured per-layer baseline,
+not freshly timed: a container without a Docker daemon cannot produce the wall
+clock, and the `scrapling` stage's isolation from agent-layer churn is what the
+build-contract tests in `cmd/cheasee-pi/dockerfile_stage_split_test.go` assert.
+Replacing the derived cell with a measurement is the four commands above, run
+between a clean `buildx prune -af` and one edit to an early agent layer.
 
 ## Documentation changes
 
