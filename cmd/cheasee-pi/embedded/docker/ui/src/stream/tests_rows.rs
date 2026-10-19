@@ -1,5 +1,4 @@
 use super::*;
-use super::tests::delta;
 
 /// Phase 2: streaming tool snapshots replace, never append.
 #[test]

@@ -1,3 +1,6 @@
+#[path = "../tests_reader.rs"]
+mod reader_tests;
+
 use super::*;
 use std::io::Cursor;
 use tokio::io::BufReader;

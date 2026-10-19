@@ -1,3 +1,6 @@
+#[path = "../tests_replay.rs"]
+mod replay_tests;
+
 use super::*;
 use std::io::Write;
 use crate::test_support::unique_temp_dir;

@@ -193,5 +193,3 @@ pub fn encode_record<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Err
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_reader;

@@ -402,5 +402,3 @@ impl SessionsStore {
 /// (a torn tail on a live file) are skipped.
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_replay;

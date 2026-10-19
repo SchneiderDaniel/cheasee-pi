@@ -1,3 +1,6 @@
+#[path = "../tests_rows.rs"]
+mod row_tests;
+
 use super::*;
 use crate::protocol::Event;
 use serde_json::json;

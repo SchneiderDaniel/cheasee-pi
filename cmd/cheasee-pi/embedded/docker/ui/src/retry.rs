@@ -175,8 +175,5 @@ pub struct StabilityTimer {
 #[cfg(test)]
 mod tests;
 
-#[cfg(test)]
-mod tests_wiring;
-
 // ponytail: no jitter and no attempt ceiling — one browser talking to a local
 // sidecar. Add jitter if a fleet of clients ever backs off in lockstep.

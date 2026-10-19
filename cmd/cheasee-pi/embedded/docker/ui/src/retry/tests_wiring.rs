@@ -1,5 +1,4 @@
 use super::*;
-use super::tests::reconnect_delay;
 
 // ── Wire: the callback plumbing `ws.rs` installs on the live socket ──────
 

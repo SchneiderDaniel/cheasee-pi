@@ -1,3 +1,6 @@
+#[path = "../tests_delivery.rs"]
+mod delivery;
+
 use super::*;
 use std::path::PathBuf;
 use std::time::Duration;

@@ -589,15 +589,15 @@ async fn respond_extension_ui(
 }
 
 /// A translated browser command plus how its response correlates back.
-struct Routed {
-    command: Command,
+pub(super) struct Routed {
+    pub(super) command: Command,
     /// The `command` name pi answers with.
-    name: &'static str,
+    pub(super) name: &'static str,
     /// The browser's correlation id, echoed on the response.
-    browser_id: Option<String>,
+    pub(super) browser_id: Option<String>,
     /// The browser id is also the wire correlation key (bash), so the request
     /// is registered under it rather than a minted `req_N`.
-    preserve_id: bool,
+    pub(super) preserve_id: bool,
 }
 
 impl Routed {

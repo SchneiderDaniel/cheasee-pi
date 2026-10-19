@@ -1,3 +1,6 @@
+#[path = "../tests_wiring.rs"]
+mod wiring_tests;
+
 use super::*;
 
 #[test]

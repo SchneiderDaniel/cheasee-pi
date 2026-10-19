@@ -532,5 +532,3 @@ impl ReplaySource for RpcReplaySource {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_delivery;
