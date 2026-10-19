@@ -23,6 +23,9 @@ from dependency_existence_check_tests._common import *  # noqa: E402,F401,F403
 from dependency_existence_check_tests.test_pipeline_age_guard import (  # noqa: E402,F401
     PipelineAndAgeGuardTests,
 )
+from dependency_existence_check_tests.test_cli_report_contract import (  # noqa: E402,F401
+    CliReportContractTests,
+)
 from dependency_existence_check_tests.test_discovery_gitignore import (  # noqa: E402,F401
     DiscoveryAndGitignoreTests,
 )
