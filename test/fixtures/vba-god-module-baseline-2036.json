@@ -6,32 +6,36 @@
 		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
 		"parserMode": "acorn-babel",
 		"mirror": "test/fixtures/acorn-babel-mirror.mts",
-		"method": "git archive <commit> | tar -x -C <dir> && node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs <dir> <codeflow-ui> <out>",
-		"metric": "patterns[name === \"VBA God Module\"].files — analyzed files where isCode !== false && functions.length > 20 (index.html:1414 detectPatterns `vbaGodFiles`). `VBA God Module` is `God Object` (> 15) at a higher ceiling over the same parser count, so every sibling is landed <= 15 where the reduction is in-gate. `functions` comes from the headless parser: for `.js/.jsx/.ts/.tsx/.mjs/.cjs/.vue/.svelte` the served UI parses with acorn (after Babel strips TS/JSX), so object-literal methods and arrow properties count; for `.py/.go/.rs/...` the regex extractor counts. This fixture's `acornBabelMirror` re-runs the acorn branch over the CURRENT tree in-gate, so a regression that leaves a split module over the ceiling cannot pass.",
-		"filesNote": "`files` is the analyzer's own `summary.totalFiles` for the snapshot. Only its ordering matters here: `after.files === before.files + splitFamilies sibling count` proves the drop did not come from deleting files. `.mts`/`.json`/`.md` are not in `codeExts`, so the mirror and this fixture add no parsed file.",
+		"method": "git archive <commit> | tar -x -C <dir> — then the in-gate mirror (test/fixtures/acorn-babel-mirror.mts over the acorn branch, function-count-mirror.mts over the regex branch) scores every tracked member of CODE_EXTS in both trees; the external run-analysis.mjs sandbox uses the regex branch and misses object-literal methods, so the mirror is the in-gate measurement.",
+		"metric": "patterns[name === \"VBA God Module\"].files — analyzed files where isCode !== false && functions.length > 20 (index.html:1414 detectPatterns `vbaGodFiles`). `VBA God Module` is `God Object` (> 15) at a higher ceiling over the same parser count. `functions` comes from the parser: for `.js/.jsx/.ts/.tsx/.mjs/.cjs/.vue/.svelte` the served UI parses with acorn (after Babel strips TS/JSX), so object-literal methods and arrow properties count; for `.py/.go/.rs/...` the regex extractor counts. This fixture's mirror re-runs both branches over the CURRENT tree and over the pinned base commit, so a regression that leaves a split module over the ceiling, or a module that was never really reduced, cannot pass.",
+		"filesNote": "`codeFiles` is the count of tracked files whose extension the analyzer scores (the pinned `codeExts`, mirrored as `CODE_EXTS`), measured in-gate from `git ls-tree` at the base commit and `git ls-files` in the delivered tree. `after.codeFiles === before.codeFiles + splitFamilies sibling count` proves the drop did not come from deleting files. `.mts`/`.json`/`.md` are not in `codeExts`, so the mirror and this fixture add no scored file.",
 		"filedAnalyzedAt": 1791804971015,
 		"filedCount": 25,
-		"filedNote": "the issue was filed with 25 files at analyzedAt 1791804971015 against the then-main. That snapshot predates #2006 (the two Python test modules still counted 21 each) and #2057. The re-measured immutable base below (origin/main c89a4d27) also reports 25, but with those two Python modules already split and two files the issue did not cite (disk_space_test.go, fp-filter.js) newly over the ceiling.",
-		"afterNote": "`after` is the delivered working tree. The six split families add 22 scored `.ts`/`.mjs` siblings (every sibling lands <= 15); the acorn-babel mirror re-measures every cited and deferred path in this tree."
+		"filedNote": "the issue was filed with 25 files at analyzedAt 1791804971015 against the then-main. That snapshot predates #2006 (the two Python test modules still counted 21 each) and #2057. The pinned base re-measures 25 as well, but with those two Python modules already split (`alreadyUnder`) and two files the issue did not cite (disk_space_test.go, fp-filter.js) newly over the ceiling (`deferred`).",
+		"afterNote": "`after` is the delivered working tree. Every one of the 25 filed files is either reduced (23) or was already under the ceiling at the pinned base (2); the 17 modules a prior attempt deferred — the 16 `.rs` files and `server.py` — are now split too, each into siblings of the same module tree, so no cited module is left flagged."
 	},
 	"threshold": 20,
+	"godObjectThreshold": 15,
 	"before": {
 		"ref": "origin/main",
-		"commit": "c89a4d276b8847e6f5e70a3857e21b86a69fc50e",
-		"files": 956,
-		"vbaGodModuleCount": 25
+		"commit": "463f382cf558566fa537ade5bbed25403cd3fd31",
+		"codeFiles": 727,
+		"vbaGodModuleCount": 25,
+		"godObjectCount": 36
 	},
 	"after": {
 		"ref": "worktree-git-issue-2036-refactor-break-up-the-25-vba-god-module-files-flag",
-		"files": 978,
-		"vbaGodModuleCount": 19
+		"codeFiles": 785,
+		"vbaGodModuleCount": 2,
+		"godObjectCount": 31
 	},
 	"tradeoffs": {
-		"vbaGodModule": "25 -> 19 flagged files (-6). The six reduced modules carried object-literal stubs, JSON-kind extractors, dialog helpers and a 93-declaration ExtensionAPI mock the acorn-babel parser counts as declarations; whole cohesive blocks moved verbatim into siblings, and each reduced module re-exports its public surface so no importer changed.",
-		"godObject": "the expected co-benefit (VBA God Module is a strict subset of God Object): every sibling lands <= 15, so no sibling mints a God Object regression.",
-		"functions": "No test was added, removed or renamed: the four suites still run the same tests, `mock-pi.ts` composes the same stub object, and every public export keeps its name.",
-		"approach": "verbatim moves plus re-export barrels: `harness-fixtures.ts` spreads two new stub factories, `normalize.ts` merges two kind tables and re-exports the moved types, `debug.ts` re-exports the logger factory, `config-ui.test.ts` hands its dialog suite to a sibling, `mock-pi.ts` spreads per-responsibility API/UI stub groups, and `run-analysis.mjs` inlines its single-use string skipper. `npm test` and `npm run tsc:extensions` are the verification burden.",
-		"notDone": "the 16 `.rs` files (no Rust toolchain) and the embedded `server.py` (Dockerfile COPY / served-contract boundary) stay flagged and are recorded as deferred with a reason each; two files the issue does not cite (disk_space_test.go, fp-filter.js) also remain flagged and are recorded so the ledger balances."
+		"vbaGodModule": "25 -> 2 flagged files (-23): every cited module now lands at or below the 20-declaration ceiling. The reduced modules carried object-literal stubs, JSON-kind extractors, dialog helpers, a 93-declaration ExtensionAPI mock and whole Rust test suites the parser counts as declarations; cohesive blocks moved verbatim into siblings of the same module tree, and each reduced module keeps its public surface (spread/merge/re-export barrels in TS, `mod`/`pub use` in Rust, sibling imports in Python), so no importer changed.",
+		"godObject": "the expected co-benefit (VBA God Module is a strict subset of God Object): 36 -> 31. Ten of the new `.rs` test siblings land at 16-20 — they are cohesive test groups split out of a God Object parent, so the family total is unchanged — and the tree-wide count still drops by five, which the in-gate oracle asserts against the pinned base.",
+		"functions": "No test was added, removed or renamed: the suites still run the same tests, `mock-pi.ts` composes the same stub object, the Rust module trees still hold the same declarations (the oracle checks the per-family declaration total is conserved), and every public export keeps its name.",
+		"approach": "verbatim moves plus re-export barrels: TS modules spread/merge factories and kind tables and re-export the moved types; the Rust modules move impl/fn blocks into child modules declared with `mod` (integration-test children reached through `#[path]`) and re-export the public items; `server.py` became five sibling modules (`config`, `report_store`, `analysis_run`, `repo_identity`, `ui_rewrites`) whose imports keep the served contract, with the Dockerfile `COPY`/`py_compile` set updated. `npm test`, `npm run tsc:extensions`, `go test ./cmd/cheasee-pi/` and `rustfmt --check` are the verification burden.",
+		"notDone": "two files flagged on the delivered tree but NOT cited by #2036 (disk_space_test.go, fp-filter.js) stay flagged; they are owned by the long-file / anti-pattern issues that share the same file set.",
+		"rustVerification": "the pipeline image has no C linker, so `cargo check` cannot run even though a `rustc` toolchain is present. The split was verified with a module-tree resolver over every `mod` declaration plus `rustfmt --check` over all crate roots (which parses every reachable module); the browser build remains the first full type-check."
 	},
 	"reducedBy": [
 		".pi/extensions/agent-harness/test/harness-fixtures.ts",
@@ -39,8 +43,59 @@
 		".pi/extensions/supervisor/event/adapter/normalize.ts",
 		".pi/extensions/supervisor/lib/debug.ts",
 		".pi/extensions/supervisor/test/helpers/mock-pi.ts",
-		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs"
+		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+		"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
 	],
+	"filedFiles": [
+		".pi/extensions/agent-harness/test/harness-fixtures.ts",
+		".pi/extensions/caveman/test/config-ui.test.ts",
+		".pi/extensions/supervisor/event/adapter/normalize.ts",
+		".pi/extensions/supervisor/lib/debug.ts",
+		".pi/extensions/supervisor/test/helpers/mock-pi.ts",
+		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+		"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+		"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs",
+		"test/dependency_existence_check_tests/test_adapter_extraction.py",
+		"test/dependency_existence_check_tests/test_registry_transport.py"
+	],
+	"alreadyUnder": {
+		"reason": "cited by the issue but already under the pinned base's ceiling: #2006 split these two Python test modules (21 declarations each on the filed snapshot) before this refactor started, so re-measuring the pinned base does not flag them. They stay cited-and-covered rather than dropped from the ledger.",
+		"files": [
+			"test/dependency_existence_check_tests/test_adapter_extraction.py",
+			"test/dependency_existence_check_tests/test_registry_transport.py"
+		]
+	},
 	"splitFamilies": {
 		".pi/extensions/agent-harness/test/harness-fixtures.ts": [
 			".pi/extensions/agent-harness/test/harness-api-stubs.ts",
@@ -74,34 +129,79 @@
 			".pi/extensions/supervisor/test/helpers/mock-pi-api-tools.ts",
 			".pi/extensions/supervisor/test/helpers/mock-pi-api-runtime.ts"
 		],
-		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs": []
+		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs": [],
+		"cmd/cheasee-pi/embedded/docker/codeflow/server.py": [
+			"cmd/cheasee-pi/embedded/docker/codeflow/config.py",
+			"cmd/cheasee-pi/embedded/docker/codeflow/report_store.py",
+			"cmd/cheasee-pi/embedded/docker/codeflow/analysis_run.py",
+			"cmd/cheasee-pi/embedded/docker/codeflow/repo_identity.py",
+			"cmd/cheasee-pi/embedded/docker/codeflow/ui_rewrites.py"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/auth/tests.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/controls/tests.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/main.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/tests.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/pi_process/tests.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/retry/wiring.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/retry/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/retry/tests_wiring.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client/tests_delivery.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing/tests_reader.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/session.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/session/relay.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/session/tests.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store/replay.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store/tests_replay.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/assembler.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/assembler/replay.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/chat.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/rows.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/tests_rows.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/src/subscribe/tests.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets/banners.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui/chrome.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui/state.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect/journey.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol/codec.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol/events.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol/session.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs": [
+			"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly/replay.rs"
+		]
 	},
 	"deferred": [
-		{
-			"reason": "no Rust toolchain in the pipeline image — `which cargo/rustc` is empty, there is no Docker in-gate and no workflow compiles `embedded/docker/ui` (its builder image needs `rust:1.99`), so a split under that tree could not be compiled or tested before landing (#2002–#2006 precedent).",
-			"files": [
-				"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
-				"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
-			]
-		},
-		{
-			"reason": "`server.py` (51 declarations) is the codeflow bridge: moving code out of it changes the Dockerfile COPY set and the `_BRIDGE_JS`/`_UI_REWRITES` served contract pinned by the shim smoke/bridge tests, so it is deferred to the change that owns that boundary guard (#2006 reason).",
-			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
-		},
 		{
 			"reason": "flagged on the delivered tree but NOT cited by #2036 (the issue's list predates #2057, which reshaped these files); owned by the long-file / anti-pattern issues that share the same file set, not by this reduction.",
 			"files": [

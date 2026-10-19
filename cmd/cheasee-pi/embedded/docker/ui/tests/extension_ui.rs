@@ -221,6 +221,8 @@ fn response(id: &str, value: Option<&str>, confirmed: Option<bool>, cancelled: O
     }
 }
 
+#[path = "extension_ui/chrome.rs"]
 mod chrome;
 
+#[path = "extension_ui/state.rs"]
 mod state;

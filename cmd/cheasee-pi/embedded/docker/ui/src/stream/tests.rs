@@ -288,4 +288,3 @@ fn default_assembler_has_no_rows() {
     assert!(state.rows.get().is_empty());
 }
 
-mod tests_rows;

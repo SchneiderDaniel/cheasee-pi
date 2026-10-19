@@ -96,4 +96,3 @@ async fn a_record_without_cr_is_unchanged() {
     assert_eq!(records(b"{\"a\":1}\n").await, vec!["{\"a\":1}".to_string()]);
 }
 
-mod tests_reader;

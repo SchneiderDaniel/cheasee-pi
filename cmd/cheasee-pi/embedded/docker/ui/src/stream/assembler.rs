@@ -422,5 +422,6 @@ impl Assembler {
             .cloned()
             .collect()
     }
+}
 
 mod replay;

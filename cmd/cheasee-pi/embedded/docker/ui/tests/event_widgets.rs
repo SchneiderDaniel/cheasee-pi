@@ -217,4 +217,5 @@ fn renderer_same_id_tool_update_reaches_row_signal() {
     assert_eq!(card.status, ToolStatus::Error);
 }
 
+#[path = "event_widgets/banners.rs"]
 mod banners;

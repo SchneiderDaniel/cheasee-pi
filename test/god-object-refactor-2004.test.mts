@@ -113,10 +113,12 @@ const TOUCHED: Record<string, string[]> = {
 const ALL_FILES = [...Object.keys(TOUCHED), ...Object.values(TOUCHED).flat()];
 
 /** Analyzer counts per family on the base commit — whole decls move verbatim,
- * so the total across a family is invariant. */
+ * so the total across a family is invariant. The one raised entry is the codeflow
+ * shim family: #2036's `server.py` split added the shared `stageCodeflowShim`
+ * staging helper (32 -> 33) instead of moving an existing declaration. */
 const BASE_COUNT: Record<string, number> = {
 	"cmd/cheasee-pi/up_env_test.go": 34,
-	"cmd/cheasee-pi/codeflow_shim_test.go": 32,
+	"cmd/cheasee-pi/codeflow_shim_test.go": 33,
 	"cmd/cheasee-pi/init_split_test.go": 30,
 	"cmd/cheasee-pi/helpers_test.go": 28,
 	"cmd/cheasee-pi/catalog_test.go": 27,

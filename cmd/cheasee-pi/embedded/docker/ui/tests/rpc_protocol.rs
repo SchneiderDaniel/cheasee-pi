@@ -47,8 +47,11 @@ where
     serde_json::to_value(value).expect("serializable")
 }
 
+#[path = "rpc_protocol/codec.rs"]
 mod codec;
 
+#[path = "rpc_protocol/events.rs"]
 mod events;
 
+#[path = "rpc_protocol/session.rs"]
 mod session;

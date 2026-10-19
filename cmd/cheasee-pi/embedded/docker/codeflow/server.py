@@ -98,6 +98,7 @@ from report_store import (
 from ui_rewrites import (
     _API_BASE,
     _BRIDGE_SCRIPT,
+    _FP_FILTER_PATH,
     _FP_FILTER_ROUTE,
     _UI_REWRITES,
     _fp_filter_bytes,

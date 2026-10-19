@@ -261,4 +261,5 @@ fn stream_chat_state_flushes_frames_into_signals() {
     assert_eq!(state.status.get(), StreamStatus::Settled);
 }
 
+#[path = "stream_assembly/replay.rs"]
 mod replay;

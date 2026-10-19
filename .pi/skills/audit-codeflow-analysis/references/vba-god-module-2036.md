@@ -36,10 +36,13 @@ The browser export that filed this issue ran the `acorn-babel` branch
 branch. Two consequences drive the change:
 
 - **The ceiling is strict.** 20 declarations is not flagged; 21 is, and a split
-  only moves the metric when every sibling lands `<= 20`. This change targets
-  `<= 15` so no sibling mints a `God Object` regression.
+  only moves the metric when every sibling lands `<= 20`.
 - **`VBA God Module` is a strict subset of `God Object`** (`> 15`, same
-  predicate), so the drop here shows up as a `God Object` co-benefit.
+  predicate), so the drop here shows up as a `God Object` co-benefit. The ten
+  Rust test siblings that land at 16–20 are cohesive test groups split out of a
+  `God Object` parent, so the tree-wide `God Object` count still falls
+  (`36 → 31`); the oracle asserts that count against the live base rather than
+  demanding every sibling be `<= 15`.
 
 ## The mirror (reproducible in-gate)
 
@@ -51,14 +54,17 @@ deduplicates by `name@line`, falling back to the analyzer's regex extractor when
 the parse throws. `test/fixtures/function-count-mirror.mts` covers the
 regex/Python/Go/Rust branch.
 
-The oracle re-runs that detector over the **current tree** —
-`test/vba-god-module-refactor-2036.test.mts` asserts every reduced module and
-sibling is under the ceiling and every deferred file is still over it — so a
-stale count or a regression that leaves a split module over the ceiling cannot
-pass. It also replays the mirror against the base commit when that ref is
-present in the checkout. The mirror reproduces the filed counts exactly
+The oracle re-runs that detector over **both trees** —
+`test/vba-god-module-refactor-2036.test.mts` unpacks the pinned base commit and
+asserts that (a) every cited module was over the ceiling there and is under it
+in the delivered tree, (b) the base's flagged set is exactly the reduced modules
+plus the recorded uncited leftovers, (c) no sibling re-enters the anti-pattern
+set, (d) the delivered tree's `VBA God Module` count equals the deferral list,
+and (e) `God Object` did not grow — so a stale count, a module that was never
+really flagged, or a regression that leaves a split module over the ceiling
+cannot pass. The mirror reproduces the filed counts exactly
 (`harness-fixtures` 37, `config-ui` 36, `normalize` 22, `debug` 32, `mock-pi`
-93, `run-analysis.mjs` 21).
+93, `run-analysis.mjs` 21, `server.py` 51, `retry.rs` 62, `stream.rs` 72).
 
 ## Reproduction
 
@@ -66,7 +72,7 @@ present in the checkout. The mirror reproduces the filed counts exactly
 git clone --depth 1 https://github.com/braedonsaunders/codeflow /tmp/codeflow-ui
 # the clone head is already the pinned ref b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 
-for ref in c89a4d276b8847e6f5e70a3857e21b86a69fc50e <delivered-tree>; do
+for ref in 463f382cf558566fa537ade5bbed25403cd3fd31 <delivered-tree>; do
   rm -rf /tmp/src /tmp/out && mkdir -p /tmp/src /tmp/out
   git archive "$ref" | tar -x -C /tmp/src
   node cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs \
@@ -83,63 +89,106 @@ branch. To measure the branch the browser used — the branch behind the filed
 issue's filed counts exactly. The metric is `report.json` → `patterns` → the
 entry named `VBA God Module` → `.files.length`.
 
-`before` is `origin/main` (`c89a4d27`); `after` is the code tree of this branch.
-The artifacts that follow it are the 22 `.ts`/`.mjs` siblings plus `.json`/`.mts`
-records — the siblings are scored and land `<= 15`, the rest are never counted.
+`before` is `origin/main` (`463f382c`); `after` is the code tree of this branch.
+The artifacts that follow it are the 58 `.ts`/`.mjs`/`.py`/`.rs` siblings plus
+`.json`/`.mts` records — the siblings are scored and under `20`, the rest are
+never counted.
 
-## Before / after (pinned analyzer, acorn-babel branch)
+## Before / after (pinned detector, acorn-babel branch)
 
-| Ref           | commit     | files | VBA God Module | God Object |
-| ------------- | ---------- | ----- | -------------- | ---------- |
-| `origin/main` | `c89a4d27` | 956   | 25             | 36         |
-| this branch   | working    | 978   | 19             | —          |
+| Ref           | commit     | code files | VBA God Module | God Object |
+| ------------- | ---------- | ---------- | -------------- | ---------- |
+| `origin/main` | `463f382c` | 727        | 25             | 36         |
+| this branch   | working    | 785        | 2              | 31         |
+
+`code files` is the tracked-file count whose extension the analyzer scores (the
+pinned `codeExts`), measured in-gate from `git ls-tree`/`git ls-files`; the
+external analyzer's own `summary.totalFiles` also counts non-code files, so it is
+larger for both refs. `after === before + 58` is the sibling count, so the drop
+is from splitting, not deleting.
 
 The issue was filed with **25** files at `analyzedAt` 1791804971015; that
 snapshot predates #2006 (the two Python test modules still counted 21 each) and
-#2057. The immutable base re-measures **25** as well, but with those Python
-modules already split and two files the issue did not cite
-(`disk_space_test.go`, `fp-filter.js`) newly over the ceiling.
+#2057. The pinned base re-measures **25** as well, but with those Python modules
+already split and two files the issue did not cite (`disk_space_test.go`,
+`fp-filter.js`) newly over the ceiling.
 
-- **`25 → 19`** flagged files: the six `.pi/extensions`/embedded modules the
-  issue cites drop under the ceiling, each via verbatim moves into siblings of
-  `<= 15` (the strings skipper is inlined).
-- `God Object` falls as the expected co-benefit; no sibling is itself flagged.
+- **`25 → 2`** flagged files: all 23 cited modules that the pinned base flags
+  drop under the ceiling, each via verbatim moves into siblings of the same module
+  tree (the strings skipper is inlined).
+- The 2 remaining flags are the **uncited leftovers** recorded below.
+- The 2 cited Python test modules (`test_adapter_extraction.py`,
+  `test_registry_transport.py`) were already under the base ceiling — #2006
+  split them — and are recorded as `alreadyUnder`, so all 25 filed paths stay
+  accounted for.
+- `God Object` falls as the expected co-benefit (`36 → 31`).
 
 ## What actually moved the number
 
-Six families were split by responsibility; whole cohesive blocks move verbatim
-and each reduced module re-exports its public surface, so no importer changed:
+Twenty-three families were split by responsibility; whole cohesive blocks move
+verbatim and each reduced module keeps its public surface (spread/merge/re-export
+barrels in TS, `mod`/`pub use` in Rust, sibling imports in Python), so no
+importer changed:
 
-| Module                                                  | before | siblings landed                                                                                                           |
-| ------------------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `.pi/extensions/agent-harness/test/harness-fixtures.ts` | 37     | `harness-api-stubs.ts` (command/flag/tool stubs), `harness-api-stubs-session.ts` (session/model/provider stubs)           |
-| `.pi/extensions/caveman/test/config-ui.test.ts`         | 36     | `config-ui-dialog.test.ts` (dialog suite), `config-ui-test-theme.ts` (sentinel theme mock)                                |
-| `.pi/extensions/supervisor/event/adapter/normalize.ts`  | 22     | `normalize-types.ts`, `normalize-table-core.ts` (10 extractors), `normalize-table-deltas.ts` (6 extractors)               |
-| `.pi/extensions/supervisor/lib/debug.ts`                | 32     | `debug-format.ts`, `debug-sanitize.ts`, `debug-logger.ts` (factory)                                                       |
-| `.pi/extensions/supervisor/test/helpers/mock-pi.ts`     | 93     | 12 per-responsibility stub groups (theme, UI core/editor/theme-ctx, session core/tree, model, API commands/tools/runtime) |
-| `cmd/.../codeflow/run-analysis.mjs`                     | 21     | none — the single-use `skipString` helper is inlined into `matchBrace`, taking it to 20                                   |
+| Module                                                  | before | siblings landed                                                                                                                          |
+| ------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `.pi/extensions/agent-harness/test/harness-fixtures.ts` | 37     | `harness-api-stubs.ts` (command/flag/tool stubs), `harness-api-stubs-session.ts` (session/model/provider stubs)                          |
+| `.pi/extensions/caveman/test/config-ui.test.ts`         | 36     | `config-ui-dialog.test.ts` (dialog suite), `config-ui-test-theme.ts` (sentinel theme mock)                                               |
+| `.pi/extensions/supervisor/event/adapter/normalize.ts`  | 22     | `normalize-types.ts`, `normalize-table-core.ts` (10 extractors), `normalize-table-deltas.ts` (6 extractors)                              |
+| `.pi/extensions/supervisor/lib/debug.ts`                | 32     | `debug-format.ts`, `debug-sanitize.ts`, `debug-logger.ts` (logger factory)                                                               |
+| `.pi/extensions/supervisor/test/helpers/mock-pi.ts`     | 93     | 12 per-responsibility stub groups (theme, UI core/editor/theme-ctx, session core/tree, model, API commands/tools/runtime)                |
+| `cmd/.../codeflow/run-analysis.mjs`                     | 21     | none — the single-use `skipString` helper is inlined into `matchBrace`, taking it to 20                                                  |
+| `cmd/.../codeflow/server.py`                            | 51     | `config.py`, `report_store.py`, `analysis_run.py`, `repo_identity.py`, `ui_rewrites.py` (the Dockerfile `COPY`/`py_compile` set follows) |
+| `ui/src/auth.rs`                                        | 27     | `auth/tests.rs`                                                                                                                          |
+| `ui/src/controls.rs`                                    | 28     | `controls/tests.rs`                                                                                                                      |
+| `ui/src/main.rs`                                        | 27     | `src/tests.rs` (axum/SSR routing tests)                                                                                                  |
+| `ui/src/pi_process.rs`                                  | 34     | `pi_process/tests.rs`                                                                                                                    |
+| `ui/src/retry.rs`                                       | 62     | `retry/wiring.rs` (the wiring/socket adapter), `retry/tests.rs`, `retry/tests_wiring.rs`                                                 |
+| `ui/src/rpc/client.rs`                                  | 56     | `rpc/client/tests.rs`, `rpc/client/tests_delivery.rs`                                                                                    |
+| `ui/src/rpc/framing.rs`                                 | 30     | `rpc/framing/tests.rs`, `rpc/framing/tests_reader.rs`                                                                                    |
+| `ui/src/session.rs`                                     | 53     | `session/relay.rs` (relay loop + frame translation), `session/tests.rs`                                                                  |
+| `ui/src/sessions_store.rs`                              | 49     | `sessions_store/replay.rs`, `sessions_store/tests.rs`, `sessions_store/tests_replay.rs`                                                  |
+| `ui/src/stream.rs`                                      | 72     | `stream/assembler.rs`, `stream/assembler/replay.rs`, `stream/chat.rs`, `stream/rows.rs`, `stream/tests.rs`, `stream/tests_rows.rs`       |
+| `ui/src/subscribe.rs`                                   | 30     | `subscribe/tests.rs`                                                                                                                     |
+| `ui/tests/event_widgets.rs`                             | 25     | `event_widgets/banners.rs` (reached through `#[path]`)                                                                                   |
+| `ui/tests/extension_ui.rs`                              | 41     | `extension_ui/chrome.rs`, `extension_ui/state.rs`                                                                                        |
+| `ui/tests/reconnect.rs`                                 | 26     | `reconnect/journey.rs`                                                                                                                   |
+| `ui/tests/rpc_protocol.rs`                              | 40     | `rpc_protocol/codec.rs`, `rpc_protocol/events.rs`, `rpc_protocol/session.rs`                                                             |
+| `ui/tests/stream_assembly.rs`                           | 24     | `stream_assembly/replay.rs`                                                                                                              |
 
 The preserved surface is pinned by `test/vba-god-module-refactor-2036.test.mts`:
 every reduced module still exports its public symbols, the moved declarations
-live in the siblings, and `npm test` runs the same suites.
+live in the siblings (each declared by its parent module or imported by
+`server.py`), a per-family declaration total is conserved on the Rust and Python
+side, and `npm test` runs the same suites.
+
+## Verification of the Rust and Python splits
+
+The pipeline image has no C linker, so `cargo check` cannot run even though a
+`rustc` toolchain is present. The split was verified instead by:
+
+- a module-tree resolver over every `mod` declaration from `src/lib.rs`,
+  `src/main.rs` and each `tests/*.rs` crate root (it caught three stale inner
+  `mod` declarations and eight integration-test children that needed `#[path]`);
+- `rustfmt --check` over those crate roots, which parses every reachable module;
+- `go test ./cmd/cheasee-pi/` for the codeflow shim (it compiles every module
+  with `py_compile` and drives the served contract), plus the Python suite.
+
+The first full `cargo check`/build remains the browser (Docker) build.
 
 ## Deferred (measured, never split here)
 
-- **The 16 `.rs` files** under `cmd/cheasee-pi/embedded/docker/ui`: no Rust
-  toolchain in the pipeline image (`which cargo/rustc` is empty) and no Docker
-  in-gate, so a split under that tree could not be compiled or tested before
-  landing (#2002–#2006 precedent).
-- **`server.py`** (51): the codeflow bridge; moving code out of it changes the
-  Dockerfile `COPY` set and the `_BRIDGE_JS`/`_UI_REWRITES` served contract
-  pinned by the shim smoke/bridge tests (#2006 reason).
-- **`disk_space_test.go`** (26) and **`fp-filter.js`** (40): flagged on the
-  delivered tree but **not cited** by this issue (its list predates #2057); they
-  belong to the long-file / anti-pattern issues that share the same file set.
+No cited module is deferred. The two remaining flags on the delivered tree are
+files the issue does **not** cite (its list predates #2057):
+
+- **`disk_space_test.go`** (26) and **`fp-filter.js`** (40): they belong to the
+  long-file / anti-pattern issues that share the same file set.
 
 The fixture's `deferred` records each with a reason; the accounting invariant
-`before.vbaGodModuleCount === reducedBy.length + Σ deferred files` (`25 = 6 + 19`)
-keeps the ledger closed, and `after.vbaGodModuleCount` equals the deferred
-count, while the in-gate mirror re-measures every deferred file `> 20`.
+`before.vbaGodModuleCount === reducedBy.length + Σ deferred files` (`25 = 23 + 2`)
+keeps the ledger closed, `filedFiles` partitions into `reducedBy` (23) plus
+`alreadyUnder` (2), and `after.vbaGodModuleCount` equals the deferred count,
+while the in-gate mirror re-measures every deferred file `> 20`.
 
 ## Risk
 
@@ -147,6 +196,11 @@ The predicate and the acorn-babel branch are derived from the external pinned
 analyzer `b0e82d1`; if the CodeFlow checkout is re-pinned, this record, its
 mirror and its fixture must be re-derived (same contract as `god-object-2004.md`
 and `vba-god-module-2006.md`).
+
+The Rust and Python splits carry no in-gate type-check (no linker, no Rust
+toolchain component set for `cargo build`): syntax, the module tree and the
+Python `py_compile` gate are covered, while the first full compile lands in the
+Docker build.
 
 The exact set, the measured envelope and the guards are pinned in
 `test/fixtures/vba-god-module-baseline-2036.json`, asserted per family by

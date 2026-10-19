@@ -403,4 +403,5 @@ async fn reconnect_subscribe_cycle_leaves_the_child_pid_untouched() {
     let _ = child.wait();
 }
 
+#[path = "reconnect/journey.rs"]
 mod journey;
