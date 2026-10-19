@@ -24,13 +24,15 @@ func TestUI_SBOMDocumentsStack(t *testing.T) {
 // caught: a send that silently no-ops (or discards its error), a retry counter
 // reset on open, a stability timer armed before the socket ever opened, and a
 // reconnect lifecycle whose wiring only a browser could exercise. The behavior
-// lives in `retry.rs`, where one `wire` function installs the socket callbacks
-// for *both* the wasm shell and the host tests (which fire a fake socket and
-// clock). This keeps that wiring from being deleted where the wasm build
-// compiles it, since the Go gate cannot run Rust.
+// lives in `retry.rs` and its `retry/wiring.rs` child module (declared by
+// `mod wiring;`, so both compile into the same targets), where one `wire`
+// function installs the socket callbacks for *both* the wasm shell and the host
+// tests (which fire a fake socket and clock). This keeps that wiring from being
+// deleted where the wasm build compiles it, since the Go gate cannot run Rust —
+// the concatenation makes a deletion in either file fail here.
 
 func TestUI_WSClientLifecycleWiring(t *testing.T) {
-	retry := uiAsset(t, "src", "retry.rs")
+	retry := uiAsset(t, "src", "retry.rs") + uiAsset(t, "src", "retry", "wiring.rs")
 	for _, want := range []string{
 		"pub struct Reconnect",
 		"pub enum SendOutcome",

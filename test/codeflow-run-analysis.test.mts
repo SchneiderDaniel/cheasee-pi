@@ -996,10 +996,14 @@ describe("long file metric oracle (issue #2005)", () => {
 		// same mirror the per-sibling oracle uses, so the recorded count and the
 		// deferral list cannot drift from the source they describe.
 		const measured = measureWorktree(resolve(HERE, ".."));
-		assert.strictEqual(
-			measured.flagged.length,
-			LONG_FILE_BASELINE.after.longFileCount,
-			"after.longFileCount must equal the delivered tree's flagged files",
+		// The envelope records the #2005 delivery (17). A later refactor may only
+		// move declarations out of a recorded long file — #2036 split eleven of the
+		// seventeen below 500 segments and added one new long module (the
+		// `session.rs` relay), which is recorded in the deferrals below — so the
+		// measured count can fall but must never exceed the recorded envelope.
+		assert.ok(
+			measured.flagged.length <= LONG_FILE_BASELINE.after.longFileCount,
+			"the delivered tree must not carry more long files than the recorded envelope",
 		);
 		// The recorded envelope is anchored to an ancestor commit, so the delivered
 		// tree can only have gained scored files since; a lower count means code was
@@ -1009,11 +1013,12 @@ describe("long file metric oracle (issue #2005)", () => {
 			"the delivered tree must still carry the recorded scored files",
 		);
 		const recordedDeferrals = LONG_FILE_BASELINE.deferred.flatMap((d) => d.files ?? []).sort();
-		assert.deepStrictEqual(
-			measured.flagged,
-			recordedDeferrals,
-			"every file still flagged in the delivered tree must be a recorded deferral",
-		);
+		for (const rel of measured.flagged) {
+			assert.ok(
+				recordedDeferrals.includes(rel),
+				`${rel} is flagged in the delivered tree but is not a recorded deferral`,
+			);
+		}
 	});
 });
 
@@ -1132,6 +1137,86 @@ describe("vba god module metric oracle (issue #2006)", () => {
 		for (const rel of [
 			"test/vba-god-module-refactor-2006.test.mts",
 			".pi/skills/audit-codeflow-analysis/references/vba-god-module-2006.md",
+		]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing register artifact: ${rel}`);
+		}
+	});
+});
+
+// ─── VBA god module oracle (issue #2036) ──────────────────────────
+// The re-filed `VBA God Module` metric. This block replays the recorded
+// envelope and guards its shape; the per-sibling structural oracle lives in
+// `test/vba-god-module-refactor-2036.test.mts`.
+const VBA_GOD_2036_BASELINE = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "vba-god-module-baseline-2036.json"), "utf-8"),
+) as {
+	provenance: {
+		issue: number;
+		ref: string;
+		metric: string;
+		filedCount: number;
+		filedAnalyzedAt: number;
+	};
+	before: { commit: string; codeFiles: number; vbaGodModuleCount: number };
+	after: { ref: string; codeFiles: number; vbaGodModuleCount: number };
+	reducedBy: string[];
+	deferred: { reason: string; files?: string[] }[];
+};
+
+describe("vba god module metric oracle (issue #2036)", () => {
+	it("records a real drop on the pinned analyzer", () => {
+		assert.strictEqual(VBA_GOD_2036_BASELINE.provenance.issue, 2036);
+		assert.strictEqual(VBA_GOD_2036_BASELINE.provenance.filedCount, 25);
+		assert.strictEqual(VBA_GOD_2036_BASELINE.provenance.filedAnalyzedAt, 1791804971015);
+		assert.match(VBA_GOD_2036_BASELINE.provenance.ref, /^[0-9a-f]{40}$/, "pinned analyzer ref");
+		assert.match(
+			VBA_GOD_2036_BASELINE.provenance.metric,
+			/functions\.length > 20/,
+			"the metric names the exact predicate",
+		);
+		assert.match(
+			VBA_GOD_2036_BASELINE.provenance.metric,
+			/isCode !== false/,
+			"the metric names the `isCode` gate",
+		);
+		assert.match(VBA_GOD_2036_BASELINE.before.commit, /^[0-9a-f]{40}$/, "immutable base commit");
+		assert.ok(
+			VBA_GOD_2036_BASELINE.after.vbaGodModuleCount <
+				VBA_GOD_2036_BASELINE.before.vbaGodModuleCount,
+			"the flagged-file count must fall",
+		);
+		assert.ok(
+			VBA_GOD_2036_BASELINE.after.codeFiles > VBA_GOD_2036_BASELINE.before.codeFiles,
+			"the split adds files; the drop is not from dropping files",
+		);
+	});
+
+	it("cites only existing, non-test-only reduction sources", () => {
+		assert.ok(VBA_GOD_2036_BASELINE.reducedBy.length > 0, "reducedBy must be non-empty");
+		for (const rel of VBA_GOD_2036_BASELINE.reducedBy) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing reduction source: ${rel}`);
+			assert.ok(!rel.endsWith(".mts"), `${rel} is test-only: the analyzer never counts a .mts`);
+		}
+	});
+
+	it("accounts for every leftover flag (no silent omission)", () => {
+		const files = VBA_GOD_2036_BASELINE.deferred.flatMap((d) => d.files ?? []);
+		assert.strictEqual(
+			VBA_GOD_2036_BASELINE.before.vbaGodModuleCount,
+			VBA_GOD_2036_BASELINE.reducedBy.length + files.length,
+			"the base count must equal reduced + deferred",
+		);
+		assert.strictEqual(
+			VBA_GOD_2036_BASELINE.after.vbaGodModuleCount,
+			files.length,
+			"every file still flagged on the delivered tree is a recorded deferral",
+		);
+	});
+
+	it("names the per-sibling oracle and the reference doc next to the fixture", () => {
+		for (const rel of [
+			"test/vba-god-module-refactor-2036.test.mts",
+			".pi/skills/audit-codeflow-analysis/references/vba-god-module-2036.md",
 		]) {
 			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing register artifact: ${rel}`);
 		}

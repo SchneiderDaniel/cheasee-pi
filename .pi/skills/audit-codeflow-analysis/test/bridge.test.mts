@@ -20,7 +20,7 @@
 
 import assert from "node:assert";
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
@@ -337,7 +337,15 @@ describe("codeflow bridge capture", () => {
 	});
 
 	it("serves the false-positive filter the headless runner applies", () => {
-		const py = readFileSync(SERVER_PY, "utf-8");
+		// The shim is server.py plus its sibling modules (config, the report store, the
+		// run state machine, the committed-tree identity and the served-page rewrites),
+		// so read the whole directory for the served-page contract.
+		const dir = resolve(SERVER_PY, "..");
+		const py = readdirSync(dir)
+			.filter((f) => f.endsWith(".py"))
+			.sort()
+			.map((f) => readFileSync(resolve(dir, f), "utf-8"))
+			.join("\n");
 		const tag = /_BRIDGE_SCRIPT = b(['"])([\s\S]*?)\1/.exec(py)?.[2];
 		assert.ok(tag, "_BRIDGE_SCRIPT not found in server.py");
 		assert.strictEqual((tag.match(/fp-filter\.js/g) ?? []).length, 1, "one fp-filter tag");

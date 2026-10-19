@@ -1,7 +1,6 @@
 package main
 
 import (
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,15 +23,8 @@ func TestCodeFlowServer_TrackedSetSurvivesForeignOwnership(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
 	dir := t.TempDir()
-	serverPath := filepath.Join(dir, "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
+	serverPath := stageCodeflowShim(t, dir)
 
 	repoRoot := t.TempDir()
 	writeShimFile(t, repoRoot, ".gitignore", "ignored/\n")

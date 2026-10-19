@@ -9,6 +9,8 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import { commandStubs } from "./harness-api-stubs.ts";
+import { sessionStubs } from "./harness-api-stubs-session.ts";
 
 export function makeEvent(toolName: string, args: Record<string, unknown> = {}, isError = false) {
 	return { toolName, input: args, isError };
@@ -42,29 +44,8 @@ export function createMockAPI() {
 			const handler = handlers.get(event);
 			return handler ? handler(data, ctx ?? {}) : undefined;
 		},
-		registerTool: () => {},
-		registerCommand: () => {},
-		registerShortcut: () => {},
-		registerFlag: () => {},
-		getFlag: () => undefined,
-		registerMessageRenderer: () => {},
-		sendMessage: () => {},
-		sendUserMessage: () => {},
-		appendEntry: () => {},
-		setSessionName: () => {},
-		getSessionName: () => undefined,
-		setLabel: () => {},
-		exec: async () => ({ code: 0, killed: false, stdout: "", stderr: "" }),
-		getActiveTools: () => [],
-		getAllTools: () => [],
-		setActiveTools: () => {},
-		getCommands: () => [],
-		setModel: async () => false,
-		getThinkingLevel: () => "off" as any,
-		setThinkingLevel: () => {},
-		registerProvider: () => {},
-		unregisterProvider: () => {},
-		events: { on: () => {}, emit: () => {}, off: () => {} } as any,
+		...commandStubs(),
+		...sessionStubs(),
 	};
 	return api as typeof api & ExtensionAPI;
 }
