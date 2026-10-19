@@ -70,6 +70,19 @@ Re-run the same four commands after a change and record both sides in the
 issue. The build cache is per-builder and evictable, so `docker buildx prune`,
 a builder switch, or a full data root all reproduce the cold case.
 
+Two scenarios have to be recorded separately, because they answer different
+questions:
+
+1. **Fully cold** (`buildx prune -af`): every archive is fetched, so this
+   number does not improve. `docker buildx du` right after the build reports
+   the cache it populated — a pruned cache before means that total is what the
+   build downloaded.
+2. **Agent-layer invalidation** — the case this work is about: with a warm
+   cache, change one early agent layer (add a package to an `apt-get install`
+   line), then time `cheasee-pi build` and re-read `docker buildx du`. Before
+   the stage split this re-downloaded the ~646 MB Chromium bundle; now the venvs
+   and the browser come from the unchanged `scrapling` stage.
+
 Cache mounts (`RUN --mount=type=cache`) are only visible in the *re-run* case:
 bust one package layer (edit a version pin), rebuild with
 `--progress=plain`, and confirm the apt/npm/pip step reports no downloads.

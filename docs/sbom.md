@@ -82,7 +82,11 @@ maintenance risk stands.
 #2053 (image build cost) leaves the Rust dependency graph untouched —
 `ui/Cargo.lock` is byte-identical in that change — so the accepted risk above is
 unchanged there; both crates enter only through `leptos` and the `leptos_meta`
-macro stack.
+macro stack. Re-checked for #2053 (2026-10-19): crates.io still reports `paste`
+1.0.15 (2024-05-07) and `proc-macro-error2` 2.0.1 (2024-09-06) as the newest
+releases of their crates, and neither advisory has a patched version — nothing
+to update, nothing to remove, so the acceptance stands rather than being
+silently inherited.
 
 ## System dependencies
 
