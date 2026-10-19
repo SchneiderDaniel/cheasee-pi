@@ -1,0 +1,131 @@
+{
+	"provenance": {
+		"issue": 2034,
+		"title": "God Object",
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "test/fixtures/function-count-mirror.mts",
+		"method": "countFunctions/functionCountFlagged from the pinned mirror over `git ls-files` at the recorded commit",
+		"metric": "patterns[name === \"God Object\"].files — analyzed files where isCode !== false && functions.length > 15 (index.html detectPatterns `godFiles`); `functions` is the headless parser count over raw text and `isCode` gates files absent from codeExts (notably `.mts`)",
+		"filedAnalyzedAt": 1791804971015,
+		"filedCount": 43,
+		"filedVsPinnedNote": "the issue was filed with 43 files at analyzedAt 1791804971015, but only 23 of them are flagged by the pinned analyzer at the base commit — 20 are not (5 are `.mts`, which is absent from CODE_EXTS, plus 15 that count 4-14). Repo-wide the base has 24 flagged files, so the filed list is inflated by the same skew recorded for #2004 (63 filed vs 38 measured). Acceptance is the measured drop on the delivered branch, not the filed number.",
+		"afterNote": "the after measurement counts the delivered tree; the oracle, its fixture and the split test modules are `.mts`/`.json`/`.py`/`.go` test files, and only the `.py`/`.go` ones are scored — every new sibling lands <= 15, so it does not enter the flagged set."
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "463f382cf558566fa537ade5bbed25403cd3fd31",
+		"godObjectCount": 24,
+		"flagged": [
+			"cmd/cheasee-pi/disk_space_test.go",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs",
+			"test/dependency_existence_check_tests/_common.py",
+			"test/dependency_existence_check_tests/test_pipeline_age_guard.py"
+		]
+	},
+	"after": {
+		"ref": "issue-2034 branch",
+		"godObjectCount": 21,
+		"note": "24 - 3: the two cited Python splits plus the uncited `disk_space_test.go` (see UNCITED_REDUCED in the oracle). Every still-flagged file is recorded under `deferred`."
+	},
+	"reducedBy": [
+		"test/dependency_existence_check_tests/_common.py",
+		"test/dependency_existence_check_tests/test_pipeline_age_guard.py"
+	],
+	"deferred": [
+		{
+			"reason": "no Rust toolchain in the pipeline image — `which cargo rustc` is empty and no workflow compiles `embedded/docker/ui`, so a move cannot be checked in-gate (#2002/#2003/#2004/#2005/#2006 precedent)",
+			"requires": "rustc/cargo in the gate (rust:1.99 builder image) — no workflow compiles embedded/docker/ui",
+			"files": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
+			]
+		},
+		{
+			"reason": "`fp-filter.js` is COPYed into the Docker build and mirrored by the codeflow shim; a split changes that copy set, which the owning boundary guard must move in the same change",
+			"requires": "Dockerfile COPY set + codeflow shim copy-set updated in the same change",
+			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]
+		},
+		{
+			"reason": "`server.py` needs ~12 modules and its inline `_BRIDGE_JS`/`_UI_REWRITES` literals are not a single-file seam, so the split is not mechanically safe",
+			"requires": "~12 modules; inline _BRIDGE_JS/_UI_REWRITES literals are not a single-file seam",
+			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
+		}
+	],
+	"notScored": [
+		{
+			"reason": "`.mts` is absent from CODE_EXTS at the pinned ref, so the analyzer never scores these (yet they were filed)",
+			"files": [
+				".pi/extensions/context-info/test/context-info.test.mts",
+				".pi/extensions/ripgrep-search/test/ripgrep-search.test.mts",
+				".pi/extensions/supervisor/test/dead-code-file-classification-removal.test.mts",
+				".pi/extensions/supervisor/test/pipeline/merge.test.mts",
+				".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts"
+			]
+		},
+		{
+			"reason": "scored but already under the ceiling — the pinned analyzer counts 4-14 functions, so these were never flagged",
+			"files": [
+				".pi/extensions/agent-harness/test/harness-fixtures.ts",
+				".pi/extensions/caveman/test/config-ui.test.ts",
+				".pi/extensions/rtk/test/version-gate-lifecycle.test.ts",
+				".pi/extensions/scrapling/test/browser-setup.test.ts",
+				".pi/extensions/supervisor/event/adapter/normalize.ts",
+				".pi/extensions/supervisor/github/octokit-client.ts",
+				".pi/extensions/supervisor/lib/debug.ts",
+				".pi/extensions/supervisor/lib/render-helpers.ts",
+				".pi/extensions/supervisor/pipeline/error-collector.ts",
+				".pi/extensions/supervisor/test/helpers/mock-ctx.ts",
+				".pi/extensions/supervisor/test/helpers/mock-pi.ts",
+				".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+				"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+				"test/dependency_existence_check_tests/test_adapter_extraction.py",
+				"test/dependency_existence_check_tests/test_registry_transport.py"
+			]
+		}
+	],
+	"tradeoffs": {
+		"godObject": "24 -> 21 flagged files (-3, -12.5 %). 23 of the 43 filed paths are flagged; 20 are not (5 `.mts` + 15 under the ceiling). Of the 23, 2 land in-gate as real splits and 21 are recorded deferrals, each with the `requires` the next issue needs.",
+		"scope": "19 Rust files stay deferred because `which cargo rustc` is empty and no workflow compiles `embedded/docker/ui`; a verbatim move looks safe but `#[cfg(feature = \"ssr\"|\"hydrate\")]` gating, `pub(super)` visibility and macro scope are only proven by `cargo check`, and merging unverified changes into the RPC relay is worse than a stale metric.",
+		"falseNegative": "`cmd/cheasee-pi/disk_space_test.go` counts 26 and is not in the filed list; it is the one flagged file both cheap and gate-verifiable (`go test ./cmd/cheasee-pi/ -count=1`), so it is reduced here and recorded as UNCITED_REDUCED rather than silently dropped.",
+		"rejected": "Re-pinning the analyzer to score `.mts` in this change would add 5 files and invalidate the #2004/#2005/#2006 baselines at once; the skew is recorded instead.",
+		"risk": "if the live analyzer scores `.mts`, the `notScored` `.mts` group (16, 19, 16, 16, 24 functions) becomes real work — verify the ref before closing, not after."
+	}
+}
