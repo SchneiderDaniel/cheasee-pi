@@ -68,11 +68,48 @@ The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from 
 
 ## Docker security
 
-- **Base image:** Debian 12-slim (minimal attack surface)
+- **Base image:** Debian 12-slim (minimal attack surface), pinned by manifest-list digest — see [Base image digest pins](#base-image-digest-pins) below
 - **UID/GID mapping:** Host user's UID/GID is mapped to container user `agentuser` via `gosu` — prevents permission escalation on bind-mounted files
 - **Rootless:** The container runs as `agentuser`, not root
 - **Bind mount only:** The repo root is mounted read-write; no privileged mounts
 - **Published ports bound to loopback:** The `cheasee-pi` agent container has no network-exposed services. The `ui` sidecar (web control center) publishes one host port, bound to IPv4 loopback (`127.0.0.1:<port>`) by the compose mapping — the explicit `127.0.0.1` prefix pins it, not Docker's default (which listens on all interfaces). This is loopback-bound configuration, not a hard isolation boundary: Docker Engine before 28.0.0 may expose a loopback-published port to hosts on the same L2 segment, and the supported floor is Engine 24.0.0. Loopback is the default and the only supported mode; non-localhost exposure and the pre-28 caveat are tracked for hardening in the compose-harness work (#1527).
+
+### Base image digest pins
+
+Every `FROM` in `embedded/docker/**/Dockerfile` carries an `@sha256:<digest>` pin
+(the agent image resolves both stages from the one shared `ARG BASE_IMAGE`).
+The digest is the **manifest list** digest, so one pin covers every
+architecture; a per-platform manifest digest would break the other arch.
+
+A digest pin buys reproducibility — an upstream retag cannot invalidate the
+cached layers below it — at the cost of **opting out of automatic base-image
+security updates**. The pins therefore need a deliberate rotation:
+
+- **Cadence:** review the pins `quarterly`, and immediately when a Debian or
+  upstream image security advisory is published.
+- **Recipe:** read the current digest for the pin's tag, then update the `FROM`
+  (or the `ARG BASE_IMAGE` default) to `tag@sha256:<new digest>` and rebuild —
+  `docker buildx imagetools inspect debian:12-slim` prints both the manifest
+  list `Digest:` and its platform manifests; take the list digest.
+- **Verification:** `go test ./cmd/cheasee-pi/ -run BaseImage` fails on a
+  short, uppercase or missing digest, so a hand-edited pin cannot slip through.
+
+### Build cache mounts
+
+apt, npm and pip steps in the three Dockerfiles use `RUN --mount=type=cache`,
+so re-running a layer reads the already-downloaded archives from the builder's
+cache instead of the network. Because a cache mount never enters the image
+layer, the cleanups that used to remove those paths (`rm -rf /var/lib/apt/lists`,
+`npm cache clean --force`, `rm -rf /root/.cache`) are gone — running them would
+only empty the cache the next build reads.
+
+Cache mounts are **per-builder** and **evictable**: `docker buildx prune`,
+docker's garbage collection, or a switch to a different builder drops them
+(`#2050` saw a data-root reset take the cache from 6.045 GB to 50 MB). They
+reduce the cost of re-running a layer; they do not make a cold build free. What
+survives a full cache reset is the digest pins plus the dedicated `scrapling`
+stage, which keeps the ~646 MB Chromium download out of the agent stage's
+dependency chain.
 
 ## UI sidecar network posture
 

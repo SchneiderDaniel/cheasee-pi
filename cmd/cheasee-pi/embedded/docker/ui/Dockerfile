@@ -7,7 +7,9 @@
 # tokio-process-tools) that already need rustc 1.90+, so the image is pinned
 # well above the leptos MSRV. Bump only when an install resolution demands
 # newer.
-FROM rust:1.99-bookworm AS builder
+# Digest-pinned base images (issue #2053): an upstream retag cannot invalidate
+# the layers below. Rotation cadence + procedure: docs/security.md.
+FROM rust:1.99-bookworm@sha256:e12566d5abc17a0da741628782cdb504b68b8961f5bfcf677936bf3e8b32de29 AS builder
 
 WORKDIR /build
 
@@ -21,10 +23,11 @@ WORKDIR /build
 # `__wbindgen_init_externref_table` throws and the wasm never hydrates — dead
 # buttons, empty session list. Pin a prebuilt release instead (statically
 # linked, so only `bin/wasm-opt` needs extracting).
-RUN rustup target add wasm32-unknown-unknown \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+ --mount=type=cache,target=/var/lib/apt,sharing=locked \
+ rustup target add wasm32-unknown-unknown \
  && apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
  && ARCH="$(uname -m)" \
  && case "$ARCH" in \
       x86_64) BE_TRIPLE="x86_64-linux" ;; \
@@ -82,13 +85,16 @@ RUN cargo test --release --target-dir target/server --no-default-features --feat
 # (feature `ssr`) per [package.metadata.leptos], then hashes the asset names.
 RUN cargo leptos build --release
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 # curl is the compose healthcheck probe; ca-certificates + gnupg back the
-# NodeSource repo setup below.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
- && rm -rf /var/lib/apt/lists/*
+# NodeSource repo setup below. Both apt steps use cache mounts: a re-run reads
+# the .deb archives and package lists from the builder cache instead of the
+# network, so the mounted /var/lib/apt replaces the lists cleanup.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+ --mount=type=cache,target=/var/lib/apt,sharing=locked \
+ apt-get update \
+ && apt-get install -y --no-install-recommends curl ca-certificates gnupg
 
 # Node.js 22 (NodeSource): the runtime for the pi-coding-agent CLI this server
 # spawns as its RPC child. Same major as the pi image so the spawned `pi`
@@ -97,10 +103,12 @@ RUN apt-get update \
 # and the RUN aborts loudly instead of the pipe silently falling back to
 # Debian's nodejs (which ships without npm). The v22/npm assertions pin the
 # result so a future fallback can never be cached as "successful" again.
-RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+ --mount=type=cache,target=/var/lib/apt,sharing=locked \
+ curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x \
  && bash /tmp/nodesource-setup.sh \
  && apt-get install -y --no-install-recommends nodejs \
- && rm -rf /var/lib/apt/lists/* /tmp/nodesource-setup.sh \
+ && rm -rf /tmp/nodesource-setup.sh \
  && node --version | grep -q '^v22\.' \
  && test -x /usr/bin/npm \
  && rm -rf /usr/include/node
@@ -140,8 +148,8 @@ RUN chown -R ui:ui /app
 # PI_VERSION is pinned equal to the pi image's value by
 # TestUI_DockerfilePiVersionMatchesPiImage so the two clients never diverge.
 ARG PI_VERSION=1.0.2
-RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
- && npm cache clean --force \
+RUN --mount=type=cache,target=/root/.npm \
+ npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
  && rm -rf /tmp/*
 
 # Point Leptos at the copied artifacts. LEPTOS_HASH_FILES must be true or the

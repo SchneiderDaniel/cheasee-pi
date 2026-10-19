@@ -6,15 +6,13 @@ import (
 	"testing"
 )
 
-// uiSection returns the markdown slice from the "## UI" heading to the next
-// "## " heading (or EOF). ok is false when the doc has no "## UI" heading.
-// Scoping matters: the UI-anchored tokens also appear in the CodeFlow rows, so
-// a whole-file substring check would pass on CodeFlow text alone.
-func uiSection(content string) (string, bool) {
+// markdownSection returns the markdown slice from the `heading` line to the next
+// "## " heading (or EOF). ok is false when the doc has no such heading.
+func markdownSection(content, heading string) (string, bool) {
 	lines := strings.Split(content, "\n")
 	start := -1
 	for i, line := range lines {
-		if strings.HasPrefix(line, "## UI") {
+		if strings.HasPrefix(line, heading) {
 			start = i
 			break
 		}
@@ -28,6 +26,13 @@ func uiSection(content string) (string, bool) {
 		}
 	}
 	return strings.Join(lines[start:], "\n"), true
+}
+
+// uiSection returns the "## UI" block. Scoping matters: the UI-anchored tokens
+// also appear in the CodeFlow rows, so a whole-file substring check would pass
+// on CodeFlow text alone.
+func uiSection(content string) (string, bool) {
+	return markdownSection(content, "## UI")
 }
 
 // uiDocSection reads path and returns its "## UI" section, failing the test

@@ -44,11 +44,13 @@ func TestDockerfile_LocaleSingleEnv(t *testing.T) {
 func TestDockerfile_FontcacheFdfindChained(t *testing.T) {
 	content := readDockerfile(t)
 	// fc-cache + the fdfind symlink fold into the Layer 3 apt RUN via &&
-	// (two fewer layers); standalone RUN layers must be gone.
-	if !strings.Contains(content, "&& fc-cache -f \\") {
+	// (two fewer layers); standalone RUN layers must be gone. No trailing `\`
+	// required: the apt cleanups that used to follow are gone with the cache
+	// mounts (issue #2053), so the symlink may be the last chained command.
+	if !strings.Contains(content, "&& fc-cache -f") {
 		t.Error("fc-cache must be chained into the apt RUN with && fc-cache -f")
 	}
-	if !strings.Contains(content, "&& ln -sf /usr/bin/fdfind /usr/local/bin/fd \\") {
+	if !strings.Contains(content, "&& ln -sf /usr/bin/fdfind /usr/local/bin/fd") {
 		t.Error("fdfind symlink must be chained into the apt RUN")
 	}
 	if strings.Contains(content, "RUN fc-cache") || strings.Contains(content, "RUN ln -sf") {

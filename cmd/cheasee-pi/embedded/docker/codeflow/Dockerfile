@@ -1,6 +1,8 @@
 # CodeFlow local UI — serves the browser-based codebase visualizer against the
 # mounted repository. See server.py for the API-shim contract.
-FROM python:3.13-alpine
+# Digest-pinned base image (issue #2053): an upstream retag cannot invalidate
+# the layers below. Rotation cadence + procedure: docs/security.md.
+FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a
 
 # Pin the served UI to the exact revision the export-control fixtures were
 # captured from (test/fixtures/generate-ui-fixture.mjs). The browser bridge

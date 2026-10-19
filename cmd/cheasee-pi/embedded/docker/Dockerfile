@@ -3,17 +3,117 @@
 # Build:  docker build -t cheasee-pi .
 # Run:    docker run cheasee-pi pi --version
 
-FROM debian:12-slim
+# Base image, pinned by manifest-list digest (issue #2053): an upstream retag
+# cannot invalidate every layer below it. Pin the manifest LIST digest, not a
+# per-platform manifest digest, or the other architecture breaks. Rotation
+# cadence + procedure: docs/security.md.
+ARG BASE_IMAGE=debian:12-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
+
+# ---------------------------------------------------------------
+# Stage: scrapling — Python venvs + Chromium browser cache
+# ---------------------------------------------------------------
+# Isolated on purpose (issue #2053): this stage is fed by BASE_IMAGE and
+# scrapling-constraints.txt only, so a change to any agent-stage layer copies
+# /opt/venvs and /opt/playwright-browsers from cache instead of re-fetching
+# the ~646M browser bundle. That is the cache-evicted case (#2050); cache
+# mounts alone only cheapen a re-run of the same cached layer.
+#
+# It deliberately does NOT inherit the agent stage: the venv is not relocatable
+# across python builds, so both stages must resolve the identical BASE_IMAGE
+# digest — one shared ARG, so a divergence can only be introduced by editing
+# the FROM lines (a test pins it). Duplicating python3/python3-venv here costs
+# one cache-mounted apt layer.
+FROM ${BASE_IMAGE} AS scrapling
+
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+        python3 \
+        python3-venv \
+        ca-certificates
+
+# scrapling venv: progressive web crawler (patchright-driven stealth).
+# Installed against scrapling-constraints.txt: `scrapling[fetchers]` floats its
+# browser drivers, and a floating patchright resolution is how the baked browser
+# cache and the runtime ended up on different chromium revisions (#1986).
+# The constraints file is COPY-ed into the agent stage as well — the runtime
+# venv re-creation there needs the same pins.
+COPY scrapling-constraints.txt /opt/venvs/scrapling-constraints.txt
+
+# web_search venv: ddgs (DuckDuckGo search). idna pinned to the
+# post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
+# and idna<3.15 is DoS-vulnerable on crafted long inputs. anyio pinned to the
+# release fixing GHSA-82r6-8w77-94w6 (CVE-2026-63374) and GHSA-5p39-cfhj-2xmp
+# (CVE-2026-64847); both fixed in 4.14.2.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m venv /opt/venvs/web-search-venv --clear && \
+    /opt/venvs/web-search-venv/bin/pip install ddgs 'idna>=3.15' 'anyio>=4.14.2'
+
+# No --no-cache-dir: the pip mount above is the cache a re-run reads, and
+# --no-cache-dir would leave it empty. The mount never enters the layer, so the
+# wheels are not shipped in the image either.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m venv /opt/venvs/scrapling-venv --clear && \
+    /opt/venvs/scrapling-venv/bin/pip install \
+        -c /opt/venvs/scrapling-constraints.txt \
+        scrapling[fetchers] \
+        markdownify \
+        beautifulsoup4 \
+    && rm -rf /opt/venvs/scrapling-venv/lib/python*/site-packages/playwright/driver \
+    && rm -rf /tmp/*
+# scrapling imports only `playwright._impl._errors`; the stealth tier launches
+# through patchright's own driver. playwright's driver/ bundle (132M) is
+# therefore dead weight in this venv.
+
+# Pre-download Chromium for the scrapling stealth fetcher. Must use patchright,
+# NOT playwright: the stealth tier (StealthyFetcher) resolves its browser via
+# patchright's registry, and the two registries pin different revisions — so a
+# playwright-installed build never matches. The revision is read from the venv's
+# own patchright/driver/package/browsers.json (pinned above); nothing is
+# hardcoded here.
+# Retry loop handles the ~646M/arch download (chromium + headless shell + ffmpeg)
+# which can glitch on slow/unstable connections. The `test -f` guard after the
+# loop keeps a total download failure fatal: the loop tail (`sleep 5`, exit 0)
+# would otherwise let the layer report success with an empty browser cache — and
+# asserting the *expected* revision is what makes a mismatched cache (the #1986
+# root cause: chromium-1243 baked while patchright looks for 1234) a build
+# failure instead of a 8-minute runtime stall.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
+RUN for i in 1 2 3; do \
+      /opt/venvs/scrapling-venv/bin/python -m patchright install chromium \
+        && break; \
+      echo "[attempt $i] patchright install chromium failed, retrying in 5s…"; \
+      sleep 5; \
+    done && \
+    rev="$(/opt/venvs/scrapling-venv/bin/python -c "import json, pathlib, patchright; print(next(b['revision'] for b in json.loads((pathlib.Path(patchright.__file__).parent / 'driver/package/browsers.json').read_text())['browsers'] if b['name'] == 'chromium'))")" && \
+    test -f "/opt/playwright-browsers/chromium-$rev/chrome-linux64/chrome" && \
+    chmod -R a+rX /opt/playwright-browsers
+
+# World-readable so agentuser (created in the agent stage) can use the copies;
+# COPY --from preserves these modes. Own layer, after the browser download, so
+# a venv change does not invalidate the ~646M fetch above it.
+RUN chmod -R a+rX /opt/venvs
+
+# ---------------------------------------------------------------
+# Stage: agent — the shipped image (final stage)
+# ---------------------------------------------------------------
+FROM ${BASE_IMAGE} AS agent
 
 # ---------------------------------------------------------------
 # Layer 1: Base dependencies (curl, gnupg, ca-certificates)
 # ---------------------------------------------------------------
-RUN apt-get update && \
+# Cache mounts, not extra layers: re-running this step re-reads the downloaded
+# .deb archives from the builder cache instead of the network. /var/lib/apt is
+# mounted too, so its cleanup is gone — `rm -rf /var/lib/apt/lists/*` would
+# throw away the cached lists, the very download the mount exists to avoid.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
         gnupg \
-        ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+        ca-certificates
 
 # ---------------------------------------------------------------
 # Layer 2: Node.js 22.x via NodeSource
@@ -22,11 +122,13 @@ RUN apt-get update && \
 # and the RUN aborts loudly instead of the pipe silently falling back to
 # Debian's nodejs (which ships without npm). The v22/npm assertions pin the
 # result so a future fallback can never be cached as "successful" again.
-RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x && \
     bash /tmp/nodesource-setup.sh && \
     apt-get install -y --no-install-recommends \
         nodejs \
-    && rm -rf /var/lib/apt/lists/* /tmp/nodesource-setup.sh \
+    && rm -rf /tmp/nodesource-setup.sh \
     && node --version | grep -q '^v22\.' \
     && test -x /usr/bin/npm \
     && rm -rf /usr/include/node
@@ -42,7 +144,9 @@ RUN curl -fsSL -o /tmp/nodesource-setup.sh https://deb.nodesource.com/setup_22.x
 # The package installs fonts in /usr/share/fonts/truetype/noto/
 # and a fontconfig snippet in /etc/fonts/conf.avail/66-noto-color-emoji.conf
 # fd-find ships as fdfind; symlink to fd so pi finds it
-RUN apt-get update && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
@@ -73,25 +177,25 @@ RUN apt-get update && \
         libxrandr2 \
         fonts-noto-color-emoji \
     && fc-cache -f \
-    && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
 # ---------------------------------------------------------------
 # Layer 4: GitHub CLI
 # ---------------------------------------------------------------
-RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg && \
     chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg && \
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null && \
     apt-get update && \
     apt-get install -y --no-install-recommends gh && \
-    rm -rf /root/.cache/* /tmp/* && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /tmp/*
 
 # ---------------------------------------------------------------
 # Layer 5: npm global tools
 # ---------------------------------------------------------------
-RUN npm install -g --force \
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g --force \
         @ast-grep/cli \
         eslint \
         jscpd \
@@ -102,7 +206,6 @@ RUN npm install -g --force \
         typescript-language-server \
     && rm -rf /usr/lib/node_modules/@ast-grep/cli/node_modules \
               /usr/lib/node_modules/jscpd/node_modules/jscpd-linux-* \
-    && npm cache clean --force \
     && rm -rf /tmp/*
 # @ast-grep/cli's postinstall copies the platform binary up to cli/ast-grep
 # (the /usr/bin symlink target); the nested platform package (51M) is a leftover
@@ -151,71 +254,31 @@ RUN for i in 1 2 3; do \
 ENV LANG=C.UTF-8 LC_CTYPE=C.UTF-8 LC_ALL=C.UTF-8
 
 # ---------------------------------------------------------------
-# Layer 5e: Pre-built Python venvs for web_search + web_crawl
-#           Packages + Chromium pre-installed so agent workflows
-#           skip first-call venv setup.
+# Layer 5e: Python venvs + Chromium browser cache (copied in)
 # ---------------------------------------------------------------
-# web_search venv: ddgs (DuckDuckGo search). idna pinned to the
-# post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
-# and idna<3.15 is DoS-vulnerable on crafted long inputs. anyio pinned to the
-# release fixing GHSA-82r6-8w77-94w6 (CVE-2026-63374) and GHSA-5p39-cfhj-2xmp
-# (CVE-2026-64847); both fixed in 4.14.2.
-RUN python3 -m venv /opt/venvs/web-search-venv --clear && \
-    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs 'idna>=3.15' 'anyio>=4.14.2'
-
-# scrapling venv: progressive web crawler (patchright-driven stealth).
-# Installed against scrapling-constraints.txt: `scrapling[fetchers]` floats its
-# browser drivers, and a floating patchright resolution is how the baked browser
-# cache and the runtime ended up on different chromium revisions (#1986).
-COPY scrapling-constraints.txt /opt/venvs/scrapling-constraints.txt
+# Both artifacts are produced in the isolated `scrapling` stage at the top of
+# this file, so nothing below re-downloads them. Copying (instead of
+# re-creating here) is also what keeps the patchright↔chromium revision
+# binding in exactly one place: the agent stage never resolves browsers.json.
+COPY --from=scrapling /opt/venvs/scrapling-venv /opt/venvs/scrapling-venv
+COPY --from=scrapling /opt/venvs/web-search-venv /opt/venvs/web-search-venv
+COPY --from=scrapling /opt/playwright-browsers /opt/playwright-browsers
 # Runtime venv re-creation (a workspace without the baked copy) uses the same
 # pins, so an in-container `pip install` cannot reintroduce the drift.
-ENV SCRAPLING_PIP_CONSTRAINTS=/opt/venvs/scrapling-constraints.txt
-RUN python3 -m venv /opt/venvs/scrapling-venv --clear && \
-    /opt/venvs/scrapling-venv/bin/pip install --no-cache-dir \
-        -c /opt/venvs/scrapling-constraints.txt \
-        scrapling[fetchers] \
-        markdownify \
-        beautifulsoup4 \
-    && rm -rf /opt/venvs/scrapling-venv/lib/python*/site-packages/playwright/driver \
-    && rm -rf /root/.cache/pip /tmp/*
-# scrapling imports only `playwright._impl._errors`; the stealth tier launches
-# through patchright's own driver. playwright's driver/ bundle (132M) is
-# therefore dead weight in this venv.
-
-# Pre-download Chromium for the scrapling stealth fetcher. Must use patchright,
-# NOT playwright: the stealth tier (StealthyFetcher) resolves its browser via
-# patchright's registry, and the two registries pin different revisions — so a
-# playwright-installed build never matches. The revision is read from the venv's
-# own patchright/driver/package/browsers.json (pinned above); nothing is
-# hardcoded here.
-# Retry loop handles the ~646M/arch download (chromium + headless shell + ffmpeg)
-# which can glitch on slow/unstable connections. The `test -f` guard after the
-# loop keeps a total download failure fatal: the loop tail (`sleep 5`, exit 0)
-# would otherwise let the layer report success with an empty browser cache — and
-# asserting the *expected* revision is what makes a mismatched cache (the #1986
-# root cause: chromium-1243 baked while patchright looks for 1234) a build
-# failure instead of a 8-minute runtime stall.
+COPY scrapling-constraints.txt /opt/venvs/scrapling-constraints.txt
+# ENV does not cross stages: the browser path (entrypoint.sh resolves it before
+# ~/.cache/ms-playwright) and the constraints pin must exist in the runtime.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/playwright-browsers
-RUN for i in 1 2 3; do \
-      /opt/venvs/scrapling-venv/bin/python -m patchright install chromium \
-        && break; \
-      echo "[attempt $i] patchright install chromium failed, retrying in 5s…"; \
-      sleep 5; \
-    done && \
-    rev="$(/opt/venvs/scrapling-venv/bin/python -c "import json, pathlib, patchright; print(next(b['revision'] for b in json.loads((pathlib.Path(patchright.__file__).parent / 'driver/package/browsers.json').read_text())['browsers'] if b['name'] == 'chromium'))")" && \
-    test -f "/opt/playwright-browsers/chromium-$rev/chrome-linux64/chrome" && \
-    chmod -R a+rX /opt/playwright-browsers
+ENV SCRAPLING_PIP_CONSTRAINTS=/opt/venvs/scrapling-constraints.txt
 
-# World-readable so agentuser (created next layer) can access. The stamp file is
-# the baked venv's identity (pip freeze hash): entrypoint.sh re-copies the venv
-# into the workspace when the copy's stamp or ownership drifts, so a stale
-# root-owned .pi/scrapling-venv cannot shadow the baked one (#1986).
+# The stamp file is the baked venv's identity (pip freeze hash): entrypoint.sh
+# re-copies the venv into the workspace when the copy's stamp or ownership
+# drifts, so a stale root-owned .pi/scrapling-venv cannot shadow the baked one
+# (#1986). Written AFTER the COPYs so it hashes the venv that actually ships.
 RUN for v in web-search-venv scrapling-venv; do \
       "/opt/venvs/$v/bin/pip" freeze | sort | sha256sum | cut -d' ' -f1 > "/opt/venvs/$v/.cheasee-venv-stamp"; \
     done && \
-    chmod -R a+rX /opt/venvs && \
-    rm -rf /root/.cache/* /tmp/*
+    rm -rf /tmp/*
 
 # ---------------------------------------------------------------
 # Layer 5f: osv-scanner binary (prebuilt release — no Go toolchain)
@@ -298,10 +361,10 @@ RUN groupadd --gid 1001 agentuser && \
 # package layout would run a second npm install at build and break the
 # dogfooding dedup.
 ARG CHEASEE_REF=main
-RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
+RUN --mount=type=cache,target=/root/.npm \
+    git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
     && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
     && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
-    && npm cache clean --force \
     && rm -rf /opt/cheasee-pi/node_modules/@earendil-works \
               /opt/cheasee-pi/node_modules/typebox \
               /opt/cheasee-pi/node_modules/@sinclair
@@ -337,8 +400,8 @@ ARG PI_VERSION=1.0.2
 # CLI supplies it via the compose env); the ui sidecar deliberately does not
 # declare it.
 ARG PI_BUILD_STAMP
-RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
-    && npm cache clean --force \
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
     && rm -rf /tmp/* \
     && echo "${PI_BUILD_STAMP}" >/var/lib/pi-build-stamp
 
