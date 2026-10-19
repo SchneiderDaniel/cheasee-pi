@@ -102,9 +102,9 @@ transferred**. Per layer, from `--progress=plain`: `#12` NodeSource 97.9 s,
 **Post-change transfer volume, measured** by pulling the total size of every
 artifact the two stages fetch at this commit. A one-byte range request reports
 the full size in `content-range`, which works for the npm registry, GitHub
-release assets, `cdn.playwright.dev` and `go.dev` alike; package sets come from
-`apt-get --print-uris`. No daemon is involved, so the table reproduces on any
-machine with network access:
+release assets, `cdn.playwright.dev`'s `builds/ffmpeg` assets and `go.dev`
+alike; package sets come from `apt-get --print-uris`. No daemon is involved, so
+the table reproduces on any machine with network access:
 
 ```bash
 # total bytes of one artifact, no daemon needed
@@ -112,32 +112,32 @@ curl -sSL -r 0-0 -D - -o /dev/null "$URL" | tr -d '\r' |
   awk 'tolower($1) == "content-range:" { sub(/.*\//, ""); print }'
 ```
 
-| Stage     | Artifact                                            | Measured transfer |
-| --------- | --------------------------------------------------- | ----------------- |
-| scrapling | apt index, one `apt-get update` (6 files)           | 9,393,000 B       |
-| scrapling | apt: python3, python3-venv, ca-certificates (31)    | 14,065,242 B      |
-| scrapling | scrapling venv wheels (27)                          | 117,486,634 B     |
-| scrapling | web-search venv wheels (15)                         | 12,221,184 B      |
-| scrapling | Chromium 151.0.7922.34 + headless shell + ffmpeg    | 315,890,284 B     |
-| **stage** | **scrapling subtotal**                              | **469,056,344 B** |
-| agent     | apt index, four `apt-get update` runs               | 32,137,000 B      |
-| agent     | apt: curl, gnupg, ca-certificates (37)              | 14,939,280 B      |
-| agent     | NodeSource setup script + nodejs 22.x (26)          | 48,809,256 B      |
-| agent     | apt: toolchain + Playwright libs (117)              | 74,161,051 B      |
-| agent     | gh keyring + gh (27)                                | 37,764,747 B      |
-| agent     | npm globals, Layer 5 (89 tarballs)                  | 48,092,224 B      |
-| agent     | rust-analyzer 2026-08-10.1                          | 14,805,784 B      |
-| agent     | rtk 0.45.0 tarball + checksums                      | 4,547,322 B       |
-| agent     | osv-scanner 2.4.0                                   | 56,676,514 B      |
-| agent     | Go 1.25.8 toolchain                                 | 59,786,528 B      |
-| agent     | cheasee-pi clone, depth 1 (git pack)                | 3,241,906 B       |
-| agent     | `npm ci` for the clone (100 tarballs)               | 26,310,517 B      |
-| agent     | pi-coding-agent 1.0.2 (119 tarballs)                | 24,557,986 B      |
-| **stage** | **agent subtotal**                                  | **445,830,115 B** |
-| **both**  | **cold build, both stages**                         | **914,886,459 B** |
+| Stage     | Artifact                                         | Measured transfer |
+| --------- | ------------------------------------------------ | ----------------- |
+| scrapling | apt index, one `apt-get update` (6 files)        | 9,393,000 B       |
+| scrapling | apt: python3, python3-venv, ca-certificates (31) | 14,065,242 B      |
+| scrapling | scrapling venv wheels (27)                       | 117,486,634 B     |
+| scrapling | web-search venv wheels (15)                      | 12,221,184 B      |
+| scrapling | Chromium 151.0.7922.34 + headless shell + ffmpeg | 315,890,284 B     |
+| **stage** | **scrapling subtotal**                           | **469,056,344 B** |
+| agent     | apt index, four `apt-get update` runs            | 32,137,000 B      |
+| agent     | apt: curl, gnupg, ca-certificates (37)           | 14,939,280 B      |
+| agent     | NodeSource setup script + nodejs 22.x (26)       | 48,809,256 B      |
+| agent     | apt: toolchain + Playwright libs (117)           | 74,161,051 B      |
+| agent     | gh keyring + gh (27)                             | 37,764,747 B      |
+| agent     | npm globals, Layer 5 (89 tarballs)               | 48,092,224 B      |
+| agent     | rust-analyzer 2026-08-10.1                       | 14,805,784 B      |
+| agent     | rtk 0.45.0 tarball + checksums                   | 4,547,322 B       |
+| agent     | osv-scanner 2.4.0                                | 56,676,514 B      |
+| agent     | Go 1.25.8 toolchain                              | 59,786,528 B      |
+| agent     | cheasee-pi clone, depth 1 (git pack)             | 3,241,906 B       |
+| agent     | `npm ci` for the clone (100 tarballs)            | 26,310,517 B      |
+| agent     | pi-coding-agent 1.0.2 (119 tarballs)             | 24,557,986 B      |
+| **stage** | **agent subtotal**                               | **445,830,115 B** |
+| **both**  | **cold build, both stages**                      | **914,886,459 B** |
 
 The `apt-get install` and apt-index rows are resolved against the package set
-the *pinned* base image already ships, not against an empty database, so they
+the _pinned_ base image already ships, not against an empty database, so they
 are what apt fetches rather than an upper bound. The seed is the base image's
 own `/var/lib/dpkg/status`, pulled from its digest through the registry API (no
 daemon involved), and apt is then asked what it would still download on top of
@@ -165,7 +165,7 @@ The total reads ~0.91 GB against the ~1.1 GB baseline — same order, different
 host and different base-image date, so compare the scenario split below, not
 the two totals.
 
-The Chromium bundle the issue quotes as ~646 MB is the two zips *unpacked*; the
+The Chromium bundle the issue quotes as ~646 MB is the two zips _unpacked_; the
 transfer is 316 MB, and it now sits entirely in the `scrapling` stage.
 
 Two of those rows were also timed while they were measured, which gives a
@@ -175,13 +175,26 @@ the web-search wheels 12,221,184 B in 6 s. Those are transfer times on the
 measuring host, not `docker build` step times — the rest of each layer is venv
 creation and unpacking.
 
+The same holds for the direct artifacts, timed again from an agent container:
+151,207,756 B (Go toolchain, osv-scanner, rust-analyzer, rtk, the `gh` `.deb`)
+took 52.1 s at 2.9 MB/s, and one `apt-get update` against the base image's
+sources reported `Fetched 9393 kB in 4 s (2419 kB/s)`. At that measured rate
+the 914,886,459 B above is ≥ ~315 s of pure transfer — a floor for the network
+term, not a build time.
+
+The Chromium rows are the one part of the inventory that cannot be re-captured
+from an agent container: `cdn.playwright.dev/…/builds/chromium/1234/
+chromium-linux.zip` answers HTTP 400 there (a bogus revision on the same path
+answers the identical 400, while `builds/ffmpeg/1011/ffmpeg-linux.zip` serves
+`206`), so those bytes stand on their original measurement.
+
 Scenario status after the split, using the measured rows above:
 
-| Scenario                             | Before                                    | After                                                                                                                                                                 |
-| ------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (maintainer host, measured) | 914,886,459 B of transfer for both stages, summed from the rows above; the build wall clock is `not measured` (see below)                                             |
+| Scenario                             | Before                                     | After                                                                                                                                                                  |
+| ------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (maintainer host, measured) | 914,886,459 B of transfer for both stages, summed from the rows above; the build wall clock is `not measured` (see below)                                              |
 | Agent-layer invalidation (the point) | 9 min / 1.1 GB (maintainer host, measured) | 445,830,115 B: the agent rows only. Chromium (315,890,284 B) and the venv wheels (129,707,818 B) are copied from the unchanged `scrapling` stage instead of re-fetched |
-| Re-run of one busted package layer   | that layer's full fetch                   | archive reuse from the cache mounts, so the step re-runs without fetching — visible with `--progress=plain` on a busted pin                                            |
+| Re-run of one busted package layer   | that layer's full fetch                    | archive reuse from the cache mounts, so the step re-runs without fetching — visible with `--progress=plain` on a busted pin                                            |
 
 One number is deliberately still missing from this table: the post-change
 **build wall clock**, which needs a Docker daemon plus the user namespaces a
@@ -192,11 +205,13 @@ permitted` — so the cell says `not measured` instead of a figure derived from
 the baseline. The download volume is the half that does not need a daemon, and
 it is now measured end to end: every row above is a fetch that was actually
 counted, so the two subtotals and the `both` total are sums of observed values,
-not bounds. Closing the wall clock takes the four commands at the top of this
-section, run between a clean `buildx prune -af` and one edit to an early agent
-layer; put the resulting `time` output next to the two rows above in the issue.
-Cache-mount **effectiveness** is the same kind of gap — it needs one busted
-package layer re-run on a real builder before/after the mounts.
+not bounds. Closing the wall clock is a maintainer step on a `docker` host —
+the agent container cannot stand in for it, and no figure is offered here in
+its place. It takes the four commands at the top of this section, run between a
+clean `buildx prune -af` and one edit to an early agent layer; put the
+resulting `time` output next to the two rows above in the issue. Cache-mount
+**effectiveness** is the same kind of gap — it needs one busted package layer
+re-run on a real builder before/after the mounts.
 
 ## Documentation changes
 
