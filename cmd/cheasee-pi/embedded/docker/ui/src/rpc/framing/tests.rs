@@ -1,5 +1,5 @@
-#[path = "../tests_reader.rs"]
-mod reader_tests;
+#[path = "tests_reader.rs"]
+mod tests_reader;
 
 use super::*;
 use std::io::Cursor;

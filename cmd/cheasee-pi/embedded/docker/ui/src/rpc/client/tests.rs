@@ -1,5 +1,5 @@
-#[path = "../tests_delivery.rs"]
-mod delivery;
+#[path = "tests_delivery.rs"]
+mod tests_delivery;
 
 use super::*;
 use std::path::PathBuf;

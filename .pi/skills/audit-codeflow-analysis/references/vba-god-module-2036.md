@@ -90,22 +90,23 @@ issue's filed counts exactly. The metric is `report.json` → `patterns` → the
 entry named `VBA God Module` → `.files.length`.
 
 `before` is `origin/main` (`463f382c`); `after` is the code tree of this branch.
-The artifacts that follow it are the 58 `.ts`/`.mjs`/`.py`/`.rs` siblings plus
-`.json`/`.mts` records — the siblings are scored and under `20`, the rest are
-never counted.
+The artifacts that follow it include the 58 scored siblings from this refactor,
+five scored siblings from #2034, and `.json`/`.mts` records — the siblings are
+scored and under `20`, the records are never counted.
 
 ## Before / after (pinned detector, acorn-babel branch)
 
 | Ref           | commit     | code files | VBA God Module | God Object |
 | ------------- | ---------- | ---------- | -------------- | ---------- |
 | `origin/main` | `463f382c` | 727        | 25             | 36         |
-| this branch   | working    | 785        | 2              | 31         |
+| this branch   | working    | 790        | 1              | 28         |
 
 `code files` is the tracked-file count whose extension the analyzer scores (the
 pinned `codeExts`), measured in-gate from `git ls-tree`/`git ls-files`; the
 external analyzer's own `summary.totalFiles` also counts non-code files, so it is
-larger for both refs. `after === before + 58` is the sibling count, so the drop
-is from splitting, not deleting.
+larger for both refs. The delivered tree has 58 scored siblings from this refactor
+plus five scored siblings from #2034, which merged into main after the pinned base;
+no scored files were deleted.
 
 The issue was filed with **25** files at `analyzedAt` 1791804971015; that
 snapshot predates #2006 (the two Python test modules still counted 21 each) and
@@ -113,15 +114,15 @@ snapshot predates #2006 (the two Python test modules still counted 21 each) and
 already split and two files the issue did not cite (`disk_space_test.go`,
 `fp-filter.js`) newly over the ceiling.
 
-- **`25 → 2`** flagged files: all 23 cited modules that the pinned base flags
+- **`25 → 1`** flagged file: all 23 cited modules that the pinned base flags
   drop under the ceiling, each via verbatim moves into siblings of the same module
-  tree (the strings skipper is inlined).
-- The 2 remaining flags are the **uncited leftovers** recorded below.
+  tree (the strings skipper is inlined). #2034 also split the uncited `disk_space_test.go`.
+- The remaining `fp-filter.js` flag is the **uncited leftover** recorded below.
 - The 2 cited Python test modules (`test_adapter_extraction.py`,
   `test_registry_transport.py`) were already under the base ceiling — #2006
   split them — and are recorded as `alreadyUnder`, so all 25 filed paths stay
   accounted for.
-- `God Object` falls as the expected co-benefit (`36 → 31`).
+- `God Object` falls as the expected co-benefit (`36 → 28` in the delivered tree).
 
 ## What actually moved the number
 
@@ -189,17 +190,16 @@ The first full `cargo check`/build remains the browser (Docker) build.
 
 ## Deferred (measured, never split here)
 
-No cited module is deferred. The two remaining flags on the delivered tree are
-files the issue does **not** cite (its list predates #2057):
+No cited module is deferred. The delivered tree has one remaining flag for a
+file the issue does **not** cite (`fp-filter.js`); it belongs to the long-file /
+anti-pattern issues that share the same file set. `disk_space_test.go`, which was
+also an uncited flag at the pinned base, was split by #2034 after that base.
 
-- **`disk_space_test.go`** (26) and **`fp-filter.js`** (40): they belong to the
-  long-file / anti-pattern issues that share the same file set.
-
-The fixture's `deferred` records each with a reason; the accounting invariant
-`before.vbaGodModuleCount === reducedBy.length + Σ deferred files` (`25 = 23 + 2`)
-keeps the ledger closed, `filedFiles` partitions into `reducedBy` (23) plus
-`alreadyUnder` (2), and `after.vbaGodModuleCount` equals the deferred count,
-while the in-gate mirror re-measures every deferred file `> 20`.
+The fixture records both paths: `deferred` holds the still-flagged `fp-filter.js`,
+and `baseAdvance.resolvedFiles` records the `disk_space_test.go` reduction in the
+advanced main branch. Thus the pinned-base accounting is
+`reducedBy` (23) + `deferred` (1) + `baseAdvance.resolvedFiles` (1) = 25; on the
+delivered tree, `after.vbaGodModuleCount` equals the single deferred flag.
 
 ## Risk
 

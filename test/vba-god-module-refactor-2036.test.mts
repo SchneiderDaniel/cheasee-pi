@@ -143,6 +143,7 @@ const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as
 		godObjectCount: number;
 	};
 	tradeoffs: Record<string, string>;
+	baseAdvance: { issue: number; reason: string; scoredFilesAdded: number; resolvedFiles: string[] };
 	reducedBy: string[];
 	filedFiles: string[];
 	alreadyUnder: { reason: string; files: string[] };
@@ -152,6 +153,7 @@ const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as
 
 const SIBLINGS = Object.values(B.splitFamilies).flat();
 const DEFERRED = B.deferred.flatMap((d) => d.files ?? []);
+const BASE_UNCITED = [...DEFERRED, ...B.baseAdvance.resolvedFiles];
 const ALREADY_UNDER = B.alreadyUnder.files;
 
 // ─── Manifest ─────────────────────────────────────────────────────
@@ -323,7 +325,13 @@ describe("vba god module refactor #2036 — moved declarations live in the sibli
 				} else if (kid.endsWith(".rs")) {
 					const stem = basename(kid, ".rs");
 					const inlined = kid.replace(/\/[^/]+\.rs$/, ".rs");
-					const declaring = existsSync(resolve(ROOT, inlined)) ? inlined : parent;
+					const testModule = kid.replace(/\/tests_[^/]+\.rs$/, "/tests.rs");
+					const declaring =
+						testModule !== kid && existsSync(resolve(ROOT, testModule))
+							? testModule
+							: existsSync(resolve(ROOT, inlined))
+								? inlined
+								: parent;
 					assert.match(
 						read(declaring),
 						new RegExp(`\\bmod ${stem};`),
@@ -498,8 +506,8 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 		assert.equal(before.vbaGodModule.length, B.before.vbaGodModuleCount);
 		assert.deepStrictEqual(
 			before.vbaGodModule,
-			[...B.reducedBy, ...DEFERRED].sort(),
-			"the base's flagged set must be exactly the reduced modules plus the uncited leftovers",
+			[...B.reducedBy, ...BASE_UNCITED].sort(),
+			"the base's flagged set must include the reductions and both uncited paths",
 		);
 		assert.equal(before.godObject.length, B.before.godObjectCount);
 		const after = measureTree(ROOT, git("ls-files"));
@@ -512,8 +520,8 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 	it("accounts for every leftover flag (no silent omission)", () => {
 		assert.strictEqual(
 			B.before.vbaGodModuleCount,
-			B.reducedBy.length + DEFERRED.length,
-			"base count must equal reduced + deferred",
+			B.reducedBy.length + BASE_UNCITED.length,
+			"base count must equal reduced + uncited flags",
 		);
 		assert.strictEqual(
 			B.after.vbaGodModuleCount,
@@ -522,8 +530,8 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 		);
 		assert.strictEqual(
 			B.after.codeFiles,
-			B.before.codeFiles + SIBLINGS.length,
-			"the drop is from splitting, not deleting: scored files grow by the sibling count",
+			B.before.codeFiles + SIBLINGS.length + B.baseAdvance.scoredFilesAdded,
+			"the drop is from splitting, not deleting: account for this split and the main advance",
 		);
 	});
 

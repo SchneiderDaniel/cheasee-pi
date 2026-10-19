@@ -1,5 +1,5 @@
-#[path = "../tests_rows.rs"]
-mod row_tests;
+#[path = "tests_rows.rs"]
+mod tests_rows;
 
 use super::*;
 use crate::protocol::Event;

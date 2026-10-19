@@ -1,5 +1,5 @@
-#[path = "../tests_wiring.rs"]
-mod wiring_tests;
+#[path = "tests_wiring.rs"]
+mod tests_wiring;
 
 use super::*;
 

@@ -1,5 +1,5 @@
-#[path = "../tests_replay.rs"]
-mod replay_tests;
+#[path = "tests_replay.rs"]
+mod tests_replay;
 
 use super::*;
 use std::io::Write;
