@@ -437,10 +437,19 @@ describe("validateAgentOutput — quirk locks", () => {
 // source assertions — same precedent as output-facade.test.mts.
 
 describe("validation.ts — refactor structure (#1548)", () => {
-	const source = readFileSync(
-		resolve(dirname(fileURLToPath(import.meta.url)), "..", "agent/validation.ts"),
-		"utf8",
+	// The validation groups are their own files since the #2033 split, so the
+	// structure pins read every group module instead of the barrel alone.
+	const GROUPS = [
+		"agent/validation.ts",
+		"agent/validation-findings.ts",
+		"agent/validation-score.ts",
+		"agent/validation-optional.ts",
+	];
+	const groupSources = GROUPS.map((rel) =>
+		readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), "..", rel), "utf8"),
 	);
+	const source = groupSources.join("\n");
+	const barrelSource = groupSources[0]!;
 
 	const HELPER_SIGNATURES = [
 		"function validateAuditScore(value: unknown, errors: string[]): void {",
@@ -491,12 +500,13 @@ describe("validation.ts — refactor structure (#1548)", () => {
 		for (const sig of HELPER_SIGNATURES) {
 			assert.ok(source.includes(sig), `${sig} must be defined`);
 		}
-		// Module-private: never listed in any export statement
-		assert.ok(source.includes("export { validateAgentOutput, VALID_SEVERITIES };"));
+		// Canonical barrel surface, untouched by the split
+		assert.ok(barrelSource.includes("export { validateAgentOutput, VALID_SEVERITIES };"));
+		// Not re-exported by the barrel: the groups are internal to validation.ts
 		for (const name of ["validateAuditScore", "validateFindings", "validateFinding"]) {
 			assert.ok(
-				!new RegExp(`export[^;]*\\b${name}\\b`).test(source),
-				`${name} must not be exported`,
+				!new RegExp(`export[^;]*\\b${name}\\b`).test(barrelSource),
+				`${name} must not be exported from the barrel`,
 			);
 		}
 	});
@@ -512,7 +522,9 @@ describe("validation.ts — refactor structure (#1548)", () => {
 		const actionCheck = source.indexOf("Missing required field: 'action'");
 		const auditDelegate = source.indexOf("validateAuditScore(data.auditScore, errors);");
 		const findingsDelegate = source.indexOf("validateFindings(data.findings, errors);");
-		const targetStatusCheck = source.indexOf("'targetStatus' must be a string if provided");
+		const targetStatusCheck = source.indexOf(
+			'validateOptionalStrings(data, ["targetStatus"], errors);',
+		);
 		for (const idx of [actionCheck, auditDelegate, findingsDelegate, targetStatusCheck]) {
 			assert.ok(idx >= 0, "expected source marker missing");
 		}

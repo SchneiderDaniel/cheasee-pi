@@ -1,0 +1,1062 @@
+{
+	"provenance": {
+		"issue": 2033,
+		"title": "286 High Complexity Files",
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "test/fixtures/complexity-mirror.mts (calcComplexity, 24 regexes)",
+		"metric": "architectureIssues[\"N High Complexity Files\"] — analyzed files where calcComplexity(content).level === \"critical\", i.e. 1 + Σ(branch-regex hits) > 30 over the RAW file text, comments and string literals included (index.html:1663-1685, 5453-5454)",
+		"method": "git ls-files over the tracked tree, score only CODE_EXTS members, 1 + Σ(24 branch-regex hits) over RAW text, critical ⇔ score > 30 (index.html:1663-1685, 5453-5454)",
+		"filedAnalyzedAt": 1791804971015,
+		"filedCount": 286,
+		"filedNotScoredCount": 93,
+		"beforeNote": "the filed list is a superset: 93 of the 286 are .mts (never scored by the analyzer), 2 score below the ceiling, and the tree advanced past analyzedAt (7 critical files are not in the filed list). The envelope is therefore measured, not copied.",
+		"driftNote": "`filedBaseline` is the architecture's measurement at e075a867 (198 critical). `before` is the same mirror re-run on this branch's base commit (199 critical): main advanced by one net flag between e075a867 and 2ec70a61. Acceptance is the DROP against `before`.",
+		"notScoredNote": "one cited .mts path (.pi/extensions/agent-harness/test/index-cascade.test.mts) no longer exists — renamed since analyzedAt, so 93 of the 94 cited .mts paths are recorded."
+	},
+	"filedBaseline": {
+		"commit": "e075a867b708952176b38e0fc51329c8dcb2c79a",
+		"files": 1293,
+		"codeFiles": 732,
+		"criticalCount": 198
+	},
+	"before": {
+		"commit": "2ec70a61d167e591b16c0e11f15a087b0c6dbb7b",
+		"files": 1359,
+		"codeFiles": 792,
+		"criticalCount": 199
+	},
+	"after": {
+		"criticalCount": 187,
+		"expectedDrop": 12
+	},
+	"partition": {
+		"scored": 792,
+		"critical": 199,
+		"notScored": 93,
+		"belowCeiling": 593
+	},
+	"reducedBy": [
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+			"before": 110,
+			"parts": 8,
+			"seam": "use case vs HTTP vs filesystem vs body policy vs JSON route vs empty slot",
+			"siblings": [
+				".pi/skills/audit-codeflow-analysis/lib/bridge-client.ts",
+				".pi/skills/audit-codeflow-analysis/lib/report-store.ts",
+				".pi/skills/audit-codeflow-analysis/lib/report-body-policy.ts",
+				".pi/skills/audit-codeflow-analysis/lib/report-json-route.ts",
+				".pi/skills/audit-codeflow-analysis/lib/report-missing.ts",
+				".pi/skills/audit-codeflow-analysis/lib/report-paths.ts",
+				".pi/skills/audit-codeflow-analysis/lib/report-types.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/worktree-sandbox/unsafe-write.ts",
+			"before": 124,
+			"parts": 8,
+			"seam": "entry point vs write grammars vs target collection vs per-command checkers",
+			"siblings": [
+				".pi/extensions/worktree-sandbox/unsafe-write-grammars.ts",
+				".pi/extensions/worktree-sandbox/unsafe-write-targets.ts",
+				".pi/extensions/worktree-sandbox/unsafe-write-commands.ts",
+				".pi/extensions/worktree-sandbox/unsafe-write-ln.ts",
+				".pi/extensions/worktree-sandbox/unsafe-write-dd.ts",
+				".pi/extensions/worktree-sandbox/unsafe-write-flags.ts",
+				".pi/extensions/worktree-sandbox/unsafe-write-bundles.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/agent-harness/agent-harness.ts",
+			"before": 115,
+			"parts": 8,
+			"seam": "interception state machine vs sub-key derivation vs meta lookup vs guards vs bookkeeping",
+			"siblings": [
+				".pi/extensions/agent-harness/lib/bash-subkey.ts",
+				".pi/extensions/agent-harness/lib/tool-meta.ts",
+				".pi/extensions/agent-harness/lib/tool-call-state.ts",
+				".pi/extensions/agent-harness/lib/tool-call-pipeline.ts",
+				".pi/extensions/agent-harness/lib/call-guards.ts",
+				".pi/extensions/agent-harness/lib/batch-advice.ts",
+				".pi/extensions/agent-harness/lib/harness-types.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/task.ts",
+			"before": 112,
+			"parts": 9,
+			"seam": "dispatcher vs issue block vs conditional blocks vs developer/auditor templates vs JSON contract",
+			"siblings": [
+				".pi/extensions/supervisor/agent/issue-summary.ts",
+				".pi/extensions/supervisor/agent/task-prompt.ts",
+				".pi/extensions/supervisor/agent/task-context-blocks.ts",
+				".pi/extensions/supervisor/agent/task-context.ts",
+				".pi/extensions/supervisor/agent/task-developer.ts",
+				".pi/extensions/supervisor/agent/task-auditor.ts",
+				".pi/extensions/supervisor/agent/task-auditor-blocks.ts",
+				".pi/extensions/supervisor/agent/task-json-instruction.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/event/adapter/handlers.ts",
+			"before": 104,
+			"parts": 9,
+			"seam": "one event family per module, phase ordering shared",
+			"siblings": [
+				".pi/extensions/supervisor/event/adapter/handlers-tool.ts",
+				".pi/extensions/supervisor/event/adapter/handlers-thinking.ts",
+				".pi/extensions/supervisor/event/adapter/handlers-text.ts",
+				".pi/extensions/supervisor/event/adapter/handlers-message.ts",
+				".pi/extensions/supervisor/event/adapter/handlers-done.ts",
+				".pi/extensions/supervisor/event/adapter/handlers-context-info.ts",
+				".pi/extensions/supervisor/event/adapter/handlers-budget.ts",
+				".pi/extensions/supervisor/event/adapter/phase.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/checks/osv-severity.ts",
+			"before": 100,
+			"parts": 7,
+			"seam": "pure CVSS arithmetic vs severity vocabulary vs OSV JSON mapping vs shapes vs census",
+			"siblings": [
+				".pi/extensions/supervisor/checks/cvss.ts",
+				".pi/extensions/supervisor/checks/cvss-severity.ts",
+				".pi/extensions/supervisor/checks/osv-parse.ts",
+				".pi/extensions/supervisor/checks/osv-types.ts",
+				".pi/extensions/supervisor/checks/osv-counts.ts",
+				".pi/extensions/supervisor/checks/osv-vuln-severity.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/output.ts",
+			"before": 100,
+			"parts": 8,
+			"seam": "facade vs parse core vs JSON recovery vs refusal vs typed build vs comment extraction",
+			"siblings": [
+				".pi/extensions/supervisor/agent/parse-core.ts",
+				".pi/extensions/supervisor/agent/parse-json.ts",
+				".pi/extensions/supervisor/agent/parse-refusal.ts",
+				".pi/extensions/supervisor/agent/parse-build.ts",
+				".pi/extensions/supervisor/agent/parse-text.ts",
+				".pi/extensions/supervisor/agent/comment-extract.ts",
+				".pi/extensions/supervisor/agent/comment-strip.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/last-json-scanner.ts",
+			"before": 131,
+			"parts": 7,
+			"seam": "scanner entry vs escape state machine vs whitespace/quote heuristic vs sanitizers vs fence scan vs line filter",
+			"siblings": [
+				".pi/extensions/supervisor/agent/json-string-state.ts",
+				".pi/extensions/supervisor/agent/json-whitespace.ts",
+				".pi/extensions/supervisor/agent/json-close-heuristic.ts",
+				".pi/extensions/supervisor/agent/json-sanitize.ts",
+				".pi/extensions/supervisor/agent/json-fence.ts",
+				".pi/extensions/supervisor/agent/json-metadata.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/github/git.ts",
+			"before": 97,
+			"parts": 6,
+			"seam": "commit leaf vs push vs commit-and-push vs workflow-scope gate vs exemption vs rejection marker",
+			"siblings": [
+				".pi/extensions/supervisor/github/git-push.ts",
+				".pi/extensions/supervisor/github/git-commit-and-push.ts",
+				".pi/extensions/supervisor/github/workflow-scope.ts",
+				".pi/extensions/supervisor/github/workflow-exempt.ts",
+				".pi/extensions/supervisor/github/workflow-reject.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/context-info/index.ts",
+			"before": 89,
+			"parts": 9,
+			"seam": "composition root vs session bootstrap vs event wiring vs value probes",
+			"siblings": [
+				".pi/extensions/context-info/events.ts",
+				".pi/extensions/context-info/events-data.ts",
+				".pi/extensions/context-info/events-widgets.ts",
+				".pi/extensions/context-info/session-start.ts",
+				".pi/extensions/context-info/session-hints.ts",
+				".pi/extensions/context-info/lib/worktree-name.ts",
+				".pi/extensions/context-info/lib/thinking-level.ts",
+				".pi/extensions/context-info/lib/mode.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/merge.ts",
+			"before": 38,
+			"parts": 3,
+			"seam": "pre-Done gate vs post-Done conflict orchestration",
+			"siblings": [
+				".pi/extensions/supervisor/pipeline/merge-gate.ts",
+				".pi/extensions/supervisor/pipeline/merge-post.ts"
+			]
+		},
+		{
+			"path": ".pi/extensions/supervisor/agent/validation.ts",
+			"before": 74,
+			"parts": 5,
+			"seam": "one artifact kind per validator group",
+			"siblings": [
+				".pi/extensions/supervisor/agent/validation-shared.ts",
+				".pi/extensions/supervisor/agent/validation-findings.ts",
+				".pi/extensions/supervisor/agent/validation-score.ts",
+				".pi/extensions/supervisor/agent/validation-optional.ts"
+			]
+		}
+	],
+	"deferred": {
+		".pi/extensions/agent-harness/lib/harness-state.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/agent-harness/lib/load-config.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/agent-harness/lib/timed-map.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/agent-harness/test/index-cascade.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/agent-harness/test/index-config.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/agent-harness/test/index-dispatch.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/ask-user/csv-migration.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/ask-user/index.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/ask-user/jsonl-logger.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/ask-user/question-handler.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/caveman/config-ui.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/context-info/codeflow.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/context-info/footer.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/format-on-save/index.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lib/bash-query.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/lib/bash-query.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lib/ensureVenv-concurrency.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/lib/ensureVenv-errors.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/lib/ensureVenv.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/lib/ensureVenv.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lib/safe-argv.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lib/test/source-graph.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lsp-auditor/lsp-client/audit-group.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lsp-auditor/lsp-client/runtime.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lsp-auditor/output-adapter.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/lsp-auditor/run-pre-audit.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/ponytail/index.js": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/ripgrep-search/backends.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/ripgrep-search/index.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/ripgrep-search/internal.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/scrapling/python-adapter.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/scrapling/test/index-handler-contracts.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/scrapling/test/python-adapter.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/scrapling/test/scrapling-script.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/scrapling/test/stealth-e2e.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/scrapling/test/venv-setup-scrapling.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/session-logger/pipeline.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/session-logger/renderer.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/session-logger/renderer/details.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/session-logger/renderer/session-stats.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/structural-analyzer/index.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/structural-analyzer/parser.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/agent/agent-session-runner.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/agent/runner/spawned-run.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/agent/structured-audit.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/checks/ci-gating.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/checks/dead-code.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/checks/osv-scanner.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/checks/package-safety.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/checks/requirements/title.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/config/config.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/config/types.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/config/workflow.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/event/adapter/normalize.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/github/octokit-client.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/github/octokit-issue-ops.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/github/parsers.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/lib/extensions.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/lib/issue-filter.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/audit/pre-gates.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/checkpoint-file.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/handler/agent-loop-helpers.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/handler/agent-loop-steps.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/handler/agent-loop.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/handler/preflight.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/helpers.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/merge-conflicts.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/notifications.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/output.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/pr-creation.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/pr-gate.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/rebase.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/replay-session.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/run-lock.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stages/agent-comment.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stages/audit-rejection-ops.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stages/auditor-output.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stages/core.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stages/empty-worktree.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stages/git-ops.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stages/status-resolution.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/stale-cleanup.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/worktree-deps.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/worktree-guard.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/pipeline/worktree.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/session/message-renderers/render-subagent.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/supervisor/session/message-renderers/render-tool-complete.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/tsc-checkpoint/index.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/web-search/test/index-cache-concurrency.test.ts": {
+			"reason": "test suite — complexity here is fixture text, not production branches",
+			"requires": "its own issue for the test-suite families"
+		},
+		".pi/extensions/worktree-sandbox/index.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/worktree-sandbox/meaningful-token.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/worktree-sandbox/unsafe-cd.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/extensions/zzz-dump-context/index.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/skills/audit-codeflow-analysis/lib/report-json.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/skills/audit-codeflow-analysis/lib/report-markdown.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		".pi/skills/audit-codeflow-analysis/lib/report.ts": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/auth.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/catalog.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/catalog_authadd_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/catalog_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/cheasee_commit_record_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/cheasee_commit_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/clean.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/cli_doc_semantics_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_drift.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/codeflow_report_bridge_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_report_guard_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_report_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_run_harness_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_run_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_shim_entrypoint_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_shim_fp_filter_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_shim_harness_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/codeflow_shim_smoke_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/config_jsonfile.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/analysis_run.py": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/repo_identity.py": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/report_store.py": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/server.py": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/ui_rewrites.py": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/entrypoint.sh": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/lib/patch-pi-session-warning.js": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/lib/worktree-fix.sh": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/main.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/session/relay.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/stream/assembler.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/src/ws.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect/journey.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs": {
+			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
+			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
+		},
+		"cmd/cheasee-pi/identity_gitremote.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/init.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/init_auth.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/init_auth_flow_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_auth_reauth_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_clone.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/init_clone_flow_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_clone_realgit_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_prompt_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_scaffold_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_skillrepos.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/init_skillrepos_terms_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_skillrepos_usecase_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_split_layout_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_usecase_probe_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/init_usecase_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/orphan.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/package_filter.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/provider.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/provider_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/prune_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/repo.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/settings.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/template_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/ui_e2e_harness_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/ui_e2e_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/uninstall.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/up_compose.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/up_env.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/up_env_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/up_flow_journey_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/up_flow_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/up_helpers_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/up_orphans_scan_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/up_run.go": {
+			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
+		"cmd/cheasee-pi/up_workspace_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"scripts/dependency_existence_check/adapters/cpp.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"scripts/dependency_existence_check/adapters/dart.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"scripts/dependency_existence_check/adapters/java.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"scripts/dependency_existence_check/adapters/python_metadata.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"scripts/dependency_existence_check/core.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"scripts/dependency_existence_check/matcher.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"scripts/uninstall.sh": {
+			"reason": "shell script — splitting it changes an installed entry point with no in-gate shell test",
+			"requires": "its own issue with a shell-script test lane"
+		},
+		"scripts/verify-pi-layer-cache.sh": {
+			"reason": "shell script — splitting it changes an installed entry point with no in-gate shell test",
+			"requires": "its own issue with a shell-script test lane"
+		},
+		"test/dependency_existence_check_tests/_routes.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"test/dependency_existence_check_tests/test_end_to_end.py": {
+			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
+			"requires": "its own issue with the python test lane"
+		},
+		"test/dogfooding-dedup.test.sh": {
+			"reason": "shell script — splitting it changes an installed entry point with no in-gate shell test",
+			"requires": "its own issue with a shell-script test lane"
+		},
+		"test/uninstall-script.test.sh": {
+			"reason": "shell script — splitting it changes an installed entry point with no in-gate shell test",
+			"requires": "its own issue with a shell-script test lane"
+		}
+	},
+	"notScored": [
+		".pi/extensions/agent-harness/test/agent-harness-docs-consistency.test.mts",
+		".pi/extensions/ask-user/test/ask-user.test.mts",
+		".pi/extensions/ask-user/test/mode-dispatch.test.mts",
+		".pi/extensions/ask-user/test/question-handler.test.mts",
+		".pi/extensions/ask-user/test/structured-output.test.mts",
+		".pi/extensions/ask-user/test/trust-gating.test.mts",
+		".pi/extensions/context-info/test/context-info.test.mts",
+		".pi/extensions/context-info/test/context-status-bar.test.mts",
+		".pi/extensions/context-info/test/explain-commands.test.mts",
+		".pi/extensions/context-info/test/footer-config.test.mts",
+		".pi/extensions/context-info/test/footer-issue-row.test.mts",
+		".pi/extensions/context-info/test/tps-estimator.test.mts",
+		".pi/extensions/format-on-save/eslint-adapter.mts",
+		".pi/extensions/format-on-save/test/format-on-save.test.mts",
+		".pi/extensions/lsp-auditor/test/lsp-client-split.test.mts",
+		".pi/extensions/ripgrep-search/test/ripgrep-search.test.mts",
+		".pi/extensions/session-logger/test/session-logger-pipeline.test.mts",
+		".pi/extensions/session-logger/test/session-logger-renderer.test.mts",
+		".pi/extensions/session-logger/test/session-logger-wiring.test.mts",
+		".pi/extensions/session-logger/test/session-logger.test.mts",
+		".pi/extensions/structural-analyzer/test/index.test.mts",
+		".pi/extensions/supervisor/test/adapter-split.test.mts",
+		".pi/extensions/supervisor/test/agent-output.test.mts",
+		".pi/extensions/supervisor/test/agent-runner-in-process.test.mts",
+		".pi/extensions/supervisor/test/agent-runner-subprocess.test.mts",
+		".pi/extensions/supervisor/test/agent-stream.test.mts",
+		".pi/extensions/supervisor/test/agent-task.test.mts",
+		".pi/extensions/supervisor/test/chat-progress.test.mts",
+		".pi/extensions/supervisor/test/checks/osv-scanner.test.mts",
+		".pi/extensions/supervisor/test/config-zod-schema.test.mts",
+		".pi/extensions/supervisor/test/config.test.mts",
+		".pi/extensions/supervisor/test/dead-code-file-classification-removal.test.mts",
+		".pi/extensions/supervisor/test/dead-code.test.mts",
+		".pi/extensions/supervisor/test/duplicate-code.test.mts",
+		".pi/extensions/supervisor/test/event-adapter.test.mts",
+		".pi/extensions/supervisor/test/gate-failure-context.test.mts",
+		".pi/extensions/supervisor/test/github-comment.test.mts",
+		".pi/extensions/supervisor/test/github/comment.test.mts",
+		".pi/extensions/supervisor/test/github/gh-client.test.mts",
+		".pi/extensions/supervisor/test/github/git.test.mts",
+		".pi/extensions/supervisor/test/helper/output-parser.mts",
+		".pi/extensions/supervisor/test/message-renderer.test.mts",
+		".pi/extensions/supervisor/test/output.test.mts",
+		".pi/extensions/supervisor/test/package-safety-audit.test.mts",
+		".pi/extensions/supervisor/test/pipeline-audit.test.mts",
+		".pi/extensions/supervisor/test/pipeline/agent-loop-retry.test.mts",
+		".pi/extensions/supervisor/test/pipeline/agent-loop-skeleton.test.mts",
+		".pi/extensions/supervisor/test/pipeline/agent-loop-split.test.mts",
+		".pi/extensions/supervisor/test/pipeline/git-ops-timeout.test.mts",
+		".pi/extensions/supervisor/test/pipeline/handler-structure.test.mts",
+		".pi/extensions/supervisor/test/pipeline/handler.test.mts",
+		".pi/extensions/supervisor/test/pipeline/helpers.test.mts",
+		".pi/extensions/supervisor/test/pipeline/merge.test.mts",
+		".pi/extensions/supervisor/test/pipeline/pr-creation.test.mts",
+		".pi/extensions/supervisor/test/pipeline/rebase.test.mts",
+		".pi/extensions/supervisor/test/pipeline/size-tier-timeout-journey.test.mts",
+		".pi/extensions/supervisor/test/pipeline/stages.test.mts",
+		".pi/extensions/supervisor/test/pipeline/state-checkpoint.test.mts",
+		".pi/extensions/supervisor/test/pipeline/worktree.test.mts",
+		".pi/extensions/supervisor/test/render-tool-call.test.mts",
+		".pi/extensions/supervisor/test/requirements-modules.test.mts",
+		".pi/extensions/supervisor/test/requirements-traceability.test.mts",
+		".pi/extensions/supervisor/test/runner-split.test.mts",
+		".pi/extensions/supervisor/test/supervisor-bugs-freeze.test.mts",
+		".pi/extensions/supervisor/test/supervisor-issue-525.test.mts",
+		".pi/extensions/supervisor/test/supervisor-pipeline-git.test.mts",
+		".pi/extensions/supervisor/test/validation.test.mts",
+		".pi/extensions/worktree-sandbox/test/byte-identical.test.mts",
+		".pi/extensions/worktree-sandbox/test/find-unsafe-cd.test.mts",
+		".pi/extensions/worktree-sandbox/test/worktree-sandbox.test.mts",
+		".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts",
+		".pi/skills/audit-codeflow-analysis/test/bridge.test.mts",
+		".pi/skills/audit-codeflow-analysis/test/codeflow-analysis.test.mts",
+		".pi/skills/audit-codeflow-analysis/test/codeflow-run.test.mts",
+		".pi/skills/audit-codeflow-analysis/test/dry-run.test.mts",
+		".pi/skills/audit-codeflow-analysis/test/report.test.mts",
+		"docker/test/cli-install-smoke.test.mts",
+		"docker/test/unbreak-worktrees.test.mts",
+		"test/audit-codeflow-analysis-skill.test.mts",
+		"test/codeflow-fp-acceptance.test.mts",
+		"test/codeflow-run-analysis.test.mts",
+		"test/complexity-refactor-2003.test.mts",
+		"test/extension-test-imports.test.mts",
+		"test/extensions-load.test.mts",
+		"test/git-issue-create-external-skill.test.mts",
+		"test/god-object-refactor-2004.test.mts",
+		"test/large-refactor-2001.test.mts",
+		"test/lib/sdk-import-guard.mts",
+		"test/long-file-refactor-2005.test.mts",
+		"test/tests-workflow.test.mts",
+		"test/thinking-level-wired.test.mts",
+		"test/voice-for-writing.test.mts",
+		"test/workflow-coverage.test.mts"
+	],
+	"tradeoffs": {
+		"coupling": "`N Highly Coupled` rises as siblings reference the same defining files — the accepted cost of a responsibility split (already measured 101 → 116 for #2003).",
+		"scope": "12 families / 87 parts, not the whole 198-file flag set: the envelope ratchet plus `deferred{requires}` makes the remainder auditable instead of pretending one PR closes the title.",
+		"rejected": "the #2003 TOUCHED-manifest ratchet (constrains only listed files, which is how the count grew from 202 to 286) and splitting cohesive modules to satisfy a text metric (run-lock.ts, timed-map.ts, harness-state.ts, load-config.ts)."
+	}
+}

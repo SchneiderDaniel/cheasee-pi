@@ -5,19 +5,18 @@
  * Shows: git branch, active model, thinking level, session timer,
  * token usage with thresholds, and tokens-per-second during streaming.
  * Works with any theme. Use /explain-extensions to list all active extensions.
+ *
+ * Composition root (issue #2033 split): the session bootstrap lives in
+ * session-start.ts, the live event wiring in events.ts, the value probes in
+ * lib/. This module owns the command surface and the module-level stateRef
+ * the supervisor helpers write through.
  */
 
-import { existsSync, readFileSync } from "node:fs";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { getCapabilities, hyperlink } from "@earendil-works/pi-tui";
-import { loadConfig, readPiSetting } from "./config.ts";
-import { codeflowUrl } from "./codeflow.ts";
-import { uiUrl } from "./ui.ts";
-import { installFooter } from "./footer.ts";
 import { FooterState } from "./footer-state.ts";
 import { listLocalExtensions } from "./extensions.ts";
 import type { ExtensionMeta } from "./extensions.ts";
@@ -26,26 +25,9 @@ import type { PromptMeta } from "./prompts.ts";
 import { listLocalSkills } from "./skills.ts";
 import type { SkillMeta } from "./skills.ts";
 import { createExplainCommand, formatWithWordWrap } from "./explain.ts";
+import { registerFooterEvents } from "./events.ts";
+import { startFooterSession } from "./session-start.ts";
 
-// ── Inlined helpers ──────────────────────────────────────────
-// Inlined from git-helpers.ts (single consumer: this module)
-
-function getWorktreeName(cwd: string): string | null {
-	try {
-		const gitFile = `${cwd}/.git`;
-		if (!existsSync(gitFile)) return null;
-		const content = readFileSync(gitFile, "utf-8");
-		const match = content.match(/^gitdir:\s*(.+)$/m);
-		if (!match) return null;
-		const gitDir = match[1]!.trim();
-		const wtMatch = gitDir.match(/worktrees\/(.+?)(\/|$)/);
-		return wtMatch ? wtMatch[1]! : "worktree";
-	} catch {
-		return null;
-	}
-}
-
-// Inlined from cheasee-pi-info.ts (single consumer: this module)
 const CASTLE_ART: string[] = [
 	"                                                #@@@%+:",
 	"                                              %@#===+#%@@@#:",
@@ -112,21 +94,6 @@ export function clearSupervisorIssueData(): void {
 	s.callInstallFooter();
 }
 
-/**
- * Current thinking level pi is actually using, mirroring the stock footer's
- * source of truth (pi.getThinkingLevel()). getThinkingLevel() resolves the
- * full chain — CLI/scoped level → session-restored level → defaultThinkingLevel
- * setting → DEFAULT_THINKING_LEVEL="medium" — clamped per model, so the footer
- * never displays a stale settings-only read while pi uses another level.
- * Defensive: falls back to the setting on pi builds without getThinkingLevel().
- */
-function mirrorThinkingLevel(pi: ExtensionAPI): string {
-	const live = (pi as any).getThinkingLevel?.();
-	return typeof live === "string" && live !== ""
-		? live
-		: readPiSetting("defaultThinkingLevel") || "";
-}
-
 export default function contextInfo(pi: ExtensionAPI): void {
 	// FooterState — single source of truth for all mutable state
 	// Initialized per session in session_start handler
@@ -156,7 +123,6 @@ export default function contextInfo(pi: ExtensionAPI): void {
 	});
 
 	// ── cheasee-pi-info command ────────────────────────────
-	// ponytail: inlined from cheasee-pi-info.ts — single consumer
 	pi.registerCommand("cheasee-pi-info", {
 		description: "Show castle ASCII art — static info display",
 		handler: async (_args: string | undefined, ctx: ExtensionCommandContext) => {
@@ -165,34 +131,10 @@ export default function contextInfo(pi: ExtensionAPI): void {
 		},
 	});
 
-	// ── Cross-extension event listeners (shared pi.events) ─────────
-	// Listen for supervisor issue data events instead of dynamic import.
-	// Dynamic import from supervisor creates a separate module instance
-	// (jiti vs native ESM), so module-level stateRef is never set there.
-	pi.events.on("supervisor:issue-data", (raw: unknown) => {
-		if (!state || state.disposed) return;
-		if (raw === null) {
-			state.footerConfig.issueNumber.value = undefined;
-			state.footerConfig.issueRepo.value = undefined;
-			state.footerConfig.issueTitle.value = undefined;
-		} else if (typeof raw === "object" && raw !== null) {
-			const data = raw as { issueNumber: number; issueRepo: string; issueTitle: string };
-			state.footerConfig.issueNumber.value = data.issueNumber;
-			state.footerConfig.issueRepo.value = data.issueRepo;
-			state.footerConfig.issueTitle.value = data.issueTitle;
-		}
-		// Trigger re-render through stored TUI callback if available.
-		// This avoids re-installing the entire footer via setFooter() which
-		// may not trigger an immediate render — causing a race where issue
-		// data is set and cleared (via finally block) before any render occurs.
-		if (state.footerConfig._requestRender) {
-			state.footerConfig._requestRender();
-		} else {
-			state.callInstallFooter();
-		}
-	});
+	// ── Live updates (footer state) ────────────────────────────────
+	registerFooterEvents(pi, () => state);
 
-	// ── Hooks ──────────────────────────────────────────────────────
+	// ── Session lifecycle ──────────────────────────────────────────
 
 	pi.on("session_start", async (_event, ctx: ExtensionContext) => {
 		// Dispose previous state to prevent stale ctx usage after
@@ -201,197 +143,8 @@ export default function contextInfo(pi: ExtensionAPI): void {
 		if (state) {
 			state.dispose();
 		}
-		state = new FooterState(ctx, installFooter);
+		state = (await startFooterSession(pi, ctx)) ?? undefined;
 		stateRef = state;
-		state.resetProperties();
-		state.config = loadConfig();
-
-		// Detect worktree each session — git worktree can change across sessions
-		state.footerConfig.worktreeName = getWorktreeName(ctx.cwd);
-		// Mirror pi's live thinking level from session start (resolve CLI/scoped,
-		// session-restored, setting, and DEFAULT_THINKING_LEVEL via getThinkingLevel)
-		state.footerConfig.thinkingLevel = mirrorThinkingLevel(pi);
-
-		if (state.config === null) {
-			// Mode guard: only clear UI elements in TUI mode
-			// ctx.mode is available in pi >=0.78.1; cast for backward compat
-			const mode = (ctx as any).mode as string | undefined;
-			if (mode === undefined || mode === "tui") {
-				ctx.ui.setFooter(undefined);
-				ctx.ui.setStatus("contextUsage", undefined);
-			}
-			state.dispose();
-			return;
-		}
-
-		const cw = ctx.model?.contextWindow;
-		if (typeof cw === "number" && cw > 0) {
-			state.footerConfig.lastContextWindow.value = cw;
-		}
-
-		// ── Session name (Improvement #2) ──────────────────────
-		state.footerConfig.sessionName = pi.getSessionName();
-
-		// ── Project trust status (Improvement #4) ──────────────
-		// ctx.isProjectTrusted() is available in pi >=0.79.1; cast for backward compat
-		const trusted = (ctx as any).isProjectTrusted?.();
-		if (trusted === true) {
-			state.footerConfig.trustStatus = "trusted";
-		} else if (trusted === false) {
-			state.footerConfig.trustStatus = "untrusted";
-		} else {
-			state.footerConfig.trustStatus = undefined;
-		}
-
-		// ── Service links (footer row 3) ───────────────────────
-		// Resolve both URLs once per session, BEFORE installing the footer,
-		// so the first render already carries the links (no post-install
-		// async gap) and the values stay byte-stable across re-renders
-		// (TuiAltScreen diffs raw lines, escape sequences included). The
-		// CodeFlow value is reused for the startup notify below — one
-		// resolution, no divergence.
-		state.footerConfig.uiUrl = await uiUrl(ctx.cwd);
-		state.footerConfig.codeflowUrl = await codeflowUrl(ctx.cwd);
-
-		// Install custom footer (mode-guarded inside installFooter)
-		state.callInstallFooter();
-
-		// Start live timer (timer itself has its own mode guard via installFooter call)
-		state.startTimer();
-
-		// Mode guard: only set working indicator and widgets in TUI mode
-		const mode = (ctx as any).mode as string | undefined;
-		if (mode === undefined || mode === "tui") {
-			// Custom working indicator — subtle dot pulse
-			ctx.ui.setWorkingIndicator({
-				frames: [
-					ctx.ui.theme.fg("dim", "·"),
-					ctx.ui.theme.fg("muted", "•"),
-					ctx.ui.theme.fg("accent", "●"),
-					ctx.ui.theme.fg("muted", "•"),
-				],
-				intervalMs: 150,
-			});
-		}
-
-		// ── Session ID ────────────────────────────────────────
-		let sessionId = "unknown";
-		const sessionFile = ctx.sessionManager.getSessionFile();
-		if (sessionFile) {
-			// Filename format: <timestamp>_<uuid>.jsonl
-			const match = sessionFile.match(/_([0-9a-f-]+)\.jsonl$/i);
-			if (match) sessionId = match[1]!;
-		}
-		state.footerConfig.sessionId = sessionId;
-
-		// ── Startup hint ────────────────────────────────────
-		ctx.ui.notify("For Info:  /cheasee-pi-info", "info");
-
-		// ── CodeFlow URL hint ───────────────────────────────
-		// Post the live CodeFlow URL (resolved once above, from the same source
-		// of truth the CLI uses; the CLI forwards its bound port via
-		// CODEFLOW_PORT) as a clickable hyperlink. Gate the OSC 8 wrap on
-		// terminal capabilities (conservative default = plain URL text survives
-		// OSC 8-swallowing terminals), mirroring the markdown component's gate.
-		// Unresolvable workspace → no second notify, never throws.
-		const url = state.footerConfig.codeflowUrl;
-		if (url) {
-			const caps = getCapabilities();
-			ctx.ui.notify("CodeFlow:  " + (caps.hyperlinks ? hyperlink(url, url) : url), "info");
-		}
-	});
-
-	// Clear explain-* widgets on first user interaction
-	function clearExplainWidgets(ctx: ExtensionContext) {
-		const mode = (ctx as any).mode as string | undefined;
-		if (mode === undefined || mode === "tui") {
-			ctx.ui.setWidget("explain-extensions", undefined);
-			ctx.ui.setWidget("explain-prompts", undefined);
-			ctx.ui.setWidget("explain-skills", undefined);
-		}
-	}
-
-	pi.on("before_agent_start", async (_event, ctx: ExtensionContext) => {
-		clearExplainWidgets(ctx);
-	});
-
-	pi.on("input", async (_event, ctx: ExtensionContext) => {
-		clearExplainWidgets(ctx);
-	});
-
-	pi.on("user_bash", async (_event, ctx: ExtensionContext) => {
-		clearExplainWidgets(ctx);
-	});
-
-	pi.on("thinking_level_select", async (event, ctx: ExtensionContext) => {
-		if (!state || state.disposed) return;
-		state.footerConfig.thinkingLevel = event.level;
-		if (state.config) {
-			state.callInstallFooter();
-		}
-	});
-
-	pi.on("model_select", async (event, ctx: ExtensionContext) => {
-		if (!state || state.disposed) return;
-		const cw = event.model?.contextWindow;
-		if (typeof cw === "number" && cw > 0) {
-			state.footerConfig.lastContextWindow.value = cw;
-		}
-		// Reset cache hit rate on model change (per research finding — cache keys are provider/model-specific)
-		state.footerConfig.cacheHitRate = undefined;
-		// Re-read session name (in case setSessionName was called mid-session)
-		state.footerConfig.sessionName = pi.getSessionName();
-		// Model switch re-clamps the thinking level — resync the mirror
-		state.footerConfig.thinkingLevel = mirrorThinkingLevel(pi);
-		if (state.config) {
-			state.callInstallFooter();
-		}
-	});
-
-	pi.on("turn_end", async (_event, ctx: ExtensionContext) => {
-		if (!state || state.disposed || !state.config) return;
-		// Re-read session name (in case setSessionName was called mid-session)
-		state.footerConfig.sessionName = pi.getSessionName();
-		state.callInstallFooter();
-	});
-
-	pi.on("message_end", async (event, ctx: ExtensionContext) => {
-		if (!state || state.disposed) return;
-		const msg = event.message;
-		if (!msg || msg.role !== "assistant") return;
-		// Capture cache stats from raw event usage
-		const eventUsage = msg.usage;
-		if (eventUsage && typeof eventUsage.cacheRead === "number") {
-			state.footerConfig.cacheRead = eventUsage.cacheRead;
-		}
-		if (eventUsage && typeof eventUsage.cacheWrite === "number") {
-			state.footerConfig.cacheWrite = eventUsage.cacheWrite;
-		}
-		// Compute cache hit rate (Improvement #1)
-		if (
-			eventUsage &&
-			typeof eventUsage.cacheRead === "number" &&
-			typeof eventUsage.cacheWrite === "number"
-		) {
-			state.footerConfig.cacheHitRate = Math.round(
-				(eventUsage.cacheRead / (eventUsage.cacheRead + eventUsage.cacheWrite)) * 100,
-			);
-		}
-	});
-
-	pi.on("message_update", async (event: any, _ctx: ExtensionContext) => {
-		if (!state || state.disposed) return;
-		// Sample streaming output tokens for TPS estimation
-		const output = event.assistantMessageEvent?.partial?.usage?.output;
-		if (typeof output === "number") {
-			state.sampleTps(output);
-		}
-	});
-
-	pi.on("tool_execution_end", async () => {
-		if (state && !state.disposed) {
-			state.addToolCall();
-		}
 	});
 
 	pi.on("session_shutdown", async () => {

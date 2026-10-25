@@ -330,9 +330,16 @@ describe("fetch-report CLI wiring", () => {
 			lib.includes('from "../../../extensions/lib/path-containment.ts"'),
 			"must import the shared containment lib",
 		);
+		assert.ok(lib.includes("resolveWithinRoot"), "must use the containment helpers");
+		// #2033 split: the real-path containment gate lives with the writer it guards.
+		const store = readFileSync(
+			resolve(import.meta.dirname, "../lib/report-store.ts"),
+			"utf-8",
+		);
 		assert.ok(
-			lib.includes("resolveWithinRoot") && lib.includes("isPathWithinBase"),
-			"must use the containment helpers",
+			store.includes('from "../../../extensions/lib/path-containment.ts"') &&
+				store.includes("isPathWithinBase"),
+			"the artifact store must use the real-path containment helper",
 		);
 
 		const cli = readFileSync(resolve(import.meta.dirname, "../scripts/fetch-report.mts"), "utf-8");

@@ -46,7 +46,21 @@ const __dirname = dirname(__filename);
 const ADAPTER_DIR = join(__dirname, "../event/adapter");
 const SHIM_FILE = join(__dirname, "../event/adapter.ts");
 
-const MODULES = ["normalize.ts", "handlers.ts", "forward.ts", "index.ts"];
+const MODULES = [
+	"normalize.ts",
+	"handlers.ts",
+	// #2033 split the handler families out; the size guards follow them.
+	"handlers-tool.ts",
+	"handlers-thinking.ts",
+	"handlers-text.ts",
+	"handlers-message.ts",
+	"handlers-done.ts",
+	"handlers-context-info.ts",
+	"handlers-budget.ts",
+	"phase.ts",
+	"forward.ts",
+	"index.ts",
+];
 
 const RUNTIME_EXPORTS: Array<{ name: string; value: unknown }> = [
 	{ name: "normalizeEvent", value: normalizeEvent },
@@ -216,10 +230,10 @@ describe("adapter/ split — size guards", () => {
 		}
 	});
 
-	it("handleContextInfo span ≤ 45 lines in handlers.ts", () => {
-		const src = readFileSync(join(ADAPTER_DIR, "handlers.ts"), "utf-8");
+	it("handleContextInfo span ≤ 45 lines in handlers-context-info.ts", () => {
+		const src = readFileSync(join(ADAPTER_DIR, "handlers-context-info.ts"), "utf-8");
 		const span = functionSpan(src, "handleContextInfo");
-		assert.ok(span !== null, "handleContextInfo found in handlers.ts");
+		assert.ok(span !== null, "handleContextInfo found in handlers-context-info.ts");
 		assert.ok(span <= 45, `handleContextInfo spans ${span} lines — block artifact not relocated`);
 	});
 });
