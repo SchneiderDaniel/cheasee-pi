@@ -571,14 +571,12 @@ describe("god-object refactor #2034 — the metric falls", () => {
 		assert.equal(b.after.godObjectCount, 21);
 	});
 
-	it("records every still-flagged file as a deferral", () => {
+	it("preserves the historical deferral ledger", () => {
 		const b = baseline();
 		const deferred = b.deferred.flatMap((d) => d.files);
 		assert.equal(deferred.length, b.after.godObjectCount, "deferred total != after count");
-		for (const rel of deferred) {
-			assert.ok(exists(rel), `deferred path is missing: ${rel}`);
-			assert.equal(flagged(rel), true, `${rel} is deferred but not flagged — a fiction`);
-		}
+		assert.equal(new Set(deferred).size, deferred.length, "a deferral is listed twice");
+		for (const rel of deferred) assert.ok(exists(rel), `deferred path is missing: ${rel}`);
 	});
 
 	it("carries reason and requires on every deferral", () => {
@@ -603,6 +601,13 @@ describe("god-object refactor #2034 — the metric falls", () => {
 			return exists(rel) && flagged(rel);
 		});
 		const b = baseline();
+		const followup = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as {
+			reducedBy: string[];
+			splitFamilies: Record<string, string[]>;
+		};
+		const deferred = b.deferred.flatMap((d) => d.files);
+		const laterReduced = new Set([...followup.reducedBy, ...UNCITED_REDUCED]);
+		const laterSiblings = new Set(Object.values(followup.splitFamilies).flat());
 		assert.ok(
 			live.length <= b.after.godObjectCount,
 			`live flagged ${live.length} > recorded ${b.after.godObjectCount}`,
@@ -610,8 +615,13 @@ describe("god-object refactor #2034 — the metric falls", () => {
 		for (const rel of [...b.reducedBy, ...UNCITED_REDUCED]) {
 			assert.equal(live.includes(rel), false, `${rel} is still flagged in the live tree`);
 		}
-		for (const rel of b.deferred.flatMap((d) => d.files)) {
-			assert.ok(live.includes(rel), `${rel} is deferred but not flagged in the live tree`);
+		for (const rel of live) {
+			assert.ok(deferred.includes(rel) || laterSiblings.has(rel), `${rel} is unrecorded`);
+		}
+		for (const rel of deferred) {
+			if (!live.includes(rel)) {
+				assert.ok(laterReduced.has(rel), `${rel} stopped flagging without a follow-up reduction`);
+			}
 		}
 	});
 

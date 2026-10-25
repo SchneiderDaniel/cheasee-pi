@@ -12,16 +12,19 @@ FROM python:3.13-alpine@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf5
 # recorded revision, so the pin cannot drift from the fixtures silently.
 ARG CODEFLOW_REF=b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 
-COPY server.py /opt/codeflow/server.py
+# The shim is server.py plus the sibling modules it imports (config, the report
+# store, the headless run state machine, the committed-tree identity and the
+# served-page rewrites); all of them must land in the same directory.
+COPY server.py config.py report_store.py analysis_run.py repo_identity.py ui_rewrites.py /opt/codeflow/
 COPY config.json /opt/codeflow/config.json
 COPY run-analysis.mjs /opt/codeflow/run-analysis.mjs
 # False-positive policy, shared by the headless runner and the served page
 # (server.py requires it from this same directory).
 COPY fp-filter.js /opt/codeflow/fp-filter.js
 
-# Fail the build loudly if server.py is corrupt. A SyntaxError here would
+# Fail the build loudly if any shim module is corrupt. A SyntaxError here would
 # otherwise build fine and crash the container silently at startup.
-RUN python3 -m py_compile /opt/codeflow/server.py
+RUN python3 -m py_compile /opt/codeflow/*.py
 
 # nodejs: the on-demand headless analyzer (run-analysis.mjs). No npm packages —
 # the runner imports only node: builtins and the pinned UI checkout's own code.

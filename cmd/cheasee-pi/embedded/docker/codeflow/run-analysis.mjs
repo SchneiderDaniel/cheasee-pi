@@ -113,7 +113,18 @@ function matchBrace(src, open) {
 	while (i < src.length) {
 		const ch = src[i];
 		if (ch === "'" || ch === '"' || ch === "`") {
-			i = skipString(src, i, ch);
+			i++;
+			while (i < src.length) {
+				if (src[i] === "\\") {
+					i += 2;
+					continue;
+				}
+				if (src[i] === ch) {
+					i++;
+					break;
+				}
+				i++;
+			}
 			continue;
 		}
 		if (ch === "/" && src[i + 1] === "/") {
@@ -132,19 +143,6 @@ function matchBrace(src, open) {
 		i++;
 	}
 	return -1;
-}
-
-function skipString(src, i, quote) {
-	i++;
-	while (i < src.length) {
-		if (src[i] === "\\") {
-			i += 2;
-			continue;
-		}
-		if (src[i] === quote) return i + 1;
-		i++;
-	}
-	return i;
 }
 
 // Run the analyzer + metrics blocks in a vm and return the exported helpers,
