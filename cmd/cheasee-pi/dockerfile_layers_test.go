@@ -25,10 +25,10 @@ func readDockerfile(t *testing.T) string {
 // Phase 7: Dockerfile resource invariants
 // ──────────────────────────────────────────────
 
-func TestDockerfile_ClonesCheaseePi(t *testing.T) {
+func TestDockerfile_FetchesCheaseePi(t *testing.T) {
 	content := readDockerfile(t)
-	if !strings.Contains(content, "git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi") {
-		t.Error("Dockerfile must clone the cheasee-pi repo to /opt/cheasee-pi (ARG CHEASEE_REF)")
+	if !strings.Contains(content, `git -C /opt/cheasee-pi fetch --depth 1 origin "${CHEASEE_COMMIT}"`) {
+		t.Error("Dockerfile must fetch the resolved cheasee-pi commit into /opt/cheasee-pi")
 	}
 	if !strings.Contains(content, "ARG CHEASEE_REF=main") {
 		t.Error("Dockerfile must default ARG CHEASEE_REF to main")

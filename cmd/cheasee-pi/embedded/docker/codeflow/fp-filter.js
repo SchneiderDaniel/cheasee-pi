@@ -2,32 +2,40 @@
 //
 // Applied to the structured `data` the analyzer produced, *before* any report
 // artifact is built, so the health score, the markdown export, the JSON export
-// and the stats all agree. Five categories:
+// and the stats all agree. Six categories:
 //
-//   1. security findings that cite no real code — an empty or comment-only
+//   1. HIGH security findings that cite no real code — an empty or comment-only
 //      snippet, a string-literal type union, a value the environment resolves
 //      at runtime, or a symbol that does not exist in the cited file;
-//   2. layer violations whose two endpoints cannot be a real lower->higher
+//   2. MEDIUM `Command Execution` findings, which the analyzer raises from a
+//      whole-file `node:child_process` import/require rather than a call. Such a
+//      finding is dropped only when the cited file's own text proves *every*
+//      child-process call is an argv-array invocation whose program resolves to
+//      a literal and whose argv is a literal array or a `argvCommand`-validated
+//      binding free of an interpreter's code flag (`node -e`, `python -c`),
+//      with the shell forced off and the environment either absent or routed
+//      through the policy's `sanitizeSpawnEnv` (which drops `NODE_OPTIONS`,
+//      `LD_PRELOAD`, `GIT_CONFIG_*` and the like). An unreadable file, a dynamic
+//      program, unvalidated argv, an unconstrained env, or any shell call keeps
+//      it (fail closed).
+//   3. layer violations whose two endpoints cannot be a real lower->higher
 //      import: a different language, an endpoint off the repo's declared layer
 //      taxonomy, a same-or-reversed rank order, or no recorded import edge. The
 //      analyzer infers layers from loose path substrings and falls back to
 //      `utils`, so its `files[].layer` labels are advisory; REPO_LAYERS below is
 //      the single source of which path is which layer, and this repository
 //      declares none, so the whole category collapses;
-//   3. LOW hygiene findings (`Code Comments` / `Debug Statements`) whose cited
+//   4. LOW hygiene findings (`Code Comments` / `Debug Statements`) whose cited
 //      path is a non-shipping artifact — a test or a document, where the
 //      flagged token is fixture data or a worked example, not deferred work;
-//   4. unused functions that the snapshot does reference. The analyzer's call
+//   5. unused functions that the snapshot does reference. The analyzer's call
 //      graph misses function-as-value references (`opts.fetchFn ?? defaultFetch`)
 //      and cross-file trait dispatch (`Socket::on_message` called in retry.rs),
 //      so a symbol that still appears call- or value-shaped outside its own
 //      definition is not dead;
-//   5. aggregate code-clone groups whose `name` lists more than a small number
+//   6. aggregate code-clone groups whose `name` lists more than a small number
 //      of distinct member symbols — a genuine pairwise clone names one or two,
 //      while the dozen-member aggregates are repo-wide shape coincidences.
-//
-// Security suppression considers HIGH severity only: the LOW/MEDIUM shapes
-// (argv-array spawns) are left in the report for the audit skill to triage.
 //
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
@@ -165,13 +173,863 @@
 		return false;
 	}
 
+	// --- MEDIUM `Command Execution`: file-scoped, so file-scoped proof -------
+	//
+	// The analyzer's `Command Execution` rule fires on a whole file — an import
+	// or `require` of `node:child_process`, or a `child_process.exec` call — and
+	// records it with no snippet (`code: ""`), so the finding names a file, not an
+	// invocation. Its predicate is upstream and cannot be narrowed here; proving
+	// the hit a false positive needs the cited file's own text. A file is
+	// suppressed only when *every* child-process call it makes is an argv-array
+	// invocation through the shared policy (`argvCommand` for the program,
+	// `assertNoShell` for the options), no shell-executing construct appears
+	// anywhere, and the options either bind no environment or bind one the
+	// policy's `sanitizeSpawnEnv` constrains — an unconstrained env can name a
+	// command the argv never shows (`GIT_CONFIG_*`, `NODE_OPTIONS`, `LD_PRELOAD`).
+	// An unreadable file, an unrecognised call shape, a dynamic program, an
+	// unconstrained env, or any shell call keeps the finding (fail closed).
+
+	// `node:child_process` members, by whether they run an argv array or a shell
+	// string. `execFile("sh", ["-c", x])` is still argv-shaped but names a shell,
+	// so a shell-program literal is denied separately below.
+	var CP_MEMBERS = {
+		spawn: "argv",
+		spawnSync: "argv",
+		execFile: "argv",
+		execFileSync: "argv",
+		exec: "shell",
+		execSync: "shell",
+		fork: "shell",
+	};
+	var CP_NAMES = Object.keys(CP_MEMBERS);
+	// A bare shell program passed as the executable argument.
+	var SHELL_PROGRAM =
+		/["'`](?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|cmd(?:\.exe)?|powershell(?:\.exe)?)["'`]/;
+
+	/** Positioned on the opening quote; returns the index just past the close. */
+	function skipString(code, i) {
+		var quote = code[i++];
+		while (i < code.length) {
+			if (code[i] === "\\") {
+				i += 2;
+				continue;
+			}
+			if (code[i] === quote) return i + 1;
+			i++;
+		}
+		return i;
+	}
+
+	/** True when a `/` after `prefix` opens a regex literal, not a division. */
+	function startsRegex(prefix) {
+		for (var i = prefix.length - 1; i >= 0; i--) {
+			var c = prefix[i];
+			if (c === " " || c === "\t" || c === "\n" || c === "\r") continue;
+			return !/[A-Za-z0-9_$)\]"'`]/.test(c);
+		}
+		return true;
+	}
+
+	/** Positioned on the opening `/`; returns the index just past the flags. */
+	function skipRegex(code, i) {
+		i++;
+		var inClass = false;
+		while (i < code.length) {
+			var c = code[i];
+			if (c === "\\") {
+				i += 2;
+				continue;
+			}
+			if (c === "[") inClass = true;
+			else if (c === "]") inClass = false;
+			else if (c === "/" && !inClass) return i + 1;
+			else if (c === "\n") return i;
+			i++;
+		}
+		return i;
+	}
+
+	// String- and regex-aware comment removal, so a comment can neither hide a
+	// call site nor a regex containing `//` fake one.
+	function stripComments(code) {
+		var out = "";
+		var i = 0;
+		while (i < code.length) {
+			var ch = code[i];
+			if (ch === '"' || ch === "'" || ch === "`") {
+				var s = i;
+				i = skipString(code, i);
+				out += code.slice(s, i);
+				continue;
+			}
+			if (ch === "/" && code[i + 1] === "/") {
+				i = code.indexOf("\n", i);
+				if (i < 0) break;
+				continue;
+			}
+			if (ch === "/" && code[i + 1] === "*") {
+				var end = code.indexOf("*/", i + 2);
+				if (end < 0) break;
+				i = end + 2;
+				continue;
+			}
+			if (ch === "/" && startsRegex(out)) {
+				var r = i;
+				i = skipRegex(code, i);
+				out += code.slice(r, i);
+				continue;
+			}
+			out += ch;
+			i++;
+		}
+		return out;
+	}
+
+	// Top-level comma split, honouring nesting and strings — call arguments.
+	function splitTopLevel(text) {
+		var parts = [];
+		var depth = 0;
+		var start = 0;
+		var i = 0;
+		while (i < text.length) {
+			var ch = text[i];
+			if (ch === '"' || ch === "'" || ch === "`") {
+				i = skipString(text, i);
+				continue;
+			}
+			if (ch === "(" || ch === "[" || ch === "{") depth++;
+			else if (ch === ")" || ch === "]" || ch === "}") depth--;
+			else if (ch === "," && depth === 0) {
+				parts.push(text.slice(start, i));
+				start = i + 1;
+			}
+			i++;
+		}
+		parts.push(text.slice(start));
+		return parts;
+	}
+
+	// The argument list of the call whose `(` is at `open`, minus the parens.
+	function argumentText(code, open) {
+		var depth = 0;
+		var i = open;
+		while (i < code.length) {
+			var ch = code[i];
+			if (ch === '"' || ch === "'" || ch === "`") {
+				i = skipString(code, i);
+				continue;
+			}
+			if (ch === "(") depth++;
+			else if (ch === ")") {
+				depth--;
+				if (depth === 0) return code.slice(open + 1, i);
+			}
+			i++;
+		}
+		return null;
+	}
+
+	// A literal program: a quoted string with no escape sequence and no template
+	// interpolation. An escape can hide a shell (`"/bin/\u0073h"` is `/bin/sh`),
+	// so a program carrying one is not a proven literal — the caller fails closed.
+	function isLiteralProgram(text) {
+		var a = text.trim();
+		return /^"[^"\\\n]*"$/.test(a) || /^'[^'\\\n]*'$/.test(a) || /^`[^`$\\]*`$/.test(a);
+	}
+
+	// Names bound by `const { program, args } = argvCommand(...)`. Only a
+	// destructured `program` whose argvCommand first argument is *itself a
+	// literal* proves a later call's executable; `argvCommand(request.command,
+	// ...)` binds nothing, so a dynamic program keeps its finding. A destructured
+	// `args` name records the argv expression the policy was handed, so the call
+	// site can still inspect it for an interpreter's code flag. `envs` records
+	// `const env = sanitizeSpawnEnv(...)` names: only a `const` binding is proof,
+	// since a `let`/`var` can be replaced with a hostile env on the next line.
+	function policyBindings(code, policy) {
+		var programs = Object.create(null);
+		var argsNames = Object.create(null);
+		var envs = Object.create(null);
+		var m;
+		var envRe =
+			/(?:const)\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]*)?=\s*(?:await\s+)?sanitizeSpawnEnv\s*(?:<[^<>]*>)?\s*\(/g;
+		if (policy.sanitizeSpawnEnv === true) {
+			while ((m = envRe.exec(code)) !== null) envs[m[1]] = true;
+		}
+		if (policy.argvCommand !== true) return { programs: programs, args: argsNames, envs: envs };
+		var re = /(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]*)?=\s*argvCommand\s*(?:<[^<>]*>)?\s*\(/g;
+		while ((m = re.exec(code)) !== null) {
+			var open = code.indexOf("(", m.index + m[0].length - 1);
+			var callArgs = argumentText(code, open);
+			var parts = callArgs === null ? [] : splitTopLevel(callArgs);
+			var programLiteral = parts.length >= 1 && isLiteralProgram(parts[0]) ? parts[0].trim() : null;
+			var argvExpr = parts.length >= 2 ? stripAssertion(parts[1]) : null;
+			var fields = m[1].split(",");
+			for (var i = 0; i < fields.length; i++) {
+				var seg = fields[i].trim();
+				if (!seg) continue;
+				var colon = seg.indexOf(":");
+				var field = (colon < 0 ? seg : seg.slice(0, colon)).trim();
+				var local = (colon < 0 ? seg : seg.slice(colon + 1)).trim();
+				var id = /^[A-Za-z_$][\w$]*/.exec(local);
+				if (!id) continue;
+				if (field === "program") {
+					if (programLiteral !== null) programs[id[0]] = programLiteral;
+				} else if (field === "args") {
+					argsNames[id[0]] = argvExpr;
+				}
+			}
+		}
+		return { programs: programs, args: argsNames, envs: envs };
+	}
+
+	// Local names that stand for a `node:child_process` member: named/namespace
+	// imports, `require` destructuring, member assignment, `promisify(member)`,
+	// and destructuring off a namespace — so an aliased spawn/exec is still seen
+	// as a call site. Over-registering only ever denies a finding (fail closed).
+	function childProcessBindings(code) {
+		var members = Object.create(null);
+		var namespaces = Object.create(null);
+		var m;
+
+		function addNamed(list) {
+			var parts = list.split(",");
+			for (var i = 0; i < parts.length; i++) {
+				var seg = parts[i].trim();
+				if (!seg) continue;
+				var asMatch = /^(\w+)(?:\s+as\s+|\s*:\s*)(\w+)$/.exec(seg);
+				if (asMatch) {
+					if (CP_MEMBERS[asMatch[1]]) members[asMatch[2]] = asMatch[1];
+				} else if (/^\w+$/.test(seg) && CP_MEMBERS[seg]) {
+					members[seg] = seg;
+				}
+			}
+		}
+
+		var re = /import\s*(?:type\s*)?([\s\S]*?)\s*from\s*["'](?:node:)?child_process["']/g;
+		while ((m = re.exec(code)) !== null) {
+			var clause = m[1];
+			var star = /\*\s+as\s+(\w+)/.exec(clause);
+			if (star) namespaces[star[1]] = true;
+			var brace = /\{([^}]*)\}/.exec(clause);
+			if (brace) addNamed(brace[1]);
+			else if (!star && /^\s*\w+\s*$/.test(clause)) namespaces[clause.trim()] = true;
+		}
+
+		re =
+			/(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
+		while ((m = re.exec(code)) !== null) {
+			var lhs = m[1].trim();
+			if (m[2]) {
+				if (CP_MEMBERS[m[2]]) members[lhs] = m[2];
+			} else if (/^\{/.test(lhs)) addNamed(lhs.replace(/^\{/, "").replace(/\}$/, ""));
+			else if (/^\w+$/.test(lhs)) namespaces[lhs] = true;
+		}
+
+		// The dynamic-import form of the same binding: `const cp = await
+		// import("node:child_process")` (and its destructured/`.member` variants)
+		// resolves to the same namespace, so `cp.spawn(...)` must be scanned.
+		re =
+			/(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*import\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
+		while ((m = re.exec(code)) !== null) {
+			var dlhs = m[1].trim();
+			if (m[2]) {
+				if (CP_MEMBERS[m[2]]) members[dlhs] = m[2];
+			} else if (/^\{/.test(dlhs)) addNamed(dlhs.replace(/^\{/, "").replace(/\}$/, ""));
+			else if (/^\w+$/.test(dlhs)) namespaces[dlhs] = true;
+		}
+
+		// Assignment to a name declared elsewhere (`let cp; cp = require(...)`):
+		// the declaration scans above miss it, so register the receiver too.
+		re =
+			/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*\(*\s*(?:await\s+)?\(*\s*(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
+		while ((m = re.exec(code)) !== null) namespaces[m[1]] = true;
+
+		// Fail closed on any other one-line binding of a module result the
+		// structured scans above do not enumerate — a nested paren group, a
+		// ternary, a helper call (`const cp = ((await import(...)))`, `const cp =
+		// cond ? require(...) : null`). Registering the receiver as a namespace
+		// only ever makes more call sites visible, so an unrecognised shape
+		// denies a suppression rather than hiding a genuine shell-out.
+		re =
+			/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*[^;=\n]*?(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
+		while ((m = re.exec(code)) !== null) namespaces[m[1]] = true;
+
+		// Assignment and destructuring aliases, iterated to a fixpoint.
+		for (var pass = 0; pass < 3; pass++) {
+			re =
+				/(?:const|let|var)\s+(\w+)\s*=\s*(?:promisify\s*\(\s*(\w+)\s*\)|(\w+)\s*\.\s*(\w+)|(\w+))/g;
+			while ((m = re.exec(code)) !== null) {
+				if (m[2] && members[m[2]]) members[m[1]] = members[m[2]];
+				else if (m[3] && m[4] && CP_MEMBERS[m[4]]) members[m[1]] = m[4];
+				else if (m[5] && members[m[5]]) members[m[1]] = members[m[5]];
+				else if (m[5] && namespaces[m[5]]) namespaces[m[1]] = true;
+			}
+			re = /(?:const|let|var)\s*\{([^}]*)\}\s*=\s*(\w+)\s*[;,\n]/g;
+			while ((m = re.exec(code)) !== null) {
+				if (namespaces[m[2]]) addNamed(m[1]);
+			}
+		}
+
+		return { members: members, namespaces: namespaces };
+	}
+
+	// Any shell-executing construct in the file: a shell member name (`exec`,
+	// `execSync`, `fork` — standalone, aliased or namespaced), a `shell` option
+	// that is not explicitly `false`, a `-c` command string, a shell-program
+	// literal, `eval`, or `new Function`.
+	function hasShellExecution(code) {
+		if (/(?:^|[^\w$])(?:exec|execSync|fork)(?![\w$])/.test(code)) return true;
+		if (/(?:^|[^\w$])shell\s*:\s*(?!\s*false\b)/.test(code)) return true;
+		if (/["'`]-c["'`]/.test(code)) return true;
+		if (SHELL_PROGRAM.test(code)) return true;
+		if (/(?:^|[^\w$])eval\s*\(/.test(code)) return true;
+		if (/\bnew\s+Function\s*\(/.test(code)) return true;
+		return false;
+	}
+
+	/** The single argument text of the `assertNoShell(...)` call, or null. */
+	function assertNoShellArgument(optionsText) {
+		var m = /(?:^|[^\w$.])assertNoShell\s*(?:<[^<>]*>)?\s*\(/.exec(optionsText);
+		if (!m) return null;
+		var open = optionsText.indexOf("(", m.index + m[0].length - 1);
+		var args = open < 0 ? null : argumentText(optionsText, open);
+		if (args === null) return null;
+		var parts = splitTopLevel(args);
+		return parts.length === 1 ? stripAssertion(parts[0]).trim() : null;
+	}
+
+	/** The bare name of a constrained-env expression, or null when it is no call. */
+	function constrainedEnvCallName(text) {
+		var m = /^([A-Za-z_$][\w$]*)\s*(?:<[^<>]*>)?\s*\(/.exec(text.trim());
+		return m ? m[1] : null;
+	}
+
 	/**
-	 * True when a HIGH security finding must not be emitted.
-	 * `readFile(path) -> string|null` supplies the cited file's content; an
-	 * unavailable file is never evidence, so it keeps the finding.
+	 * True when `expr` is the pinned policy's own env constraint: a direct call to
+	 * its `sanitizeSpawnEnv` export, or a `const` bound from one. The name must
+	 * carry provenance (imported from the pinned module, unshadowed), so a
+	 * same-named local helper cannot forge it; a bare identifier that is not such
+	 * a binding, or any other expression, is unproven.
 	 */
-	function isFalsePositiveSecurity(issue, readFile) {
-		if (!issue || typeof issue !== "object" || !isHigh(issue)) return false;
+	function envExpressionIsConstrained(expr, bindings, policy) {
+		var text = stripAssertion(expr).trim();
+		var call = constrainedEnvCallName(text);
+		if (call !== null) return call === "sanitizeSpawnEnv" && policy[call] === true;
+		return /^[A-Za-z_$][\w$]*$/.test(text) && bindings.envs[text] === true;
+	}
+
+	/**
+	 * True when the spawn options cannot be proven free of an unconstrained
+	 * environment. `shell:false` says nothing about indirect execution: git runs
+	 * `core.sshCommand` from `GIT_CONFIG_*`, node runs a module from `NODE_OPTIONS`,
+	 * and `LD_PRELOAD` / `BASH_ENV` do the same for other programs — so an env the
+	 * argv proof cannot see is not proof. A literal object showing no `env`, or an
+	 * `env` that is the pinned policy's `sanitizeSpawnEnv(...)` (which drops exactly
+	 * those variables), is provable; an options *binding* (`const opts = { env: … };
+	 * assertNoShell(opts)`), a spread, a nested env, or any other env expression
+	 * hides keys the text does not show, so all of them fail closed.
+	 * (Residual limits, all needing a hostile edit of an already-reviewed file:
+	 * the env object could be mutated after the policy accepts it, a same-named
+	 * parameter could shadow the `const` binding, and a program that delegates on
+	 * its own terms — `git fetch` runs the remote's ssh — stays unproven but
+	 * suppressed.)
+	 */
+	function optionsCarryEnvironment(optionsText, bindings, policy) {
+		var text = assertNoShellArgument(optionsText);
+		if (text === null) return true;
+		if (text.charAt(0) !== "{" || text.charAt(text.length - 1) !== "}") return true;
+		var parts = splitTopLevel(text.slice(1, -1));
+		for (var i = 0; i < parts.length; i++) {
+			var part = parts[i];
+			if (/^\s*\.\.\./.test(part)) return true;
+			var envKey = /^\s*env\s*:\s*([\s\S]*)$/.exec(part);
+			if (envKey) {
+				if (!envExpressionIsConstrained(envKey[1], bindings, policy)) return true;
+				continue;
+			}
+			// The shorthand `{ cwd, env, stdio }` — the local name must be a
+			// constrained `const` binding, never a parameter or a mutable variable.
+			if (/^\s*env\s*$/.test(part)) {
+				if (bindings.envs.env !== true) return true;
+				continue;
+			}
+			// An `env` nested inside a sub-object is not a key this proof resolves.
+			if (/\benv\b\s*:|(?:^|[{,])\s*env\s*(?:[,}]|$)/.test(part)) return true;
+		}
+		return false;
+	}
+
+	/** The call pattern for a bare (non-namespaced) member name. */
+	function callRegex(name) {
+		return new RegExp(
+			"(?:^|[^\\w$.])" + escapeRe(name) + "\\s*(?:<[^<>]*>)?\\s*(?:\\?\\.\\s*)?\\(",
+			"g",
+		);
+	}
+
+	// Strip a trailing type assertion (`args as string[]`) before the test; it
+	// hides no value change. `as` in a nested generic is never trailing.
+	function stripAssertion(text) {
+		var a = text.trim();
+		var m = /\s+as\s+[^,]+$/.exec(a);
+		return m ? a.slice(0, m.index).trim() : a;
+	}
+
+	// A plain literal argv element: a quoted string with no escape and no
+	// interpolation, a number, or a boolean/null keyword. A constructed element
+	// (`"-" + "c"`), a template hole (`` `--x=${y}` ``), a bare identifier or an
+	// escaped byte (`"\x2dc"`) can assemble a shell flag at runtime; the static
+	// proof cannot follow it, so it is not a proven element — the caller fails
+	// closed.
+	function isLiteralElement(text) {
+		var a = text.trim();
+		return (
+			/^"[^"\\\n]*"$/.test(a) ||
+			/^'[^'\\\n]*'$/.test(a) ||
+			/^-?(?:\d+\.?\d*|\.\d+)$/.test(a) ||
+			/^(?:true|false|null|undefined)$/.test(a)
+		);
+	}
+
+	// A literal argv array — every element a plain literal, so nothing can smuggle
+	// a shell string or flag in at runtime (`["-" + "c", cmd]`, `` [`--x=${y}`] ``).
+	function isArrayLiteral(text) {
+		var a = text.trim();
+		if (a.charAt(0) !== "[" || a.charAt(a.length - 1) !== "]") return false;
+		var body = a.slice(1, -1).trim();
+		if (body === "") return true;
+		var parts = splitTopLevel(body);
+		for (var i = 0; i < parts.length; i++) {
+			if (!isLiteralElement(parts[i])) return false;
+		}
+		return true;
+	}
+
+	// The imported policy helper must resolve to the module's own export. A local
+	// re-declaration of the same name — a function, class, variable, enum,
+	// namespace, destructuring, parameter or catch binding — shadows the import,
+	// so a call spelled `assertNoShell(...)` / `argvCommand(...)` may run code
+	// other than the policy. The name-based proof cannot follow the binding, so a
+	// shadowed name is not proof (fail closed).
+	function policyNameIsShadowed(code, name) {
+		var n = escapeRe(name);
+		// Any occurrence that is not a direct call — optionally through a type
+		// argument list — is not the imported helper: a parameter, a variable
+		// binding, a destructuring, a value reference, a property or a member
+		// call. (The import clause is blanked out before this runs.)
+		var re = new RegExp("\\b" + n + "\\b", "g");
+		var m;
+		while ((m = re.exec(code)) !== null) {
+			if (!/^\s*(?:<[^<>]*>\s*)?\(/.test(code.slice(m.index + m[0].length))) return true;
+		}
+		// A function declaration also reads as a call at its name; reject it by the
+		// keyword that precedes it. Class, enum and namespace declarations bind the
+		// name too.
+		return new RegExp(
+			"(?:^|[^\\w$.])(?:(?:async\\s+)?function\\s*\\*?\\s*|class\\s+|enum\\s+|namespace\\s+)" +
+				n +
+				"\\b",
+		).test(code);
+	}
+
+	// Resolve a relative import specifier against the cited file's own directory,
+	// purely (no node:path — the served page loads this file too). A bare or
+	// absolute specifier, or one that climbs past the root, resolves to null.
+	function resolveRelative(fromPath, specifier) {
+		if (typeof fromPath !== "string" || typeof specifier !== "string") return null;
+		if (!/^\.\.?\//.test(specifier)) return null;
+		var segments = fromPath.split("/");
+		segments.pop();
+		var parts = specifier.split("/");
+		for (var i = 0; i < parts.length; i++) {
+			var part = parts[i];
+			if (part === "" || part === ".") continue;
+			if (part === "..") {
+				if (segments.length === 0) return null;
+				segments.pop();
+				continue;
+			}
+			segments.push(part);
+		}
+		return segments.join("/");
+	}
+
+	// The one shared argv-policy module lives at the *canonical* repo path
+	// `.pi/extensions/lib/safe-argv.ts`. Matching any path that merely ends in
+	// `/lib/safe-argv.ts` would let a counterfeit at `src/attacker/lib/safe-argv.ts`
+	// (or any other nested path) forge the provenance this whole rule rests on, so
+	// the resolved path must equal the canonical module exactly.
+	var POLICY_MODULE_PATH = ".pi/extensions/lib/safe-argv.ts";
+	function isPolicyModulePath(path) {
+		return path === POLICY_MODULE_PATH;
+	}
+
+	// SHA-256 over a string's UTF-8 bytes, hex-encoded. Pure, so the served page
+	// and the headless runner compute the same digest; the browser has no sync
+	// crypto and `crypto.subtle` is async. Used only to pin the policy module.
+	function sha256Hex(text) {
+		var K = [
+			0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+			0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+			0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+			0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+			0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+			0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+			0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+			0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+			0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+			0xc67178f2,
+		];
+		var H = [
+			0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+			0x5be0cd19,
+		];
+		var bytes = [];
+		for (var i = 0; i < text.length; i++) {
+			var c = text.charCodeAt(i);
+			if (c < 0x80) bytes.push(c);
+			else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 63));
+			else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+				var cp = 0x10000 + ((c & 0x3ff) << 10) + (text.charCodeAt(++i) & 0x3ff);
+				bytes.push(
+					0xf0 | (cp >> 18),
+					0x80 | ((cp >> 12) & 63),
+					0x80 | ((cp >> 6) & 63),
+					0x80 | (cp & 63),
+				);
+			} else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
+		}
+		var bitLen = bytes.length * 8;
+		bytes.push(0x80);
+		while (bytes.length % 64 !== 56) bytes.push(0);
+		var hi = Math.floor(bitLen / 0x100000000);
+		var lo = bitLen >>> 0;
+		bytes.push((hi >>> 24) & 255, (hi >>> 16) & 255, (hi >>> 8) & 255, hi & 255);
+		bytes.push((lo >>> 24) & 255, (lo >>> 16) & 255, (lo >>> 8) & 255, lo & 255);
+		function rotr(x, n) {
+			return (x >>> n) | (x << (32 - n));
+		}
+		for (var off = 0; off < bytes.length; off += 64) {
+			var w = [];
+			for (var t = 0; t < 16; t++)
+				w[t] =
+					(bytes[off + t * 4] << 24) |
+					(bytes[off + t * 4 + 1] << 16) |
+					(bytes[off + t * 4 + 2] << 8) |
+					bytes[off + t * 4 + 3];
+			for (t = 16; t < 64; t++) {
+				var s0 = rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >>> 3);
+				var s1 = rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >>> 10);
+				w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
+			}
+			var a = H[0],
+				b = H[1],
+				cc = H[2],
+				d = H[3],
+				e = H[4],
+				f = H[5],
+				g = H[6],
+				h = H[7];
+			for (t = 0; t < 64; t++) {
+				var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+				var ch = (e & f) ^ (~e & g);
+				var t1 = (h + S1 + ch + K[t] + w[t]) | 0;
+				var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+				var maj = (a & b) ^ (a & cc) ^ (b & cc);
+				var t2 = (S0 + maj) | 0;
+				h = g;
+				g = f;
+				f = e;
+				e = (d + t1) | 0;
+				d = cc;
+				cc = b;
+				b = a;
+				a = (t1 + t2) | 0;
+			}
+			H[0] = (H[0] + a) | 0;
+			H[1] = (H[1] + b) | 0;
+			H[2] = (H[2] + cc) | 0;
+			H[3] = (H[3] + d) | 0;
+			H[4] = (H[4] + e) | 0;
+			H[5] = (H[5] + f) | 0;
+			H[6] = (H[6] + g) | 0;
+			H[7] = (H[7] + h) | 0;
+		}
+		var out = "";
+		for (var k = 0; k < 8; k++) out += ("00000000" + (H[k] >>> 0).toString(16)).slice(-8);
+		return out;
+	}
+
+	// Provenance by content identity, not by path or exported names. A counterfeit
+	// at the canonical path can declare the two exports, a `shell: false` and a
+	// NUL regex and still return `shell: true`, so no shape match can prove the
+	// policy. The filter instead pins the digest of the one reviewed module: only
+	// bytes that hash to `POLICY_MODULE_SHA256` count as provenance. Any edit to
+	// the policy — a reformat included — fails the check and keeps the finding
+	// until the digest here is re-reviewed. An unreadable module is not evidence.
+	var POLICY_MODULE_SHA256 = "ddaa8f04841ea411652f323a61453d05a1783160f8360da0cc1bcb90d73fc3e4";
+	function moduleDeclaresPolicy(readFile, path) {
+		if (path !== POLICY_MODULE_PATH) return false;
+		var text = readFile && typeof path === "string" ? readFile(path) : null;
+		if (typeof text !== "string") return false;
+		return sha256Hex(text) === POLICY_MODULE_SHA256;
+	}
+
+	// Names imported from the shared argv-policy module (`safe-argv`). A bare name
+	// match is not proof — the import must resolve to the policy module *and* that
+	// module must export the helpers, and no local re-declaration may shadow them,
+	// so the forced `shell:false` is enforced at runtime and cannot be forged by a
+	// reshaped options literal (a spread, a duplicate key, a shadowing local) or by
+	// a same-named helper from a module of another name.
+	function safeArgvPolicyNames(code, citedPath, readFile) {
+		var names = Object.create(null);
+		var spans = [];
+		var re = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*["']([^"']+)["']/g;
+		var m;
+		while ((m = re.exec(code)) !== null) {
+			var resolved = resolveRelative(citedPath, m[2]);
+			if (resolved === null || !isPolicyModulePath(resolved)) continue;
+			if (!moduleDeclaresPolicy(readFile, resolved)) continue;
+			spans.push([m.index, m.index + m[0].length]);
+			var parts = m[1].split(",");
+			for (var i = 0; i < parts.length; i++) {
+				var seg = parts[i].trim();
+				if (!seg) continue;
+				var asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(seg);
+				if (asMatch) names[asMatch[2]] = true;
+				else if (/^\w+$/.test(seg)) names[seg] = true;
+			}
+		}
+		if (spans.length) {
+			// The import clause itself declares each name; blank it out so a name in
+			// the list is never read as a shadowing re-declaration.
+			var remainder = "";
+			var at = 0;
+			for (var s = 0; s < spans.length; s++) {
+				remainder += code.slice(at, spans[s][0]) + " ";
+				at = spans[s][1];
+			}
+			remainder += code.slice(at);
+			for (var name in names) {
+				if (policyNameIsShadowed(remainder, name)) delete names[name];
+			}
+		}
+		return names;
+	}
+
+	// Executables that run a program handed to them through argv (`node -e`,
+	// `python -c`, `sh -c`, `perl -e`, `php -r`, …). An argv-array spawn of one
+	// of these with the interpreter's code flag is arbitrary code execution, not
+	// a shell-free command, so the argv-array proof of safety does not hold.
+	var INTERPRETER_PROGRAM =
+		/(?:^|[\\/])(?:node|nodejs|deno|bun|python\d*(?:\.\d+)?|perl|ruby|php\d*|lua|luajit|osascript|rscript|pwsh|powershell|cmd|sh|bash|zsh|dash)(?:\.exe)?$/i;
+	// Programs that run another program named in their argv, so the interpreter
+	// and its code flag can sit one level down (`env node -e code`,
+	// `npm exec -- node -e code`). Treated like an interpreter: their argv must be
+	// a literal array to be proven safe.
+	var COMMAND_RUNNER =
+		/(?:^|[\\/])(?:env|nohup|nice|timeout|stdbuf|sudo|doas|xargs|npx|pnpm|yarn|npm|bunx)(?:\.exe)?$/i;
+	// The interpreter flags that make it run code from argv — the eval forms
+	// (`-e`/`--eval`, `-c`/`--command`, `-p`/`--print`), the module-loading forms
+	// that run a file the flag points at (`--require`/`-r`, `--import`, `--loader`,
+	// `--preload`, `-m`), and the *attached* or *combined* short forms the
+	// interpreters accept (`-Mmodule`, `-mmodule`, `-ecode`, Python/shell
+	// `-cprint(1)`, and `bash -lc cmd`, where the code letter is not first), plus
+	// the `eval` subcommand of `deno`/`bun` and a lone `-` (script from stdin).
+	// Matched against a quote-stripped element. The letter class covers every
+	// code flag (`c`/`C` plus `e`/`E`/`m`/`M`/`r`/`R`/`p`/`P`).
+	var CODE_EVAL_TOKEN =
+		/^(?:-|eval|\/(?:c|k)|--?(?:eval|exec(?:ute)?|command|c|print|p|e|r|require|import|loader|preload|module|m|experimental-loader)(?:=.*)?|-[a-zA-Z]*[cCeEmMrRpP][\s\S]*)$/i;
+
+	/** The bare name of a quoted program literal, or null when it is not one. */
+	function programNameText(program) {
+		var a = program.trim();
+		if (a.length < 2) return null;
+		var q = a.charAt(0);
+		if ((q !== '"' && q !== "'" && q !== "`") || a.charAt(a.length - 1) !== q) return null;
+		return a.slice(1, -1).trim();
+	}
+
+	/** The quote-stripped text of a literal argv element, or null. */
+	function elementText(text) {
+		var lit = /^["'`]([^"'`\\]*)["'`]$/.exec(stripAssertion(text).trim());
+		return lit ? lit[1].trim() : null;
+	}
+
+	/** True when a program literal names an interpreter. */
+	function isInterpreterProgram(program) {
+		var name = programNameText(program);
+		return name !== null && INTERPRETER_PROGRAM.test(name);
+	}
+
+	/** True when a literal argv array carries an interpreter's code flag. */
+	function argvCarriesCodeToken(argvText) {
+		if (!isArrayLiteral(argvText)) return false;
+		var parts = splitTopLevel(argvText.slice(1, -1));
+		for (var i = 0; i < parts.length; i++) {
+			var val = elementText(parts[i]);
+			if (val !== null && CODE_EVAL_TOKEN.test(val)) return true;
+		}
+		return false;
+	}
+
+	/** True when a literal argv array names an interpreter itself. */
+	function argvNamesInterpreter(argvText) {
+		if (!isArrayLiteral(argvText)) return false;
+		var parts = splitTopLevel(argvText.slice(1, -1));
+		for (var i = 0; i < parts.length; i++) {
+			var val = elementText(parts[i]);
+			if (val !== null && INTERPRETER_PROGRAM.test(val)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Programs whose argv can hold the code to run: an interpreter, or a runner
+	 * that delegates to one. They cannot be proven safe with a dynamic argv.
+	 */
+	function needsLiteralArgv(program) {
+		if (isInterpreterProgram(program)) return true;
+		var name = programNameText(program);
+		return name !== null && COMMAND_RUNNER.test(name);
+	}
+
+	// One call is safe when its executable resolves to a literal (directly or
+	// through `argvCommand(<literal>, ...)`), its argv is a literal array or an
+	// `argvCommand`-validated binding, and its options route through the policy's
+	// `assertNoShell` — which throws on a truthy `shell`, so the `shell:false` is
+	// effective at runtime rather than text-proven. Anything else fails closed so
+	// a genuine command-execution finding is never hidden.
+	function isSafeArgvCall(member, args, bindings, policy) {
+		if (CP_MEMBERS[member] !== "argv") return false;
+		if (policy.assertNoShell !== true) return false;
+		var parts = splitTopLevel(args);
+		if (parts.length < 2) return false;
+		var program = stripAssertion(parts[0]);
+		var programLiteral = isLiteralProgram(program) ? program : bindings.programs[program];
+		if (typeof programLiteral !== "string") return false;
+		var argvExpr = stripAssertion(parts[1]);
+		var argvSource = isArrayLiteral(argvExpr) ? argvExpr : bindings.args[argvExpr];
+		if (typeof argvSource !== "string") return false;
+		// Executable-aware: an interpreter (or a runner that delegates to one in
+		// argv) turns a validated argv back into code. An interpreter program needs
+		// a literal argv free of its code flag; a runner needs an argv that does not
+		// name an interpreter plus a code flag; and either cannot be proven safe
+		// with a dynamic argv.
+		if (isInterpreterProgram(programLiteral) && argvCarriesCodeToken(argvSource)) return false;
+		if (argvCarriesCodeToken(argvSource) && argvNamesInterpreter(argvSource)) return false;
+		if (needsLiteralArgv(programLiteral) && !isArrayLiteral(argvSource)) return false;
+		// The options are argv position 3. Requiring the *actual* options argument
+		// to be the `assertNoShell` call rejects a call that shadows it behind an
+		// ignored extra argument (`spawn(p, a, opts, assertNoShell({}))`).
+		if (parts.length < 3) return false;
+		var optionsText = stripAssertion(parts[2]);
+		if (!/(?:^|[^\w$.])assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(optionsText)) return false;
+		// An env binding is an execution channel the argv proof cannot see — unless
+		// it is the policy's own constrained env.
+		return !optionsCarryEnvironment(optionsText, bindings, policy);
+	}
+
+	// A computed member access names a child-process function the name-based scan
+	// can never see: `cp["ex" + "ec"](cmd)`, `cp[method]`, or
+	// `require("node:child_process")["exec"](cmd)`. So does an inline module
+	// result called directly — `require("node:child_process").spawn(cmd)`,
+	// `(await import("node:child_process")).spawn(cmd)` — where there is no bound
+	// name to follow. Reaching a member through `.call`/`.apply`
+	// (`cp.spawn.call(...)`) likewise escapes the argument scan. All are
+	// unproveable, so the file keeps its finding (fail closed).
+	// Over-detection only ever denies a suppression.
+	function hasComputedChildProcessAccess(code, cp) {
+		var i;
+		var namespaces = Object.keys(cp.namespaces);
+		for (i = 0; i < namespaces.length; i++) {
+			if (
+				new RegExp("(?:^|[^\\w$.])" + escapeRe(namespaces[i]) + "\\s*(?:\\?\\.)?\\s*\\[").test(code)
+			)
+				return true;
+		}
+		// `\\)*` follows the module call through a wrapping paren group, so the
+		// `(await import(...)).member` form is denied as well as the bare one.
+		if (
+			/(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\?\.)?\s*[.\[]/.test(
+				code,
+			)
+		)
+			return true;
+		var members = Object.keys(cp.members);
+		for (i = 0; i < CP_NAMES.length; i++) members.push(CP_NAMES[i]);
+		for (i = 0; i < members.length; i++) {
+			if (
+				new RegExp(
+					"(?:^|[^\\w$])" +
+						escapeRe(members[i]) +
+						"\\s*(?:\\?\\.)?\\s*\\.\\s*(?:call|apply)\\s*\\(",
+				).test(code)
+			)
+				return true;
+		}
+		return false;
+	}
+
+	// Every child-process call in the file must prove argv-safe; a bare name, a
+	// registered alias, or a known namespace member all count as a call site.
+	function everyChildProcessCallIsSafe(code, bindings, policy) {
+		var cp = childProcessBindings(code);
+		if (hasComputedChildProcessAccess(code, cp)) return false;
+		var names = Object.create(null);
+		var i;
+		for (i = 0; i < CP_NAMES.length; i++) names[CP_NAMES[i]] = true;
+		for (var local in cp.members) names[local] = true;
+
+		var safe = true;
+		Object.keys(names).forEach(function (name) {
+			if (!safe) return;
+			var member = cp.members[name] || name;
+			var re = callRegex(name);
+			var m;
+			while ((m = re.exec(code)) !== null) {
+				var open = code.indexOf("(", m.index + m[0].length - 1);
+				var args = argumentText(code, open);
+				if (args === null || !isSafeArgvCall(member, args, bindings, policy)) {
+					safe = false;
+					return;
+				}
+			}
+		});
+		if (!safe) return false;
+
+		var namespaceNames = Object.keys(cp.namespaces);
+		for (i = 0; i < namespaceNames.length && safe; i++) {
+			var nsRe = new RegExp(
+				escapeRe(namespaceNames[i]) + "\\s*(?:\\?\\.|\\.)\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
+				"g",
+			);
+			var mm;
+			while ((mm = nsRe.exec(code)) !== null) {
+				var openNs = code.indexOf("(", mm.index + mm[0].length - 1);
+				var argsNs = argumentText(code, openNs);
+				if (argsNs === null || !isSafeArgvCall(mm[1], argsNs, bindings, policy)) {
+					safe = false;
+					break;
+				}
+			}
+		}
+		return safe;
+	}
+
+	function isFalsePositiveCommandExecution(issue, readFile) {
+		if (typeof issue.severity !== "string" || issue.severity.toLowerCase() !== "medium")
+			return false;
+		if (String(issue.title).trim() !== "Command Execution") return false;
+		var content = readFile ? readFile(issue.path) : null;
+		if (typeof content !== "string") return false;
+		var code = stripComments(content);
+		if (hasShellExecution(code)) return false;
+		var policy = safeArgvPolicyNames(code, issue.path, readFile);
+		return everyChildProcessCallIsSafe(code, policyBindings(code, policy), policy);
+	}
+
+	function isFalsePositiveHighSecurity(issue, readFile) {
 		var code = codeOf(issue);
 		if (code.trim() === "") return true;
 		if (isCommentOnly(code)) return true;
@@ -180,6 +1038,17 @@
 		if (namesMissingSymbol(issue, content)) return true;
 		if (!ENV_READ.test(code) && !resolvesViaHelper(code, content)) return false;
 		return !hasLiteralAssignment(code);
+	}
+
+	/**
+	 * True when a security finding must not be emitted.
+	 * `readFile(path) -> string|null` supplies the cited file's content; an
+	 * unavailable file is never evidence, so it keeps the finding.
+	 */
+	function isFalsePositiveSecurity(issue, readFile) {
+		if (!issue || typeof issue !== "object") return false;
+		if (isHigh(issue)) return isFalsePositiveHighSecurity(issue, readFile);
+		return isFalsePositiveCommandExecution(issue, readFile);
 	}
 
 	// --- LOW hygiene findings -------------------------------------------------

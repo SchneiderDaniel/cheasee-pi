@@ -27,7 +27,7 @@ import { createWidgetFlusher, type WidgetFlusher } from "./ui.ts";
 // createResolver. Extracted so runAgentSubprocess stays a flat, short
 // orchestrator (size guard: span < 100).
 
-export function runSpawnedProcess(opts: {
+export interface SpawnedProcessOptions {
 	args: string[];
 	effectiveCwd: string;
 	sandboxEnv: Record<string, string>;
@@ -42,7 +42,41 @@ export function runSpawnedProcess(opts: {
 	killGraceSec: number | undefined;
 	startedAt: number;
 	log: ReturnType<typeof getDebugLogger>;
-}): Promise<AgentRunResult> {
+}
+
+/**
+ * Spawn the child, or resolve the spawn-failure result and return null. An
+ * argv/env rejection therefore never escapes the AgentRunResult contract.
+ */
+function startAgentChild(
+	opts: SpawnedProcessOptions,
+	resolve: (result: AgentRunResult) => void,
+): ChildHandle | null {
+	try {
+		return spawnAgentChild({
+			args: opts.args,
+			cwd: opts.effectiveCwd,
+			sandboxEnv: opts.sandboxEnv,
+		});
+	} catch (err: unknown) {
+		const errMsg = err instanceof Error ? err.message : String(err);
+		opts.log.error("agent-runner", `Subprocess spawn rejected: ${errMsg}`, {
+			agentName: opts.agentName,
+		});
+		resolve(
+			failWithUiCleanup(opts.ctx, opts.widgetId, {
+				agentName: opts.agentName,
+				startedAt: opts.startedAt,
+				errorMessage: errMsg,
+				output: `Failed to start pi: ${errMsg}`,
+				summaryLine: `Failed to start: ${errMsg}`,
+			}),
+		);
+		return null;
+	}
+}
+
+export function runSpawnedProcess(opts: SpawnedProcessOptions): Promise<AgentRunResult> {
 	const {
 		args,
 		effectiveCwd,
@@ -61,7 +95,8 @@ export function runSpawnedProcess(opts: {
 	} = opts;
 
 	return new Promise((resolve) => {
-		const handle = spawnAgentChild({ args, cwd: effectiveCwd, sandboxEnv });
+		const handle = startAgentChild(opts, resolve);
+		if (handle === null) return;
 
 		log.info("agent-runner", `Subprocess spawned: ${agentName}`, { childPid: handle.child.pid });
 

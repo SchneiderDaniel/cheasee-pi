@@ -73,12 +73,17 @@ function createMockChild(): MockChild {
 
 const hasMockModule = typeof mock.module === "function";
 
+const spawnCalls: unknown[][] = [];
+
 if (hasMockModule) {
 	const namedExports: Record<string, unknown> = {};
 	for (const key of Object.keys(childProcessModule)) {
 		namedExports[key] = (childProcessModule as any)[key];
 	}
-	namedExports["spawn"] = () => createMockChild();
+	namedExports["spawn"] = (...args: unknown[]) => {
+		spawnCalls.push(args);
+		return createMockChild();
+	};
 	mock.module("node:child_process", {
 		namedExports,
 	});
@@ -441,6 +446,35 @@ if (hasMockModule) {
 				setWorking.mock.calls.some((c: any) => c.arguments?.[0] === undefined),
 				"working message cleared on spawn error",
 			);
+		});
+	});
+
+	describe("runSpawnedProcess — argv rejection maps to a failure result", () => {
+		it("invalid argv resolves success:false instead of rejecting", async () => {
+			resetMock();
+			const { runSpawnedProcess } = await import("../agent/runner/spawned-run.ts");
+			const { getDebugLogger } = await import("../lib/debug.ts");
+			spawnCalls.length = 0;
+
+			const result = await runSpawnedProcess({
+				args: ["bad\0arg"],
+				effectiveCwd: "/tmp",
+				sandboxEnv: {},
+				ctx: mockCtx,
+				widgetId: "agent-test-agent",
+				agentName: "test-agent",
+				model: "",
+				state: createState(),
+				timeoutMs: null,
+				remainingMs: null,
+				killGraceSec: undefined,
+				startedAt: Date.now(),
+				log: getDebugLogger(),
+			});
+
+			assert.strictEqual(result.success, false, "the rejection must not escape the contract");
+			assert.strictEqual(spawnCalls.length, 0, "no child may be spawned");
+			assert.ok(result.output.includes("Failed to start pi:"));
 		});
 	});
 }

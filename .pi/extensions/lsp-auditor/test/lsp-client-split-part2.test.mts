@@ -60,10 +60,7 @@ function createDefaultMockConnection() {
 function createMockRuntime(): LspRuntime {
 	return {
 		spawn: mock.fn(() => createFakeChildProcess()),
-		execFile: mock.fn((...args: any[]) => {
-			const cb = [...args].reverse().find((a: any) => typeof a === "function");
-			if (cb) cb(null, "", "");
-		}),
+		resolveExecutable: mock.fn((name: string) => `/usr/bin/${name}`),
 		existsSync: mock.fn(() => true),
 		readFile: mock.fn(async () => "const x = 1;\n"),
 		loadJsonRpc: mock.fn(async (): Promise<JsonRpcModule | null> => {
@@ -123,12 +120,9 @@ describe("audit-group.ts — orchestrator error paths", () => {
 		resetLspRuntime();
 	});
 
-	it("preflight which-failure → exact error, early return, spawn never called", async () => {
+	it("preflight resolve-failure → exact error, early return, spawn never called", async () => {
 		const rt = createMockRuntime();
-		rt.execFile = mock.fn((...args: any[]) => {
-			const cb = [...args].reverse().find((a: any) => typeof a === "function");
-			cb(new Error("ENOENT"), "", "");
-		});
+		rt.resolveExecutable = mock.fn(() => null) as any;
 		setLspRuntime(rt);
 
 		const result = await auditFileGroup(TS_MAPPING, SINGLE_FILE, "/worktree");
@@ -141,6 +135,18 @@ describe("audit-group.ts — orchestrator error paths", () => {
 			0,
 			"preflight runs once per group, not per file",
 		);
+	});
+
+	it("option-injection mapping command '-a' fails resolution before spawn", async () => {
+		const rt = createMockRuntime();
+		rt.resolveExecutable = mock.fn((name: string) =>
+			name.startsWith("-") ? null : `/usr/bin/${name}`,
+		) as any;
+		setLspRuntime(rt);
+
+		const result = await auditFileGroup({ ...TS_MAPPING, command: "-a" }, SINGLE_FILE, "/worktree");
+		assert.deepStrictEqual(result.errors, ["LSP server -a not found on PATH"]);
+		assert.strictEqual((rt.spawn as any).mock.calls.length, 0);
 	});
 
 	it("spawn exitCode non-zero → 'failed to start (exit N)'", async () => {

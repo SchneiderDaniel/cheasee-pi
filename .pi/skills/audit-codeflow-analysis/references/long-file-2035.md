@@ -71,9 +71,10 @@ Three families lift shared fixture data into a non-test module (`.mts`, so
   `dry-run-args.mts` (the `dry-run.mts` CLI split into pure helpers + CLI)
 
 A family only clears the metric when the original **and** all siblings are
-`<= 500` segments. All 87 files are cleared — **87 → 0**. The first two passes
-split the TypeScript/Go/Python families (25, then 46); this pass completes the
-set with the 15 Rust sources and `server.py` (below).
+`<= 500` segments. The split cleared the original set; later main-branch work
+expanded `test/codeflow-fp-filter.test.mts` with the #2023 argv-safety regression
+suite, so that file is tracked in `DEFERRED` until its fixtures/tests are split
+without losing coverage. The other 86 originals remain clear.
 
 ## The Rust family
 
@@ -105,13 +106,13 @@ and the bridge suites read, and `/codeflow-bridge.js` serves the same bytes. The
 Dockerfile `COPY` set, the `py_compile` gate and the Go harness module list all
 cover the new file.
 
-Both families are pinned by `test/long-file-refactor-2035.test.mts` (`DEFERRED`
-is still empty, so a dropped file cannot slip under the ceiling unnoticed).
+Both families are pinned by `test/long-file-refactor-2035.test.mts`; its one
+tracked deferral must remain over the ceiling and cannot be silently dropped.
 
 ## Verification
 
 - `test/long-file-refactor-2035.test.mts` asserts all 87 originals exist, that
-  the deferred set (now empty) is exactly the still-flagged remainder, that every
+  the deferred set is exactly the still-flagged remainder, that every
   original and every sibling of any extension (`.mts`/`.ts`/`.rs`/`.py`, including
   the nested `tests/<name>/` and `<module>/` siblings) lands `<= 500` segments,
   and pins the strict boundary.

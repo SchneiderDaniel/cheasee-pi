@@ -65,10 +65,7 @@ function createDefaultMockConnection() {
 function createMockRuntime(): LspRuntime {
 	return {
 		spawn: mock.fn(() => createFakeChildProcess()),
-		execFile: mock.fn((...args: any[]) => {
-			const cb = [...args].reverse().find((a: any) => typeof a === "function");
-			if (cb) cb(null, "", "");
-		}),
+		resolveExecutable: mock.fn((name: string) => `/usr/bin/${name}`),
 		existsSync: mock.fn(() => true),
 		readFile: mock.fn(async () => "const x = 1;\n"),
 		loadJsonRpc: mock.fn(async (): Promise<JsonRpcModule | null> => {
@@ -176,7 +173,10 @@ describe("runtime.ts — seam single-module guard + default runtime", () => {
 		const result = await auditFileGroup(TS_MAPPING, SINGLE_FILE, "/worktree");
 		assert.strictEqual(result.errors.length, 0);
 		assert.ok(sentinel.spawn.mock.calls.length >= 1, "sentinel.spawn must be used");
-		assert.ok(sentinel.execFile.mock.calls.length >= 1, "sentinel.execFile must be used");
+		assert.ok(
+			sentinel.resolveExecutable.mock.calls.length >= 1,
+			"sentinel.resolveExecutable must be used",
+		);
 		assert.ok(sentinel.readFile.mock.calls.length >= 1, "sentinel.readFile must be used");
 		assert.ok(sentinel.loadJsonRpc.mock.calls.length >= 1, "sentinel.loadJsonRpc must be used");
 	});

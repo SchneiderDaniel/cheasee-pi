@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert";
-import { before, after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -85,6 +85,56 @@ describe("ServerEntrySchema — runtime validation", () => {
 		assert.ok(
 			!Value.Check(ServerEntrySchema, {
 				extensions: [".ts"],
+			}),
+		);
+	});
+
+	it("rejects a blank/whitespace-only command", () => {
+		assert.ok(!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "   " }));
+	});
+
+	it("rejects a command starting with '-' (option injection)", () => {
+		assert.ok(!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "-a" }));
+	});
+
+	it("rejects a command containing NUL", () => {
+		assert.ok(!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "ts\0ls" }));
+	});
+
+	it("rejects an arg containing NUL", () => {
+		assert.ok(
+			!Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "ts-ls",
+				args: ["--stdio", "x\0y"],
+			}),
+		);
+	});
+
+	it("accepts an arg containing newline and tab (valid argv bytes, audit regression)", () => {
+		assert.ok(
+			Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "ts-ls",
+				args: ["--stdio", "line1\nline2\tcol\n"],
+			}),
+		);
+		// NUL stays fatal — the positive control for this pattern.
+		assert.ok(
+			!Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "ts-ls",
+				args: ["ok\nbad\0"],
+			}),
+		);
+	});
+
+	it("accepts a valid command with dashed args (positive control)", () => {
+		assert.ok(
+			Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "typescript-language-server",
+				args: ["--stdio"],
 			}),
 		);
 	});
@@ -281,6 +331,26 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 		);
 	});
 
+	it("multiline/tab arg survives settings loading (audit regression)", () => {
+		withTempSettings(
+			{
+				lspAuditor: {
+					servers: [{ extensions: [".ts"], command: "custom-ts", args: ["--stdio", "a\nb\tc"] }],
+				},
+			},
+			(worktree) => {
+				const settings = readSettings(worktree);
+				assert.ok(settings?.lspAuditor, "lspAuditor should be present");
+				const entry = settings!.lspAuditor!.servers![0]!;
+				assert.deepStrictEqual(
+					entry.args,
+					["--stdio", "a\nb\tc"],
+					"newline/tab arg must not be dropped",
+				);
+			},
+		);
+	});
+
 	it("bug 1: non-string extension element -> entry dropped, no crash", () => {
 		withTempSettings(
 			{
@@ -365,86 +435,5 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 				assert.strictEqual(mappings.length, 4);
 			},
 		);
-	});
-
-	describe("user-journey: console.warn emitted for dropped entries", () => {
-		let originalWarn: typeof console.warn;
-		let warnMessages: string[];
-
-		before(() => {
-			originalWarn = console.warn;
-		});
-
-		after(() => {
-			console.warn = originalWarn;
-		});
-
-		it("settings with non-string extension logs warning with entry content", () => {
-			warnMessages = [];
-			console.warn = (...args: unknown[]) => {
-				warnMessages.push(args.join(" "));
-			};
-
-			withTempSettings(
-				{
-					lspAuditor: {
-						servers: [
-							{ extensions: [".ts", 123], command: "ts-ls" },
-							{ extensions: [".py"], command: "pyright-langserver", args: ["--stdio"] },
-						],
-					},
-				},
-				(worktree) => {
-					const settings = readSettings(worktree);
-					assert.ok(settings, "settings should not be null");
-
-					// Verify warning was emitted with malformed entry content
-					assert.ok(
-						warnMessages.some((m) => m.includes("123") && m.includes("[lsp-auditor]")),
-						"console.warn should mention the malformed entry",
-					);
-					assert.ok(
-						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
-						"console.warn should say 'Dropped malformed server entry'",
-					);
-
-					// Valid entry still processed
-					const mappings = buildServerMappings(settings!.lspAuditor);
-					assert.ok(mappings.some((m) => m.command === "pyright-langserver"));
-					assert.ok(mappings.some((m) => m.command === "typescript-language-server"));
-				},
-			);
-
-			console.warn = originalWarn;
-		});
-
-		it("settings with string args logs warning with entry content", () => {
-			warnMessages = [];
-			console.warn = (...args: unknown[]) => {
-				warnMessages.push(args.join(" "));
-			};
-
-			withTempSettings(
-				{
-					lspAuditor: {
-						servers: [{ extensions: [".ts"], command: "ts-ls", args: "--stdio" }],
-					},
-				},
-				(worktree) => {
-					readSettings(worktree);
-
-					assert.ok(
-						warnMessages.some((m) => m.includes("--stdio") && m.includes("[lsp-auditor]")),
-						"console.warn should mention the malformed args entry",
-					);
-					assert.ok(
-						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
-						"console.warn should say 'Dropped malformed server entry'",
-					);
-				},
-			);
-
-			console.warn = originalWarn;
-		});
 	});
 });

@@ -14,10 +14,40 @@
  * - C4 P1: jsonRpcModule cached inside loadJsonRpc() function scope (not module-level)
  */
 
-import { spawn as realSpawn, execFile as realExecFile } from "node:child_process";
-import { existsSync as realExistsSync } from "node:fs";
+import { spawn as realSpawn } from "node:child_process";
+import { existsSync as realExistsSync, statSync } from "node:fs";
 import { readFile as realReadFile } from "node:fs/promises";
+import { delimiter, join } from "node:path";
+import { spawnArgv } from "../../lib/safe-argv.ts";
 import type { LspRuntime, JsonRpcModule } from "../types.ts";
+
+/** True when `path` names an existing, executable regular file. */
+function isExecutableFile(path: string): boolean {
+	try {
+		const stat = statSync(path);
+		return stat.isFile() && (stat.mode & 0o111) !== 0;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Resolve `name` to an absolute executable path — the in-process replacement
+ * for shelling out to `which`. A name carrying a path separator is checked
+ * directly; a bare name is searched on PATH. A leading '-' (option injection)
+ * or a control byte is rejected outright.
+ */
+export function resolveExecutableOnPath(name: string): string | null {
+	if (typeof name !== "string" || name.trim() === "" || name.startsWith("-")) return null;
+	if (/[\u0000-\u001f\u007f]/.test(name)) return null;
+	if (name.includes("/") || name.includes("\\")) return isExecutableFile(name) ? name : null;
+	for (const dir of (process.env.PATH ?? "").split(delimiter)) {
+		if (!dir) continue;
+		const candidate = join(dir, name);
+		if (isExecutableFile(candidate)) return candidate;
+	}
+	return null;
+}
 
 // ─── Injection Seam ──────────────────────────────────────────────────
 
@@ -69,15 +99,17 @@ export function createDefaultRuntime(): LspRuntime {
 	let jsonRpcModule: JsonRpcModule | null = null;
 
 	return {
-		spawn: (command, args, options) => realSpawn(command, args, options) as any,
-		execFile: (
-			file: string,
-			args: string[],
-			options: Record<string, unknown>,
-			callback: (err: Error | null, stdout: string, stderr: string) => void,
-		) => {
-			realExecFile(file, args, options as Record<string, unknown>, callback);
-		},
+		// The invariant is re-enforced at the chokepoint every LSP spawn passes:
+		// spawnArgv validates the argv and forces `shell:false` before realSpawn
+		// ever runs, so an invalid argv or a caller-supplied shell cannot reach it.
+		spawn: (command, args, options) =>
+			spawnArgv(
+				realSpawn as (program: string, args: readonly string[], options?: object) => unknown,
+				command,
+				args,
+				options,
+			) as any,
+		resolveExecutable: (name) => resolveExecutableOnPath(name),
 		existsSync: (path) => realExistsSync(path),
 		readFile: (path, encoding) => (realReadFile as any)(path, encoding),
 		loadJsonRpc: async () => {

@@ -132,7 +132,10 @@ const AFFECTED = [
  * asset from `bridge_js.py`. The map stays here so a future deferral must be
  * declared explicitly rather than silently dropping a file.
  */
-const DEFERRED: Record<string, string> = {};
+const DEFERRED: Record<string, string> = {
+	"test/codeflow-fp-filter.test.mts":
+		"#2023 added a broad, source-fixture-heavy argv safety regression suite after this split. Keep its full coverage intact; re-splitting this suite is tracked separately.",
+};
 
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf8");
 const segments = (s: string): number => s.split("\n").length;
