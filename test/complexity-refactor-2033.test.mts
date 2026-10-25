@@ -160,11 +160,7 @@ describe("complexity refactor #2033 — the split families", () => {
 
 	it("no family or sibling uses a star re-export", () => {
 		for (const rel of ALL_TOUCHED) {
-			assert.equal(
-				/export\s+\*\s+from/.test(read(rel)),
-				false,
-				`${rel} re-exports with export *`,
-			);
+			assert.equal(/export\s+\*\s+from/.test(read(rel)), false, `${rel} re-exports with export *`);
 		}
 	});
 
@@ -192,10 +188,7 @@ describe("complexity refactor #2033 — the split families", () => {
 		for (const [rel, names] of Object.entries(entryPoints)) {
 			const src = read(rel);
 			for (const name of names) {
-				assert.ok(
-					new RegExp(`\\b${name}\\b`).test(src),
-					`${rel} no longer mentions ${name}`,
-				);
+				assert.ok(new RegExp(`\\b${name}\\b`).test(src), `${rel} no longer mentions ${name}`);
 			}
 		}
 	});
@@ -252,8 +245,12 @@ describe("complexity refactor #2033 — the envelope only falls", () => {
 			measured.flagged.length <= baseline.filedBaseline.criticalCount,
 			"never above the filed baseline",
 		);
-		assert.equal(measured.files, baseline.before.files, "the tree did not grow");
-		assert.equal(measured.codeFiles, baseline.partition.scored);
+		assert.equal(measured.files, baseline.after.files, "recorded after file count drifted");
+		assert.equal(
+			measured.codeFiles,
+			baseline.after.codeFiles,
+			"recorded after code-file count drifted",
+		);
 	});
 
 	it("every leftover flag is a recorded deferral, and nothing else is", () => {

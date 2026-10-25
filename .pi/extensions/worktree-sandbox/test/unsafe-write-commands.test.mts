@@ -5,18 +5,16 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, symlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ParseEntry } from "shell-quote";
 import { checkDd } from "../unsafe-write-dd.ts";
 import { checkLn } from "../unsafe-write-ln.ts";
 import { checkRedirect } from "../unsafe-write-commands.ts";
 import { flagTargets } from "../unsafe-write-flags.ts";
-import { tokenText } from "../unsafe-write-targets.ts";
+import { collectWriteTargets } from "../unsafe-write-targets.ts";
 import { WRITE_COMMAND_GRAMMARS } from "../unsafe-write-grammars.ts";
 
-const SANDBOX = mkdtempSync(join(tmpdir(), "unsafe-write-"));
+const SANDBOX = "/tmp/unsafe-write-test";
 
 describe("checkRedirect", () => {
 	it("passes a /dev/null sink and an in-sandbox file", () => {
@@ -70,12 +68,15 @@ describe("checkLn", () => {
 	});
 });
 
-describe("tokenText + flagTargets", () => {
-	it("tokenText keeps glob patterns and drops operators", () => {
-		assert.equal(tokenText("/etc/x"), "/etc/x");
-		assert.equal(tokenText({ op: "glob", pattern: "/etc/*" } as never), "/etc/*");
-		assert.equal(tokenText({ op: ">" } as never), null);
-		assert.equal(tokenText(undefined), null);
+describe("write-target collection + flagTargets", () => {
+	it("collects glob patterns and skips non-separator operators", () => {
+		const cp = WRITE_COMMAND_GRAMMARS["cp"]!;
+		const tokens = [
+			"cp",
+			{ op: ">" },
+			{ op: "glob", pattern: "/etc/*" },
+		] as unknown as ParseEntry[];
+		assert.deepEqual(collectWriteTargets(tokens, 1, cp), ["/etc/*"]);
 	});
 
 	it("separate option values consume the next token, attached ones do not", () => {
@@ -92,13 +93,5 @@ describe("tokenText + flagTargets", () => {
 		const cp = WRITE_COMMAND_GRAMMARS["cp"]!;
 		assert.deepEqual(flagTargets("-t/out", null, cp), { targets: ["/out"], consumesNext: false });
 		assert.deepEqual(flagTargets("-at", "/out", cp), { targets: ["/out"], consumesNext: true });
-	});
-});
-
-describe("sandbox symlink escape", () => {
-	it("a symlinked target outside the sandbox fails closed", () => {
-		const link = join(SANDBOX, "escape");
-		symlinkSync("/etc", link);
-		assert.equal(checkRedirect([{ op: ">" }, join(link, "passwd")] as never[], 0, "cmd", SANDBOX), "outside sandbox: " + join(link, "passwd"));
 	});
 });

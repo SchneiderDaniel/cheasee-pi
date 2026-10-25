@@ -328,7 +328,7 @@ describe("constants.ts — MAX_TASK_PREVIEW_CHARS absent, live caps intact", () 
 		const subagent = readFileSync(join(RENDERERS_DIR, "render-subagent.ts"), "utf8");
 		assert.match(subagent, /MAX_EXPANDED_TOOL_CALLS/);
 		const handlers = readFileSync(
-			join(EXTENSIONS_ROOT, "supervisor", "event", "adapter", "handlers.ts"),
+			join(EXTENSIONS_ROOT, "supervisor", "event", "adapter", "handlers-tool.ts"),
 			"utf8",
 		);
 		assert.match(handlers, /MAX_NESTED_CALLS/);

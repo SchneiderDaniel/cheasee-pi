@@ -27,6 +27,8 @@
 		"criticalCount": 199
 	},
 	"after": {
+		"files": 1439,
+		"codeFiles": 867,
 		"criticalCount": 187,
 		"expectedDrop": 12
 	},

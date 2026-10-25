@@ -77,7 +77,7 @@ describe("live caps keep their consumers", () => {
 	});
 
 	it("event/adapter/handlers.ts cap-checks against MAX_NESTED_CALLS", () => {
-		const source = readSource("event/adapter/handlers.ts");
+		const source = readSource("event/adapter/handlers-tool.ts");
 		assert.match(source, /calls\.length < MAX_NESTED_CALLS/);
 	});
 });
