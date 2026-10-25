@@ -153,44 +153,23 @@ func artifactKey(artifact string) string {
 	return ""
 }
 
-func TestBuildCostDoc_EndToEndColdBuildIsRecordedOrPending(t *testing.T) {
+func TestBuildCostDoc_EndToEndColdBuildIsRecorded(t *testing.T) {
 	// The audit of #2053 rejected this section once because the after-number was
 	// a replay: the Dockerfile's download steps re-run through a counting proxy,
 	// which never pulls the base image, commits a layer or runs dpkg. That is a
-	// lower bound, not the cold build. There are exactly two honest states for
-	// the end-to-end figure, and both are accepted here so recording a real run
-	// never needs a test edit:
-	//
-	//   - recorded: an `end-to-end` row with observed bytes and seconds;
-	//   - pending: `not measured`, with the reason (no container runtime) and
-	//     the commands that would produce it.
-	//
-	// What the test refuses is the third state the rejection found: a replay
-	// total standing in for the end-to-end number.
+	// lower bound, not the cold build. The recorded run lives in its own
+	// subsection, so an `end-to-end` row is required and a `not measured` marker
+	// no longer counts as recording it.
 	section := buildCostDocSection(t)
 
 	if strings.Contains(section, "not measured") {
-		flat := flatSection(section)
-		for _, want := range []string{
-			"container runtime", // why it is pending rather than "TBD"
-			"docker buildx prune -af",
-			"docker buildx du",
-			"docker system df -v",
-			"dpkg", // what a replay cannot observe — named next to the pending marker
-			"layer commit",
-			"replay",
-		} {
-			if !strings.Contains(flat, want) {
-				t.Errorf("a `not measured` end-to-end figure must say %q: the gap has to name its reason and its procedure", want)
-			}
-		}
-		return
+		t.Error("§Measuring image build cost must record the end-to-end cold build, not mark it `not measured` — the measurement runs in the `docker` job of .github/workflows/tests.yml, which has a daemon")
 	}
 
 	row := regexp.MustCompile(`(?m)^\|\s*\*{0,2}end-to-end\*{0,2}\s*\|[^|]*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|\s*\*{0,2}([0-9]+(?:\.[0-9])?) s\*{0,2}\s*\|`)
 	m := row.FindStringSubmatch(section)
 	if m == nil {
-		t.Fatal("§Measuring image build cost must record the end-to-end cache-pruned build as an `end-to-end` row of `<bytes> B | <seconds> s` (or declare it `not measured`)")
+		t.Fatal("§Measuring image build cost must record the end-to-end cache-pruned build as an `end-to-end` row of `<bytes> B | <seconds> s`")
 	}
 	bytes, err := strconv.ParseInt(strings.ReplaceAll(m[1], ",", ""), 10, 64)
 	if err != nil {
