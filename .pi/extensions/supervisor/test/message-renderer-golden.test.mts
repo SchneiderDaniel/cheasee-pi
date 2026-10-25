@@ -1,43 +1,33 @@
-/**
- * Golden characterization tests for session/message-renderer.ts.
- *
- * Captures byte-for-byte render output (ANSI intact) for every eventType
- * through the CURRENT createMessageRenderer, so the 231→dispatch-table
- * refactor can be proven output-equivalent.
- *
- * Run with:
- *   node --experimental-strip-types --test .pi/extensions/supervisor/test/message-renderer-golden.test.mts
- * Regenerate goldens (only when the renderer intentionally changes):
- *   GOLDEN_UPDATE=1 node --experimental-strip-types --test .pi/extensions/supervisor/test/message-renderer-golden.test.mts
- */
-
 import { describe, it, before } from "node:test";
+
 import assert from "node:assert/strict";
+
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+
 import { dirname, join } from "node:path";
+
 import { fileURLToPath } from "node:url";
+
 import { Box, Container, Markdown, Text, setCapabilities } from "@earendil-works/pi-tui";
+
 import { initTheme } from "@earendil-works/pi-coding-agent";
+
 import { createMessageRenderer } from "../session/message-renderer.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
 const GOLDEN_DIR = join(__dirname, "fixtures", "message-renderer-goldens");
+
 const UPDATE = process.env.GOLDEN_UPDATE === "1";
 
-// ─── Determinism pins ──────────────────────────────────────────────
-// Pin terminal capabilities (truecolor) and background detection so the
-// real themed render emits identical ANSI codes on every machine/CI.
-process.env.COLORFGBG = "15;0"; // bg color index 0 → dark theme resolution
+process.env.COLORFGBG = "15;0";
+
 setCapabilities({ images: null, trueColor: true, hyperlinks: false });
 
 const RENDER_WIDTH = 80;
+
 const CWD = "/workspace/repo";
 
-/**
- * The active Theme singleton set by initTheme(). Not re-exported from the
- * package index, so read it from the globalThis slot the theme module uses
- * to share state across module loaders.
- */
 function activeTheme(): {
 	fg: (c: string, t: string) => string;
 	bg: (c: string, t: string) => string;
@@ -49,13 +39,13 @@ function activeTheme(): {
 	return t as { fg: (c: string, t: string) => string; bg: (c: string, t: string) => string };
 }
 
-/** Expected root component class name per golden case. */
 const COMPONENT_BY_NAME = {
 	Box,
 	Container,
 	Markdown,
 	Text,
 } as const;
+
 type ComponentName = keyof typeof COMPONENT_BY_NAME;
 
 interface GoldenCase {
@@ -64,8 +54,6 @@ interface GoldenCase {
 	message: Record<string, unknown>;
 	options?: Record<string, unknown>;
 }
-
-// ─── Fixture builders ──────────────────────────────────────────────
 
 function subagentDetails(overrides: Record<string, unknown> = {}): Record<string, unknown> {
 	return {
@@ -109,8 +97,6 @@ function toolCalls(n: number): Array<{ name: string; args: Record<string, unknow
 function taskPromptLines(n: number): string {
 	return Array.from({ length: n }, (_v, i) => `task line ${i + 1}`).join("\n");
 }
-
-// ─── Corpus ────────────────────────────────────────────────────────
 
 const CASES: GoldenCase[] = [
 	// no-details guards
@@ -440,8 +426,6 @@ const CASES: GoldenCase[] = [
 	},
 ];
 
-// ─── Golden helpers ────────────────────────────────────────────────
-
 function goldenPath(name: string): string {
 	return join(GOLDEN_DIR, `${name}.txt`);
 }
@@ -457,7 +441,6 @@ function renderCase(c: GoldenCase, theme = activeTheme()): string {
 	return component.render(RENDER_WIDTH).join("\n");
 }
 
-/** Identity theme (no ANSI) — renders the same visible text without styling. */
 const identityTheme = {
 	fg: (_color: string, text: string) => text,
 	bg: (_color: string, text: string) => text,
@@ -492,10 +475,6 @@ describe("message-renderer golden characterization (byte-for-byte)", () => {
 		});
 	}
 });
-
-// Styling (fg/bg/bold/style) must never alter the visible characters — only
-// the ANSI wrapping around them. Guards against theme.style adoption silently
-// dropping or duplicating text.
 describe("message-renderer styling alters no visible text", () => {
 	before(() => {
 		initTheme("dark");

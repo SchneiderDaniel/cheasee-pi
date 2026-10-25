@@ -14,7 +14,7 @@
 //       and every unscorable cited `.mts` path is recorded as such.
 //
 // The recorded envelope lives in `test/fixtures/complexity-baseline-2033.json`
-// and is replayed by `test/codeflow-run-analysis.test.mts`.
+// and is replayed by `test/codeflow-run-analysis-part3.test.mts`.
 //
 // Run: node --experimental-strip-types --test test/complexity-refactor-2033.test.mts
 
@@ -252,7 +252,10 @@ describe("complexity refactor #2033 — the envelope only falls", () => {
 			measured.flagged.length <= baseline.filedBaseline.criticalCount,
 			"never above the filed baseline",
 		);
-		assert.equal(measured.files, baseline.before.files, "the tree did not grow");
+		// The split adds siblings, so the delivered tree carries more files than the
+		// base it landed on: the drop is fewer branches, never fewer files.
+		assert.ok(measured.files > baseline.before.files, "the split adds files");
+		assert.ok(measured.codeFiles > baseline.before.codeFiles, "the siblings are scored files");
 		assert.equal(measured.codeFiles, baseline.partition.scored);
 	});
 

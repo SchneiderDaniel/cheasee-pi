@@ -11,8 +11,9 @@
 		"filedCount": 286,
 		"filedNotScoredCount": 93,
 		"beforeNote": "the filed list is a superset: 93 of the 286 are .mts (never scored by the analyzer), 2 score below the ceiling, and the tree advanced past analyzedAt (7 critical files are not in the filed list). The envelope is therefore measured, not copied.",
-		"driftNote": "`filedBaseline` is the architecture's measurement at e075a867 (198 critical). `before` is the same mirror re-run on this branch's base commit (199 critical): main advanced by one net flag between e075a867 and 2ec70a61. Acceptance is the DROP against `before`.",
-		"notScoredNote": "one cited .mts path (.pi/extensions/agent-harness/test/index-cascade.test.mts) no longer exists — renamed since analyzedAt, so 93 of the 94 cited .mts paths are recorded."
+		"driftNote": "`filedBaseline` is the architecture's measurement at e075a867 (198 critical). `before` is the same mirror re-run on the merge base this branch landed on (origin/main 434bcfde, 204 critical). Main's own refactors added and removed flags between the two, so acceptance is the DROP against `before`, not the filed count.",
+		"notScoredNote": "one cited .mts path (.pi/extensions/agent-harness/test/index-cascade.test.mts) no longer exists — renamed since analyzedAt, so 93 of the 94 cited .mts paths are recorded.",
+		"afterNote": "`after` is measured in-gate over the delivered tracked tree; the split adds files, so `after.files`/`after.codeFiles` exceed `before` — the drop is not from deleting files."
 	},
 	"filedBaseline": {
 		"commit": "e075a867b708952176b38e0fc51329c8dcb2c79a",
@@ -21,20 +22,22 @@
 		"criticalCount": 198
 	},
 	"before": {
-		"commit": "2ec70a61d167e591b16c0e11f15a087b0c6dbb7b",
-		"files": 1359,
-		"codeFiles": 792,
-		"criticalCount": 199
+		"commit": "434bcfdef40b6790e04b02383db02c8051fefb53",
+		"files": 1561,
+		"codeFiles": 806,
+		"criticalCount": 204
 	},
 	"after": {
-		"criticalCount": 187,
-		"expectedDrop": 12
+		"criticalCount": 192,
+		"expectedDrop": 12,
+		"files": 1641,
+		"codeFiles": 881
 	},
 	"partition": {
-		"scored": 792,
-		"critical": 199,
+		"scored": 881,
+		"critical": 192,
 		"notScored": 93,
-		"belowCeiling": 593
+		"belowCeiling": 689
 	},
 	"reducedBy": [
 		{
@@ -602,6 +605,10 @@
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},
+		"cmd/cheasee-pi/build_cost_doc_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
 		"cmd/cheasee-pi/catalog.go": {
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
@@ -674,7 +681,23 @@
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},
+		"cmd/cheasee-pi/dockerfile_base_image_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/dockerfile_cache_mounts_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/dockerfile_stage_split_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
 		"cmd/cheasee-pi/embedded/docker/codeflow/analysis_run.py": {
+			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
+			"requires": "the boundary-guard change that moves the embed allow-list"
+		},
+		"cmd/cheasee-pi/embedded/docker/codeflow/bridge_js.py": {
 			"reason": "deployed artefact tree (//go:embed embedded) — a file move must update embed_test.go allow-list, Dockerfile COPY set and codeflow shim copy-set in one commit",
 			"requires": "the boundary-guard change that moves the embed allow-list"
 		},
@@ -730,7 +753,7 @@
 			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
 			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
 		},
-		"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs": {
+		"cmd/cheasee-pi/embedded/docker/ui/src/protocol/events.rs": {
 			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
 			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
 		},
@@ -759,10 +782,6 @@
 			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
 		},
 		"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect/journey.rs": {
-			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
-			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
-		},
-		"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs": {
 			"reason": "Rust UI tree — no cargo in-gate, so a split cannot be compiled or cargo test-ed",
 			"requires": "a lane with the Rust toolchain (cargo build + cargo test)"
 		},
@@ -933,6 +952,10 @@
 		"scripts/dependency_existence_check/matcher.py": {
 			"reason": "dependency_existence_check / codeflow Python surface — no python test lane in this gate",
 			"requires": "its own issue with the python test lane"
+		},
+		"scripts/measure-cold-build.sh": {
+			"reason": "shell script — splitting it changes an installed entry point with no in-gate shell test",
+			"requires": "its own issue with a shell-script test lane"
 		},
 		"scripts/uninstall.sh": {
 			"reason": "shell script — splitting it changes an installed entry point with no in-gate shell test",

@@ -9,7 +9,7 @@
  */
 
 import assert from "node:assert";
-import { before, after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -435,121 +435,5 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 				assert.strictEqual(mappings.length, 4);
 			},
 		);
-	});
-
-	describe("user-journey: console.warn emitted for dropped entries", () => {
-		let originalWarn: typeof console.warn;
-		let warnMessages: string[];
-
-		before(() => {
-			originalWarn = console.warn;
-		});
-
-		after(() => {
-			console.warn = originalWarn;
-		});
-
-		it("settings with non-string extension logs warning with entry content", () => {
-			warnMessages = [];
-			console.warn = (...args: unknown[]) => {
-				warnMessages.push(args.join(" "));
-			};
-
-			withTempSettings(
-				{
-					lspAuditor: {
-						servers: [
-							{ extensions: [".ts", 123], command: "ts-ls" },
-							{ extensions: [".py"], command: "pyright-langserver", args: ["--stdio"] },
-						],
-					},
-				},
-				(worktree) => {
-					const settings = readSettings(worktree);
-					assert.ok(settings, "settings should not be null");
-
-					// Verify warning was emitted with malformed entry content
-					assert.ok(
-						warnMessages.some((m) => m.includes("123") && m.includes("[lsp-auditor]")),
-						"console.warn should mention the malformed entry",
-					);
-					assert.ok(
-						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
-						"console.warn should say 'Dropped malformed server entry'",
-					);
-
-					// Valid entry still processed
-					const mappings = buildServerMappings(settings!.lspAuditor);
-					assert.ok(mappings.some((m) => m.command === "pyright-langserver"));
-					assert.ok(mappings.some((m) => m.command === "typescript-language-server"));
-				},
-			);
-
-			console.warn = originalWarn;
-		});
-
-		it("settings with string args logs warning with entry content", () => {
-			warnMessages = [];
-			console.warn = (...args: unknown[]) => {
-				warnMessages.push(args.join(" "));
-			};
-
-			withTempSettings(
-				{
-					lspAuditor: {
-						servers: [{ extensions: [".ts"], command: "ts-ls", args: "--stdio" }],
-					},
-				},
-				(worktree) => {
-					readSettings(worktree);
-
-					assert.ok(
-						warnMessages.some((m) => m.includes("--stdio") && m.includes("[lsp-auditor]")),
-						"console.warn should mention the malformed args entry",
-					);
-					assert.ok(
-						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
-						"console.warn should say 'Dropped malformed server entry'",
-					);
-				},
-			);
-
-			console.warn = originalWarn;
-		});
-
-		it("settings with a leading '-' command drops that entry, keeps valid siblings", () => {
-			warnMessages = [];
-			console.warn = (...args: unknown[]) => {
-				warnMessages.push(args.join(" "));
-			};
-
-			withTempSettings(
-				{
-					lspAuditor: {
-						servers: [
-							{ extensions: [".ts"], command: "-a" },
-							{ extensions: [".py"], command: "pyright-langserver", args: ["--stdio"] },
-						],
-					},
-				},
-				(worktree) => {
-					const settings = readSettings(worktree);
-					assert.ok(settings, "settings should not be null");
-					assert.ok(
-						warnMessages.some((m) => m.includes("Dropped malformed server entry")),
-						"the malformed entry must be dropped with a warning",
-					);
-
-					const mappings = buildServerMappings(settings!.lspAuditor);
-					assert.ok(!mappings.some((m) => m.command === "-a"), "the '-a' entry must not survive");
-					assert.ok(
-						mappings.some((m) => m.command === "pyright-langserver"),
-						"the valid sibling must survive",
-					);
-				},
-			);
-
-			console.warn = originalWarn;
-		});
 	});
 });

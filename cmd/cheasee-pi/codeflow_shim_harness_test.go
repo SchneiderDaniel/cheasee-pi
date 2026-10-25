@@ -64,6 +64,7 @@ func gitCommit(t *testing.T, root string) {
 // copy is only runnable when every one of them sits next to it.
 var codeflowShimModules = []string{
 	"server.py",
+	"bridge_js.py",
 	"config.py",
 	"report_store.py",
 	"analysis_run.py",

@@ -31,18 +31,26 @@ func TestDockerfile_SizeTrimsPresent(t *testing.T) {
 
 func TestDockerfile_SizeTrimOrdering(t *testing.T) {
 	content := readDockerfile(t)
+	// Anchored per owning stage (issue #2053): the playwright driver trim moved
+	// into the scrapling stage, so a whole-file offset would compare positions
+	// across two stages that no longer share a linear order.
 	pairs := []struct {
-		name, trim, anchor string
+		name, stage, trim, anchor string
 	}{
-		{"node headers", "rm -rf /usr/include/node", "test -x /usr/bin/npm"},
-		{"ast-grep duplicate", "/usr/lib/node_modules/@ast-grep/cli/node_modules", "typescript-language-server \\"},
-		{"jscpd optional", "/usr/lib/node_modules/jscpd/node_modules/jscpd-linux-*", "typescript-language-server \\"},
-		{"playwright driver", "/site-packages/playwright/driver", "beautifulsoup4 \\"},
-		{"go trees", "/usr/local/go/test /usr/local/go/api", "/usr/local/go/bin/go version"},
+		{"node headers", "agent", "rm -rf /usr/include/node", "test -x /usr/bin/npm"},
+		{"ast-grep duplicate", "agent", "/usr/lib/node_modules/@ast-grep/cli/node_modules", "typescript-language-server \\"},
+		{"jscpd optional", "agent", "/usr/lib/node_modules/jscpd/node_modules/jscpd-linux-*", "typescript-language-server \\"},
+		{"playwright driver", "scrapling", "/site-packages/playwright/driver", "beautifulsoup4 \\"},
+		{"go trees", "agent", "/usr/local/go/test /usr/local/go/api", "/usr/local/go/bin/go version"},
 	}
 	for _, p := range pairs {
-		trimIdx := strings.Index(content, p.trim)
-		anchorIdx := strings.Index(content, p.anchor)
+		body, ok := stageBody(content, p.stage)
+		if !ok {
+			t.Errorf("%s: stage %q not found", p.name, p.stage)
+			continue
+		}
+		trimIdx := strings.Index(body, p.trim)
+		anchorIdx := strings.Index(body, p.anchor)
 		if trimIdx == -1 {
 			t.Errorf("%s: trim %q missing", p.name, p.trim)
 			continue
@@ -52,7 +60,35 @@ func TestDockerfile_SizeTrimOrdering(t *testing.T) {
 			continue
 		}
 		if anchorIdx > trimIdx {
-			t.Errorf("%s: trim (offset %d) must follow install anchor %q (offset %d)", p.name, trimIdx, p.anchor, anchorIdx)
+			t.Errorf("%s: trim (offset %d) must follow install anchor %q (offset %d) in stage %s", p.name, trimIdx, p.anchor, anchorIdx, p.stage)
+		}
+	}
+}
+
+func TestDockerfile_SizeTrimsPerStage(t *testing.T) {
+	content := readDockerfile(t)
+	// A trim must run in the stage that produces (and ships) the payload: in
+	// the producing stage it keeps the weight out of the copied artifact, in the
+	// agent stage it keeps it out of the image.
+	byStage := map[string][]string{
+		"scrapling": {"/site-packages/playwright/driver"},
+		"agent": {
+			"rm -rf /usr/include/node",
+			"/usr/lib/node_modules/@ast-grep/cli/node_modules",
+			"/usr/lib/node_modules/jscpd/node_modules/jscpd-linux-*",
+			"rm -rf /usr/local/go/test /usr/local/go/api /usr/local/go/doc /usr/local/go/misc",
+		},
+	}
+	for name, trims := range byStage {
+		body, ok := stageBody(content, name)
+		if !ok {
+			t.Errorf("stage %q not found", name)
+			continue
+		}
+		for _, trim := range trims {
+			if !strings.Contains(body, trim) {
+				t.Errorf("trim %q must live in stage %s", trim, name)
+			}
 		}
 	}
 }
@@ -119,12 +155,7 @@ func TestUIDockerfile_SizeTrimsDoNotOverreach(t *testing.T) {
 // A broken trailing `\` would otherwise surface only at image build time.
 
 func TestDockerfiles_RunBodiesParse(t *testing.T) {
-	for _, df := range []struct {
-		name, content string
-	}{
-		{"docker/Dockerfile", readDockerfile(t)},
-		{"ui/Dockerfile", uiAsset(t, "Dockerfile")},
-	} {
+	for _, df := range dockerfiles(t) {
 		for i, body := range runBodies(df.content) {
 			out, err := exec.Command("sh", "-n", "-c", body).CombinedOutput()
 			if err != nil {
@@ -137,18 +168,61 @@ func TestDockerfiles_RunBodiesParse(t *testing.T) {
 // runBodies returns each RUN instruction's shell text with continuation lines
 // joined by their literal newline (sh treats `\`+newline as a continuation).
 func runBodies(content string) []string {
-	lines := strings.Split(content, "\n")
 	var bodies []string
+	for _, r := range runInstructions(content) {
+		bodies = append(bodies, r.body)
+	}
+	return bodies
+}
+
+// runInstr is one RUN instruction: the leading instruction flags
+// (`--mount=…`, `--network=…`) and the shell body they were stripped from.
+// Flag text left in the body makes `sh -n -c` exit 2 ("Illegal option --"),
+// so everything that parses the shell reads body.
+type runInstr struct {
+	flags []string
+	body  string
+}
+
+func runInstructions(content string) []runInstr {
+	lines := strings.Split(content, "\n")
+	var out []runInstr
 	for i := 0; i < len(lines); i++ {
 		if !strings.HasPrefix(lines[i], "RUN ") {
 			continue
 		}
-		body := []string{strings.TrimPrefix(lines[i], "RUN ")}
-		for strings.HasSuffix(strings.TrimRight(body[len(body)-1], " \t"), "\\") && i+1 < len(lines) {
+		raw := []string{strings.TrimPrefix(lines[i], "RUN ")}
+		for strings.HasSuffix(strings.TrimRight(raw[len(raw)-1], " \t"), "\\") && i+1 < len(lines) {
 			i++
-			body = append(body, lines[i])
+			raw = append(raw, lines[i])
 		}
-		bodies = append(bodies, strings.Join(body, "\n"))
+		flags, body := stripRunFlags(strings.Join(raw, "\n"))
+		out = append(out, runInstr{flags: flags, body: body})
 	}
-	return bodies
+	return out
+}
+
+// stripRunFlags peels the leading instruction flags off a RUN body. Flags may
+// each sit on their own `\`-continued line, so the continuation is consumed
+// too. A flag-free body is returned byte-identical.
+func stripRunFlags(raw string) (flags []string, body string) {
+	rest := raw
+	for {
+		trimmed := strings.TrimLeft(rest, " \t\n")
+		if strings.HasPrefix(trimmed, "\\\n") { // end of a preceding flag line
+			trimmed = strings.TrimLeft(trimmed[2:], " \t\n")
+		}
+		if !strings.HasPrefix(trimmed, "--") {
+			if len(flags) == 0 {
+				return nil, raw
+			}
+			return flags, trimmed
+		}
+		tok := trimmed
+		if idx := strings.IndexAny(tok, " \t\n"); idx >= 0 {
+			tok = tok[:idx]
+		}
+		flags = append(flags, tok)
+		rest = trimmed[len(tok):]
+	}
 }

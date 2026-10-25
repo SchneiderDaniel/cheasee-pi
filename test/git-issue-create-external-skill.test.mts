@@ -1,16 +1,9 @@
-/**
- * Tests for git-issue-create-external skill
- *
- * Text-analysis tests that read the SKILL.md file and assert content patterns.
- * Tests cover all requirements from Issue #861.
- *
- * Run with:
- *   node --experimental-strip-types --test test/git-issue-create-external-skill.test.mts
- */
-
 import assert from "node:assert";
+
 import { describe, it } from "node:test";
+
 import { readFileSync, existsSync } from "node:fs";
+
 import { resolve } from "node:path";
 
 const SKILL_PATH = resolve(
@@ -19,10 +12,6 @@ const SKILL_PATH = resolve(
 	".pi/skills/git-issue-create-external/SKILL.md",
 );
 
-/**
- * Parse YAML frontmatter from a markdown file.
- * Returns { frontmatter: Record<string, string | object>, body: string }
- */
 function parseFrontmatter(filePath: string): {
 	frontmatter: Record<string, unknown>;
 	body: string;
@@ -115,9 +104,72 @@ function parseFrontmatter(filePath: string): {
 	return { frontmatter, body };
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 1: File existence and structure
-// ═══════════════════════════════════════════════════════════════════════
+function extractStepSection(body: string, stepNumber: number): string | null {
+	const marker = `### Step ${stepNumber}`;
+	const startIdx = body.indexOf(marker);
+	if (startIdx === -1) return null;
+
+	// Find the next ### heading or end of string
+	const nextMarkerIdx = findNextH3Heading(body, startIdx + marker.length);
+	return body.slice(startIdx, nextMarkerIdx !== -1 ? nextMarkerIdx : undefined);
+}
+
+function findNextH3Heading(body: string, fromIndex: number): number {
+	const lines = body.slice(fromIndex).split("\n");
+	let accumulated = fromIndex;
+	for (const line of lines) {
+		if (line.startsWith("### ") && accumulated > fromIndex) {
+			return accumulated;
+		}
+		accumulated += line.length + 1; // +1 for newline
+	}
+	return -1;
+}
+
+function extractSection(body: string, sectionName: string): string | null {
+	// Try exact heading first
+	const exactMarker = `## ${sectionName}`;
+	let startIdx = body.indexOf(exactMarker);
+
+	// Fallback to partial match
+	if (startIdx === -1) {
+		const lowerBody = body.toLowerCase();
+		const lowerName = sectionName.toLowerCase();
+		const lines = body.split("\n");
+		for (let i = 0; i < lines.length; i++) {
+			const trimmed = lines[i].trim();
+			if (trimmed.startsWith("## ") && trimmed.slice(3).toLowerCase().includes(lowerName)) {
+				startIdx = lines.slice(0, i).join("\n").length;
+				if (startIdx > 0) startIdx += 1; // account for last newline
+				break;
+			}
+		}
+	}
+
+	if (startIdx === -1) return null;
+
+	// Find the next ## heading (same level), skipping fenced code blocks
+	const rest = body.slice(startIdx + exactMarker.length);
+	const lines = rest.split("\n");
+	let accumulated = startIdx + exactMarker.length;
+	let inCodeBlock = false;
+	for (const line of lines) {
+		// Toggle code block state
+		if (line.trim().startsWith("```")) {
+			inCodeBlock = !inCodeBlock;
+		}
+
+		if (
+			!inCodeBlock &&
+			line.trim().startsWith("## ") &&
+			accumulated > startIdx + exactMarker.length
+		) {
+			return body.slice(startIdx, accumulated);
+		}
+		accumulated += line.length + 1;
+	}
+	return body.slice(startIdx);
+}
 
 describe("Phase 1: File existence and structure", () => {
 	it("exists at .pi/skills/git-issue-create-external/SKILL.md", () => {
@@ -168,11 +220,6 @@ describe("Phase 1: File existence and structure", () => {
 		assert.ok(body.trim().length > 0, "Body is empty after frontmatter");
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 2: 5-step checklist completeness (R1)
-// ═══════════════════════════════════════════════════════════════════════
-
 describe("Phase 2: 5-step checklist completeness (R1)", () => {
 	const { body } = parseFrontmatter(SKILL_PATH);
 
@@ -292,11 +339,6 @@ describe("Phase 2: 5-step checklist completeness (R1)", () => {
 		}
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 3: Writing rules and fallback format (R2)
-// ═══════════════════════════════════════════════════════════════════════
-
 describe("Phase 3: Writing rules and fallback format (R2)", () => {
 	const { body } = parseFrontmatter(SKILL_PATH);
 
@@ -394,11 +436,6 @@ describe("Phase 3: Writing rules and fallback format (R2)", () => {
 		assert.ok(hasFillTemplateLanguage, "Step 4 missing template-filling rule");
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 4: Scope boundaries (R3)
-// ═══════════════════════════════════════════════════════════════════════
-
 describe("Phase 4: Scope boundaries (R3)", () => {
 	const { body } = parseFrontmatter(SKILL_PATH);
 
@@ -459,160 +496,3 @@ describe("Phase 4: Scope boundaries (R3)", () => {
 		);
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 5: Error handling rules (R4)
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("Phase 5: Error handling rules (R4)", () => {
-	const { body } = parseFrontmatter(SKILL_PATH);
-
-	it('Duplicate found → "stop and report to user" / do NOT file language', () => {
-		const errorSection = extractSection(body, "Error Handling");
-		assert.ok(errorSection, "Error Handling section not found");
-		const hasStopLanguage =
-			errorSection.includes("stop") ||
-			errorSection.includes("Stop") ||
-			errorSection.includes("STOP");
-		const hasDoNotFile =
-			errorSection.includes("Do NOT file") ||
-			errorSection.includes("do NOT file") ||
-			errorSection.includes("do not file");
-		assert.ok(
-			hasStopLanguage && hasDoNotFile,
-			"Error Handling missing duplicate stop or do NOT file language",
-		);
-	});
-
-	it("If no CONTRIBUTING.md and no templates → use universal fallback format (do NOT abort)", () => {
-		const errorSection = extractSection(body, "Error Handling");
-		assert.ok(errorSection, "Error Handling section not found");
-		assert.ok(
-			errorSection.includes("Universal Fallback Format") ||
-				errorSection.includes("universal fallback"),
-			"Error Handling missing universal fallback format fallback rule",
-		);
-	});
-
-	it('If gh auth status fails → stop and tell user to run "gh auth login"', () => {
-		const authSection =
-			extractSection(body, "Preconditions") ||
-			extractSection(body, "Authentication Check") ||
-			extractSection(body, "Error Handling");
-		assert.ok(authSection, "No section with auth check found");
-		assert.ok(
-			authSection.includes("gh auth login") || authSection.includes("gh auth status"),
-			"Missing gh auth login instruction",
-		);
-	});
-
-	it("If CONTRIBUTING.md exists but no templates → extract format from CONTRIBUTING.md, don't fall back immediately", () => {
-		const step1Section = extractStepSection(body, 1);
-		const errorSection = extractSection(body, "Error Handling");
-		const combinedText = (step1Section || "") + "\n" + (errorSection || "");
-
-		assert.ok(
-			combinedText.includes("CONTRIBUTING.md") &&
-				combinedText.includes("format") &&
-				(combinedText.includes("do not fall back") ||
-					combinedText.includes("do NOT fall back") ||
-					combinedText.includes("do NOT immediately")),
-			"Missing CONTRIBUTING.md format extraction rule without immediate fallback",
-		);
-	});
-
-	it("If confidence on duplicate check < threshold → report to user for manual review", () => {
-		const step3Section = extractStepSection(body, 3);
-		const errorSection = extractSection(body, "Error Handling");
-		const combinedText = (step3Section || "") + "\n" + (errorSection || "");
-
-		assert.ok(
-			combinedText.includes("confidence") ||
-				combinedText.includes("Confidence") ||
-				combinedText.includes("threshold") ||
-				combinedText.includes("manual review"),
-			"Missing low-confidence duplicate check handling",
-		);
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════════════
-
-/**
- * Extract a section from the body by its heading (### Step N).
- */
-function extractStepSection(body: string, stepNumber: number): string | null {
-	const marker = `### Step ${stepNumber}`;
-	const startIdx = body.indexOf(marker);
-	if (startIdx === -1) return null;
-
-	// Find the next ### heading or end of string
-	const nextMarkerIdx = findNextH3Heading(body, startIdx + marker.length);
-	return body.slice(startIdx, nextMarkerIdx !== -1 ? nextMarkerIdx : undefined);
-}
-
-/**
- * Find the next ### heading after a given position.
- */
-function findNextH3Heading(body: string, fromIndex: number): number {
-	const lines = body.slice(fromIndex).split("\n");
-	let accumulated = fromIndex;
-	for (const line of lines) {
-		if (line.startsWith("### ") && accumulated > fromIndex) {
-			return accumulated;
-		}
-		accumulated += line.length + 1; // +1 for newline
-	}
-	return -1;
-}
-
-/**
- * Extract a section from the body by its heading (## Section Name).
- * Skips content inside fenced code blocks when looking for the next heading.
- */
-function extractSection(body: string, sectionName: string): string | null {
-	// Try exact heading first
-	const exactMarker = `## ${sectionName}`;
-	let startIdx = body.indexOf(exactMarker);
-
-	// Fallback to partial match
-	if (startIdx === -1) {
-		const lowerBody = body.toLowerCase();
-		const lowerName = sectionName.toLowerCase();
-		const lines = body.split("\n");
-		for (let i = 0; i < lines.length; i++) {
-			const trimmed = lines[i].trim();
-			if (trimmed.startsWith("## ") && trimmed.slice(3).toLowerCase().includes(lowerName)) {
-				startIdx = lines.slice(0, i).join("\n").length;
-				if (startIdx > 0) startIdx += 1; // account for last newline
-				break;
-			}
-		}
-	}
-
-	if (startIdx === -1) return null;
-
-	// Find the next ## heading (same level), skipping fenced code blocks
-	const rest = body.slice(startIdx + exactMarker.length);
-	const lines = rest.split("\n");
-	let accumulated = startIdx + exactMarker.length;
-	let inCodeBlock = false;
-	for (const line of lines) {
-		// Toggle code block state
-		if (line.trim().startsWith("```")) {
-			inCodeBlock = !inCodeBlock;
-		}
-
-		if (
-			!inCodeBlock &&
-			line.trim().startsWith("## ") &&
-			accumulated > startIdx + exactMarker.length
-		) {
-			return body.slice(startIdx, accumulated);
-		}
-		accumulated += line.length + 1;
-	}
-	return body.slice(startIdx);
-}

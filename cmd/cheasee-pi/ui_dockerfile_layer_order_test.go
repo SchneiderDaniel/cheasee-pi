@@ -51,10 +51,16 @@ func TestUIDockerfile_PiInstallAfterArtifactCopies(t *testing.T) {
 			t.Errorf("exactly one %q required, got %d", m.name, got)
 		}
 	}
-	// The install RUN keeps its cache cleanup; the #2052 stamp removal
-	// (pi_build_stamp_ui_test.go) owns the absence of PI_BUILD_STAMP here.
+	// The install RUN keeps its /tmp scratch cleanup; 'npm cache clean --force'
+	// is gone (issue #2053 — the npm cache is a BuildKit mount, so the cleanup
+	// only wiped the cache). The #2052 stamp removal (pi_build_stamp_ui_test.go)
+	// owns the absence of PI_BUILD_STAMP here.
 	installIdx, userIdx := idxs[5], idxs[6]
-	if block := content[installIdx:userIdx]; !strings.Contains(block, "npm cache clean --force") || !strings.Contains(block, "rm -rf /tmp/*") {
-		t.Error("moved pi RUN must retain 'npm cache clean --force' and 'rm -rf /tmp/*'")
+	block := content[installIdx:userIdx]
+	if !strings.Contains(block, "rm -rf /tmp/*") {
+		t.Error("moved pi RUN must retain 'rm -rf /tmp/*'")
+	}
+	if strings.Contains(block, "npm cache clean") {
+		t.Error("moved pi RUN must not run 'npm cache clean' — it empties the mounted npm cache")
 	}
 }

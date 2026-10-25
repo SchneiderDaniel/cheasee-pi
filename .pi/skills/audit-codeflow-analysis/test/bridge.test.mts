@@ -1,30 +1,17 @@
-/**
- * Tests for the CodeFlow browser bridge (`_BRIDGE_JS` in server.py).
- *
- * The bridge is the one piece that runs inside the CodeFlow page, so it cannot
- * be exercised by the Go/python adapter tests — and a DOM string mismatch would
- * leave the report endpoint empty after analysis. This harness extracts the
- * exact JS served at `/codeflow-bridge.js`, runs it in a `node:vm` sandbox, and
- * drives the export flow against the *served* UI contract: the export button and
- * menu markup are read from `fixtures/codeflow-ui-export.html`, which
- * `generate-ui-fixture.mjs` captures from the real CodeFlow `index.html`. A UI
- * relabel/restructure therefore fails these tests (mandatory, no skip) rather
- * than silently breaking the capture.
- *
- * Captured exports are POSTed to a real in-process HTTP server and read back
- * with GET, exercising the full export → POST → GET round trip.
- *
- * Run with:
- *   node --experimental-strip-types --test .pi/skills/audit-codeflow-analysis/test/bridge.test.mts
- */
-
 import assert from "node:assert";
+
 import { execFileSync } from "node:child_process";
+
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+
 import { createServer, type Server } from "node:http";
+
 import { createRequire } from "node:module";
+
 import { resolve } from "node:path";
+
 import { after, before, describe, it } from "node:test";
+
 import vm from "node:vm";
 
 const requireCjs = createRequire(import.meta.url);
@@ -37,21 +24,30 @@ const SERVER_PY = resolve(
 	"..",
 	"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
 );
+
+/** server.py plus its sibling modules — the shim is the whole directory. */
+function readShim(): string {
+	const dir = resolve(SERVER_PY, "..");
+	return readdirSync(dir)
+		.filter((f) => f.endsWith(".py"))
+		.sort()
+		.map((f) => readFileSync(resolve(dir, f), "utf-8"))
+		.join("\n");
+}
+
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
+
 const MD_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.md"), "utf-8");
+
 const JSON_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-report.json"), "utf-8");
-// The JSON export can embed the markdown marker inside its source snippets;
-// this fixture reproduces that and is the root-cause regression payload.
+
 const MARKED_JSON_FIXTURE = readFileSync(
 	resolve(FIXTURE_DIR, "codeflow-report-marked.json"),
 	"utf-8",
 );
+
 const UI_FIXTURE = readFileSync(resolve(FIXTURE_DIR, "codeflow-ui-export.html"), "utf-8");
 
-// The served-UI revision the fixture was captured from and the revision the
-// Dockerfile actually builds. They must match: the bridge finds the export
-// control by DOM contract only, so a floating upstream checkout would let the
-// served UI drift from the fixture (and these tests) silently.
 const DOCKERFILE = resolve(
 	import.meta.dirname,
 	"..",
@@ -60,27 +56,25 @@ const DOCKERFILE = resolve(
 	"..",
 	"cmd/cheasee-pi/embedded/docker/codeflow/Dockerfile",
 );
+
 const FIXTURE_REVISION = /CodeFlow revision:\s*([0-9a-f]{40})/.exec(UI_FIXTURE)?.[1] ?? null;
+
 const DOCKERFILE_REVISION =
 	/CODEFLOW_REF=([0-9a-f]{40})/.exec(readFileSync(DOCKERFILE, "utf-8"))?.[1] ?? null;
 
-/** The report routes the bridge POSTs to (mirrors server.py). */
 const REPORT_ROUTES: Record<string, string> = {
 	"/api/analysis/report": "text/markdown; charset=utf-8",
 	"/api/analysis/report.json": "application/json; charset=utf-8",
 };
 
-/** Extract the served bridge JS from the python byte constant. */
 function extractBridgeJs(): string {
-	const py = readFileSync(SERVER_PY, "utf-8");
-	const m = /_BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
-	assert.ok(m, "_BRIDGE_JS constant not found in server.py");
+	const py = readShim();
+	const m = /_?BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
+	assert.ok(m, "_BRIDGE_JS constant not found in the shim modules");
 	return m[1];
 }
 
 const BRIDGE_JS = extractBridgeJs();
-
-// ── The served-UI contract, read from the captured fixture ──
 
 interface UiContract {
 	button: { tag: string; attrs: Record<string, string>; text: string };
@@ -102,18 +96,11 @@ function parseUiContract(html: string): UiContract {
 
 const UI = parseUiContract(UI_FIXTURE);
 
-/**
- * The export Blob each menu item produces, keyed by the fixture's format. The
- * bridge classifies by content marker (not MIME), so the `txt` entry is plain
- * text and must be ignored.
- */
 const FORMAT_BLOBS: Record<string, { type: string; text: string }> = {
 	json: { type: "application/json", text: JSON_FIXTURE },
 	md: { type: "text/markdown", text: MD_FIXTURE },
 	txt: { type: "text/plain", text: "PLAIN TEXT REPORT" },
 };
-
-// ── Minimal DOM modelled on the captured served-UI contract ──
 
 class FakeNode {
 	tagName: string;
@@ -249,8 +236,6 @@ function runBridge(base: string, opts: { withExportButton?: boolean } = {}): Har
 
 const postsTo = (h: Harness, suffix: string) => h.posts.filter((p) => p.url.endsWith(suffix));
 
-// ── Real in-process report sink (export -> POST -> GET) ──
-
 interface Sink {
 	base: string;
 	server: Server;
@@ -305,20 +290,38 @@ function startSink(opts: { postStatus?: number } = {}): Promise<Sink> {
 	});
 }
 
+async function waitFor(pred: () => boolean, what: string): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	while (!pred()) {
+		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+		await new Promise((r) => setTimeout(r, 20));
+	}
+}
+
+async function waitForSink(base: string): Promise<void> {
+	const deadline = Date.now() + 5_000;
+	for (;;) {
+		const [md, json] = await Promise.all([
+			fetch(base + "/api/analysis/report"),
+			fetch(base + "/api/analysis/report.json"),
+		]);
+		if (md.status === 200 && json.status === 200) return;
+		if (Date.now() > deadline) throw new Error("report sink never received both formats");
+		await new Promise((r) => setTimeout(r, 20));
+	}
+}
+
 describe("codeflow bridge capture", () => {
 	let sink: Sink;
-
 	before(async () => {
 		sink = await startSink();
 	});
 	after(async () => {
 		await sink.close();
 	});
-
 	it("is valid JavaScript", () => {
 		assert.doesNotThrow(() => new vm.Script(BRIDGE_JS));
 	});
-
 	it("Dockerfile pins CodeFlow to the revision the UI fixture was captured from", () => {
 		// The served UI (Dockerfile ARG CODEFLOW_REF) and the fixture must never
 		// drift apart. Moving the pin means regenerating the fixture from that
@@ -335,19 +338,10 @@ describe("codeflow bridge capture", () => {
 			"the served revision (Dockerfile ARG CODEFLOW_REF) must equal the revision codeflow-ui-export.html was captured from; regenerate the fixture when moving the pin",
 		);
 	});
-
 	it("serves the false-positive filter the headless runner applies", () => {
-		// The shim is server.py plus its sibling modules (config, the report store, the
-		// run state machine, the committed-tree identity and the served-page rewrites),
-		// so read the whole directory for the served-page contract.
-		const dir = resolve(SERVER_PY, "..");
-		const py = readdirSync(dir)
-			.filter((f) => f.endsWith(".py"))
-			.sort()
-			.map((f) => readFileSync(resolve(dir, f), "utf-8"))
-			.join("\n");
+		const py = readShim();
 		const tag = /_BRIDGE_SCRIPT = b(['"])([\s\S]*?)\1/.exec(py)?.[2];
-		assert.ok(tag, "_BRIDGE_SCRIPT not found in server.py");
+		assert.ok(tag, "_BRIDGE_SCRIPT not found in the shim modules");
 		assert.strictEqual((tag.match(/fp-filter\.js/g) ?? []).length, 1, "one fp-filter tag");
 		assert.strictEqual((tag.match(/codeflow-bridge\.js/g) ?? []).length, 1, "one bridge tag");
 		assert.match(py, /_FP_FILTER_ROUTE = "\/fp-filter\.js"/);
@@ -391,7 +385,6 @@ describe("codeflow bridge capture", () => {
 		assert.strictEqual(typeof sandbox.piFpFilter?.sanitizeAnalysisData, "function");
 		assert.strictEqual(typeof sandbox.piFpFilter?.readFileFrom, "function");
 	});
-
 	it("served generateReport wrapper filters a const `data` in place and fails closed", () => {
 		// The rewrite is produced by server.py itself (the regex lives there), so
 		// this pins the served bytes, not a JS re-implementation of them.
@@ -497,235 +490,4 @@ describe("codeflow bridge capture", () => {
 		assert.strictEqual(throwing.__codeflowFpFilterError, "boom");
 		assert.match(reported ?? "", /false-positive filter failed.*boom/);
 	});
-
-	it("served-UI fixture still matches the contract the bridge relies on", () => {
-		// Mandatory guard: if upstream relabels the export control or menu items,
-		// regenerate the fixture (generate-ui-fixture.mjs) and re-check the bridge.
-		const buttonLabel = `${UI.button.attrs["aria-label"] ?? ""} ${UI.button.attrs.title ?? ""} ${UI.button.text}`;
-		assert.match(buttonLabel, /export/i, "export button label must contain 'export'");
-		const labels = UI.options.map((o) => o.label);
-		for (const want of ["JSON Report", "Markdown"]) {
-			assert.ok(
-				labels.includes(want),
-				`export menu must contain "${want}" (got ${JSON.stringify(labels)})`,
-			);
-		}
-	});
-
-	it("drives the served export flow and round-trips both formats byte-for-byte", async () => {
-		const h = runBridge(sink.base);
-		h.exportAs("json");
-		h.exportAs("md");
-		await h.settle();
-		await waitForSink(sink.base);
-		const md = postsTo(h, "/api/analysis/report");
-		const json = postsTo(h, "/api/analysis/report.json");
-		assert.strictEqual(md.length, 1, "expected exactly one markdown POST");
-		assert.strictEqual(json.length, 1, "expected exactly one JSON POST");
-
-		// Export -> POST -> GET: the served UI's exports are retrievable verbatim.
-		const gotMd = await fetch(sink.base + "/api/analysis/report");
-		assert.strictEqual(gotMd.status, 200);
-		assert.strictEqual(await gotMd.text(), MD_FIXTURE);
-		const gotJson = await fetch(sink.base + "/api/analysis/report.json");
-		assert.strictEqual(gotJson.status, 200);
-		assert.strictEqual(await gotJson.text(), JSON_FIXTURE);
-		assert.ok(Number(gotMd.headers.get("X-Codeflow-Analysis-At")) > 1.6e12);
-	});
-
-	it("records a capture event and the POST result per format on the bridge-status route", async () => {
-		const h = runBridge(sink.base);
-		h.exportAs("json");
-		h.exportAs("md");
-		await h.settle();
-		await waitForSink(sink.base);
-		await waitFor(
-			() =>
-				postsTo(h, "/api/analysis/bridge-status").some(
-					(p) => JSON.parse(p.body).event === "result",
-				),
-			"bridge-status result events",
-		);
-		const events = postsTo(h, "/api/analysis/bridge-status").map((p) => JSON.parse(p.body));
-		assert.ok(events.some((e) => e.route === "/api/analysis/report" && e.event === "capture"));
-		assert.ok(events.some((e) => e.route === "/api/analysis/report.json" && e.event === "capture"));
-		assert.ok(
-			events.some(
-				(e) => e.route === "/api/analysis/report" && e.event === "result" && e.httpStatus === 204,
-			),
-		);
-	});
-
-	it("ignores unrelated Blobs (worker source, raw JSON, plain text)", async () => {
-		const h = runBridge(sink.base);
-		h.sandbox.URL.createObjectURL({
-			type: "text/javascript",
-			text: async () => "self.onmessage=function(){}",
-		});
-		h.sandbox.URL.createObjectURL({
-			type: "application/json",
-			text: async () => '{"files":[],"issues":[]}',
-		});
-		h.sandbox.URL.createObjectURL({ type: "text/plain", text: async () => "PLAIN TEXT REPORT" });
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-		assert.deepStrictEqual(h.posts, []);
-	});
-
-	it("posts a directly created markdown Blob (capture seam independent of DOM)", async () => {
-		const h = runBridge(sink.base, { withExportButton: false });
-		h.sandbox.URL.createObjectURL({ type: "text/markdown", text: async () => MD_FIXTURE });
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-		assert.deepStrictEqual(
-			postsTo(h, "/api/analysis/report").map((p) => p.body),
-			[MD_FIXTURE],
-		);
-	});
-
-	it("classifies a marker-bearing JSON export as JSON, not markdown (root-cause regression)", async () => {
-		// Guard against a vacuous regression: the payload must actually carry the
-		// markdown marker inside a source snippet.
-		assert.ok(
-			MARKED_JSON_FIXTURE.includes("# CodeFlow Analysis Report"),
-			"fixture must embed the markdown marker inside a source snippet",
-		);
-		const parsed = JSON.parse(MARKED_JSON_FIXTURE);
-		assert.ok(
-			Array.isArray(parsed.architectureIssues),
-			"fixture must parse with an architectureIssues array",
-		);
-
-		const h = runBridge(sink.base, { withExportButton: false });
-		h.sandbox.URL.createObjectURL({
-			type: "application/json",
-			text: async () => MARKED_JSON_FIXTURE,
-		});
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-
-		assert.deepStrictEqual(
-			postsTo(h, "/api/analysis/report").map((p) => p.body),
-			[],
-			"the markdown route must stay empty for a marker-bearing JSON body",
-		);
-		assert.deepStrictEqual(
-			postsTo(h, "/api/analysis/report.json").map((p) => p.body),
-			[MARKED_JSON_FIXTURE],
-			"the JSON body must POST to the JSON route",
-		);
-	});
-
-	it("routes a JSON export without the markdown marker to the JSON route", async () => {
-		const h = runBridge(sink.base, { withExportButton: false });
-		h.sandbox.URL.createObjectURL({ type: "application/json", text: async () => JSON_FIXTURE });
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-		assert.deepStrictEqual(postsTo(h, "/api/analysis/report"), []);
-		assert.deepStrictEqual(
-			postsTo(h, "/api/analysis/report.json").map((p) => p.body),
-			[JSON_FIXTURE],
-		);
-	});
-
-	it("falls back to the markdown route for malformed JSON that contains the marker", async () => {
-		const body = '{"architectureIssues":[} # CodeFlow Analysis Report';
-		const h = runBridge(sink.base, { withExportButton: false });
-		h.sandbox.URL.createObjectURL({ type: "text/plain", text: async () => body });
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-		assert.deepStrictEqual(
-			postsTo(h, "/api/analysis/report").map((p) => p.body),
-			[body],
-		);
-		assert.deepStrictEqual(postsTo(h, "/api/analysis/report.json"), []);
-	});
-
-	it("requires an architectureIssues array, not just the marker substring", async () => {
-		// A JSON body whose architectureIssues is not an array falls back to the
-		// marker rule; without the marker the shape rule rejects it entirely.
-		const withMarker = '{"architectureIssues":"not-array","note":"# CodeFlow Analysis Report"}';
-		const h = runBridge(sink.base, { withExportButton: false });
-		h.sandbox.URL.createObjectURL({ type: "text/plain", text: async () => withMarker });
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-		assert.deepStrictEqual(
-			postsTo(h, "/api/analysis/report").map((p) => p.body),
-			[withMarker],
-		);
-		assert.deepStrictEqual(postsTo(h, "/api/analysis/report.json"), []);
-
-		const h2 = runBridge(sink.base, { withExportButton: false });
-		h2.sandbox.URL.createObjectURL({
-			type: "application/json",
-			text: async () => '{"architectureIssues":"not-array"}',
-		});
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-		assert.deepStrictEqual(h2.posts, []);
-	});
-
-	it("reports the capture route that matches the actual POST destination", async () => {
-		const h = runBridge(sink.base, { withExportButton: false });
-		h.sandbox.URL.createObjectURL({
-			type: "application/json",
-			text: async () => MARKED_JSON_FIXTURE,
-		});
-		for (let i = 0; i < 4; i++) await Promise.resolve();
-		const capture = postsTo(h, "/api/analysis/bridge-status")
-			.map((p) => JSON.parse(p.body))
-			.find((e) => e.event === "capture");
-		assert.ok(capture, "a capture event must be recorded");
-		assert.strictEqual(capture.route, "/api/analysis/report.json");
-	});
-
-	it("posts nothing until the UI exports a report", async () => {
-		const h = runBridge(sink.base);
-		await h.settle();
-		assert.deepStrictEqual(h.posts, []);
-	});
-
-	it("surfaces a non-2xx POST (413 oversize) instead of swallowing it", async () => {
-		// Without this the endpoint stays empty and pi only reports "no analysis
-		// yet", so the operator re-runs an analysis that keeps failing.
-		const failing = await startSink({ postStatus: 413 });
-		try {
-			const h = runBridge(failing.base);
-			h.exportAs("json");
-			await h.settle();
-			await waitFor(() => h.errorBanner() !== null, "error banner");
-			const text = String(h.errorBanner()?.textContent ?? "");
-			assert.match(text, /HTTP 413/);
-			assert.match(text, /16 MiB/, "413 must name the size cap");
-			assert.match(String(h.sandbox.window.__codeflowBridgeError ?? ""), /HTTP 413/);
-		} finally {
-			await failing.close();
-		}
-	});
-
-	it("surfaces a network failure (unreachable endpoint)", async () => {
-		// Port 1 is unbound: fetch rejects with a connection error.
-		const h = runBridge("http://127.0.0.1:1");
-		h.exportAs("json");
-		await h.settle();
-		await waitFor(() => h.errorBanner() !== null, "error banner");
-		assert.match(String(h.sandbox.window.__codeflowBridgeError ?? ""), /unreachable/);
-	});
 });
-
-/** Poll until `pred()` is truthy, or throw after a timeout (host-realm timer). */
-async function waitFor(pred: () => boolean, what: string): Promise<void> {
-	const deadline = Date.now() + 5_000;
-	while (!pred()) {
-		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-		await new Promise((r) => setTimeout(r, 20));
-	}
-}
-
-/** Poll the sink until both report routes have received a POST (the network
- * delivery lags the synchronous in-sandbox fetch call). */
-async function waitForSink(base: string): Promise<void> {
-	const deadline = Date.now() + 5_000;
-	for (;;) {
-		const [md, json] = await Promise.all([
-			fetch(base + "/api/analysis/report"),
-			fetch(base + "/api/analysis/report.json"),
-		]);
-		if (md.status === 200 && json.status === 200) return;
-		if (Date.now() > deadline) throw new Error("report sink never received both formats");
-		await new Promise((r) => setTimeout(r, 20));
-	}
-}
