@@ -1,6 +1,6 @@
 import assert from "node:assert";
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { createServer, type Server } from "node:http";
 
@@ -23,14 +23,15 @@ const SERVER_PY = resolve(
 	"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
 );
 
-const REWRITES_PY = resolve(
-	import.meta.dirname,
-	"..",
-	"..",
-	"..",
-	"..",
-	"cmd/cheasee-pi/embedded/docker/codeflow/server_rewrites.py",
-);
+/** server.py plus its sibling modules — the shim is the whole directory. */
+function readShim(): string {
+	const dir = resolve(SERVER_PY, "..");
+	return readdirSync(dir)
+		.filter((f) => f.endsWith(".py"))
+		.sort()
+		.map((f) => readFileSync(resolve(dir, f), "utf-8"))
+		.join("\n");
+}
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 
@@ -65,8 +66,8 @@ const REPORT_ROUTES: Record<string, string> = {
 };
 
 function extractBridgeJs(): string {
-	const py = readFileSync(REWRITES_PY, "utf-8");
-	const m = /_BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
+	const py = readShim();
+	const m = /_?BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
 	assert.ok(m, "_BRIDGE_JS constant not found in server.py");
 	return m[1];
 }

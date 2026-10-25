@@ -79,10 +79,12 @@ segments, so the count and the flagged set are unchanged on every post-split
 commit. The #2026 dead-code reference rule later took
 `cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js` past 500 segments, so the
 delivered tree flagged **17** and that file was recorded as a deferral next to
-`server.py` and the 15 Rust sources. #2035 then split the Rust files
-(`include!`-joined part files) and `server.py` (a facade over the
-`server_*.py` modules), so the delivered tree now flags **1** — the
-`fp-filter.js` served-asset deferral below.
+`server.py` and the 15 Rust sources. #2035 then split `server.py` (a facade over
+the `bridge_js.py`/`config.py`/`report_store.py`/`analysis_run.py`/
+`repo_identity.py`/`ui_rewrites.py` modules) and `rpc/client.rs` (→
+`rpc/client/replay.rs`), so the delivered tree now flags **2** — the
+`fp-filter.js` served-asset deferral below and `ui/src/session/relay.rs`, which
+#2036 carved out of `session.rs` and records in its own register.
 
 The issue was filed with **61** files at `analyzedAt 1791738325602`. The number
 had already fallen to 35 on the immutable base, because #2001 (Large Files),

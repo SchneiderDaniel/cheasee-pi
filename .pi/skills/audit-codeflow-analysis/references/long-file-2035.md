@@ -77,43 +77,44 @@ set with the 15 Rust sources and `server.py` (below).
 
 ## The Rust family
 
-The 15 Rust sources under `cmd/cheasee-pi/embedded/docker/ui` are split with the
-`include!` macro rather than new `mod` declarations. Each original keeps its
-opening items and pulls the rest in with `include!("<stem>_partN.rs");` calls at
-top-level, `impl`-method and `mod tests` item boundaries. `include!` is a
-token-identical header include, so the compiler sees exactly the original token
-stream — the split is behaviour-preserving by construction and needs no Rust
-toolchain to trust (the pipeline image has none). Integration-test parts live
-under `ui/tests/parts/` so Cargo never auto-discovers them as separate targets;
-the parent test crate pulls them in with `include!("parts/...")`.
+The Rust sources under `cmd/cheasee-pi/embedded/docker/ui` are split into real
+`mod` declarations by #2036 (merged into this branch), so #2035 only had to take
+over the coalesced result: `stream.rs` → `stream/{assembler,chat,rows,tests}.rs`,
+`session.rs` → `session/relay.rs` + `session/tests.rs`, `rpc/client.rs` →
+`rpc/client/{tests,tests_delivery,replay}.rs`, and the integration suites under
+`tests/<name>/`. `rpc/client.rs` was the one file #2036 left at 535 segments, so
+this change moved the live replay adapter (`RpcReplaySource`) into
+`rpc/client/replay.rs` and re-exported it (`pub use replay::RpcReplaySource;`),
+leaving the request lifecycle at 415 segments and the adapter at 133.
+
+The pipeline image carries no Rust toolchain (`which cargo rustc` is empty), so
+none of these splits can be compiled in-gate; they are verbatim relocations with
+`use super::*;` at the top of each child module, and the behaviour proof for the
+crate remains the CI check that owns it.
 
 ## The server.py facade
 
-`cmd/cheasee-pi/embedded/docker/codeflow/server.py` (1275 lines) becomes a thin
-facade over five modules:
-
-- `server_config.py` — deployment config (JSON/env) and the API-base regex.
-- `server_rewrites.py` — `_BRIDGE_JS`/`_BRIDGE_SCRIPT`/`_UI_REWRITES` and the
-  MIME override (the served-page byte assets the bridge suites read).
-- `server_store.py` — the report and bridge-telemetry single-slot stores.
-- `server_run.py` — the headless producer (single-flight state, git-archive
-  snapshot, subprocess lifecycle).
-- `server_tree.py` — committed-HEAD listing, scan cache and fingerprint.
-
-The `server.py` module namespace re-exports every name the bridge suites read via
-`runpy`, so the served contract is unchanged. The Dockerfile `COPY` set and the
-`py_compile` gate now cover all six files, and the Go harness materialises the
-whole directory (`copyCodeflowDir`) rather than `server.py` alone.
+`cmd/cheasee-pi/embedded/docker/codeflow/server.py` (1275 lines at filing) was
+already a facade over `config.py`, `report_store.py`, `analysis_run.py`,
+`repo_identity.py` and `ui_rewrites.py` when this branch started, and still
+measured 568 segments — the inline `_BRIDGE_JS` browser asset. That literal now
+lives in `bridge_js.py` (128 lines, its explanatory comment included) and
+`server.py` re-exports it as `_BRIDGE_JS` (`from bridge_js import BRIDGE_JS as
+_BRIDGE_JS`), so `runpy.run_path` sees the same module namespace the Go harness
+and the bridge suites read, and `/codeflow-bridge.js` serves the same bytes. The
+Dockerfile `COPY` set, the `py_compile` gate and the Go harness module list all
+cover the new file.
 
 Both families are pinned by `test/long-file-refactor-2035.test.mts` (`DEFERRED`
-is now empty, so a dropped file cannot slip under the ceiling unnoticed).
+is still empty, so a dropped file cannot slip under the ceiling unnoticed).
 
 ## Verification
 
 - `test/long-file-refactor-2035.test.mts` asserts all 87 originals exist, that
   the deferred set (now empty) is exactly the still-flagged remainder, that every
   original and every sibling of any extension (`.mts`/`.ts`/`.rs`/`.py`, including
-  `tests/parts/`) lands `<= 500` segments, and pins the strict boundary.
+  the nested `tests/<name>/` and `<module>/` siblings) lands `<= 500` segments,
+  and pins the strict boundary.
 - `npm run tsc:extensions` and `npm test` stay green; `node --test` counts the
   same number of `it` cases before and after each family move (checked by AST).
 

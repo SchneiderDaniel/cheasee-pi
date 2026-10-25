@@ -1,6 +1,6 @@
 import assert from "node:assert";
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { createServer, type Server } from "node:http";
 
@@ -23,14 +23,15 @@ const SERVER_PY = resolve(
 	"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
 );
 
-const REWRITES_PY = resolve(
-	import.meta.dirname,
-	"..",
-	"..",
-	"..",
-	"..",
-	"cmd/cheasee-pi/embedded/docker/codeflow/server_rewrites.py",
-);
+/** server.py plus its sibling modules — the shim is the whole directory. */
+function readShim(): string {
+	const dir = resolve(SERVER_PY, "..");
+	return readdirSync(dir)
+		.filter((f) => f.endsWith(".py"))
+		.sort()
+		.map((f) => readFileSync(resolve(dir, f), "utf-8"))
+		.join("\n");
+}
 
 const FIXTURE_DIR = resolve(import.meta.dirname, "fixtures");
 
@@ -65,8 +66,8 @@ const REPORT_ROUTES: Record<string, string> = {
 };
 
 function extractBridgeJs(): string {
-	const py = readFileSync(REWRITES_PY, "utf-8");
-	const m = /_BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
+	const py = readShim();
+	const m = /_?BRIDGE_JS = br?"""([\s\S]*?)"""/.exec(py);
 	assert.ok(m, "_BRIDGE_JS constant not found in server.py");
 	return m[1];
 }
@@ -323,5 +324,18 @@ describe("codeflow bridge capture", () => {
 		await h.settle();
 		await waitFor(() => h.errorBanner() !== null, "error banner");
 		assert.match(String(h.sandbox.window.__codeflowBridgeError ?? ""), /unreachable/);
+	});
+	it("served-UI fixture still matches the contract the bridge relies on", () => {
+		// Mandatory guard: if upstream relabels the export control or menu items,
+		// regenerate the fixture (generate-ui-fixture.mjs) and re-check the bridge.
+		const buttonLabel = `${UI.button.attrs["aria-label"] ?? ""} ${UI.button.attrs.title ?? ""} ${UI.button.text}`;
+		assert.match(buttonLabel, /export/i, "export button label must contain 'export'");
+		const labels = UI.options.map((o) => o.label);
+		for (const want of ["JSON Report", "Markdown"]) {
+			assert.ok(
+				labels.includes(want),
+				`export menu must contain "${want}" (got ${JSON.stringify(labels)})`,
+			);
+		}
 	});
 });

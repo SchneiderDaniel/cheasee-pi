@@ -403,48 +403,5 @@ async fn reconnect_subscribe_cycle_leaves_the_child_pid_untouched() {
     let _ = child.wait();
 }
 
-/// AC5 / Phase 4: `Unsubscribe` silences only that connection.
-#[tokio::test]
-async fn reconnect_unsubscribe_stops_only_that_sink() {
-    let (client, mut to_child, mut frames) = harness();
-    let registry = Arc::new(SessionRegistry::new());
-    let dir = temp_session_dir("unsub");
-    let session = register_live(&registry, client, store(&dir), "sess-5", Some(555));
-
-    let sub_a = Arc::clone(&session);
-    let sub_b = Arc::clone(&session);
-    let (tx_a, mut rx_a, sink_a) = fake();
-    let (tx_b, mut rx_b, sink_b) = fake();
-    let task_a = tokio::spawn(async move { sub_a.relay(sink_a).await });
-    let task_b = tokio::spawn(async move { sub_b.relay(sink_b).await });
-
-    bind(&tx_a, &mut rx_a, &mut frames, &mut to_child, "sess-5", None).await;
-    bind(&tx_b, &mut rx_b, &mut frames, &mut to_child, "sess-5", None).await;
-
-    tx_a.send(Ok(ClientMessage::Unsubscribe {
-        id: None,
-        session_id: "sess-5".into(),
-    }))
-    .unwrap();
-    // Let A process the unsubscribe before the event is emitted.
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    write_record(&mut to_child, json!({"type": "agent_start"})).await;
-    match next_message(&mut rx_b).await {
-        ServerMessage::Event { .. } => {}
-        other => panic!("B must still stream, got {other:?}"),
-    }
-    assert!(
-        tokio::time::timeout(Duration::from_millis(200), rx_a.recv())
-            .await
-            .is_err(),
-        "an unsubscribed connection receives no further events"
-    );
-
-    drop(tx_a);
-    drop(tx_b);
-    let _ = task_a.await;
-    let _ = task_b.await;
-}
-
-include!("parts/reconnect_part2.rs");
+#[path = "reconnect/journey.rs"]
+mod journey;

@@ -305,4 +305,5 @@ fn dedupe(entries: Vec<Value>) -> Vec<Value> {
     out
 }
 
-include!("subscribe_part2.rs");
+#[cfg(test)]
+mod tests;

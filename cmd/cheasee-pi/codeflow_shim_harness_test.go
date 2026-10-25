@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -59,6 +60,35 @@ func gitCommit(t *testing.T, root string) {
 	}
 }
 
+// codeflowShimModules are the embedded shim sources server.py imports. A staged
+// copy is only runnable when every one of them sits next to it.
+var codeflowShimModules = []string{
+	"server.py",
+	"bridge_js.py",
+	"config.py",
+	"report_store.py",
+	"analysis_run.py",
+	"repo_identity.py",
+	"ui_rewrites.py",
+}
+
+// stageCodeflowShim writes the embedded shim modules (plus the fp-filter.js the
+// server serves from its own directory) into dir and returns the staged
+// server.py path.
+func stageCodeflowShim(t *testing.T, dir string) string {
+	t.Helper()
+	for _, name := range append(append([]string{}, codeflowShimModules...), "fp-filter.js") {
+		src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/"+name)
+		if err != nil {
+			t.Fatalf("read embedded codeflow/%s: %v", name, err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name), src, 0644); err != nil {
+			t.Fatalf("write codeflow/%s: %v", name, err)
+		}
+	}
+	return filepath.Join(dir, "server.py")
+}
+
 // writeUIDir creates the dummy UI checkout the shim serves (index.html plus a
 // static asset) so entrypoint and static paths are both exercisable.
 func writeUIDir(t *testing.T) string {
@@ -78,10 +108,7 @@ func startShim(t *testing.T, repoRoot, uiDir string, extraEnv ...string) string 
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
-
+	serverPath := stageCodeflowShim(t, t.TempDir())
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)

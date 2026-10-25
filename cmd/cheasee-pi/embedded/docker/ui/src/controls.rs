@@ -451,4 +451,5 @@ fn parse<T: DeserializeOwned>(value: &Value) -> Option<T> {
     serde_json::from_value(value.clone()).ok()
 }
 
-include!("controls_part2.rs");
+#[cfg(test)]
+mod tests;

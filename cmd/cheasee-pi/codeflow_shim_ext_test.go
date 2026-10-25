@@ -20,8 +20,7 @@ func TestCodeFlowServer_TypeScriptExtensionsPure(t *testing.T) {
 		t.Skip("python3 not available")
 	}
 	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
+	serverPath := stageCodeflowShim(t, dir)
 	script := `import runpy, sys
 
 m = runpy.run_path(sys.argv[1])

@@ -59,9 +59,7 @@ func TestCodeFlowServer_Smoke(t *testing.T) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
+	serverPath := stageCodeflowShim(t, t.TempDir())
 
 	cmd := exec.Command(python, serverPath)
 	cmd.Env = append(os.Environ(),

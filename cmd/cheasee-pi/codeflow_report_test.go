@@ -54,9 +54,7 @@ func startShimFull(t *testing.T, repoRoot, uiDir, configFile string, extraEnv ..
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
+	serverPath := stageCodeflowShim(t, t.TempDir())
 
 	s := &reportShim{
 		base:   fmt.Sprintf("http://127.0.0.1:%d", port),

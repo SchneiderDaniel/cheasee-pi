@@ -415,4 +415,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(not(feature = "ssr"))]
 fn main() {}
 
-include!("main_part2.rs");
+#[cfg(all(test, feature = "ssr"))]
+mod tests;

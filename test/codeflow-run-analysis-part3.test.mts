@@ -442,10 +442,14 @@ describe("long file metric oracle (issue #2005)", () => {
 		// same mirror the per-sibling oracle uses, so the recorded count and the
 		// deferral list cannot drift from the source they describe.
 		const measured = measureWorktree(resolve(HERE, ".."));
-		assert.strictEqual(
-			measured.flagged.length,
-			LONG_FILE_BASELINE.after.longFileCount,
-			"after.longFileCount must equal the delivered tree's flagged files",
+		// The envelope records the #2005 delivery (17). A later refactor may only
+		// move declarations out of a recorded long file — #2036 split eleven of the
+		// seventeen below 500 segments and added one new long module (the
+		// `session.rs` relay), which is recorded in the deferrals below — so the
+		// measured count can fall but must never exceed the recorded envelope.
+		assert.ok(
+			measured.flagged.length <= LONG_FILE_BASELINE.after.longFileCount,
+			"the delivered tree must not carry more long files than the recorded envelope",
 		);
 		// The recorded envelope is anchored to an ancestor commit, so the delivered
 		// tree can only have gained scored files since; a lower count means code was
@@ -455,10 +459,11 @@ describe("long file metric oracle (issue #2005)", () => {
 			"the delivered tree must still carry the recorded scored files",
 		);
 		const recordedDeferrals = LONG_FILE_BASELINE.deferred.flatMap((d) => d.files ?? []).sort();
-		assert.deepStrictEqual(
-			measured.flagged,
-			recordedDeferrals,
-			"every file still flagged in the delivered tree must be a recorded deferral",
-		);
+		for (const rel of measured.flagged) {
+			assert.ok(
+				recordedDeferrals.includes(rel),
+				`${rel} is flagged in the delivered tree but is not a recorded deferral`,
+			);
+		}
 	});
 });

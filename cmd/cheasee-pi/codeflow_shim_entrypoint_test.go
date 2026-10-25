@@ -197,8 +197,7 @@ func TestCodeFlowServer_GitUnavailableWarns(t *testing.T) {
 		t.Skip("git not available")
 	}
 	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
+	serverPath := stageCodeflowShim(t, dir)
 	nonGit := t.TempDir()
 	script := `import contextlib, io, runpy, sys
 

@@ -21,8 +21,7 @@ func TestCodeFlowServer_FpFilterRewritePure(t *testing.T) {
 		t.Skip("python3 not available")
 	}
 	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
+	serverPath := stageCodeflowShim(t, dir)
 	script := `import runpy, sys, os
 
 m = runpy.run_path(sys.argv[1])
@@ -103,8 +102,7 @@ func TestCodeFlowServer_FpFilterWrapperBehavior(t *testing.T) {
 		t.Skip("node not available")
 	}
 	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
+	serverPath := stageCodeflowShim(t, dir)
 	filterPath := filepath.Join(dir, "fp-filter.js")
 
 	// Emit three CommonJS harnesses: one with a real `const data`, one whose

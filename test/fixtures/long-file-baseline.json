@@ -11,7 +11,7 @@
 		"filedCount": 61,
 		"baseCountNote": "the issue was filed with 61 files at analyzedAt 1791738325602 against the then-main. The immutable base below (origin/main after #2001/#2002/#2003/#2004) reports 35 flagged files: the earlier refactors already split part of the filed set. Acceptance is the drop on the delivered branch, not the filed number.",
 		"filesNote": "`files` is the snapshot's tracked-file count (`git ls-tree -r --name-only <commit> | wc -l`), a reproducible proxy for the analyzer's parsed-file count. Only its ordering matters here: `after.files > before.files` proves the drop did not come from deleting files.",
-		"afterTipNote": "the after snapshot is commit 39e62d9e, the last commit of this branch that changes scored code; later commits touch only register artifacts (`.json`/`.mts`/`.md`, never scored) and EOF whitespace strips, so the Long File count and the flagged set are identical on every post-split commit. `7bcbeefd` differs from 39e62d9e only by this fixture, the mirror, the oracle block, the reference doc and the strips in nine split files. `after.files`/`after.codeFiles` are 39e62d9e's tracked/scored counts (re-anchored by #2035, which added the Rust/Python part files). The `long file metric oracle (issue #2005)` block in `test/codeflow-run-analysis.test.mts` recomputes the predicate over the delivered tree with the mirror in `test/fixtures/long-file-mirror.mts`, so this envelope cannot drift from the source it describes. One later commit does change scored code: the #2026 dead-code reference rule merged onto this branch and took `cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js` past 500 segments, so `after.longFileCount` was re-anchored to the delivered tree. #2035 then split the 15 Rust files (token-identical `include!` relocation) and `codeflow/server.py` (a thin facade over the codeflow_config/rewrites/store/run/tree modules), leaving the delivered tree at 1 — the fp-filter.js deferral below. The #2057 Prettier sweep re-split the scrapling handler-contracts suite into `index-handler-contracts-structured-content.test.ts` (added to `reducedBy` below); both halves stay <= 500 segments, so the delivered tree still flags 1."
+		"afterTipNote": "the after snapshot is commit 39e62d9e, the last commit of this branch that changes scored code; later commits touch only register artifacts (`.json`/`.mts`/`.md`, never scored) and EOF whitespace strips, so the Long File count and the flagged set are identical on every post-split commit. `7bcbeefd` differs from 39e62d9e only by this fixture, the mirror, the oracle block, the reference doc and the strips in nine split files. `after.files`/`after.codeFiles` are 39e62d9e's tracked/scored counts. The `long file metric oracle (issue #2005)` block in `test/codeflow-run-analysis.test.mts` recomputes the predicate over the delivered tree with the mirror in `test/fixtures/long-file-mirror.mts`, so this envelope cannot drift from the source it describes. One later commit does change scored code: the #2026 dead-code reference rule merged onto this branch and took `cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js` past 500 segments, so `after.longFileCount` is the delivered tree's 17 and that file joins the deferrals below — the register is maintained, not frozen. The #2057 Prettier sweep re-split the scrapling handler-contracts suite into `index-handler-contracts-structured-content.test.ts` (added to `reducedBy` below); both halves stay <= 500 segments, so the delivered tree still flags 17. #2036 then split the cited `embedded/docker/ui` modules and `server.py` by declaration, which moved eleven of those seventeen below 500 segments and carved `ui/src/session/relay.rs` (794 segments) out of `session.rs`; the delivered tree for that branch measures 6, and the relay is recorded in the Rust deferrals below (the oracle ties the record with `<=` and a subset check instead of equality, so a later split can lower the count but never introduce an unrecorded long file)."
 	},
 	"before": {
 		"ref": "origin/main",
@@ -23,12 +23,12 @@
 	"after": {
 		"ref": "worktree-git-issue-2005-refactor-long-file",
 		"commit": "39e62d9e8d9026938aea356c3c4811e4348d3062",
-		"files": 1499,
-		"longFileCount": 1,
+		"files": 1239,
+		"longFileCount": 17,
 		"codeFiles": 694
 	},
 	"tradeoffs": {
-		"longFile": "35 -> 16 flagged files (-19, -54.3 %). The 19 split families each leave the flagged set because every original and every sibling lands <= 500 raw segments (pinned by test/long-file-refactor-2005.test.mts). The residual 16 were the deferrals: 15 Rust files under embedded/docker/ui and codeflow/server.py. #2035 then cleared both families — the Rust originals are split into `include!`-joined part files (token-identical relocation, so no toolchain is needed to trust the splice) and codeflow/server.py became a thin facade over codeflow_config/rewrites/store/run/tree — leaving the tree at 1 flagged file. The #2026 dead-code reference rule had earlier taken codeflow/fp-filter.js past 500 segments, so `after.longFileCount` is the delivered tree's 1 and that single-served asset remains the only deferral.",
+		"longFile": "35 -> 16 flagged files (-19, -54.3 %). The 19 split families each leave the flagged set because every original and every sibling lands <= 500 raw segments (pinned by test/long-file-refactor-2005.test.mts). The residual 16 are the deferrals below: 15 Rust files under embedded/docker/ui and codeflow/server.py. Later, the #2026 dead-code reference rule merged onto this branch and took codeflow/fp-filter.js past 500 segments, so `after.longFileCount` is re-anchored to the delivered tree's 17 and the file is recorded as a third deferral (same boundary reason as server.py).",
 		"coupling": "splitting mints files that reference the same package-level helpers as their siblings, so the #2002 coupling heuristic (a file that references more than 8 defining files) can count a new sibling as coupled. Recorded, not hidden: the change is scoped to Long File.",
 		"complexity": "the split moves whole declarations verbatim, but each new sibling carries its own raw-text branch tokens (comments and string literals included) under the `1 + Σ(hits) > 30` ceiling. A handful of new siblings can edge over it; recorded for the same reason.",
 		"approach": "behaviour-preserving relocation only. Production originals keep their exported names as explicit named re-exports (no `export *`); test `describe` blocks and Go `func Test…` declarations move verbatim, so the existing suites are the verification; the Python safety-net suite keeps `python3 test/dependency-existence-check.test.py` as its entry."
@@ -92,6 +92,31 @@
 		"test/dependency_existence_check_tests/test_end_to_end.py"
 	],
 	"deferred": [
+		{
+			"reason": "no Rust toolchain in the pipeline image — splits under embedded/docker/ui cannot be compiled or tested in-gate (#2002/#2003/#2004 precedent); the non-Rust drop already satisfies the acceptance criterion",
+			"files": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session/relay.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
+			]
+		},
+		{
+			"reason": "the embedded server carries inline _BRIDGE_JS/_UI_REWRITES assets whose module boundaries are the Dockerfile COPY set; splitting it changes the copy-set boundary in the same commit, so it is deferred to the change that owns that guard",
+			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
+		},
 		{
 			"reason": "single-file served asset: the Dockerfile COPY set and the one `<script src=\"fp-filter.js\">` tag pinned by the Go and bridge suites are its module boundary, so splitting it changes that contract in the same commit. It crossed 500 segments when the #2026 dead-code reference rule landed; deferred to the change that owns the boundary guard",
 			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]

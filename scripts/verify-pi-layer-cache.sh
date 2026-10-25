@@ -152,6 +152,7 @@ compose_build() { # <stamp> <out-log>
        WORKSPACE_BARE_PATH="$(dirname "$WORKDIR")/.bare" \
        COMPOSE_PROJECT_NAME="$PROJECT" \
        PI_BUILD_STAMP="$stamp" \
+       CHEASEE_COMMIT="$CHEASEE_COMMIT" \
        docker compose -f "$COMPOSE_FILE" build) 2>&1 | tee "$out"
 }
 
@@ -162,6 +163,16 @@ clone_pat='RUN git clone --depth 1 --branch ${CHEASEE_REF}'
 symlink_pat='RUN mkdir -p /home/agentuser/.pi/agent/skills'
 pi_pat='RUN npm install -g --force @earendil-works/pi-coding-agent'
 copy_pat='COPY entrypoint.sh /usr/local/bin/entrypoint.sh'
+
+# The clone layer's cache key includes CHEASEE_COMMIT (issue #2054), so builds
+# 2/3 — which bypass the CLI — must supply the same commit the CLI resolved for
+# build 1; an empty value is a different key and would legitimately re-run the
+# clone, voiding AC1 below. Mirrors resolveCheaseeCommitFn: the exact
+# refs/heads/<ref> hash.
+CHEASEE_REF_MAIN="${CHEASEE_REF:-main}"
+CHEASEE_COMMIT="$(git ls-remote https://github.com/SchneiderDaniel/cheasee-pi "$CHEASEE_REF_MAIN" 2>/dev/null \
+  | awk -v r="refs/heads/$CHEASEE_REF_MAIN" '$2 == r { print $1; exit }')"
+echo "resolved CHEASEE_COMMIT=${CHEASEE_COMMIT:-<none>} (ref $CHEASEE_REF_MAIN)"
 
 echo "== build 1 (warm the cache, real CLI path) =="
 build "$TMP/build1.log"

@@ -328,6 +328,17 @@ describe("calculateNextStatus()", () => {
 		assert.equal(result.status, "Done");
 		assert.equal(result.gateRejected, undefined);
 	});
+	it("researcher targetStatus Implementation cannot skip Architecture", () => {
+		const agentOutput = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "researcher",
+			summary: "Research complete",
+			targetStatus: "Implementation",
+		});
+		const result = calculateNextStatus("researcher", agentOutput, "");
+		assert.equal(result.status, "Architecture");
+	});
+
 	it("architect with targetStatus Research → Research (hadExplicitMarker=true)", () => {
 		// Structured JSON with targetStatus must bypass the FEEDBACK filter
 		const agentOutput = JSON.stringify({

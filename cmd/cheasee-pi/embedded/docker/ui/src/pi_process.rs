@@ -372,4 +372,5 @@ impl PidRegistry {
     }
 }
 
-include!("pi_process_part2.rs");
+#[cfg(test)]
+mod tests;

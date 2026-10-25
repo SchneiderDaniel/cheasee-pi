@@ -201,52 +201,13 @@ impl StreamStatus {
     }
 }
 
-/// An internal assembled message block. Rows are derived from it; it exists so
-/// `contentIndex` accumulation stays simple.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Block {
-    index: u32,
-    kind: BlockKind,
-    text: String,
-    truncated: bool,
-}
+mod assembler;
+mod chat;
+mod rows;
 
-/// The pure row assembler. See the module docs.
-#[derive(Debug, Default)]
-pub struct Assembler {
-    /// The live run's rows, oldest first, append-only across turns.
-    rows: Vec<Row>,
-    /// Replayed history from the durable log, rendered *before* the live run.
-    history: Vec<Row>,
-    /// Monotonic row-id allocator, shared by history and the live run so every
-    /// key is unique across the transcript.
-    next_id: u64,
-    usage: Usage,
-    status: StreamStatus,
-    will_retry: Option<bool>,
-    /// Set once an assistant `message_end` has been applied. It is authoritative
-    /// for the whole message, so any later `message_update` is a trailing delta
-    /// that must not append to the final text; the flag clears only on the next
-    /// `message_start` (or a fresh `agent_start`).
-    finalized: bool,
-    /// The current message's text/thinking assembly, keyed by `contentIndex`.
-    blocks: Vec<Block>,
-    /// `rows` index where the current message's rows begin; the message's
-    /// rendered rows are rebuilt from `blocks` at `message_end`.
-    message_start: usize,
-    /// Entry ids already folded into `history`, so replaying the same entries
-    /// twice (a reconnect, a resync) is idempotent and never duplicates a row.
-    replayed: HashSet<String>,
-}
+pub use assembler::Assembler;
+pub use chat::ChatState;
+pub(crate) use rows::bounded;
 
-impl Assembler {
-include!("stream_part2.rs");
-include!("stream_part3.rs");
-}
-
-include!("stream_part4.rs");
 #[cfg(test)]
-mod tests {
-include!("stream_part5.rs");
-include!("stream_part6.rs");
-}
+mod tests;

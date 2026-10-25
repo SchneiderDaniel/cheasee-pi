@@ -31,7 +31,6 @@ use tokio::sync::{broadcast, oneshot, Mutex as AsyncMutex};
 use crate::pi_process::ChildIo;
 use crate::protocol::{Command, Event, ExtensionUI, Response};
 use crate::rpc::framing::{encode_record, FramingError, JsonlReader};
-use crate::subscribe::{BoxFuture, ReplayData, ReplayError, ReplaySource};
 
 /// Fan-out depth for [`RpcClient::events`]. A UI that falls further behind
 /// than this drops the oldest events and is told so by the channel; it never
@@ -408,20 +407,9 @@ fn dispatch(shared: &Shared, raw: &str) {
     }
 }
 
-/// The live replay adapter (AC2/AC3): `get_entries` while the child answers,
-/// plus `get_state` and `get_last_assistant_text` for the reconnect header.
-///
-/// `since` is *omitted* from the wire command when absent, because pi tests
-/// `!== undefined` and would treat `since: null` as a present-but-unknown id.
-/// An `Entry not found` error maps to [`ReplayError::CursorInvalid`] so the use
-/// case can fail open to a full replay.
-pub struct RpcReplaySource {
-    client: Arc<RpcClient>,
-}
+mod replay;
 
-include!("client_part2.rs");
+pub use replay::RpcReplaySource;
+
 #[cfg(test)]
-mod tests {
-include!("client_part3.rs");
-include!("client_part4.rs");
-}
+mod tests;

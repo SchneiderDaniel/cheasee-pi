@@ -226,7 +226,7 @@ describe("resolveNextStatusFromAgentOutput", () => {
 		assert.strictEqual(result, "Implementation");
 	});
 
-	it("developer with targetStatus Done + action COMPLETE → Done", () => {
+	it("developer targetStatus Done is rejected; action COMPLETE follows markerMap", () => {
 		const json = JSON.stringify({
 			action: "COMPLETE",
 			agentName: "developer",
@@ -234,7 +234,7 @@ describe("resolveNextStatusFromAgentOutput", () => {
 			targetStatus: "Done",
 		});
 		const result = resolveNextStatusFromAgentOutput(developerStep, json);
-		assert.strictEqual(result, "Done");
+		assert.strictEqual(result, "Audit");
 	});
 
 	it("no targetStatus → uses markerMap (unchanged default)", () => {

@@ -18,7 +18,7 @@
 
 import assert from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -133,11 +133,28 @@ function makeRepoReadFile(): (path: unknown) => string | null {
 		try {
 			const real = realpathSync(resolve(root, rel));
 			if (!real.startsWith(root + sep)) return null;
-			return readFileSync(real, "utf8");
+			// The recording predates the module splits: a symbol it reports at
+			// `x.rs` may now live in one of `x/`'s child modules, so a Rust path
+			// resolves to its module root plus the children it declares.
+			return withModuleChildren(root, rel);
 		} catch {
 			return null;
 		}
 	};
+}
+
+function withModuleChildren(root: string, rel: string, depth = 0): string {
+	const src = readFileSync(resolve(root, rel), "utf8");
+	if (!rel.endsWith(".rs") || depth > 3) return src;
+	const dir = resolve(root, rel.replace(/\.rs$/, ""));
+	if (!existsSync(dir)) return src;
+	const children = readdirSync(dir)
+		.filter((file) => file.endsWith(".rs"))
+		.sort();
+	return [
+		src,
+		...children.map((file) => withModuleChildren(root, `${rel.slice(0, -3)}/${file}`, depth + 1)),
+	].join("\n");
 }
 
 describe("fp-filter — acceptance against pinned-analyzer output", () => {

@@ -57,36 +57,22 @@ Env (deployment overrides, used when config.json is absent):
   RUN_TIMEOUT_S headless run bound, seconds        (fallback for run_timeout_s)
 """
 import base64
-import hashlib
-import io
-import json
-import mimetypes
-import os
-import re
-import shlex
-import shutil
-import base64
 import json
 import os
 import subprocess
 import sys
 import threading
 import time
-import urllib.parse
+import urllib
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from server_config import HOST, PORT, REPO_ROOT, UI_DIR, EXCLUDE_DIRS, _API_BASE
-from server_rewrites import (
-    _BRIDGE_JS,
-    _BRIDGE_SCRIPT,
-    _FP_FILTER_PATH,
-    _FP_FILTER_ROUTE,
-    _UI_REWRITES,
-    _fp_filter_bytes,
-    _mime,
-)
-from server_run import (
+# The shim is a set of sibling modules. Running it as a script already puts this
+# directory first on sys.path; a `runpy`/embedded launcher does not, so pin it
+# before the sibling imports below.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from analysis_run import (
     _RUN,
     _RUN_LOCK,
     _RUN_ROUTE,
@@ -95,19 +81,35 @@ from server_run import (
     _perform_analysis_run,
     _run_snapshot,
 )
-from server_store import (
+from config import EXCLUDE_DIRS, HOST, PORT, REPO_ROOT, UI_DIR
+from repo_identity import _FP_LEN, _fingerprint, _scan, _split_fingerprint, _walk
+from report_store import (
     _BRIDGE_STATUS_ROUTE,
     _MAX_REPORT_BYTES,
+    _REPORTS,
     _REPORT_LOCK,
     _REPORT_ROUTES,
-    _REPORTS,
     _record_capture,
     _record_client_status,
     _record_post,
     _status_store,
     _store_json_report,
 )
-from server_tree import _FP_LEN, _fingerprint, _scan, _split_fingerprint, _walk
+from ui_rewrites import (
+    _API_BASE,
+    _BRIDGE_SCRIPT,
+    _FP_FILTER_PATH,
+    _FP_FILTER_ROUTE,
+    _UI_REWRITES,
+    _fp_filter_bytes,
+    _mime,
+)
+
+
+# --- Browser report bridge -------------------------------------------------
+# The JavaScript lives in bridge_js.py; that module documents the capture
+# contract. Re-exported under the historical name the tests read.
+from bridge_js import BRIDGE_JS as _BRIDGE_JS
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -435,6 +437,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, format, *args):  # quiet
         pass
+
+
 if __name__ == "__main__":
     # Test affordance: a tight GIL switch interval makes concurrent report POSTs
     # interleave aggressively, so the store-atomicity regression tests can

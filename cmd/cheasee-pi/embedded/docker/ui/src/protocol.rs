@@ -6,7 +6,7 @@
 //! types on the child pipe.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 // ── Slice 4: the wire vocabulary ────────────────────────────────────────────
 // Every pi RPC record is one of four families (`docs/rpc.md`): commands in,
@@ -315,4 +315,6 @@ impl Response {
     }
 }
 
-include!("protocol_part2.rs");
+mod events;
+
+pub use events::*;

@@ -30,6 +30,11 @@ use crate::subscribe::{
     BoxFuture, Cursor, CursorStore, ReplayData, ReplayError, ReplaySource,
 };
 
+mod replay;
+
+pub use replay::FileReplaySource;
+use replay::{entry_id_of, leaf_id_of, session_records};
+
 /// Hidden sub-directory holding per-session cursors. Deliberately outside the
 /// `*.jsonl` namespace so [`SessionsStore::list`] can never turn a cursor into
 /// a phantom session row.
@@ -395,64 +400,5 @@ impl SessionsStore {
 
 /// Every non-header session record, in file order. Lines that do not parse
 /// (a torn tail on a live file) are skipped.
-fn session_records(bytes: &[u8]) -> Vec<Value> {
-    let mut records = Vec::new();
-    for line in bytes.split(|b| *b == b'\n') {
-        let line = trim_ascii(line);
-        if line.is_empty() {
-            continue;
-        }
-        let Ok(value) = serde_json::from_slice::<Value>(line) else {
-            continue;
-        };
-        if !value.is_object() {
-            continue;
-        }
-        if value.get("type").and_then(Value::as_str) == Some("session") {
-            continue;
-        }
-        records.push(value);
-    }
-    records
-}
-
-fn entry_id_of(value: &Value) -> Option<&str> {
-    value.get("id").and_then(Value::as_str)
-}
-
-/// The current leaf: the last record that no other record names as its parent.
-/// Falls back to the last record's id when the tree has no obvious leaf.
-fn leaf_id_of(entries: &[Value]) -> Option<String> {
-    let mut has_child: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for entry in entries {
-        if let Some(parent) = entry.get("parentId").and_then(Value::as_str) {
-            has_child.insert(parent);
-        }
-    }
-    entries
-        .iter()
-        .rev()
-        .find_map(|entry| match entry_id_of(entry) {
-            Some(id) if !has_child.contains(id) => Some(id.to_string()),
-            _ => None,
-        })
-        .or_else(|| entries.last().and_then(|entry| entry_id_of(entry)).map(str::to_string))
-}
-
-/// The child-less replay adapter: reads the session JSONL directly. Used after a
-/// server restart, when no RPC client exists to answer `get_entries`.
-pub struct FileReplaySource {
-    store: Arc<SessionsStore>,
-    session_id: String,
-}
-
-impl FileReplaySource {
-    pub fn new(store: Arc<SessionsStore>, session_id: impl Into<String>) -> Self {
-        Self {
-            store,
-            session_id: session_id.into(),
-        }
-    }
-}
-
-include!("sessions_store_part2.rs");
+#[cfg(test)]
+mod tests;

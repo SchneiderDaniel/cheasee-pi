@@ -457,4 +457,5 @@ async fn controls_journey_stats_and_retry_banner() {
     let _ = relay.await;
 }
 
-include!("parts/session_controls_part2.rs");
+#[path = "session_controls/journey.rs"]
+mod journey;

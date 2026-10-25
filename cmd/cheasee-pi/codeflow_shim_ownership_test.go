@@ -24,8 +24,7 @@ func TestCodeFlowServer_TrackedSetSurvivesForeignOwnership(t *testing.T) {
 		t.Skip("git not available")
 	}
 	dir := t.TempDir()
-	copyCodeflowDir(t, dir)
-	serverPath := filepath.Join(dir, "server.py")
+	serverPath := stageCodeflowShim(t, dir)
 
 	repoRoot := t.TempDir()
 	writeShimFile(t, repoRoot, ".gitignore", "ignored/\n")

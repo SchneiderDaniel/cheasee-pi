@@ -27,7 +27,7 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -126,10 +126,10 @@ const AFFECTED = [
 ];
 
 /**
- * Nothing is deferred any more: the fifteen Rust files were split into
- * `include!`-joined part files (a token-identical relocation, so the splice is
- * correct without a Rust toolchain) and `server.py` became a thin facade over
- * the `server_*.py` modules. The map stays here so a future deferral must be
+ * Nothing is deferred any more: the Rust sources are split into `mod`-declared
+ * siblings (`rpc/client.rs` additionally lost its live replay adapter to
+ * `rpc/client/replay.rs`) and `server.py` re-exports its inline `_BRIDGE_JS`
+ * asset from `bridge_js.py`. The map stays here so a future deferral must be
  * declared explicitly rather than silently dropping a file.
  */
 const DEFERRED: Record<string, string> = {};
@@ -140,9 +140,8 @@ const isFlagged = (rel: string): boolean => segments(read(rel)) > CEILING;
 
 /**
  * Sibling files minted by a split of `rel`, matched by stem prefix. TS test
- * parts are `<stem>-partN.test.mts`, Rust parts are `<stem>_partN.rs` (with
- * `tests/` parts nested under `tests/parts/` so Cargo never auto-discovers them
- * as targets), and Python parts are `<stem>_*.py`.
+ * parts are `<stem>-partN.test.mts`, Rust siblings are `<stem>_partN.rs` or a
+ * `<stem>/` module directory, and Python parts are `<stem>_*.py`.
  */
 function siblings(rel: string): string[] {
 	const dir = resolve(ROOT, dirname(rel));
@@ -153,6 +152,11 @@ function siblings(rel: string): string[] {
 	const scan = (absDir: string, prefix: string): void => {
 		if (!existsSync(absDir)) return;
 		for (const n of readdirSync(absDir)) {
+			const full = resolve(absDir, n);
+			if (statSync(full).isDirectory()) {
+				scan(full, join(prefix, n));
+				continue;
+			}
 			if (n === base || !/\.(mts|ts|cts|rs|py)$/.test(n)) continue;
 			if (n.startsWith(`${stem}-`) || n.startsWith(`${stem}_`)) {
 				out.push(join(dirname(rel), prefix, n));
@@ -161,6 +165,8 @@ function siblings(rel: string): string[] {
 	};
 	scan(dir, "");
 	scan(resolve(dir, "parts"), "parts");
+	// Module siblings: `<stem>/` is the `mod`-declared split Cargo expects.
+	scan(resolve(dir, stem), stem);
 	return out;
 }
 
