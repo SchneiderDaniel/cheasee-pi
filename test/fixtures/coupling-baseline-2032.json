@@ -1,0 +1,64 @@
+{
+	"provenance": {
+		"issue": 2032,
+		"title": "[Refactor] Reduce coupling in the 199 highly coupled files flagged by CodeFlow",
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"method": "git archive <commit> | tar -x -C /tmp/src && node run-analysis.mjs /tmp/src <codeflow-ui> /tmp/out; the delivered tree is snapshotted the same way from `git ls-files --cached --others --exclude-standard` because a branch has no commit id until the pipeline commits it",
+		"metric": "architectureIssues[\"N Highly Coupled\"] — analyzed files whose incoming connections exceed 8 (`coupling[conn.target] > 8` over `data.connections`, heuristic-regex mode). NOT an import count, and not a per-file import list.",
+		"filedAnalyzedAt": 1791804971015,
+		"filedCoupled": 199,
+		"premiseNote": "The filing reads the metric as 'files that import 8+ other files' and prescribes splitting them. Splitting moves edges to the new file instead of deleting them, and the measured history says so: #2003 moved 101 → 116 and #2004 116 → 120. `data.connections` entries are `{source, target, fn}` — `source` defines `fn`, `target` references it — and a name with a single definition repo-wide is resolved without consulting imports, so prose and quoted examples create edges too.",
+		"filedVsMeasured": "163 files are flagged on the measured base commit, not 199: main advanced past analyzedAt and #2002/#2003/#2005 already removed phantoms. Acceptance is the measured drop on the delivered tree, as in #2002 and #2033."
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "31634233732a4721ab8db85f6c1a737582f1c5e1",
+		"files": 1124,
+		"functions": 3898,
+		"connections": 4368,
+		"coupled": 163,
+		"couplingTerm": 1.772
+	},
+	"after": {
+		"ref": "worktree-git-issue-2032-refactor-reduce-coupling-in-the-199-highly-coupled",
+		"files": 1126,
+		"functions": 3906,
+		"connections": 4365,
+		"coupled": 163,
+		"couplingTerm": 1.753,
+		"note": "The delivered tree as the producer exports it today: the coupling seam cannot run without a deriver port (see `seam.requires`), so the card keeps the analyzer's own count. `seam` is the same tree measured with that port supplied — the drop the seam delivers the day the analyzer exposes it."
+	},
+	"seam": {
+		"before": 163,
+		"after": 143,
+		"dropped": 336,
+		"requires": "a `Parser.generateArchitectureIssues(data) -> issues[]` deriver exposed by the pinned analyzer. Today the card is derived inline inside `Parser.analyze` (index.html:5382), so pruning the edges without it would export a count the report no longer carries — both or neither, and with neither the run reports `coupling: null`.",
+		"measureMethod": "same snapshot, the pinned analyzer block extended with the deriver the fixture in test/coupling-prune-2032.test.mts supplies; report.json then reads `143 Highly Coupled` and the envelope `{before:163, after:143, dropped:336}`"
+	},
+	"reducedBy": [
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+			"change": "P2 renames `root` → `snapshotRoot` and `pending` → `pendingExport`. Without them the producer's two added references (`pruneCouplingEdges`, `coupledTargetCount`) take the file from 8 to 10 incoming connections and it becomes the 164th flagged file — the change would raise the metric it is meant to lower."
+		}
+	],
+	"deferred": [
+		{
+			"reason": "the metric leaders are Rust UI methods whose names are common words (`dir`, `body`, `root`, `state`, `status`, `event`, `parse`, `timeout`, `options`, `lines`, `open`, `list`, `spawn`, `keep`) — 25 of the ~30 edges a rename would remove",
+			"requires": "a lane with cargo (cargo build + cargo test --no-default-features --features ssr); none is installed in this image, so any rename there would be an unverified guess"
+		},
+		{
+			"reason": "port contracts stay flagged: `config.go Path()`, `helpers_run_test.go Run()`/`CombinedOutput()`, `rpc/framing.rs fn clone` are the interface, not a naming accident",
+			"requires": "a detector that understands interface methods, or an accepted API break"
+		},
+		{
+			"reason": "the phantom definitions the filing cites (`must` in safe-argv.test.ts, `only` in caveman/session-level.ts, `export` in verify-unused-import-declarations.test.ts, `try` in dependency_existence_check/core.py) no longer exist in the tree: re-measuring the base finds no such declarations, so there is nothing left to remove and no `reducedBy` entry claims them. `try` was never removable — it is Python error handling, not prose",
+			"requires": "nothing; recorded so a later re-measure does not chase them"
+		},
+		{
+			"reason": "the seam is dormant in production until the deriver port exists (see `seam.requires`); it is shipped as an extension point with its own tests rather than as a mirrored coupling formula inside fp-filter.js",
+			"requires": "a re-pin of the analyzer to a ref that exposes the architecture deriver"
+		}
+	]
+}

@@ -30,7 +30,12 @@ pat, repl = m["_UI_REWRITES"][0]
 src = b"<script>function generateReport(format){return format;}</script>"
 out = pat.sub(lambda _: repl, src)
 assert out.count(b"function __piFpGenerateReport(format){return format;}") == 1, out
-assert out.count(b"piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data), { deriveSuggestions: function (d) {") == 1, out
+assert out.count(b"piFpFilter.sanitizeAnalysisData(data, __piFpRead, { deriveSuggestions: function (d) {") == 1, out
+assert out.count(b"__piFpRead = piFpFilter.readFileFrom(data);") == 1, "one reader for both seams: %r" % out
+assert b"piFpFilter.pruneCouplingEdges(data, { readFile: __piFpRead })" in out, "the served page must prune non-dependency edges: %r" % out
+assert b'if (__piFpCoup) data.connections = __piFpCoup.connections;' in out, out
+assert b"Parser.generateArchitectureIssues(data)" in out, "the card must be re-derived by the page's own deriver: %r" % out
+assert b"coupling-prune: dropped " in out, "the drop must be visible, with the headless wording: %r" % out
 assert b'if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;' in out, out
 assert b'if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;' in out, out
 assert b'if ("stats" in __piFp.data) data.stats = __piFp.data.stats;' in out, out
@@ -223,6 +228,7 @@ func TestCodeFlowServer_FpFilterServed(t *testing.T) {
 		"if (\"securityIssues\" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;",
 		"if (\"layerViolations\" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;",
 		"if (\"stats\" in __piFp.data) data.stats = __piFp.data.stats;",
+		"if (__piFpCoup) data.connections = __piFpCoup.connections;",
 		"function __piFpGenerateReport(format){return format;}",
 	} {
 		if n := bytes.Count(body, []byte(want)); n != 1 {
@@ -317,5 +323,156 @@ open(sys.argv[4], "w").write(missing)
 		"fp-filter: dropped 1 derived suggestion(s): derivation unavailable",
 	) {
 		t.Errorf("the degradation must be visible on the page's log surface, got: %s", out)
+	}
+}
+
+// TestCodeFlowServer_FpFilterCoupling covers the coupling seam on the serve path
+// (issue #2032): the page prunes the connections that name their declaration only
+// in prose or a string literal, and re-titles the card that counts them through
+// its own deriver. Both or neither — a page with no deriver keeps the analyzer's
+// list and still exports. The same payload through the headless predicate must
+// drop exactly the same edges.
+func TestCodeFlowServer_FpFilterCoupling(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+	dir := t.TempDir()
+	serverPath := stageCodeflowShim(t, dir)
+	filterPath := filepath.Join(dir, "fp-filter.js")
+
+	script := `import runpy, sys
+
+m = runpy.run_path(sys.argv[1])
+pat, repl = m["_UI_REWRITES"][0]
+rewritten = pat.sub(lambda _: repl, b"function generateReport(format){ return data; }").decode()
+
+PAGE = """
+const CONNECTIONS = [
+  { source: 'def0.ts', target: 'a.ts', fn: 'slice0' },
+  { source: 'def1.ts', target: 'a.ts', fn: 'slice1' },
+  { source: 'def2.ts', target: 'b.ts', fn: 'parse0' }
+];
+const FILES = [
+  { path: 'a.ts', piFpSource: '// slice0() sorts\\nconst r = slice1(x);\\n' },
+  { path: 'b.ts', piFpSource: '// parse0() collects\\n' }
+];
+function page() {
+  return {
+    connections: CONNECTIONS.slice(),
+    files: FILES.map(function (f) { return { path: f.path, piFpSource: f.piFpSource }; }),
+    issues: [ { type: 'warning', title: '2 Highly Coupled' } ],
+    securityIssues: [],
+    layerViolations: []
+  };
+}
+const Parser = __PARSER__;
+const piFpFilter = require(process.argv[2]);
+"""
+
+DERIVER = """{
+  generateArchitectureIssues: function (d) {
+    var seen = Object.create(null);
+    d.connections.forEach(function (c) { seen[c.target] = (seen[c.target] || 0) + 1; });
+    var high = Object.keys(seen).filter(function (k) { return seen[k] >= 1; });
+    return high.length ? [ { type: 'warning', title: high.length + ' Highly Coupled' } ] : [];
+  }
+}"""
+
+BODY_WITH = """
+var data = page();
+// The headless predicate over the same payload: the served wrapper must agree.
+var headless = piFpFilter.pruneCouplingEdges({ connections: page().connections }, { readFile: piFpFilter.readFileFrom(page()) });
+generateReport('md');
+process.stdout.write('RESULT' + JSON.stringify({
+  kept: data.connections.map(function (c) { return c.target + ':' + c.fn; }),
+  titles: data.issues.map(function (i) { return i.title; }),
+  headless: headless.connections.map(function (c) { return c.target + ':' + c.fn; }),
+  headlessDropped: headless.dropped.length
+}));
+"""
+
+BODY_WITHOUT = """
+var data = page();
+try {
+  generateReport('md');
+  process.stdout.write('RESULT' + JSON.stringify({ kept: data.connections.length, titles: data.issues.map(function (i) { return i.title; }), ok: true }));
+} catch (e) {
+  process.stdout.write('THREW:' + e.message);
+}
+"""
+
+open(sys.argv[3], "w").write(PAGE.replace("__PARSER__", DERIVER) + rewritten + BODY_WITH)
+open(sys.argv[4], "w").write(PAGE.replace("__PARSER__", "{}") + rewritten + BODY_WITHOUT)
+`
+	scriptPath := filepath.Join(dir, "emit_coupling.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write emit script: %v", err)
+	}
+	withDeriver := filepath.Join(dir, "coupling.cjs")
+	noDeriver := filepath.Join(dir, "coupling-noderiver.cjs")
+	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, withDeriver, noDeriver).CombinedOutput(); err != nil {
+		t.Fatalf("emit harnesses: %v\n%s", err, out)
+	}
+
+	out, err := exec.Command(node, withDeriver, filterPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("coupling harness failed: %v\n%s", err, out)
+	}
+	// `a.ts` keeps only its real call and `b.ts` loses its one prose-only edge. The
+	// card follows the pruned count, and the served wrapper drops the same edges the
+	// headless predicate does.
+	want := `RESULT{"kept":["a.ts:slice1"],"titles":["1 Highly Coupled"],"headless":["a.ts:slice1"],"headlessDropped":2}`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("the served page must prune and re-title identically to the headless path, got: %s\nwant: %s", out, want)
+	}
+	if !strings.Contains(string(out), "coupling-prune: dropped 2 non-dependency edge(s)") {
+		t.Errorf("the served page must log the drop with the headless wording, got: %s", out)
+	}
+	if strings.Contains(string(out), "false-positive filter failed") {
+		t.Errorf("a healthy page must not raise the failure banner, got: %s", out)
+	}
+
+	out, err = exec.Command(node, noDeriver, filterPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("no-deriver harness failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), `RESULT{"kept":3,"titles":["2 Highly Coupled"],"ok":true}`) {
+		t.Errorf("a page without a deriver must leave the analyzer's list and card alone, got: %s", out)
+	}
+	if strings.Contains(string(out), "coupling-prune") || strings.Contains(string(out), "false-positive filter failed") {
+		t.Errorf("nothing was pruned, so nothing may be logged or raised, got: %s", out)
+	}
+}
+
+// TestCodeFlowServer_FpFilterCouplingBrowserSafe pins the served filter's
+// browser-only contract: pruneCouplingEdges reads file text through the caller's
+// `readFile`, so the asset must never reach for the filesystem itself.
+func TestCodeFlowServer_FpFilterCouplingBrowserSafe(t *testing.T) {
+	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/fp-filter.js")
+	if err != nil {
+		t.Fatalf("read embedded fp-filter.js: %v", err)
+	}
+	// Only the comment describing the rule may name a builtin: a real import would
+	// be a require call.
+	// The policy text may name a builtin in prose; a line that *calls* require (or
+	// reaches for a process/filesystem global) outside a comment would be real I/O.
+	for _, line := range strings.Split(string(src), "\n") {
+		code := strings.TrimSpace(line)
+		if strings.HasPrefix(code, "//") || strings.HasPrefix(code, "*") {
+			continue
+		}
+		for _, banned := range []string{"require(", "node:fs", "process.cwd"} {
+			if strings.Contains(code, banned) {
+				t.Errorf("served fp-filter.js must stay filesystem-free, found %q in %q", banned, code)
+			}
+		}
+	}
+	if !bytes.Contains(src, []byte("pruneCouplingEdges: pruneCouplingEdges")) {
+		t.Error("the served asset must export pruneCouplingEdges")
 	}
 }

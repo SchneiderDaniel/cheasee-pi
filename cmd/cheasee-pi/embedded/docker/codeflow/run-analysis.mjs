@@ -13,16 +13,19 @@
 //
 // The analyzed `data` is passed through fp-filter.js first, which drops the
 // analyzer's known false positives (see that file) so the health score, the
-// markdown and the structured export all agree.
+// markdown and the structured export all agree. The same filter prunes the
+// coupling edges that are not dependencies, and the run reports that measurement
+// in its envelope — but only when the analyzer's own architecture deriver is
+// available to re-title the card that counts them.
 //
 // Usage: run-analysis.mjs <sourceDir> <uiDir> <outDir>
 //   sourceDir  committed HEAD snapshot (the shim runs `git archive HEAD` first)
 //   uiDir      pinned CodeFlow checkout (contains index.html + card/lib/*.js)
 //   outDir     destination for report.md / report.json
 //
-// Exit 0 and print a final-line envelope {markdown,json,analyzedAt,stats,terms}
-// on success; nonzero with a bounded stderr message on failure. Only node:
-// builtins.
+// Exit 0 and print a final-line envelope {markdown,json,analyzedAt,stats,terms,
+// coupling} on success; nonzero with a bounded stderr message on failure. Only
+// node: builtins.
 
 import fs from "node:fs";
 import path from "node:path";
@@ -67,9 +70,9 @@ function scoreTerms(stats) {
 // Exported so a test can exercise this exact reader (the producer's only
 // filesystem read) instead of re-implementing it.
 export function makeReadFile(sourceDir) {
-	let root;
+	let snapshotRoot;
 	try {
-		root = fs.realpathSync(path.resolve(sourceDir));
+		snapshotRoot = fs.realpathSync(path.resolve(sourceDir));
 	} catch {
 		return () => null;
 	}
@@ -79,7 +82,7 @@ export function makeReadFile(sourceDir) {
 	function moduleChildren(rel) {
 		if (!rel.endsWith(".rs")) return [];
 		const found = [];
-		const stack = [[path.join(root, rel.slice(0, -3)), rel.slice(0, -3)]];
+		const stack = [[path.join(snapshotRoot, rel.slice(0, -3)), rel.slice(0, -3)]];
 		while (stack.length) {
 			const [absDir, prefix] = stack.pop();
 			let entries;
@@ -105,16 +108,16 @@ export function makeReadFile(sourceDir) {
 			return null;
 		}
 		try {
-			const abs = path.resolve(root, rel);
-			if (!abs.startsWith(root + path.sep)) return null;
+			const abs = path.resolve(snapshotRoot, rel);
+			if (!abs.startsWith(snapshotRoot + path.sep)) return null;
 			// A tracked symlink may point outside the snapshot: a lexical check
 			// cannot see that, so resolve the real file and re-check containment.
 			const real = fs.realpathSync(abs);
-			if (!real.startsWith(root + path.sep)) return null;
+			if (!real.startsWith(snapshotRoot + path.sep)) return null;
 			const parts = [fs.readFileSync(real, "utf8")];
 			for (const child of moduleChildren(rel)) {
-				const childReal = fs.realpathSync(path.resolve(root, child));
-				if (!childReal.startsWith(root + path.sep)) return null;
+				const childReal = fs.realpathSync(path.resolve(snapshotRoot, child));
+				if (!childReal.startsWith(snapshotRoot + path.sep)) return null;
 				parts.push(fs.readFileSync(childReal, "utf8"));
 			}
 			return parts.join("\n");
@@ -217,7 +220,7 @@ function loadHelpers(indexHtml) {
 // hands to the URL.createObjectURL stub — the exact UI export seam.
 function captureExports(reportSrc, helpers, data, labels) {
 	const captures = new Map();
-	let pending = null;
+	let pendingExport = null;
 	let pendingType = "";
 	const Blob = function (parts) {
 		this.parts = Array.isArray(parts) ? parts : [parts];
@@ -234,7 +237,7 @@ function captureExports(reportSrc, helpers, data, labels) {
 		Blob,
 		URL: {
 			createObjectURL(blob) {
-				pending = (blob && blob.parts ? blob.parts : []).map(String).join("");
+				pendingExport = (blob && blob.parts ? blob.parts : []).map(String).join("");
 				pendingType = (blob && blob.type) || (blob && blob.parts && blob.type) || "";
 				return "blob:codeflow-report";
 			},
@@ -247,7 +250,7 @@ function captureExports(reportSrc, helpers, data, labels) {
 					download: "",
 					click() {
 						if (typeof this.download === "string" && this.download) {
-							captures.set(this.download, pending ?? "");
+							captures.set(this.download, pendingExport ?? "");
 						}
 					},
 				};
@@ -302,6 +305,13 @@ async function main() {
 	// `data.suggestions` is derived from the arrays the filter shrinks, so the
 	// filter re-derives it through the pinned analyzer's own function (a port —
 	// the seven rules are never mirrored here).
+	// The coupling card is a count over the connection list, so it is re-derived by
+	// the pinned analyzer's own function after the prune (a port, exactly like
+	// `generateSuggestions`). Without that port nothing is pruned at all.
+	const architectureDeriver =
+		helpers.Parser && typeof helpers.Parser.generateArchitectureIssues === "function"
+			? (pruned) => helpers.Parser.generateArchitectureIssues(pruned)
+			: null;
 	const deriveSuggestions =
 		helpers.Parser && typeof helpers.Parser.generateSuggestions === "function"
 			? (filtered) => helpers.Parser.generateSuggestions(filtered)
@@ -332,11 +342,40 @@ async function main() {
 		);
 	}
 
+	// The coupling edges the analyzer counted are not all dependencies (see
+	// fp-filter.js::pruneCouplingEdges), but the card that names them is a count
+	// over that list, so pruning it without re-titling it would export a number the
+	// report no longer carries. Both or neither: with no deriver — or no readable
+	// connection list — nothing is pruned and `coupling: null` says so, instead of
+	// implying a measurement the export does not back.
+	let reportData = filtered;
+	let coupling = null;
+	if (Array.isArray(filtered.connections) && architectureDeriver !== null) {
+		// A throw here aborts the run, like the sanitizer above.
+		const pruned = fpFilter.pruneCouplingEdges(filtered, { readFile: makeReadFile(sourceDir) });
+		const prunedData = Object.assign({}, filtered, { connections: pruned.connections });
+		const issues = architectureDeriver(prunedData);
+		if (!Array.isArray(issues)) {
+			throw new Error("the analyzer's architecture deriver returned no issue list");
+		}
+		coupling = {
+			before: fpFilter.coupledTargetCount(filtered.connections),
+			after: fpFilter.coupledTargetCount(pruned.connections),
+			dropped: pruned.dropped.length,
+		};
+		// The exporter maps `data.issues` to the report's `architectureIssues`, so the
+		// deriver's list is written back there.
+		reportData = Object.assign(prunedData, { issues: issues });
+		if (coupling.dropped) {
+			process.stderr.write(`coupling-prune: dropped ${coupling.dropped} non-dependency edge(s)\n`);
+		}
+	}
+
 	const reportSrc = extractFunction(indexHtml, "generateReport");
 	if (!reportSrc) {
 		throw new Error("index.html does not define generateReport");
 	}
-	const { markdown, json } = captureExports(reportSrc, helpers, filtered, {
+	const { markdown, json } = captureExports(reportSrc, helpers, reportData, {
 		sourceLabel: "local/workspace",
 		repoInfo: { name: "workspace" },
 		localSourceKind: "folder",
@@ -363,6 +402,7 @@ async function main() {
 			analyzedAt: Date.now(),
 			stats,
 			terms: scoreTerms(stats),
+			coupling,
 		}) + "\n",
 	);
 }
