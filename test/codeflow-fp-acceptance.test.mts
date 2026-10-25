@@ -18,10 +18,10 @@
 
 import assert from "node:assert";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve, sep } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, describe, it } from "node:test";
 
@@ -125,36 +125,53 @@ const inventedLayerOf = (data: {
 		(v) => !groundsLayer(v.fromLayer, v.from) || !groundsLayer(v.toLayer, v.to),
 	);
 
-/** Read one analyzed path out of the repo, mirroring the producer's containment. */
-function makeRepoReadFile(): (path: unknown) => string | null {
-	const root = realpathSync(REPO_ROOT);
-	return (rel: unknown) => {
-		if (typeof rel !== "string" || rel === "" || isAbsolute(rel) || rel.includes("..")) return null;
+// The producer's own reader, so the replay below exercises the real path-keyed
+// resolution instead of a test-only source expansion: a gap the split opened has
+// to fail here exactly as it would in a produced report.
+const { makeReadFile } = (await import(RUNNER)) as {
+	makeReadFile: (dir: string) => (path: unknown) => string | null;
+};
+const makeRepoReadFile = (): ((path: unknown) => string | null) => makeReadFile(REPO_ROOT);
+
+const UI_DIR = "cmd/cheasee-pi/embedded/docker/ui";
+
+/** Every `.rs` file under the UI crate: the module children the split minted. */
+function rustFiles(): string[] {
+	const out: string[] = [];
+	const walk = (abs: string, rel: string): void => {
+		for (const entry of readdirSync(abs, { withFileTypes: true })) {
+			const next = `${rel}/${entry.name}`;
+			if (entry.isDirectory()) walk(resolve(abs, entry.name), next);
+			else if (entry.name.endsWith(".rs")) out.push(next);
+		}
+	};
+	walk(resolve(REPO_ROOT, UI_DIR), UI_DIR);
+	return out;
+}
+
+/**
+ * The served page's `files[]`: raw text only (`content` freed, text on
+ * `piFpSource`), plus the split's Rust children as their own entries. Resolving a
+ * facade to its module is `readFileFrom`'s job, not this fixture's.
+ */
+function servedShape(recorded: { files: Array<{ path: string }> }) {
+	const raw = (rel: string): string | null => {
 		try {
-			const real = realpathSync(resolve(root, rel));
-			if (!real.startsWith(root + sep)) return null;
-			// The recording predates the module splits: a symbol it reports at
-			// `x.rs` may now live in one of `x/`'s child modules, so a Rust path
-			// resolves to its module root plus the children it declares.
-			return withModuleChildren(root, rel);
+			return readFileSync(resolve(REPO_ROOT, rel), "utf8");
 		} catch {
 			return null;
 		}
 	};
-}
-
-function withModuleChildren(root: string, rel: string, depth = 0): string {
-	const src = readFileSync(resolve(root, rel), "utf8");
-	if (!rel.endsWith(".rs") || depth > 3) return src;
-	const dir = resolve(root, rel.replace(/\.rs$/, ""));
-	if (!existsSync(dir)) return src;
-	const children = readdirSync(dir)
-		.filter((file) => file.endsWith(".rs"))
-		.sort();
-	return [
-		src,
-		...children.map((file) => withModuleChildren(root, `${rel.slice(0, -3)}/${file}`, depth + 1)),
-	].join("\n");
+	const files = recorded.files.map((f) => ({
+		path: f.path,
+		content: null,
+		piFpSource: raw(f.path),
+	}));
+	const seen = new Set(files.map((f) => f.path));
+	for (const rel of rustFiles()) {
+		if (!seen.has(rel)) files.push({ path: rel, content: null, piFpSource: raw(rel) });
+	}
+	return { ...recorded, files };
 }
 
 describe("fp-filter — acceptance against pinned-analyzer output", () => {
@@ -247,15 +264,7 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 	// gets no disk read, only the recorded paths and their retained source.
 	it("resolves the recorded dead list from the served browser shape", () => {
 		const recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
-		const readSource = makeRepoReadFile();
-		const served = {
-			...recorded,
-			files: recorded.files.map((f: { path: string }) => ({
-				path: f.path,
-				content: null,
-				piFpSource: readSource(f.path),
-			})),
-		};
+		const served = servedShape(recorded);
 
 		const { data, suppressed } = sanitizeAnalysisData(served, readFileFrom(served));
 		for (const name of CITED_DEAD) {
