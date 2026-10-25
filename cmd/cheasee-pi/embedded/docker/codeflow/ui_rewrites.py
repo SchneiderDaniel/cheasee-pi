@@ -74,8 +74,8 @@ def _ts_rewrite(anchor, tail=b""):
 # not pin it in the tab after the report is built.
 #
 # It overwrites the *properties* of `data` (the finding arrays, the dead-function
-# list, the derived suggestion cards, the pruned coupling edges, the re-derived
-# architecture issues and the stats counts) instead of rebinding `data`:
+# list, the derived suggestion cards and the stats counts) instead of rebinding
+# `data`:
 # a page that declares `data` as a constant cannot be reassigned, and the former
 # reassignment threw, was swallowed, and exported the unfiltered report. The
 # assignments sit inside the same try as the filter call, so a write that a
@@ -87,22 +87,16 @@ def _ts_rewrite(anchor, tail=b""):
 _FP_WRAPPER_HEAD = b"function generateReport"
 _FP_WRAPPER_BODY = (
     b'() { "use strict";'
-    b" var __piFp, __piFpCoup, __piFpRead;"
+    b" var __piFp;"
     b" try {"
     # The analyzer derives `data.suggestions` from the arrays this filter shrinks,
     # so the page's own `Parser.generateSuggestions` is passed as the deriver
     # port — the seven rules are never mirrored here. A page without it yields
     # `null`, which the filter turns into "no cards" rather than stale ones.
-    b" __piFpRead = piFpFilter.readFileFrom(data);"
-    b" __piFp = piFpFilter.sanitizeAnalysisData(data, __piFpRead,"
+    b" __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data),"
     b" { deriveSuggestions: function (d) {"
     b" return typeof Parser !== 'undefined' && Parser && typeof Parser.generateSuggestions === 'function' ? Parser.generateSuggestions(d) : null;"
     b" } });"
-    # Non-dependency coupling edges are pruned from the same retained source, so it
-    # runs before the release below. Both or neither, exactly like the headless
-    # runner: the card that counts these edges must be re-titled in the same breath,
-    # and a page that exposes no deriver keeps the analyzer's list untouched.
-    b" __piFpCoup = (Array.isArray(data.connections) && typeof Parser !== 'undefined' && Parser && typeof Parser.generateArchitectureIssues === 'function') ? piFpFilter.pruneCouplingEdges(data, { readFile: __piFpRead }) : null;"
     b' if ("files" in data && Array.isArray(data.files)) data.files.forEach(function (f) { if (f) f.piFpSource = null; });'
     b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
     b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
@@ -112,11 +106,6 @@ _FP_WRAPPER_BODY = (
     b' if ("issues" in __piFp.data) data.issues = __piFp.data.issues;'
     b' if ("suggestions" in __piFp.data) data.suggestions = __piFp.data.suggestions;'
     b' if ("stats" in __piFp.data) data.stats = __piFp.data.stats;'
-    # The coupling card is a count over the connection list, so the pruned array is
-    # copied back and the page's own deriver must re-title it (a port; a page
-    # without one keeps the analyzer's title verbatim).
-    b' if (__piFpCoup) data.connections = __piFpCoup.connections;'
-    b" if (__piFpCoup) { var __piFpIssues = Parser.generateArchitectureIssues(data); if (!Array.isArray(__piFpIssues)) throw new Error('the analyzer returned no architecture issue list'); data.issues = __piFpIssues; }"
     b" } catch (e) { var m = String((e && e.message) || e);"
     b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
     b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
@@ -129,8 +118,6 @@ _FP_WRAPPER_BODY = (
     b" } catch (_) {} }"
     # Same wording as the headless runner: a missing deriver must never be silent.
     b" if (__piFpSugg) { try { console.info('fp-filter: dropped ' + __piFpSugg + ' derived suggestion(s): derivation unavailable'); } catch (_) {} }"
-    # Same wording as the headless runner's stderr line.
-    b" if (__piFpCoup && __piFpCoup.dropped.length) { try { console.info('coupling-prune: dropped ' + __piFpCoup.dropped.length + ' non-dependency edge(s)'); } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("
 )

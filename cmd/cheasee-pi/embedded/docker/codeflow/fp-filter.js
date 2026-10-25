@@ -37,11 +37,6 @@
 //      of distinct member symbols — a genuine pairwise clone names one or two,
 //      while the dozen-member aggregates are repo-wide shape coincidences.
 //
-// One seam sits outside that list: `pruneCouplingEdges` drops the coupling edges
-// in `data.connections` that are not dependencies (see its own comment). It reads
-// each edge's own declaration record and the caller's text reader, so neither the
-// resolution rule nor the filesystem is re-implemented here.
-//
 // Dual format on purpose: the headless runner requires this file and the served
 // browser page loads it as `<script src="fp-filter.js">`, so the report the UI
 // shows and the report pi reads cannot drift.
@@ -255,12 +250,8 @@
 	}
 
 	// String- and regex-aware comment removal, so a comment can neither hide a
-	// call site nor a regex containing `//` fake one. `dropStrings` blanks string
-	// literals too, for the caller that asks whether code *executes* a name
-	// rather than whether the text contains it.
-	// shortcut: skipString takes a template literal as one string, so an
-	// interpolation that really calls the name counts as text, not as code.
-	function stripComments(code, dropStrings) {
+	// call site nor a regex containing `//` fake one.
+	function stripComments(code) {
 		var out = "";
 		var i = 0;
 		while (i < code.length) {
@@ -268,7 +259,7 @@
 			if (ch === '"' || ch === "'" || ch === "`") {
 				var s = i;
 				i = skipString(code, i);
-				out += dropStrings === true ? " " : code.slice(s, i);
+				out += code.slice(s, i);
 				continue;
 			}
 			if (ch === "/" && code[i + 1] === "/") {
@@ -1609,87 +1600,6 @@
 		};
 	}
 
-	// --- coupling edges ------------------------------------------------------
-
-	// The analyzer's own fan-in ceiling for its coupling card: a file referenced by
-	// more than this many others is flagged. The title that carries the number is
-	// the analyzer's to produce, so it is never spelled here.
-	var COUPLING_THRESHOLD = 8;
-
-	// How many files that card would flag for this connection list, i.e. how many
-	// targets carry more than COUPLING_THRESHOLD incoming edges. Measurement only:
-	// the exported title is the analyzer's, never this file's.
-	function coupledTargetCount(connections) {
-		var counts = Object.create(null);
-		var list = Array.isArray(connections) ? connections : [];
-		var coupled = 0;
-		for (var i = 0; i < list.length; i++) {
-			var edge = list[i];
-			if (!edge || typeof edge.target !== "string") continue;
-			if ((counts[edge.target] = (counts[edge.target] || 0) + 1) === COUPLING_THRESHOLD + 1)
-				coupled++;
-		}
-		return coupled;
-	}
-
-	// `data.connections` is the analyzer's resolved cross-file identifier
-	// reference list, and the only input to its coupling card. A connection is
-	// `{source, target, fn}`: `fn` is the declaration the analyzer resolved,
-	// `source` defines it and `target` references it. An edge is not always a
-	// dependency — the headless parser resolves a name that has a single definition
-	// repo-wide without consulting imports, so a file that mentions that identifier
-	// only in prose or in a quoted example still gets an edge.
-	//
-	// `fn` is the analyzer's own record of which declaration the edge names, so no
-	// parser is re-implemented here. Edges the analyzer built from something other
-	// than a call (`kind: "mdlink"`) carry a title, not a declaration, and are
-	// never pruned.
-	function isNonDependencyEdge(edge, readFile) {
-		if (!edge || typeof edge !== "object" || Array.isArray(edge)) return false;
-		if (typeof edge.kind === "string" && edge.kind !== "") return false;
-		if (typeof edge.fn !== "string" || edge.fn === "") return false;
-		if (typeof edge.target !== "string" || edge.target === "") return false;
-		var source = readFile(edge.target);
-		if (typeof source !== "string") return false;
-		// Comments and string literals name nothing that executes.
-		return !mentionsIdentifier(stripComments(source, true), edge.fn);
-	}
-
-	// Does `text` name `name` as an identifier, not as a substring of a longer one?
-	function mentionsIdentifier(text, name) {
-		return new RegExp("(^|[^\\w$])" + escapeRe(name) + "([^\\w$]|$)").test(text);
-	}
-
-	/**
-	 * Drop the coupling edges that are not dependencies: an edge goes when its
-	 * `target` names the declaration `fn` nowhere outside comments and string
-	 * literals. Every other edge is kept — one the analyzer built from a link, one
-	 * that names no declaration, and one whose `target` cannot be read. The filter
-	 * drops only what it can disprove, and without a reader it prunes nothing.
-	 *
-	 * Pure: returns a new array plus the dropped edges, in input order.
-	 */
-	function pruneCouplingEdges(data, opts) {
-		var connections = data && Array.isArray(data.connections) ? data.connections : [];
-		var readFile = opts && typeof opts.readFile === "function" ? opts.readFile : null;
-		var dropped = [];
-		if (!readFile) return { connections: connections.slice(), dropped: dropped };
-		var kept = [];
-		for (var i = 0; i < connections.length; i++) {
-			var edge = connections[i];
-			if (!isNonDependencyEdge(edge, readFile)) {
-				kept.push(edge);
-				continue;
-			}
-			dropped.push({
-				source: edge.source,
-				target: edge.target,
-				reason: "declaration named only in comments or string literals",
-			});
-		}
-		return { connections: kept, dropped: dropped };
-	}
-
 	/**
 	 * Filter `data.securityIssues` / `data.layerViolations` / the dead-function
 	 * lists / `data.duplicates` in place-free fashion. Returns a new `data` object
@@ -1834,8 +1744,6 @@
 		isFalsePositiveDuplicate: isFalsePositiveDuplicate,
 		readFileFrom: readFileFrom,
 		moduleChildPaths: moduleChildPaths,
-		coupledTargetCount: coupledTargetCount,
-		pruneCouplingEdges: pruneCouplingEdges,
 		REPO_LAYERS: REPO_LAYERS,
 		resolveLayer: resolveLayer,
 	};

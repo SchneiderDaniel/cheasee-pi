@@ -23,42 +23,83 @@
 	},
 	"after": {
 		"ref": "worktree-git-issue-2032-refactor-reduce-coupling-in-the-199-highly-coupled",
+		"commit": null,
+		"commitNote": "The pipeline commits after this record is written, so the delivered tree is stamped by `reducedFilesDigest` instead: sha1 over the sorted `reducedBy` paths, each followed by the sha1 of its content. Recomputing it from the branch reproduces the measurement.",
+		"reducedFilesDigest": "91cbfd55c4f8038c8266c84128eeb9eaaf5d3a42",
 		"files": 1126,
-		"functions": 3906,
-		"connections": 4365,
-		"coupled": 163,
-		"couplingTerm": 1.753,
-		"note": "The delivered tree as the producer exports it today: the coupling seam cannot run without a deriver port (see `seam.requires`), so the card keeps the analyzer's own count. `seam` is the same tree measured with that port supplied — the drop the seam delivers the day the analyzer exposes it."
-	},
-	"seam": {
-		"before": 163,
-		"after": 143,
-		"dropped": 336,
-		"requires": "a `Parser.generateArchitectureIssues(data) -> issues[]` deriver exposed by the pinned analyzer. Today the card is derived inline inside `Parser.analyze` (index.html:5382), so pruning the edges without it would export a count the report no longer carries — both or neither, and with neither the run reports `coupling: null`.",
-		"measureMethod": "same snapshot, the pinned analyzer block extended with the deriver the fixture in test/coupling-prune-2032.test.mts supplies; report.json then reads `143 Highly Coupled` and the envelope `{before:163, after:143, dropped:336}`"
+		"functions": 3898,
+		"connections": 4340,
+		"coupled": 155,
+		"couplingTerm": 1.709,
+		"unflagged": [
+			".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			".pi/extensions/lib/ensureVenv-errors.test.ts",
+			".pi/extensions/supervisor/pipeline/merge-gate.ts",
+			".pi/extensions/supervisor/pipeline/stages/status-resolution.ts",
+			"cmd/cheasee-pi/build_test.go",
+			"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/tests_rows.rs",
+			"cmd/cheasee-pi/init_auth.go"
+		],
+		"newlyFlagged": []
 	},
 	"reducedBy": [
 		{
-			"path": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
-			"change": "P2 renames `root` → `snapshotRoot` and `pending` → `pendingExport`. Without them the producer's two added references (`pruneCouplingEdges`, `coupledTargetCount`) take the file from 8 to 10 incoming connections and it becomes the 164th flagged file — the change would raise the metric it is meant to lower."
+			"path": "cmd/cheasee-pi/build_test.go",
+			"tokens": ["repoRoot", "gitCommand"],
+			"edit": "two comment blocks and one inline comment describe the repository-root and git-runner seams instead of naming the two declarations; both names are single definitions repo-wide, so every comment that spelled them was an edge"
+		},
+		{
+			"path": ".pi/extensions/lib/ensureVenv-errors.test.ts",
+			"tokens": ["guard", "list"],
+			"edit": "the file header and the import-audit phase note say `assertion` / `check` and `among them`; `guard` resolves to the Rust `sessions_store.rs` declaration and `list` to `sessions_store.rs`"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/status-resolution.ts",
+			"tokens": ["stage"],
+			"edit": "the Bug #643 note says `next phase` instead of `next stage`; `stage` resolves to the Go test helper in `dockerfile_stage_split_test.go`"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			"tokens": ["parse", "none"],
+			"edit": "the `IssueFact` doc comments say `one report` and `carries no description`; `parse` resolves to `controls.rs` and `none` to `auth.rs`"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_auth.go",
+			"tokens": ["runInit"],
+			"edit": "the `runInitLegacyAuth` doc comment names the init orchestrator instead of the function; `runInit` is the only way the two live in one sentence"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/merge-gate.ts",
+			"tokens": ["open"],
+			"edit": "two log messages and one comment say `without blocking` / `Non-blocking` instead of `fail-open`; `open` is a single declaration in `ws.rs`"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/error-collector.ts",
+			"tokens": ["all"],
+			"edit": "the record accessor is `allRecords` (not `all`) and its three doc lines say `every`/`the records`; the only `all` declaration in the tree — two getters — is gone, which also unflags the two Rust readers that mentioned the word"
 		}
 	],
 	"deferred": [
 		{
-			"reason": "the metric leaders are Rust UI methods whose names are common words (`dir`, `body`, `root`, `state`, `status`, `event`, `parse`, `timeout`, `options`, `lines`, `open`, `list`, `spawn`, `keep`) — 25 of the ~30 edges a rename would remove",
-			"requires": "a lane with cargo (cargo build + cargo test --no-default-features --features ssr); none is installed in this image, so any rename there would be an unverified guess"
+			"reason": "177 of the 322 remaining edges into a target that never executes the name come from declarations in Rust sources (`sessions_store.rs` `dir`/`list`/`guard`, `ws.rs` `open`/`keep`, `controls/tests.rs` `failed`, `extension_ui.rs` `timeout`, `main.rs` `root`)",
+			"requires": "a lane with cargo (cargo build + cargo test) — none is installed in this image, so a rename there would be an unverified guess"
 		},
 		{
-			"reason": "port contracts stay flagged: `config.go Path()`, `helpers_run_test.go Run()`/`CombinedOutput()`, `rpc/framing.rs fn clone` are the interface, not a naming accident",
+			"reason": "port contracts stay flagged: `config.go Path()`, `rpc/framing.rs fn clone`, `proper-lockfile-ambient.ts` `lock`/`check`, `helpers_run_test.go Run()`/`CombinedOutput()` are the interface, not a naming accident",
 			"requires": "a detector that understands interface methods, or an accepted API break"
 		},
 		{
-			"reason": "the phantom definitions the filing cites (`must` in safe-argv.test.ts, `only` in caveman/session-level.ts, `export` in verify-unused-import-declarations.test.ts, `try` in dependency_existence_check/core.py) no longer exist in the tree: re-measuring the base finds no such declarations, so there is nothing left to remove and no `reducedBy` entry claims them. `try` was never removable — it is Python error handling, not prose",
+			"reason": "80 remaining `.ts` edges name real domain words in exported APIs (`timeout`, `check`, `cleanup`, `install`, `supervisor`, `runAgentLoop`) — removing them means renaming exported surface and every caller, for one unflagged file each",
+			"requires": "a dedicated rename batch accepted as an API change"
+		},
+		{
+			"reason": "test-only `.mts` files are never scored (`Parser.codeExts` has no `.mts`), so phantoms there move nothing and none is claimed as a reduction",
 			"requires": "nothing; recorded so a later re-measure does not chase them"
 		},
 		{
-			"reason": "the seam is dormant in production until the deriver port exists (see `seam.requires`); it is shipped as an extension point with its own tests rather than as a mirrored coupling formula inside fp-filter.js",
-			"requires": "a re-pin of the analyzer to a ref that exposes the architecture deriver"
+			"reason": "the seam that pruned non-dependency edges upstream of the report is gone, not dormant: the pinned analyzer derives `N Highly Coupled` inline inside `Parser.analyze` (index.html:5382) and exposes no deriver to re-title it, so a prune could not be reflected in the exported card. Pruning it anyway would also have under-counted real dependencies — the stripper read a template interpolation as text, a Rust `'a` lifetime or `char` literal as a string, and a Go raw string or Python triple-quoted docstring as one blob",
+			"requires": "an analyzer ref that exposes an architecture deriver, or a language-aware (tree-sitter) edge predicate upstream"
 		}
 	]
 }

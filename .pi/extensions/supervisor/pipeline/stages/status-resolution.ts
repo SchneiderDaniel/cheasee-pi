@@ -153,7 +153,7 @@ export function calculateNextStatus(
 		// Bug #643: Only infer forward status when agent succeeded.
 		// A failed agent (0 tools, 0 tokens) should NOT advance the pipeline
 		// via inferForwardStatus — that would bypass failure detection and
-		// send the pipeline to the next stage (e.g., auditor) with empty work.
+		// send the pipeline to the next phase (e.g., auditor) with empty work.
 		if (!success) {
 			return {
 				status: null,

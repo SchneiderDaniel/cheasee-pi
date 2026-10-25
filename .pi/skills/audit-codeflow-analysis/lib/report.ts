@@ -37,7 +37,7 @@ export type Target =
 	| { kind: "symbol"; name: string };
 
 export interface IssueFact {
-	/** Stable id, unique within one parse (kind + per-kind index). */
+	/** Stable id, unique within one report (kind + per-kind index). */
 	id: string;
 	/** architecture | security | dead-code | duplicate | layer-violation | suggestion | pattern | anti-pattern */
 	kind: string;
@@ -45,7 +45,7 @@ export interface IssueFact {
 	/**
 	 * Optional human description from the structured export (CodeFlow's own
 	 * wording, e.g. `securityIssues[].description`). Absent when the source
-	 * format carries none (markdown fallback, dead-code names).
+	 * format carries no description (markdown fallback, dead-code names).
 	 */
 	description?: string;
 	/** Recoverable identities; a fact is kept when this is non-empty. */

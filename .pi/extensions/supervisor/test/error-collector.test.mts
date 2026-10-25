@@ -39,7 +39,7 @@ describe("ErrorCollector — push", () => {
 	it("adds an ErrorRecord with correct source, severity, message, timestamp", () => {
 		const collector = new ErrorCollector();
 		collector.push("test-source", "warn", "test message");
-		const records = collector.all;
+		const records = collector.allRecords;
 		assert.equal(records.length, 1);
 		assertErrorRecord(records[0]!, "test-source", "warn", "test message");
 	});
@@ -58,7 +58,7 @@ describe("ErrorCollector — push", () => {
 
 		// source2 records should remain
 		assert.equal(collector.size, 1, "source2 record should remain");
-		assert.equal(collector.all[0]!.source, "source2");
+		assert.equal(collector.allRecords[0]!.source, "source2");
 	});
 
 	it("flush returns shifted records, subsequent flush returns empty array", () => {
