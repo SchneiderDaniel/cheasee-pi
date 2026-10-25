@@ -152,6 +152,11 @@ const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as
 };
 
 const SIBLINGS = Object.values(B.splitFamilies).flat();
+// Issue #2023 adds these two scored extension files to the delivered tree.
+const ADDITIONAL_SCORED_FILES = [
+	".pi/extensions/lib/safe-argv.ts",
+	".pi/extensions/lib/test/safe-argv.test.ts",
+];
 const DEFERRED = B.deferred.flatMap((d) => d.files ?? []);
 const BASE_UNCITED = [...DEFERRED, ...B.baseAdvance.resolvedFiles];
 const ALREADY_UNDER = B.alreadyUnder.files;
@@ -488,7 +493,11 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 
 	it("re-measures the delivered tree: only the uncited leftovers stay flagged", () => {
 		const after = measureTree(ROOT, git("ls-files"));
-		assert.equal(after.codeFiles, B.after.codeFiles, "recorded scored-file count drifted");
+		assert.equal(
+			after.codeFiles,
+			B.after.codeFiles + ADDITIONAL_SCORED_FILES.filter(scored).length,
+			"recorded scored-file count drifted",
+		);
 		assert.equal(after.vbaGodModule.length, B.after.vbaGodModuleCount);
 		assert.deepStrictEqual(
 			after.vbaGodModule,
