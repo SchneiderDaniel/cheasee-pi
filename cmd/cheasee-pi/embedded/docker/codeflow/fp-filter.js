@@ -1397,30 +1397,59 @@
 	// The architecture summary repeats the dead functions under an `N Unused
 	// Functions` heading — either carrying the entries, or (as the exported report
 	// records it) as a bare count — so both must move with the filtered list.
-	function filterUnusedIssues(issues, index, deadCount) {
+	// The list-bearing dead-function entry carries its own `items`, so its title
+	// and list are filtered together here; the count-only summary is left to
+	// `reconcileAggregateIssues`, which owns every aggregate title.
+	function filterUnusedIssues(issues, index) {
 		var out = [];
 		for (var i = 0; i < issues.length; i++) {
 			var issue = issues[i];
 			var isDeadList =
-				!!issue && typeof issue === "object" && /^\d+ Unused Functions$/.test(String(issue.title));
+				!!issue &&
+				typeof issue === "object" &&
+				Array.isArray(issue.items) &&
+				/^\d+ Unused Functions$/.test(String(issue.title));
 			if (!isDeadList) {
 				out.push(issue);
 				continue;
 			}
-			if (Array.isArray(issue.items)) {
-				var kept = partitionDead(issue.items, index).kept;
-				if (kept.length)
-					out.push(
-						Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }),
-					);
+			var kept = partitionDead(issue.items, index).kept;
+			if (kept.length)
+				out.push(
+					Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }),
+				);
+		}
+		return out;
+	}
+
+	// The analyzer also emits one count-only architecture item per derived metric
+	// (`375 Architecture Violations`, `9 Similar Code Blocks`, `44 Unused
+	// Functions`). Each names a count the filter just moved, so an un-reconciled
+	// item advertises findings the export no longer carries.
+	var AGGREGATE_TITLE =
+		/^\d+ (Architecture Violations|Unused Functions|Similar Code Blocks|Duplicate Function Names)$/;
+
+	/**
+	 * Rewrite or drop every aggregate item so it names the surviving array.
+	 * `counts` maps a metric label to that array's kept length, or to `null` when
+	 * the array was not reportable — an unknown count leaves the item standing
+	 * (fail open), mirroring the `Unused Functions` rule. Entries that do not
+	 * match, and non-object entries, pass through untouched and in order.
+	 */
+	function reconcileAggregateIssues(issues, counts) {
+		var out = [];
+		for (var i = 0; i < issues.length; i++) {
+			var issue = issues[i];
+			var match =
+				!!issue && typeof issue === "object" && typeof issue.title === "string"
+					? AGGREGATE_TITLE.exec(issue.title)
+					: null;
+			var kept = match ? counts[match[1]] : null;
+			if (!match || typeof kept !== "number") {
+				out.push(issue);
 				continue;
 			}
-			// A count-only summary: the filtered list is the only honest source for
-			// it, so it restates the surviving count or goes with the list. With no
-			// reportable list the count is unknown, so it stands (fail open).
-			if (deadCount === null) out.push(issue);
-			else if (deadCount > 0)
-				out.push(Object.assign({}, issue, { title: deadCount + " Unused Functions" }));
+			if (kept > 0) out.push(Object.assign({}, issue, { title: kept + " " + match[1] }));
 		}
 		return out;
 	}
@@ -1448,11 +1477,66 @@
 		return count;
 	}
 
-	/** True when an aggregate code-clone group must not be emitted. */
-	function isFalsePositiveDuplicate(dup) {
-		if (!dup || typeof dup !== "object" || dup.type !== "code") return false;
+	/** True when a duplicate group carries no actionable duplication. */
+	function isFalsePositiveDuplicate(dup, readFile) {
+		if (!dup || typeof dup !== "object") return false;
+		if (dup.type === "name") return isMemberNameGroup(dup, readFile);
+		if (dup.type !== "code") return false;
 		var members = distinctMembers(dup.name);
-		return members !== null && members > DUPLICATE_MEMBER_LIMIT;
+		if (members !== null && members > DUPLICATE_MEMBER_LIMIT) return true;
+		// A clone the analyzer found only among tests or documents is not shipped
+		// duplication to extract; its own name grouping already skips those paths
+		// (`isNonProductionPath`), the code grouping just omits the guard.
+		return everyInstance(dup, function (entry) {
+			return typeof entry.file === "string" && isArtifactPath(entry.file);
+		});
+	}
+
+	function isArtifactPath(path) {
+		var lower = path.toLowerCase();
+		return isTestArtifact(lower) || isDocArtifact(lower);
+	}
+
+	/**
+	 * True when every reported instance of a group satisfies `test`. A group with
+	 * no readable file list satisfies nothing: unknown is never suppression
+	 * evidence (the filter fails open, like every other predicate here).
+	 */
+	function everyInstance(dup, test) {
+		var files = dup.files;
+		if (!Array.isArray(files) || files.length === 0) return false;
+		for (var i = 0; i < files.length; i++) {
+			if (!files[i] || typeof files[i] !== "object" || !test(files[i])) return false;
+		}
+		return true;
+	}
+
+	/**
+	 * A `type:'name'` group is one identifier reported in 3+ files, with the
+	 * ``similarity`` taken from its first two samples — the analyzer already skips
+	 * class methods, decorated handlers and common names there. What survives is a
+	 * *member* name: the same `apply` on unrelated receivers, or one test helper per
+	 * test module. No rename can resolve that, so the group earns no card.
+	 * A column-0 declaration is a free function in shipped source and stays.
+	 * shortcut: nesting is read off the declaration's leading whitespace, which a
+	 * wrapped top-level declaration could fake; upgrade to a brace/scope walk when
+	 * a nested group ever proves genuine.
+	 */
+	function isMemberNameGroup(dup, readFile) {
+		return everyInstance(dup, function (entry) {
+			if (typeof entry.file !== "string" || entry.file === "") return false;
+			if (isArtifactPath(entry.file)) return true;
+			return isIndentedDeclaration(entry, readFile);
+		});
+	}
+
+	function isIndentedDeclaration(entry, readFile) {
+		if (!readFile || typeof entry.line !== "number" || entry.line < 1) return false;
+		var text = readFile(entry.file);
+		if (typeof text !== "string") return false;
+		var lines = text.split("\n");
+		if (entry.line > lines.length) return false;
+		return /^[\t ]/.test(lines[entry.line - 1]);
 	}
 
 	// --- entry point ---------------------------------------------------------
@@ -1521,14 +1605,19 @@
 	 * lists / `data.duplicates` in place-free fashion. Returns a new `data` object
 	 * plus the findings that were dropped, so a caller can report the suppression
 	 * instead of silently shrinking the report.
+	 *
+	 * `opts.deriveSuggestions(filtered)` re-derives `data.suggestions` from the
+	 * sanitized object. The seven rules live in the pinned analyzer, so they arrive
+	 * as a port; without it the cards are dropped rather than shipped stale.
 	 */
-	function sanitizeAnalysisData(data, readFile) {
+	function sanitizeAnalysisData(data, readFile, opts) {
 		var suppressed = {
 			security: [],
 			layerViolations: [],
 			hygiene: [],
 			deadCode: [],
 			duplicates: [],
+			suggestions: [],
 		};
 		if (!data || typeof data !== "object") return { data: data, suppressed: suppressed };
 
@@ -1563,6 +1652,8 @@
 		// against the snapshot, and `stats.dead` moves with them because the health
 		// dead-code term and the summary count read it.
 		var deadCount = null;
+		var codeDuplicates = null;
+		var nameDuplicates = null;
 		var deadKeys = ["deadFunctions", "unusedFunctions"].filter(function (key) {
 			return Array.isArray(data[key]);
 		});
@@ -1575,36 +1666,37 @@
 				if (deadKeys[k] === "deadFunctions" || deadCount === null)
 					deadCount = partition.kept.length;
 			}
-			if (Array.isArray(data.issues))
-				out.issues = filterUnusedIssues(data.issues, referenceIndex, deadCount);
+			if (Array.isArray(data.issues)) out.issues = filterUnusedIssues(data.issues, referenceIndex);
 		}
 
 		if (Array.isArray(data.duplicates)) {
 			out.duplicates = [];
 			for (var d = 0; d < data.duplicates.length; d++) {
 				var dup = data.duplicates[d];
-				if (isFalsePositiveDuplicate(dup)) suppressed.duplicates.push(dup);
+				if (isFalsePositiveDuplicate(dup, readFile)) suppressed.duplicates.push(dup);
 				else out.duplicates.push(dup);
 			}
-			// The aggregate "N Similar Code Blocks" item must name the surviving
-			// count, and disappear once no group survives; otherwise the report
-			// advertises groups the filter just dropped. The dead-function rewrite
-			// above may already have replaced `out.issues`.
-			var items = Array.isArray(out.issues) ? out.issues : data.issues;
-			if (Array.isArray(items)) {
-				out.issues = items
-					.map(function (item) {
-						if (!item || typeof item !== "object" || typeof item.title !== "string") return item;
-						if (!/^\d+ Similar Code Blocks$/.test(item.title)) return item;
-						if (out.duplicates.length === 0) return null;
-						return Object.assign({}, item, {
-							title: out.duplicates.length + " Similar Code Blocks",
-						});
-					})
-					.filter(function (item) {
-						return item !== null;
-					});
-			}
+			// The analyzer keeps its two duplicate items apart (`N Duplicate Function
+			// Names` counts `type:'name'` groups, `N Similar Code Blocks` the `code`
+			// ones), so the reconciled counts must be bucketed the same way.
+			codeDuplicates = out.duplicates.filter(function (group) {
+				return group && typeof group === "object" && group.type === "code";
+			}).length;
+			nameDuplicates = out.duplicates.length - codeDuplicates;
+		}
+
+		// One place reconciles every aggregate item against the array it summarizes,
+		// so no exported count can outlive the findings it names. A metric whose
+		// array the filter never touched keeps its item (`null` = unknown count).
+		if (Array.isArray(data.issues)) {
+			out.issues = reconcileAggregateIssues(Array.isArray(out.issues) ? out.issues : data.issues, {
+				"Architecture Violations": Array.isArray(out.layerViolations)
+					? out.layerViolations.length
+					: null,
+				"Unused Functions": deadCount,
+				"Similar Code Blocks": codeDuplicates,
+				"Duplicate Function Names": nameDuplicates,
+			});
 		}
 
 		// `data.stats.security` / `data.stats.violations` are the same counts the
@@ -1625,11 +1717,27 @@
 			}
 		}
 
+		// The analyzer derives these cards from the arrays above *before* the filter
+		// runs, so an exported card can name counts this report no longer carries.
+		// Re-derive through the pinned analyzer's own function (never a copy); with
+		// no usable deriver the cards go, because a stale card is worse than none.
+		if (Array.isArray(data.suggestions)) {
+			var derive =
+				opts && typeof opts.deriveSuggestions === "function" ? opts.deriveSuggestions : null;
+			var derived = derive ? derive(out) : null;
+			if (Array.isArray(derived)) out.suggestions = derived;
+			else {
+				out.suggestions = [];
+				suppressed.suggestions = data.suggestions.slice();
+			}
+		} else if ("suggestions" in out) delete out.suggestions; // an unreadable card list is dropped
+
 		return { data: out, suppressed: suppressed };
 	}
 
 	return {
 		sanitizeAnalysisData: sanitizeAnalysisData,
+		reconcileAggregateIssues: reconcileAggregateIssues,
 		isFalsePositiveSecurity: isFalsePositiveSecurity,
 		isFalsePositiveLayerViolation: isFalsePositiveLayerViolation,
 		isFalsePositiveHygiene: isFalsePositiveHygiene,

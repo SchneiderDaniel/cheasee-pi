@@ -175,6 +175,33 @@
 			"title": "193 High Complexity Files"
 		}
 	],
+	"suggestions": [
+		{
+			"title": "Fix Security Issues",
+			"desc": "9 high-severity security issues found.",
+			"priority": "critical"
+		},
+		{
+			"title": "Remove Dead Code",
+			"desc": "44 unused functions detected. Removing them will improve maintainability and reduce bundle size.",
+			"priority": "high"
+		},
+		{
+			"title": "Split Large Files",
+			"desc": "1 files have too many functions. Split by responsibility.",
+			"priority": "high"
+		},
+		{
+			"title": "Fix Architecture Violations",
+			"desc": "363 layer violations found. Lower layers should not depend on higher layers.",
+			"priority": "high"
+		},
+		{
+			"title": "Reduce Coupling",
+			"desc": "1 files are imported by many others. Consider if this is intentional.",
+			"priority": "medium"
+		}
+	],
 	"securityIssues": [
 		{
 			"title": "Hardcoded Secret",

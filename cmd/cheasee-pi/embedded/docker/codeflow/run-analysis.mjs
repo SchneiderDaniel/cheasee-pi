@@ -299,9 +299,17 @@ async function main() {
 	});
 
 	// A throw here aborts the run: an unsanitized report is never exported.
+	// `data.suggestions` is derived from the arrays the filter shrinks, so the
+	// filter re-derives it through the pinned analyzer's own function (a port —
+	// the seven rules are never mirrored here).
+	const deriveSuggestions =
+		helpers.Parser && typeof helpers.Parser.generateSuggestions === "function"
+			? (filtered) => helpers.Parser.generateSuggestions(filtered)
+			: undefined;
 	const { data: filtered, suppressed } = fpFilter.sanitizeAnalysisData(
 		data,
 		makeReadFile(sourceDir),
+		{ deriveSuggestions },
 	);
 	if (
 		suppressed.security.length ||
@@ -316,6 +324,11 @@ async function main() {
 				`${suppressed.hygiene.length} hygiene finding(s), ` +
 				`${suppressed.deadCode.length} unused function(s), ` +
 				`${suppressed.duplicates.length} duplicate group(s)\n`,
+		);
+	}
+	if (suppressed.suggestions.length) {
+		process.stderr.write(
+			`fp-filter: dropped ${suppressed.suggestions.length} derived suggestion(s): derivation unavailable\n`,
 		);
 	}
 

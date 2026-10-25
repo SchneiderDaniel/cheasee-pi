@@ -336,11 +336,14 @@ describe("classifyFinding", () => {
 	});
 
 	it("maps the remaining kinds", () => {
-		for (const kind of ["security", "dead-code", "duplicate", "layer-violation", "suggestion"]) {
+		for (const kind of ["security", "dead-code", "duplicate", "layer-violation"]) {
 			assert.strictEqual(classifyFinding(fact(kind, "x")).issueType, "bug", kind);
 		}
 		assert.strictEqual(classifyFinding(fact("pattern", "Singleton")).issueType, "informational");
 		assert.strictEqual(classifyFinding(fact("anti-pattern", "God Object")).issueType, "chore");
+		// Issue #2030: a suggestion restates the facts underneath it, so it is
+		// derived narration and never enters bug scope.
+		assert.strictEqual(classifyFinding(fact("suggestion", "x")).issueType, "derived");
 	});
 
 	it("is deterministic and always inside the union", () => {

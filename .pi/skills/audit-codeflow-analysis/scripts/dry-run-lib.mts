@@ -145,10 +145,17 @@ function findingFileContent(fact: IssueFact): string {
 
 /**
  * One line naming each nonzero disposition (file-bug, file-refactor,
- * offer-optional, drop) with its count, so whatever triage routed is visible.
+ * offer-optional, link-derived, drop) with its count, so whatever triage routed
+ * is visible — including the derived facts that are listed but never filed.
  */
 export function dispositionSummary(facts: IssueFact[]): string {
-	const order: Disposition[] = ["file-bug", "file-refactor", "offer-optional", "drop"];
+	const order: Disposition[] = [
+		"file-bug",
+		"file-refactor",
+		"offer-optional",
+		"link-derived",
+		"drop",
+	];
 	const counts = new Map<Disposition, number>();
 	for (const fact of facts) {
 		const d = classifyFinding(fact).disposition;
