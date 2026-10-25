@@ -16,7 +16,7 @@ ARG CODEFLOW_REF=b0e82d127fc4990f571ebc6da6c5d9af2591aaa1
 # asset, config, the report store, the headless run state machine, the
 # committed-tree identity and the served-page rewrites); all of them must land in
 # the same directory.
-COPY server.py bridge_js.py config.py report_store.py analysis_run.py repo_identity.py ui_rewrites.py /opt/codeflow/
+COPY server.py bridge_js.py config.py report_store.py analysis_run.py repo_identity.py ui_rewrites.py handler_api.py /opt/codeflow/
 COPY config.json /opt/codeflow/config.json
 COPY run-analysis.mjs /opt/codeflow/run-analysis.mjs
 # False-positive policy, shared by the headless runner and the served page

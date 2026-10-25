@@ -45,13 +45,18 @@
 	},
 	"after": {
 		"ref": "issue-2034 branch",
-		"godObjectCount": 21,
-		"note": "24 - 3: the two cited Python splits plus the uncited `disk_space_test.go` (see UNCITED_REDUCED in the oracle). Every still-flagged file is recorded under `deferred`."
+		"godObjectCount": 20,
+		"note": "24 - 4: the two cited Python splits, the uncited `disk_space_test.go`, and `server.py` (reduced by #2031, see `reducedByLater`). Every still-flagged file is recorded under `deferred`."
 	},
 	"reducedBy": [
 		"test/dependency_existence_check_tests/_common.py",
 		"test/dependency_existence_check_tests/test_pipeline_age_guard.py"
 	],
+	"reducedByLater": {
+		"issue": 2031,
+		"reason": "#2031 moved server.py's `/api/repos/*` routes into `handler_api.py` (16 -> 13 functions), so the 1274-line → 8-module split that #2034 deferred did land. server.py stops flagging without a #2034 follow-up, so it moves here instead of leaving the ledger.",
+		"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
+	},
 	"deferred": [
 		{
 			"reason": "no Rust toolchain in the pipeline image — `which cargo rustc` is empty and no workflow compiles `embedded/docker/ui`, so a move cannot be checked in-gate (#2002/#2003/#2004/#2005/#2006 precedent)",
@@ -82,11 +87,6 @@
 			"reason": "`fp-filter.js` is COPYed into the Docker build and mirrored by the codeflow shim; a split changes that copy set, which the owning boundary guard must move in the same change",
 			"requires": "Dockerfile COPY set + codeflow shim copy-set updated in the same change",
 			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]
-		},
-		{
-			"reason": "`server.py` needs ~12 modules and its inline `_BRIDGE_JS`/`_UI_REWRITES` literals are not a single-file seam, so the split is not mechanically safe",
-			"requires": "~12 modules; inline _BRIDGE_JS/_UI_REWRITES literals are not a single-file seam",
-			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
 		}
 	],
 	"laterReduced": {
