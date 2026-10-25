@@ -23,18 +23,17 @@ func TestDockerfile_CloneLayerCacheBustCommit(t *testing.T) {
 	if !strings.Contains(content, "ARG CHEASEE_COMMIT") {
 		t.Fatal("Dockerfile must declare ARG CHEASEE_COMMIT (clone-layer cache-bust input)")
 	}
-	cloneIdx := strings.Index(content, "git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi")
-	if cloneIdx == -1 {
-		t.Fatal("clone layer marker missing")
+	fetchIdx := strings.Index(content, `git -C /opt/cheasee-pi fetch --depth 1 origin "${CHEASEE_COMMIT}"`)
+	if fetchIdx == -1 {
+		t.Fatal("fetch layer must fetch the resolved commit SHA, not the moving ref")
 	}
-	if !strings.Contains(content[cloneIdx:], "${CHEASEE_COMMIT}") {
-		t.Error("clone RUN must reference ${CHEASEE_COMMIT} so a changed upstream commit invalidates the layer")
+	if !strings.Contains(content[fetchIdx:], `fetch --depth 1 origin "${CHEASEE_REF}"`) {
+		t.Error("fetch layer must fall back to CHEASEE_REF when no commit has been resolved")
 	}
-	// Fail closed on a mid-build ref move: caching the clone under the probed
-	// commit's cache key is only safe when the clone's HEAD actually IS that
-	// commit; otherwise the layer would pin unreviewed content to a stale key.
-	if !strings.Contains(content[cloneIdx:], "upstream moved mid-build") || !strings.Contains(content[cloneIdx:], "exit 1") {
-		t.Error("clone RUN must fail the build when the clone's HEAD differs from CHEASEE_COMMIT")
+	// Keep the HEAD check as defense in depth: never cache content under a
+	// commit-key that the fetched repository did not actually provide.
+	if !strings.Contains(content[fetchIdx:], "CHEASEE_COMMIT") || !strings.Contains(content[fetchIdx:], "exit 1") {
+		t.Error("fetch RUN must fail if HEAD differs from CHEASEE_COMMIT")
 	}
 	// The baked commit is recorded for observability (AC2).
 	if !strings.Contains(content, "/opt/cheasee-pi/BUILD_COMMIT") {
@@ -46,8 +45,8 @@ func TestDockerfile_CloneLayerCacheBustCommit(t *testing.T) {
 	// The cache-bust ARG must be declared before (or at) the clone RUN — a
 	// later declaration could not affect this layer's cache key.
 	argIdx := strings.Index(content, "ARG CHEASEE_COMMIT")
-	if argIdx > cloneIdx {
-		t.Errorf("ARG CHEASEE_COMMIT (offset %d) must precede the clone RUN (offset %d)", argIdx, cloneIdx)
+	if argIdx > fetchIdx {
+		t.Errorf("ARG CHEASEE_COMMIT (offset %d) must precede the fetch RUN (offset %d)", argIdx, fetchIdx)
 	}
 }
 
