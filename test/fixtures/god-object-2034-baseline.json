@@ -89,6 +89,11 @@
 			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
 		}
 	],
+	"laterReduced": {
+		"issue": 2035,
+		"reason": "#2035 split the long files still over 500 segments. `ui/tests/session_controls.rs` was 708 segments and 17 functions; its AC1/AC2/AC3 journey moved into `ui/tests/session_controls/journey.rs`, which lands both halves at 15 and 2 functions, so it stops flagging without a #2034 follow-up. The other 20 deferred paths still flag, so `after.godObjectCount` and the ledger are unchanged.",
+		"files": ["cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs"]
+	},
 	"notScored": [
 		{
 			"reason": "`.mts` is absent from CODE_EXTS at the pinned ref, so the analyzer never scores these (yet they were filed)",

@@ -25,14 +25,14 @@
 	},
 	"after": {
 		"ref": "worktree-git-issue-2036-refactor-break-up-the-25-vba-god-module-files-flag",
-		"codeFiles": 790,
+		"codeFiles": 794,
 		"vbaGodModuleCount": 1,
-		"godObjectCount": 28
+		"godObjectCount": 27
 	},
 	"baseAdvance": {
 		"issue": 2034,
-		"reason": "#2034 merged after the pinned base, added five scored sibling files, and reduced the uncited disk-space test below the threshold.",
-		"scoredFilesAdded": 5,
+		"reason": "#2034 merged after the pinned base, added five scored sibling files, and reduced the uncited disk-space test below the threshold; #2035 then added four scored siblings (`codeflow/bridge_js.py`, `ui/src/rpc/client/replay.rs`, `ui/src/protocol/events.rs`, `ui/tests/session_controls/journey.rs`) when it split the long files that were still over the ceiling.",
+		"scoredFilesAdded": 9,
 		"resolvedFiles": ["cmd/cheasee-pi/disk_space_test.go"]
 	},
 	"tradeoffs": {

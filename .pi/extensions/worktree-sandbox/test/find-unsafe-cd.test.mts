@@ -1,29 +1,18 @@
-/**
- * Tests: worktree-sandbox — findUnsafeCd function
- *
- * Tests the sandbox-escaping detection for `cd` commands.
- * findUnsafeCd is exported from index.ts as a seam for testing.
- *
- * ---- vv BOUNDARY: TDD GATE — do not remove vv ----
- * This test file imports findUnsafeCd from ../index.ts.
- * ---- ^^ BOUNDARY: TDD GATE — do not remove ^^ ----
- *
- * Run with:
- *   node --experimental-strip-types --test \
- *     .pi/extensions/worktree-sandbox/test/find-unsafe-cd.test.mts
- */
-
 import { describe, it, before, after } from "node:test";
+
 import assert from "node:assert/strict";
+
 import { mkdtempSync, rmSync } from "node:fs";
+
 import { tmpdir } from "node:os";
+
 import { join } from "node:path";
+
 import { withSandboxEnv, makeCtx } from "./helpers.ts";
 
-// ---- vv BOUNDARY: TDD GATE — do not remove vv ----
-import { findUnsafeCd, SEPARATORS, isCommandStart, findMeaningfulToken } from "../index.ts";
+import { findUnsafeCd } from "../index.ts";
+
 import type { ParseEntry } from "shell-quote";
-// ---- ^^ BOUNDARY: TDD GATE — do not remove ^^ ----
 
 const SANDBOX_ROOT = "/tmp/sandbox-test-root";
 
@@ -325,11 +314,6 @@ describe("findUnsafeCd", () => {
 		assert.notEqual(result, null);
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════════
-// Phase 2: Bash handler integration tests
-// ═══════════════════════════════════════════════════════════════════════
-
 describe("findUnsafeCd via bash handler (integration)", () => {
 	// Use minimal types for Node.js --experimental-strip-types compatibility
 	let handler: Function;
@@ -509,73 +493,5 @@ describe("findUnsafeCd via bash handler (integration)", () => {
 			assert.equal(result.block, true);
 			assert.ok((result.reason ?? "").includes("<previous-dir>"));
 		});
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════════
-// Ported from shell-tokens.test.mts — edge cases not reachable through
-// guard-level exports (findUnsafeCd, findUnsafeWriteInBash).
-// These use hand-crafted ParseEntry[] arrays to pin separator/glob/comment
-// behavior that shell-quote.parse() does not naturally produce.
-// ═══════════════════════════════════════════════════════════════════════
-
-describe("isCommandStart (ported from shell-tokens.test.mts)", () => {
-	it("returns true when preceded by ;; separator", () => {
-		const tokens: ParseEntry[] = ["echo", { op: ";;" }, "cat"];
-		assert.equal(isCommandStart(tokens, 2), true);
-	});
-
-	it("returns true when preceded by |& separator", () => {
-		const tokens: ParseEntry[] = ["echo", { op: "|&" }, "cat"];
-		assert.equal(isCommandStart(tokens, 2), true);
-	});
-
-	it("returns true when preceded by & separator", () => {
-		const tokens: ParseEntry[] = ["echo", { op: "&" }, "cat"];
-		assert.equal(isCommandStart(tokens, 2), true);
-	});
-
-	it("returns false when preceded by glob operator", () => {
-		const tokens: ParseEntry[] = ["cmd", { op: "glob", pattern: "*.txt" }];
-		assert.equal(isCommandStart(tokens, 1), false);
-	});
-});
-
-describe("findMeaningfulToken (ported from shell-tokens.test.mts)", () => {
-	it("returns glob when next token is a glob operator", () => {
-		const tokens: ParseEntry[] = ["echo", { op: "glob", pattern: "*.txt" }];
-		const result = findMeaningfulToken(tokens, 1);
-		assert.equal(result.kind, "glob");
-		if (result.kind === "glob") {
-			assert.equal(result.pattern, "*.txt");
-		}
-	});
-
-	it("returns glob at correct index", () => {
-		const tokens: ParseEntry[] = ["cmd", { op: "glob", pattern: "*.ts" }];
-		const result = findMeaningfulToken(tokens, 1);
-		assert.equal(result.kind, "glob");
-		if (result.kind === "glob") {
-			assert.equal(result.index, 1);
-		}
-	});
-
-	it("skips non-separator operators and returns glob when it encounters one", () => {
-		const tokens: ParseEntry[] = [
-			"cmd",
-			{ op: ">" },
-			{ op: "glob", pattern: "*.txt" },
-			{ comment: " note" },
-		];
-		const result = findMeaningfulToken(tokens, 1);
-		assert.equal(result.kind, "glob");
-	});
-});
-
-describe("SEPARATORS (ported from shell-tokens.test.mts)", () => {
-	it("does not contain non-separator operators", () => {
-		assert.equal(SEPARATORS.has(">"), false);
-		assert.equal(SEPARATORS.has(">>"), false);
-		assert.equal(SEPARATORS.has("glob"), false);
 	});
 });

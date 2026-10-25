@@ -10,6 +10,7 @@ use tokio::time::timeout;
 use crate::auth::ChildEnv;
 use crate::pi_process::{spawn, PiChild, PiSpec};
 use crate::protocol::ExtensionUiResponse;
+use crate::subscribe::{ReplayError, ReplaySource};
 use crate::test_support::unique_temp_dir;
 
 /// A hang is a failure, not a stall: every await in these tests is bounded.
