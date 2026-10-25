@@ -501,6 +501,47 @@ const SOURCES: Record<string, string> = {
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		'export function go() { return spawn("git", ["fetch"], assertNoShell({ timeout: 5000 })); }\n',
+	// Audit #2023: the supervisor's spawn forwards the parent environment, so its
+	// MEDIUM finding was real signal. Routing that env through the policy's
+	// `sanitizeSpawnEnv` strips every variable that can name a command the argv
+	// proof never sees, which makes the file provable — suppressed.
+	"src/env-policy.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell, sanitizeSpawnEnv } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		"export function go(args: string[]) {\n" +
+		'  const { program, args: safe } = argvCommand("/usr/bin/pi", args);\n' +
+		'  const env = sanitizeSpawnEnv({ ...process.env, PI_NO_COLOR: "1" });\n' +
+		'  return spawn(program, safe, assertNoShell({ cwd: "/tmp", env, stdio: "ignore" }));\n' +
+		"}\n",
+	// The inline form binds the same constrained env.
+	"src/env-policy-inline.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell, sanitizeSpawnEnv } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("git", ["fetch"], assertNoShell({ env: sanitizeSpawnEnv({ PATH: "/usr/bin" }) })); }\n',
+	// Regression (audit): a same-named *local* helper proves nothing — only the
+	// pinned policy module's export can constrain the environment.
+	"src/env-policy-forged.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		"function sanitizeSpawnEnv(env: Record<string, string>) { return env; }\n" +
+		'export function go() { return spawn("git", ["fetch"], assertNoShell({ env: sanitizeSpawnEnv({ NODE_OPTIONS: "--require /tmp/hook.cjs" }) })); }\n',
+	// Regression (audit): importing the helper yet shadowing it locally leaves no
+	// provenance, so the constraint is unproven.
+	"src/env-policy-shadowed.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell, sanitizeSpawnEnv } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		"function sanitizeSpawnEnv(env: object) { return env; }\n" +
+		'export function go() { return spawn("git", ["fetch"], assertNoShell({ env: sanitizeSpawnEnv({}) })); }\n',
+	// Regression (audit): a mutable binding is not proof — the env can be replaced
+	// between the policy call and the spawn.
+	"src/env-policy-mutable.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell, sanitizeSpawnEnv } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		"export function go() {\n" +
+		"  let env = sanitizeSpawnEnv({});\n" +
+		'  env = { NODE_OPTIONS: "--require /tmp/hook.cjs" };\n' +
+		'  return spawn("git", ["fetch"], assertNoShell({ env }));\n' +
+		"}\n",
 };
 
 const readFile = (path: unknown): string | null => {
@@ -1237,6 +1278,43 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/env-free-options.ts")),
 			false,
 			"the env guard must not over-reject ordinary spawn options",
+		);
+	});
+
+	it("drops a MEDIUM Command Execution whose environment goes through the policy (audit #2023)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-policy.ts")),
+			false,
+			"`sanitizeSpawnEnv` strips every variable that can name a command",
+		);
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-policy-inline.ts")),
+			false,
+			"the inline `env: sanitizeSpawnEnv(…)` form is the same proof",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose constrained env is a local look-alike (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-policy-forged.ts")),
+			true,
+			"only the pinned policy module's export can constrain the environment",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose constrained env is shadowed locally (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-policy-shadowed.ts")),
+			true,
+			"a shadowing re-declaration leaves no provenance",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose constrained env is a mutable binding (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-policy-mutable.ts")),
+			true,
+			"`let` can be replaced between the policy call and the spawn",
 		);
 	});
 

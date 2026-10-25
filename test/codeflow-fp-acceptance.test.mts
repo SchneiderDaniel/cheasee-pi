@@ -56,20 +56,19 @@ const CITED_DEAD = [
 const EXPECTED_HEALTH_SCORE = 93;
 
 // Issue #2023: the four sites whose MEDIUM `Command Execution` finding must be
-// resolved on the fixed tree. An env-carrying spawn is *not* a false positive —
-// `NODE_OPTIONS`/`GIT_CONFIG_*`/`LD_PRELOAD` can name a command the argv never
-// shows — so the supervisor's spawn keeps its finding by design and every other
-// cited site must lose it.
+// resolved on the fixed tree. Each spawn forwards an argv array through the
+// shared policy, and the one site that also forwards an environment routes it
+// through the policy's `sanitizeSpawnEnv` — so no cited file carries an
+// execution channel the static proof cannot see, and none may keep the finding.
 const CITED_COMMAND_EXECUTION_PATHS = [
 	".pi/extensions/context-info/codeflow.ts",
 	".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
 	".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
 	".pi/extensions/supervisor/agent/runner/spawn.ts",
 ];
-const ENV_FORWARDING_SPAWN = ".pi/extensions/supervisor/agent/runner/spawn.ts";
-// The fixed tree suppresses 9 HIGH + 3 MEDIUM (codeflow.ts, audit-group.ts,
-// runtime.ts). A live run over the moving tree must never drop below it.
-const MIN_SECURITY_SUPPRESSED = 15;
+// The fixed tree suppresses 9 HIGH + 4 MEDIUM (the four cited paths). A live run
+// over the moving tree must never drop below it.
+const MIN_SECURITY_SUPPRESSED = 16;
 
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCjs(FILTER) as {
@@ -213,15 +212,13 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 
 		assert.deepStrictEqual(highsOf(data), [], "no HIGH security finding may survive");
 		// The recording is the pre-fix analyzer output, but the filter reads the
-		// files on disk — the fixed ones. Every cited spawn but one routes its argv
-		// through the shared policy without an environment, so the whole-file finding
-		// is a proven false positive. The supervisor's spawn forwards an env, which
-		// can name a command the argv never shows, so its finding is real signal and
-		// must stay (fail closed).
+		// files on disk — the fixed ones. Every cited spawn routes its argv through
+		// the shared policy and its environment (where it has one) through
+		// `sanitizeSpawnEnv`, so the whole-file finding is a proven false positive.
 		assert.deepStrictEqual(
 			commandExecutionOf(data).map((s: { path: string }) => s.path),
-			[ENV_FORWARDING_SPAWN],
-			"only the env-forwarding spawn may keep a cited Command Execution finding",
+			[],
+			"every cited Command Execution hit is a proven false positive",
 		);
 		assert.deepStrictEqual(
 			crossLanguageOf(data),
@@ -523,11 +520,10 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 	// Issue #2023: the authoritative fixed-tree re-run. The snapshot test above
 	// reproduces the pre-fix report; this one drives the pinned analyzer over
 	// `git archive HEAD` (the fixed tree) and requires every cited MEDIUM
-	// `Command Execution` finding but the env-forwarding spawn to be gone. Counts
-	// are contract assertions, not literals — the raw layer count moves with every
-	// commit on the branch.
+	// `Command Execution` finding to be gone. Counts are contract assertions, not
+	// literals — the raw layer count moves with every commit on the branch.
 	it(
-		"headless report on the fixed tree resolves the provable cited Command Execution hits",
+		"headless report on the fixed tree resolves the four cited Command Execution hits",
 		{ skip: UI_DIR ? false : SKIP },
 		() => {
 			const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
@@ -559,11 +555,9 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 
 			const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
 			assert.deepStrictEqual(
-				commandExecutionOf(report)
-					.map((s: { path: string }) => s.path)
-					.filter((path: string) => path !== ENV_FORWARDING_SPAWN),
+				commandExecutionOf(report).map((s: { path: string }) => s.path),
 				[],
-				"every cited Command Execution hit but the env-forwarding spawn must be resolved",
+				"no cited Command Execution finding may survive on the fixed tree",
 			);
 			assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
 			assert.deepStrictEqual(
@@ -572,8 +566,8 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 				"no layer violation may survive the filter",
 			);
 			// 89 (B) is the measured ceiling: MEDIUM findings outside this issue stay
-			// (the filter's own file, `lib/exec-env.ts`) alongside the env-forwarding
-			// spawn, and the health term counts them.
+			// (the filter's own file, `lib/exec-env.ts`), and the health term counts
+			// them.
 			assert.ok(
 				report.summary.healthScore >= 89,
 				`the corrected score must stay at or above the measured 89 (B): ${report.summary.healthScore} (${report.summary.healthGrade})`,

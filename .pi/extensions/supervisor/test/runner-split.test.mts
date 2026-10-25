@@ -431,6 +431,48 @@ if (hasMockModule) {
 			assert.strictEqual(spawnCalls.length, 0);
 		});
 
+		it("strips execution-capable env vars at the spawn boundary (audit #2023)", async () => {
+			resetMock();
+			const { spawnAgentChild } = await import("../agent/runner/spawn.ts");
+			spawnCalls.length = 0;
+			const saved = {
+				NODE_OPTIONS: process.env.NODE_OPTIONS,
+				LD_PRELOAD: process.env.LD_PRELOAD,
+			};
+			process.env.NODE_OPTIONS = "--require /tmp/hook.cjs";
+			process.env.LD_PRELOAD = "/tmp/lib.so";
+			try {
+				spawnAgentChild({
+					args: ["--version"],
+					cwd: "/tmp",
+					sandboxEnv: {
+						GIT_CONFIG_COUNT: "1",
+						GIT_SSH_COMMAND: "sh -c id",
+						ANTHROPIC_API_KEY: "key",
+					},
+				});
+			} finally {
+				for (const key of ["NODE_OPTIONS", "LD_PRELOAD"] as const) {
+					const value = saved[key];
+					if (value === undefined) delete process.env[key];
+					else process.env[key] = value;
+				}
+			}
+
+			assert.strictEqual(spawnCalls.length, 1, "a valid argv must reach spawn");
+			const [, , options] = spawnCalls[0] as [string, string[], { env: Record<string, string> }];
+			for (const key of ["NODE_OPTIONS", "LD_PRELOAD", "GIT_CONFIG_COUNT", "GIT_SSH_COMMAND"]) {
+				assert.strictEqual(key in options.env, false, `${key} must never reach the child`);
+			}
+			assert.strictEqual(
+				options.env.ANTHROPIC_API_KEY,
+				"key",
+				"the sandbox env still reaches the child",
+			);
+			assert.strictEqual(options.env.PI_NO_COLOR, "1", "the fixed vars survive");
+			assert.ok(options.env.PATH, "PATH survives (the child must resolve its own tools)");
+		});
+
 		it("NUL in an env value throws UnsafeArgvError and spawn is never called", async () => {
 			const { spawnAgentChild } = await import("../agent/runner/spawn.ts");
 			spawnCalls.length = 0;

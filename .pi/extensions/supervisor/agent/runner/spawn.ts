@@ -6,7 +6,7 @@
 import { spawn } from "node:child_process";
 import type { ChildProcessByStdio, SpawnOptions } from "node:child_process";
 import type { Readable } from "node:stream";
-import { argvCommand, assertNoShell, assertSafeEnv } from "../../../lib/safe-argv.ts";
+import { argvCommand, assertNoShell, sanitizeSpawnEnv } from "../../../lib/safe-argv.ts";
 
 export interface ChildHandle {
 	/** Typed for stdio: ["ignore", "pipe", "pipe"] — stdout/stderr are non-null. */
@@ -52,7 +52,9 @@ export function spawnAgentChild(opts: SpawnAgentChildOptions): ChildHandle {
 	// feature exists to bound. Trade-off: the detached child survives an
 	// unchecked parent crash; the container dies as a unit anyway.
 	const { program, args } = argvCommand("/usr/bin/pi", opts.args);
-	const env = assertSafeEnv({ ...process.env, PI_NO_COLOR: "1", ...opts.sandboxEnv });
+	// The env is an execution channel too (NODE_OPTIONS, LD_PRELOAD, GIT_CONFIG_*),
+	// so it leaves through the policy rather than raw.
+	const env = sanitizeSpawnEnv({ ...process.env, PI_NO_COLOR: "1", ...opts.sandboxEnv });
 	const child = spawn(
 		program,
 		args as string[],

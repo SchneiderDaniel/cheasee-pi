@@ -13,8 +13,11 @@
 //      child-process call is an argv-array invocation whose program resolves to
 //      a literal and whose argv is a literal array or a `argvCommand`-validated
 //      binding free of an interpreter's code flag (`node -e`, `python -c`),
-//      with the shell forced off. An unreadable file, a dynamic program,
-//      unvalidated argv, or any shell call keeps it (fail closed).
+//      with the shell forced off and the environment either absent or routed
+//      through the policy's `sanitizeSpawnEnv` (which drops `NODE_OPTIONS`,
+//      `LD_PRELOAD`, `GIT_CONFIG_*` and the like). An unreadable file, a dynamic
+//      program, unvalidated argv, an unconstrained env, or any shell call keeps
+//      it (fail closed).
 //   3. layer violations whose two endpoints cannot be a real lower->higher
 //      import: a different language, an endpoint off the repo's declared layer
 //      taxonomy, a same-or-reversed rank order, or no recorded import edge. The
@@ -180,10 +183,11 @@
 	// suppressed only when *every* child-process call it makes is an argv-array
 	// invocation through the shared policy (`argvCommand` for the program,
 	// `assertNoShell` for the options), no shell-executing construct appears
-	// anywhere, and the options bind no environment — an env can name a command
-	// the argv never shows (`GIT_CONFIG_*`, `NODE_OPTIONS`, `LD_PRELOAD`). An
-	// unreadable file, an unrecognised call shape, a dynamic program, an env, or
-	// any shell call keeps the finding (fail closed).
+	// anywhere, and the options either bind no environment or bind one the
+	// policy's `sanitizeSpawnEnv` constrains — an unconstrained env can name a
+	// command the argv never shows (`GIT_CONFIG_*`, `NODE_OPTIONS`, `LD_PRELOAD`).
+	// An unreadable file, an unrecognised call shape, a dynamic program, an
+	// unconstrained env, or any shell call keeps the finding (fail closed).
 
 	// `node:child_process` members, by whether they run an argv array or a shell
 	// string. `execFile("sh", ["-c", x])` is still argv-shaped but names a shell,
@@ -338,13 +342,21 @@
 	// literal* proves a later call's executable; `argvCommand(request.command,
 	// ...)` binds nothing, so a dynamic program keeps its finding. A destructured
 	// `args` name records the argv expression the policy was handed, so the call
-	// site can still inspect it for an interpreter's code flag.
-	function argvCommandBindings(code, policy) {
+	// site can still inspect it for an interpreter's code flag. `envs` records
+	// `const env = sanitizeSpawnEnv(...)` names: only a `const` binding is proof,
+	// since a `let`/`var` can be replaced with a hostile env on the next line.
+	function policyBindings(code, policy) {
 		var programs = Object.create(null);
 		var argsNames = Object.create(null);
-		if (policy.argvCommand !== true) return { programs: programs, args: argsNames };
-		var re = /(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]*)?=\s*argvCommand\s*(?:<[^<>]*>)?\s*\(/g;
+		var envs = Object.create(null);
 		var m;
+		var envRe =
+			/(?:const)\s+([A-Za-z_$][\w$]*)\s*(?::[^=\n]*)?=\s*(?:await\s+)?sanitizeSpawnEnv\s*(?:<[^<>]*>)?\s*\(/g;
+		if (policy.sanitizeSpawnEnv === true) {
+			while ((m = envRe.exec(code)) !== null) envs[m[1]] = true;
+		}
+		if (policy.argvCommand !== true) return { programs: programs, args: argsNames, envs: envs };
+		var re = /(?:const|let|var)\s*\{([^}]*)\}\s*(?::[^=]*)?=\s*argvCommand\s*(?:<[^<>]*>)?\s*\(/g;
 		while ((m = re.exec(code)) !== null) {
 			var open = code.indexOf("(", m.index + m[0].length - 1);
 			var callArgs = argumentText(code, open);
@@ -367,7 +379,7 @@
 				}
 			}
 		}
-		return { programs: programs, args: argsNames };
+		return { programs: programs, args: argsNames, envs: envs };
 	}
 
 	// Local names that stand for a `node:child_process` member: named/namespace
@@ -486,28 +498,65 @@
 		return parts.length === 1 ? stripAssertion(parts[0]).trim() : null;
 	}
 
+	/** The bare name of a constrained-env expression, or null when it is no call. */
+	function constrainedEnvCallName(text) {
+		var m = /^([A-Za-z_$][\w$]*)\s*(?:<[^<>]*>)?\s*\(/.exec(text.trim());
+		return m ? m[1] : null;
+	}
+
 	/**
-	 * True when the spawn options cannot be proven environment-free. `shell:false`
-	 * says nothing about indirect execution: git runs `core.sshCommand` from
-	 * `GIT_CONFIG_*`, node runs a module from `NODE_OPTIONS`, and `LD_PRELOAD` /
-	 * `BASH_ENV` do the same for other programs — so an env the argv proof cannot
-	 * see is not proof. Only a literal object showing no `env` and no spread is
-	 * provable; an options *binding* (`const opts = { env: … }; assertNoShell(opts)`)
-	 * and a spread hide every key the text does not show, so both fail closed.
-	 * (Residual limit: a program that delegates on its own terms — `git fetch` runs
-	 * the remote's ssh — stays unproven but suppressed.)
+	 * True when `expr` is the pinned policy's own env constraint: a direct call to
+	 * its `sanitizeSpawnEnv` export, or a `const` bound from one. The name must
+	 * carry provenance (imported from the pinned module, unshadowed), so a
+	 * same-named local helper cannot forge it; a bare identifier that is not such
+	 * a binding, or any other expression, is unproven.
 	 */
-	function optionsCarryEnvironment(optionsText) {
+	function envExpressionIsConstrained(expr, bindings, policy) {
+		var text = stripAssertion(expr).trim();
+		var call = constrainedEnvCallName(text);
+		if (call !== null) return call === "sanitizeSpawnEnv" && policy[call] === true;
+		return /^[A-Za-z_$][\w$]*$/.test(text) && bindings.envs[text] === true;
+	}
+
+	/**
+	 * True when the spawn options cannot be proven free of an unconstrained
+	 * environment. `shell:false` says nothing about indirect execution: git runs
+	 * `core.sshCommand` from `GIT_CONFIG_*`, node runs a module from `NODE_OPTIONS`,
+	 * and `LD_PRELOAD` / `BASH_ENV` do the same for other programs — so an env the
+	 * argv proof cannot see is not proof. A literal object showing no `env`, or an
+	 * `env` that is the pinned policy's `sanitizeSpawnEnv(...)` (which drops exactly
+	 * those variables), is provable; an options *binding* (`const opts = { env: … };
+	 * assertNoShell(opts)`), a spread, a nested env, or any other env expression
+	 * hides keys the text does not show, so all of them fail closed.
+	 * (Residual limits, all needing a hostile edit of an already-reviewed file:
+	 * the env object could be mutated after the policy accepts it, a same-named
+	 * parameter could shadow the `const` binding, and a program that delegates on
+	 * its own terms — `git fetch` runs the remote's ssh — stays unproven but
+	 * suppressed.)
+	 */
+	function optionsCarryEnvironment(optionsText, bindings, policy) {
 		var text = assertNoShellArgument(optionsText);
 		if (text === null) return true;
 		if (text.charAt(0) !== "{" || text.charAt(text.length - 1) !== "}") return true;
-		var body = text.slice(1, -1);
-		var parts = splitTopLevel(body);
+		var parts = splitTopLevel(text.slice(1, -1));
 		for (var i = 0; i < parts.length; i++) {
-			if (/^\s*\.\.\./.test(parts[i])) return true;
+			var part = parts[i];
+			if (/^\s*\.\.\./.test(part)) return true;
+			var envKey = /^\s*env\s*:\s*([\s\S]*)$/.exec(part);
+			if (envKey) {
+				if (!envExpressionIsConstrained(envKey[1], bindings, policy)) return true;
+				continue;
+			}
+			// The shorthand `{ cwd, env, stdio }` — the local name must be a
+			// constrained `const` binding, never a parameter or a mutable variable.
+			if (/^\s*env\s*$/.test(part)) {
+				if (bindings.envs.env !== true) return true;
+				continue;
+			}
+			// An `env` nested inside a sub-object is not a key this proof resolves.
+			if (/\benv\b\s*:|(?:^|[{,])\s*env\s*(?:[,}]|$)/.test(part)) return true;
 		}
-		// `env: …` or the shorthand `{ cwd, env, stdio }`.
-		return /\benv\s*:|(?:^|[{,])\s*env\s*(?:[,}]|$)/.test(body);
+		return false;
 	}
 
 	/** The call pattern for a bare (non-namespaced) member name. */
@@ -718,7 +767,7 @@
 	// bytes that hash to `POLICY_MODULE_SHA256` count as provenance. Any edit to
 	// the policy — a reformat included — fails the check and keeps the finding
 	// until the digest here is re-reviewed. An unreadable module is not evidence.
-	var POLICY_MODULE_SHA256 = "9829e911951d3fcc8d10e8a9176be219d3ca10c0898abb59697e0d00cd916eb5";
+	var POLICY_MODULE_SHA256 = "ddaa8f04841ea411652f323a61453d05a1783160f8360da0cc1bcb90d73fc3e4";
 	function moduleDeclaresPolicy(readFile, path) {
 		if (path !== POLICY_MODULE_PATH) return false;
 		var text = readFile && typeof path === "string" ? readFile(path) : null;
@@ -876,8 +925,9 @@
 		if (parts.length < 3) return false;
 		var optionsText = stripAssertion(parts[2]);
 		if (!/(?:^|[^\w$.])assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(optionsText)) return false;
-		// An env binding is an execution channel the argv proof cannot see.
-		return !optionsCarryEnvironment(optionsText);
+		// An env binding is an execution channel the argv proof cannot see — unless
+		// it is the policy's own constrained env.
+		return !optionsCarryEnvironment(optionsText, bindings, policy);
 	}
 
 	// A computed member access names a child-process function the name-based scan
@@ -976,7 +1026,7 @@
 		var code = stripComments(content);
 		if (hasShellExecution(code)) return false;
 		var policy = safeArgvPolicyNames(code, issue.path, readFile);
-		return everyChildProcessCallIsSafe(code, argvCommandBindings(code, policy), policy);
+		return everyChildProcessCallIsSafe(code, policyBindings(code, policy), policy);
 	}
 
 	function isFalsePositiveHighSecurity(issue, readFile) {

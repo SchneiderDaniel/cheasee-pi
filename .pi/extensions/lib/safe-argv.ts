@@ -118,3 +118,57 @@ export function assertSafeEnv(
 	}
 	return env;
 }
+
+/**
+ * Variables that make the *environment* name code the argv never shows: node
+ * loads a module from `NODE_OPTIONS`, the loader a library from `LD_PRELOAD`,
+ * git runs `core.sshCommand` from `GIT_CONFIG_*`/`GIT_SSH_COMMAND`, a shell its
+ * startup script from `BASH_ENV`/`ENV`. A spawn that forwards its caller's
+ * environment is not argv-safe however clean the argv is, so these are dropped.
+ */
+const EXECUTION_ENV_KEYS = new Set([
+	"NODE_OPTIONS",
+	"NODE_PATH",
+	"NODE_REPL_EXTERNAL_MODULE",
+	"LD_PRELOAD",
+	"LD_AUDIT",
+	"LD_LIBRARY_PATH",
+	"DYLD_INSERT_LIBRARIES",
+	"DYLD_LIBRARY_PATH",
+	"BASH_ENV",
+	"ENV",
+	"PS4",
+	"PERL5OPT",
+	"PERL5LIB",
+	"RUBYOPT",
+	"RUBYLIB",
+	"PYTHONSTARTUP",
+	"PYTHONHOME",
+	"GCONV_PATH",
+	"GLIBC_TUNABLES",
+	"GIT_SSH",
+	"GIT_SSH_COMMAND",
+	"GIT_EXTERNAL_DIFF",
+	"GIT_ASKPASS",
+	"GIT_PROXY_COMMAND",
+	"GIT_PAGER",
+	"GIT_EDITOR",
+	"GIT_SEQUENCE_EDITOR",
+]);
+
+/**
+ * The env a child process may receive: the caller's variables minus every
+ * execution channel above (and `GIT_CONFIG_*`, whose names carry an index).
+ * NUL still throws — that is a malformed env, not a risky one. Windows-style
+ * case variants are not honoured on POSIX, so exact names are enough.
+ */
+export function sanitizeSpawnEnv(env: Record<string, string | undefined>): Record<string, string> {
+	assertSafeEnv(env);
+	const safe: Record<string, string> = {};
+	for (const [key, value] of Object.entries(env)) {
+		if (typeof value !== "string") continue;
+		if (EXECUTION_ENV_KEYS.has(key) || key.startsWith("GIT_CONFIG_")) continue;
+		safe[key] = value;
+	}
+	return safe;
+}

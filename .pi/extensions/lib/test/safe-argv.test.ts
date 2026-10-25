@@ -12,6 +12,7 @@ import {
 	argvCommand,
 	assertNoShell,
 	assertSafeEnv,
+	sanitizeSpawnEnv,
 	spawnArgv,
 	UnsafeArgvError,
 } from "../safe-argv.ts";
@@ -197,5 +198,50 @@ describe("assertSafeEnv", () => {
 	it("throws for a NUL in an env value or key", () => {
 		assert.throws(() => assertSafeEnv({ A: "x\0y" }), UnsafeArgvError);
 		assert.throws(() => assertSafeEnv({ "A\0": "x" }), UnsafeArgvError);
+	});
+});
+
+describe("sanitizeSpawnEnv", () => {
+	// Every key here lets the environment run code the argv never shows, so a
+	// spawn that forwards them is not argv-safe.
+	const EXECUTION_CHANNELS: Record<string, string> = {
+		NODE_OPTIONS: "--require /tmp/hook.cjs",
+		NODE_PATH: "/tmp/modules",
+		LD_PRELOAD: "/tmp/lib.so",
+		LD_AUDIT: "/tmp/audit.so",
+		DYLD_INSERT_LIBRARIES: "/tmp/lib.dylib",
+		BASH_ENV: "/tmp/hook.sh",
+		ENV: "/tmp/hook.sh",
+		PS4: "$(id)",
+		PERL5OPT: "-Mstrict",
+		RUBYOPT: "-r/tmp/hook.rb",
+		PYTHONSTARTUP: "/tmp/hook.py",
+		GIT_CONFIG_COUNT: "1",
+		GIT_CONFIG_KEY_0: "core.sshCommand",
+		GIT_CONFIG_VALUE_0: "sh -c id",
+		GIT_SSH_COMMAND: "sh -c id",
+		GIT_EXTERNAL_DIFF: "sh -c id",
+		GCONV_PATH: "/tmp",
+	};
+
+	it("drops every execution-capable variable and keeps the rest", () => {
+		const kept = { PATH: "/usr/bin", HOME: "/home/a", PI_NO_COLOR: "1" };
+		assert.deepStrictEqual(sanitizeSpawnEnv({ ...EXECUTION_CHANNELS, ...kept }), kept);
+	});
+
+	it("drops undefined values so spawn never receives a non-string entry", () => {
+		const env = sanitizeSpawnEnv({ A: undefined, B: "b" });
+		assert.deepStrictEqual(env, { B: "b" });
+	});
+
+	it("does not mutate its input", () => {
+		const input = { PATH: "/usr/bin", NODE_OPTIONS: "--require /tmp/hook.cjs" };
+		sanitizeSpawnEnv(input);
+		assert.deepStrictEqual(input, { PATH: "/usr/bin", NODE_OPTIONS: "--require /tmp/hook.cjs" });
+	});
+
+	it("throws for a NUL in an env key or value (fail closed)", () => {
+		assert.throws(() => sanitizeSpawnEnv({ A: "x\0y" }), UnsafeArgvError);
+		assert.throws(() => sanitizeSpawnEnv({ "A\0": "x" }), UnsafeArgvError);
 	});
 });

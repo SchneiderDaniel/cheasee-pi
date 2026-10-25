@@ -81,11 +81,16 @@ newest published releases of their crates, and neither RUSTSEC advisory has a
 patched version — both are unmaintained-only and carry no assigned severity.
 `osv-scanner scan source -L cmd/cheasee-pi/embedded/docker/ui/Cargo.lock`
 reports exactly these two, so the inventory above is the current, rerun result.
-Re-checked while resolving #2026: crates.io still reports `paste` 1.0.15
-(published 2024-05-07) and `proc-macro-error2` 2.0.1 (2024-09-06) as the newest
-releases of their crates, and the pipeline image carries no Rust toolchain, so
-neither a replacement nor a removal is reachable in-gate. The accepted
-maintenance risk stands.
+Re-checked against the crates.io API while resolving #2026 and again for
+#2023: `paste` 1.0.15 (published 2024-05-07) and `proc-macro-error2` 2.0.1
+(2024-09-06) are still the newest releases of their crates, and neither
+advisory names a patched version — so no lock bump exists to take. Removal is
+only reachable from upstream (a leptos/tachys/rstml release that drops them, or
+a vendored fork of that macro stack), and this image carries no Rust toolchain,
+so the lock cannot be regenerated here. Re-check trigger: the next leptos bump,
+confirmed with
+`osv-scanner scan source -L cmd/cheasee-pi/embedded/docker/ui/Cargo.lock`.
+The accepted maintenance risk stands.
 
 ## System dependencies
 
