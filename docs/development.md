@@ -72,8 +72,10 @@ a builder switch, or a full data root all reproduce the cold case.
 
 Without a daemon, `bash scripts/measure-cold-build.sh` measures the transfer
 half of the same build: it replays the Dockerfile's download steps against the
-pinned base image, counts every byte at a local proxy and times each step. The
-numbers in §Recorded numbers below come from it.
+pinned base image, counts every byte at a local proxy and times each step. It
+is a **lower bound**, not a substitute for the four commands above — it cannot
+commit layers, pull the base image or run `dpkg`, and §Recorded numbers below
+keeps the two measurements in separate rows for that reason.
 
 Two scenarios have to be recorded separately, because they answer different
 questions:
@@ -104,11 +106,23 @@ transferred**. Per layer, from `--progress=plain`: `#12` NodeSource 97.9 s,
 12 MB, `#29` scrapling venv 55.6 s / 113 MB, `#31` Chromium 100.5 s /
 ~646 MB, `#84` pi install 23.1 s.
 
-**After, measured** with `scripts/measure-cold-build.sh`, which replays the
-Dockerfile's download steps — the same apt, pip, npm and curl layers, in the
-same order, against the same pinned base image — unprivileged, with a local
-proxy counting every byte that leaves the host and every step timed. One run
-on the container the change was developed in (Debian 12, amd64, 2026-10-25):
+**After — replay measurement, a lower bound.** A replay is not a Docker build,
+so the two are kept apart on purpose:
+
+- the table below is a _replay_: `scripts/measure-cold-build.sh` runs the
+  Dockerfile's download steps — the same apt, pip, npm and curl layers, in the
+  same order, against the same pinned base image — unprivileged, with a local
+  proxy counting every byte that leaves the host and every step timed. Every
+  byte and every second in it was observed, and it was not derived from
+  advertised artifact sizes;
+- the end-to-end cache-pruned `docker build` is a different measurement, it is
+  recorded in its own subsection below the table, and it is **not measured** in
+  this change. That is the number the last acceptance criterion asks for; the
+  table is a lower bound on it, because a daemon additionally spends base-image
+  pull, layer commit/snapshot and `dpkg` unpack+configure time.
+
+One replay run on the container the change was developed in (Debian 12, amd64,
+2026-10-25):
 
 | Stage     | Step                                                                                                         | Observed transfer | Observed time |
 | --------- | ------------------------------------------------------------------------------------------------------------ | ----------------- | ------------- |
@@ -130,11 +144,12 @@ on the container the change was developed in (Debian 12, amd64, 2026-10-25):
 | agent     | cheasee-pi clone (depth 1) + npm ci                                                                          | 50,258,044 B      | 17.5 s        |
 | agent     | @earendil-works/pi-coding-agent 1.0.2                                                                        | 12,501,756 B      | 18.8 s        |
 | **stage** | **agent subtotal**                                                                                           | **419,646,584 B** | **176.1 s**   |
-| **both**  | **cold build transfer**                                                                                      | **914,692,293 B** | **373.0 s**   |
+| **both**  | **cold build transfer (replay)**                                                                             | **914,692,293 B** | **373.0 s**   |
 
-Every number is a byte that was actually transferred and a wall clock that was
-actually run, not a sum of advertised artifact sizes: one command re-measures
-the whole table, and the total is what a cache-pruned build has to fetch.
+Every number in the table is a byte that was actually transferred and a wall
+clock that was actually run, not a sum of advertised artifact sizes: one
+command re-measures the whole table, and the total is what a cache-pruned build
+has to fetch over the wire.
 Byte counts are exact; the times move with mirror and network conditions, so
 compare the shape of the table across runs, not the tenths. A second run on the
 same host moved the total from 914,692,293 B to 914,698,787 B (+0.0007%) and
@@ -144,12 +159,32 @@ there, 115.2 s here; the scrapling venv 55.6 s there, 50.5 s here; apt
 toolchain 55.9 s there, 25.6 s here on a faster mirror — and it lands on the
 same order as the 9 min baseline.
 
-Scope of the number: it covers the network transfer and the interpreter work
-around it, which is what a cold build spends its wall clock on. What it does
-not cover is Docker itself — layer commit/snapshot time, and `dpkg`
-unpack+configure, which needs root. A Docker host measures those with the four
-commands at the top of this section; the script is the half that needs no
-daemon, which is why the recorded number is reproducible on any machine.
+Scope of the replay: it covers the network transfer and the interpreter work
+around it. It does not cover Docker itself — base-image pull, layer
+commit/snapshot time, and `dpkg` unpack+configure — because none of those can
+run without a daemon and root. That is exactly why the replay is a lower bound
+and not the cold-build number.
+
+### End-to-end cache-pruned build: not measured
+
+The end-to-end number — elapsed wall clock and bytes an actual cache-pruned
+`docker build` has to fetch — is **not measured** in this change. No container
+runtime is available where the change is implemented: `docker`, `podman`,
+`buildah` and `nerdctl` are all absent, the session runs as uid 1000 with no
+root, and the figure cannot be produced without one. The procedure is the four
+commands at the top of this section; on a Docker host, record for the same host,
+before and after: the elapsed wall clock of `cheasee-pi build` right after
+`docker buildx prune -af`, the bytes it had to fetch (`docker buildx du`
+immediately after the pruned build reports the cache it repopulated, which is
+the download it could not reuse; for a byte-exact figure, point the daemon
+build's `HTTPS_PROXY` at the counting proxy from
+`scripts/measure-cold-build.sh`), and `docker images --format
+'{{.Repository}}:{{.Tag}} {{.Size}}'` plus `docker system df -v` for the
+data-root occupancy.
+
+Replacing the `not measured` marker with those numbers adds an `end-to-end` row
+next to the replay table; `TestBuildCostDoc_EndToEndColdBuildIsRecordedOrPending`
+accepts either state, so recording the run does not require editing the test.
 
 The Chromium bundle the issue quotes as ~646 MB is the archives _unpacked_; the
 transfer is 316,396,702 B, and it now sits entirely in the `scrapling` stage.
@@ -166,19 +201,20 @@ Two things the table says about the change:
   runs once per apt layer, so a cold build pays an index in each of the four;
   that cost is inside the step times above.
 
-Scenario status after the split, using the measured rows:
+Scenario status after the split. The cold scenarios quote the _replay_ total and
+stay marked as an estimate; only an end-to-end run replaces them:
 
-| Scenario                             | Before                                     | After                                                                                                                                                                                            |
-| ------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (maintainer host, measured) | 373.0 s and 914,692,293 B transferred, measured row by row (`scripts/measure-cold-build.sh`); ~0.91 GB is the same volume as the baseline, as it must be — a cold build still fetches everything |
-| Agent-layer invalidation (the point) | 9 min / 1.1 GB (maintainer host, measured) | 419,646,584 B: the agent rows only. The 495,045,709 B scrapling subtotal — Chromium included — is copied from the unchanged stage instead of re-fetched                                          |
-| Re-run of one busted package layer   | that layer's full fetch                    | archive reuse from the cache mounts, so the step re-runs without fetching — visible with `--progress=plain` on a busted pin                                                                      |
+| Scenario                             | Before                                 | After (replay estimate — end-to-end not measured)                                                                                                           |
+| ------------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (Docker host, observed) | 373.0 s and 914,692,293 B, replay sum of the rows above; ~0.91 GB is the same volume as the baseline, as it must be — a cold build still fetches everything |
+| Agent-layer invalidation (the point) | 9 min / 1.1 GB (Docker host, observed) | 419,646,584 B: the agent rows only. The 495,045,709 B scrapling subtotal — Chromium included — is copied from the unchanged stage instead of re-fetched     |
+| Re-run of one busted package layer   | that layer's full fetch                | archive reuse from the cache mounts, so the step re-runs without fetching — visible with `--progress=plain` on a busted pin                                 |
 
 The remaining gap is cache-mount **effectiveness** on a real builder: bust one
 package layer (edit a version pin), rebuild with `--progress=plain`, and
 confirm the apt/pip/npm step reports no downloads. That check needs a daemon
-and one busted layer, and the mounts are only visible there — this script
-measures the cold number, which is what the mounts cannot improve.
+and one busted layer, and the mounts are only visible there — a cold build
+fetches everything by definition, so the mounts cannot move that number.
 
 ## Documentation changes
 

@@ -8,8 +8,11 @@
 # the download half of cmd/cheasee-pi/embedded/docker/Dockerfile — the same apt,
 # pip, npm and curl steps, in the same order, against the same pinned base
 # image — and counts every byte that leaves the host through a local proxy.
-# Each step is timed. The result is what a cold build transfers and how long
-# the transfer plus interpreter work takes, measured, not derived.
+# Each step is timed. The result is a replay of the transfer half of a cold
+# build — observed bytes and observed seconds, but a LOWER BOUND on the
+# end-to-end cold build, not a substitute for it. Label it a replay whenever it
+# is quoted; the end-to-end number is recorded separately in
+# docs/development.md §End-to-end cache-pruned build.
 #
 # What it does NOT cover (a Docker host is required for these):
 #   * layer commit/snapshot time and the base-image pull path of `docker build`
@@ -395,8 +398,9 @@ measure agent "cheasee-pi clone (depth 1) + npm ci" step_agent_clone
 measure agent "@earendil-works/pi-coding-agent 1.0.2" step_agent_pi
 subtotal agent agent
 
-printf '| **both** | **cold build transfer** | **%s B** | **%s s** |\n' \
+printf '| **both** | **cold build transfer (replay)** | **%s B** | **%s s** |\n' \
   "$(group "$TOTAL_BYTES")" "$(secs "$TOTAL_NS")"
 echo >&2
-echo "Total: $(group "$TOTAL_BYTES") B in $(secs "$TOTAL_NS") s (measured on this host;" >&2
-echo "docker layer commit time and dpkg unpack are not part of this number)." >&2
+echo "Replay total: $(group "$TOTAL_BYTES") B in $(secs "$TOTAL_NS") s (measured on" >&2
+echo "this host). This is a replay, not an end-to-end docker build: base-image" >&2
+echo "pull, layer commit and dpkg unpack are not part of this number." >&2

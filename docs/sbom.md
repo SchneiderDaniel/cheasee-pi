@@ -32,7 +32,7 @@ nav_order: 10
 | `typebox`                         | ^1.2.8  | MIT        | Runtime type validation                         |
 | `js-yaml`                         | ^5.2.2  | MIT        | YAML parsing (dev, release tests)               |
 | `vscode-jsonrpc`                  | ^8.2.1  | MIT        | LSP communication                               |
-| `zod`                             | ^4.4.3  | MIT        | Schema-driven config validation                 |
+| `zod`                             | ^4.6.7  | MIT        | Schema-driven config validation                 |
 | `@octokit/rest`                   | ^22.0.1 | MIT        | GitHub REST API client (supervisor pipeline)    |
 | `@octokit/graphql`                | ^8.2.1  | MIT        | GitHub GraphQL API client (supervisor pipeline) |
 

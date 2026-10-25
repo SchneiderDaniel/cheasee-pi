@@ -52,10 +52,12 @@ COPY scrapling-constraints.txt /opt/venvs/scrapling-constraints.txt
 # post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
 # and idna<3.15 is DoS-vulnerable on crafted long inputs. anyio pinned to the
 # release fixing GHSA-82r6-8w77-94w6 (CVE-2026-63374) and GHSA-5p39-cfhj-2xmp
-# (CVE-2026-64847); both fixed in 4.14.2.
+# (CVE-2026-64847); both fixed in 4.14.2. certifi pinned to the release that
+# drops the emSign roots with compromised intermediate keys (GHSA-6q48-6c7w-9gw2).
+# Keep in sync with .pi/extensions/web-search/requirements.txt.
 RUN --mount=type=cache,target=/root/.cache/pip \
     python3 -m venv /opt/venvs/web-search-venv --clear && \
-    /opt/venvs/web-search-venv/bin/pip install ddgs 'idna>=3.15' 'anyio>=4.14.2'
+    /opt/venvs/web-search-venv/bin/pip install ddgs 'idna>=3.15' 'anyio>=4.14.2' 'certifi>=2026.10.19'
 
 # No --no-cache-dir: the pip mount above is the cache a re-run reads, and
 # --no-cache-dir would leave it empty. The mount never enters the layer, so the
