@@ -79,33 +79,40 @@ second; the counts below are reproducible from those two commands alone.
 | Ref           | commit / stamp                             | files | functions | connections | coupled | coupling term |
 | ------------- | ------------------------------------------ | ----- | --------- | ----------- | ------- | ------------- |
 | `origin/main` | `31634233732a4721ab8db85f6c1a737582f1c5e1` | 1124  | 3898      | 4368        | 163     | 1.772         |
-| this branch   | `91cbfd55c4f8038c8266c84128eeb9eaaf5d3a42` | 1126  | 3898      | 4340        | **155** | 1.709         |
+| this branch   | `071d3b309a5f1b39a70ef0efa9fbba8688fea8f0` | 1126  | 3898      | 4360        | **157** | 1.744         |
 
 The issue was filed with **199** at `analyzedAt` 1791804971015; the immutable
 base commit measures **163** because main advanced past filing and
 #2002/#2003/#2005 already removed phantoms. Acceptance is the drop on the
 delivered tree, as in #2002 and #2033.
 
-**163 → 155 (−8 files, −4.9 %) and 4368 → 4340 connections (−28).** The eight
+**163 → 157 (−6 files, −3.7 %) and 4368 → 4360 connections (−8).** The six
 files the drop accounts for are listed in `after.unflagged` of
-`test/fixtures/coupling-baseline-2032.json`; nothing became newly flagged. Two
-of them are Rust test modules (`controls.rs`, `stream/tests_rows.rs`) that fell
-because the TS declaration they kept mentioning is gone — no Rust was edited.
+`test/fixtures/coupling-baseline-2032.json`; nothing became newly flagged.
+Exactly one shape of edit produces the drop: a comment or log line stops
+spelling a name that the analyzer resolves repo-wide, so the edge it invented
+disappears while the declaration stays put.
 
 ## What moved the number
 
 Each `reducedBy` entry in the fixture names the file, the tokens it stopped
-spelling, and why. Two shapes:
+spelling, and why: `repoRoot`/`gitCommand` (`build_test.go`),
+`guard`/`list` (`ensureVenv-errors.test.ts`), `stage`
+(`status-resolution.ts`), `parse`/`none` (`report.ts`), `runInit`
+(`init_auth.go`), `open` (`merge-gate.ts`). The declarations all stay; only the
+comment or log wording changes, so no behaviour changes and no caller changes.
 
-- **A prose mention of a single-definition name** — `repoRoot`/`gitCommand`
-  (`build_test.go`), `guard`/`list` (`ensureVenv-errors.test.ts`), `stage`
-  (`status-resolution.ts`), `parse`/`none` (`report.ts`), `runInit`
-  (`init_auth.go`), `open` (`merge-gate.ts`). The declarations stay; only the
-  comment or log wording changes, so no behaviour changes.
-- **A declaration whose name is a plain English word** —
-  `ErrorCollector.all` → `allRecords`. The two getters were the only `all`
-  declaration in the tree, so every file that used the word casually carried an
-  edge.
+A second shape was tried and rejected. `ErrorCollector`'s `all` accessor is a
+plain English word, and the two getters were its only declaration in the tree,
+so every file that used the word casually carried an edge to the class.
+Renaming it to `allRecords` unflagged eight files instead of six — but it
+renames an exported member, and a consumer reading `collector.all` would then
+receive `undefined`. The rename is reverted, the class keeps its surface, and
+the two extra files it would have unflagged (`controls.rs`,
+`stream/tests_rows.rs`) stay in the flagged set, under `deferred`. #2002's
+record documents the identical revert for `flush`/`size`/`all`, so this is the
+project's second measurement of the same lesson: the metric is never worth an
+exported-surface break.
 
 `test/coupling-2032.test.mts` replays the record: it recomputes the digest over
 the reduced files, asserts no `reducedBy` token survives in its file (the
@@ -146,10 +153,14 @@ both are analyzer-side changes, recorded under `deferred`.
   02–15.
 - **The Rust UI methods** — `dir`, `list`, `open`, `keep`, `failed`, `timeout`,
   `root`, `state`, `status`, `event`, `parse`, `spawn`, `body`, `next_record`.
-  They are 177 of the 322 non-code edges the same predicate still finds across
-  the delivered snapshot, and the
-  pipeline image has no `cargo`, so a rename there cannot be compiled or tested
-  in-gate. Deferred to a lane with the Rust toolchain.
+  They are 177 of the 322 non-code edges the removed predicate found across the
+  delivered snapshot (split counts measured while the `all` rename was still in
+  the tree, so they are a few edges off now); the pipeline image has no `cargo`,
+  so a rename there cannot be compiled or tested in-gate. Deferred to a lane
+  with the Rust toolchain.
+- **`ErrorCollector.all`.** The rename to `allRecords` was reverted: the accessor
+  is exported surface, and preserving it costs two flagged files (see above).
+  The word stays a plain-English collision for now.
 - **Port contracts** — `config.go Path()`, `helpers_run_test.go Run()` /
   `CombinedOutput()`, `rpc/framing.rs fn clone`, `proper-lockfile-ambient.ts`
   `lock` / `check`. The names are the interface, not a naming accident.

@@ -25,20 +25,18 @@
 		"ref": "worktree-git-issue-2032-refactor-reduce-coupling-in-the-199-highly-coupled",
 		"commit": null,
 		"commitNote": "The pipeline commits after this record is written, so the delivered tree is stamped by `reducedFilesDigest` instead: sha1 over the sorted `reducedBy` paths, each followed by the sha1 of its content. Recomputing it from the branch reproduces the measurement.",
-		"reducedFilesDigest": "91cbfd55c4f8038c8266c84128eeb9eaaf5d3a42",
+		"reducedFilesDigest": "071d3b309a5f1b39a70ef0efa9fbba8688fea8f0",
 		"files": 1126,
 		"functions": 3898,
-		"connections": 4340,
-		"coupled": 155,
-		"couplingTerm": 1.709,
+		"connections": 4360,
+		"coupled": 157,
+		"couplingTerm": 1.744,
 		"unflagged": [
 			".pi/skills/audit-codeflow-analysis/lib/report.ts",
 			".pi/extensions/lib/ensureVenv-errors.test.ts",
 			".pi/extensions/supervisor/pipeline/merge-gate.ts",
 			".pi/extensions/supervisor/pipeline/stages/status-resolution.ts",
 			"cmd/cheasee-pi/build_test.go",
-			"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
-			"cmd/cheasee-pi/embedded/docker/ui/src/stream/tests_rows.rs",
 			"cmd/cheasee-pi/init_auth.go"
 		],
 		"newlyFlagged": []
@@ -73,16 +71,15 @@
 			"path": ".pi/extensions/supervisor/pipeline/merge-gate.ts",
 			"tokens": ["open"],
 			"edit": "two log messages and one comment say `without blocking` / `Non-blocking` instead of `fail-open`; `open` is a single declaration in `ws.rs`"
-		},
-		{
-			"path": ".pi/extensions/supervisor/pipeline/error-collector.ts",
-			"tokens": ["all"],
-			"edit": "the record accessor is `allRecords` (not `all`) and its three doc lines say `every`/`the records`; the only `all` declaration in the tree — two getters — is gone, which also unflags the two Rust readers that mentioned the word"
 		}
 	],
 	"deferred": [
 		{
-			"reason": "177 of the 322 remaining edges into a target that never executes the name come from declarations in Rust sources (`sessions_store.rs` `dir`/`list`/`guard`, `ws.rs` `open`/`keep`, `controls/tests.rs` `failed`, `extension_ui.rs` `timeout`, `main.rs` `root`)",
+			"reason": "`ErrorCollector`'s `all` accessor keeps its name: renaming it to `allRecords` was tried and reverted because `collector.all` is the exported surface, and the two getters were the only `all` declaration in the tree — the rename would have unflagged two Rust readers of the word for free. The name is preserved and the coupling it attracts is accepted, exactly as #2002 reverted the same rename for `flush`/`size`/`all`",
+			"requires": "a deprecation window: ship `allRecords` beside a deprecated `all` alias, then drop the alias in a major — the tree has no notion of an exported-surface break it can enforce today"
+		},
+		{
+			"reason": "the bulk of the remaining edges into a target that never executes the name come from declarations in Rust sources (`sessions_store.rs` `dir`/`list`/`guard`, `ws.rs` `open`/`keep`, `controls/tests.rs` `failed`, `extension_ui.rs` `timeout`, `main.rs` `root`)",
 			"requires": "a lane with cargo (cargo build + cargo test) — none is installed in this image, so a rename there would be an unverified guess"
 		},
 		{

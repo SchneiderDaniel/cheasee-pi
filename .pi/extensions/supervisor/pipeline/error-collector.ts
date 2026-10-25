@@ -75,7 +75,7 @@ export class ErrorCollector {
 	}
 
 	/**
-	 * Flush (return and remove) every record for a given source.
+	 * Flush (return and remove) all records for a given source.
 	 * Returns empty array if no records match.
 	 */
 	flush(source: string): ErrorRecord[] {
@@ -172,16 +172,16 @@ export class ErrorCollector {
 	}
 
 	/**
-	 * Return a copy of the collected records.
+	 * Return a copy of all records.
 	 */
-	get allRecords(): ErrorRecord[] {
+	get all(): ErrorRecord[] {
 		return [...this.records];
 	}
 }
 
 // ─── Singleton ─────────────────────────────────────────────────────
 
-/** Default no-op singleton — collects nothing, every method is a no-op */
+/** Default no-op singleton — collects nothing, all methods are no-ops */
 class NoopErrorCollector extends ErrorCollector {
 	override push(_source: string, _severity: "warn" | "error", _message: string): void {
 		// no-op
@@ -203,7 +203,7 @@ class NoopErrorCollector extends ErrorCollector {
 		return 0;
 	}
 
-	override get allRecords(): ErrorRecord[] {
+	override get all(): ErrorRecord[] {
 		return [];
 	}
 }
