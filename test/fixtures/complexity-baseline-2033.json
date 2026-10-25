@@ -30,7 +30,7 @@
 	"after": {
 		"criticalCount": 192,
 		"expectedDrop": 12,
-		"files": 1647,
+		"files": 1652,
 		"codeFiles": 882
 	},
 	"partition": {

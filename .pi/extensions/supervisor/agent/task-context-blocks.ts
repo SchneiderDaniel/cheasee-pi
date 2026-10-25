@@ -4,16 +4,6 @@
 // when it does not apply, so the task template reads as concatenation.
 // Split out of task.ts (issue #2033).
 
-export interface ConditionalBlocks {
-	remote: string;
-	defaultBranch: string;
-	researchFindings?: string | null;
-	gateFailureContext?: string;
-	auditFeedback?: string | null;
-	rebaseConflictContext?: string | null;
-	wipResumeContext?: { sha: string; subject: string } | null;
-}
-
 /** The research-findings block (injected for the architect from issue comments). */
 export function researchBlock(researchFindings?: string | null): string {
 	return researchFindings ? `\n### Research Findings\n\n${researchFindings}\n` : "";

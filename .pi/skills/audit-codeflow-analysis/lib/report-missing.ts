@@ -7,7 +7,7 @@ import { ensureReport } from "./codeflow-run.ts";
 import type { FetchFn, ReportOutcome } from "./report-types.ts";
 
 /** The markdown-route 404: no browser analysis has been bridged yet. */
-export function noReportOutcome(base: string): ReportOutcome {
+function noReportOutcome(base: string): ReportOutcome {
 	return {
 		ok: false,
 		status: 404,

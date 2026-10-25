@@ -30,7 +30,7 @@ export function workflowScopeHint(tokenClass: TokenClass): string {
  * GET /user (one API call, no pack transfer). null = unknown (header absent,
  * e.g. fine-grained App token, or introspection failed) → callers fail-soft.
  */
-export async function tokenHasWorkflowScope(exec: ExecFn): Promise<boolean | null> {
+async function tokenHasWorkflowScope(exec: ExecFn): Promise<boolean | null> {
 	try {
 		const result = await ghRaw(exec, ["api", "-i", "/user"]);
 		if (result.code !== 0) return null;

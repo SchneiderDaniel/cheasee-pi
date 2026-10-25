@@ -5,19 +5,8 @@
 // osv-types.ts. This module is the barrel — names are re-exported explicitly
 // so osv-scanner.ts and its tests are untouched.
 
-export type {
-	OsvFinding,
-	OsvScanResult,
-	OsvPackage,
-	OsvVulnerability,
-	OsvAffectedEntry,
-	OsvPackageResult,
-	OsvSource,
-	OsvResult,
-	OsvOutput,
-} from "./osv-types.ts";
-export { roundupToTenth, cvss3BaseScore } from "./cvss.ts";
-export { mapSeverityString, severityFromBaseScore } from "./cvss-severity.ts";
+export type { OsvFinding, OsvScanResult } from "./osv-types.ts";
+export { cvss3BaseScore } from "./cvss.ts";
+export { severityFromBaseScore } from "./cvss-severity.ts";
 export { parseOsvJson } from "./osv-parse.ts";
-export { determineSeverity } from "./osv-vuln-severity.ts";
 export { bucketBySeverity } from "./osv-counts.ts";

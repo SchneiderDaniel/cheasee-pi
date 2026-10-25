@@ -68,7 +68,7 @@ node --experimental-strip-types --test test/complexity-refactor-2033.test.mts
 | ------------------------------------ | ---------------- | ----- | ------ | -------- |
 | filed baseline (architecture record) | `e075a867`       | 1293  | 732    | 198      |
 | merge base (`origin/main`)           | `434bcfde`       | 1561  | 806    | 204      |
-| delivered                            | measured in-gate | 1641  | 881    | **192**  |
+| delivered                            | measured in-gate | 1652  | 882    | **192**  |
 
 The tree advanced between `e075a867` and `434bcfde` (main merged more work, adding
 and removing flags of its own), which is why the record holds two baselines:

@@ -9,7 +9,6 @@
 // handlers-budget.ts, phase ordering in phase.ts. Names are re-exported
 // explicitly so this file stays auditable and existing importers are untouched.
 
-export type { NormalizedEvent, NormalizedUsage, HandlerResult } from "./normalize.ts";
 export { handleToolExecutionStart, handleToolExecutionEnd } from "./handlers-tool.ts";
 export {
 	handleThinkingStart,

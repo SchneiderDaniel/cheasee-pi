@@ -7,4 +7,4 @@
 
 export { ensurePrReadyForDone } from "./merge-gate.ts";
 export { handlePostPipelineMerge } from "./merge-post.ts";
-export { awaitPrMergeability, classifyMergeability, type PrGateVerdict } from "./pr-gate.ts";
+export { awaitPrMergeability, classifyMergeability } from "./pr-gate.ts";

@@ -13,7 +13,7 @@ import type { NormalizedEvent, HandlerResult } from "./normalize.ts";
 
 const MAX_ARGS_STRING_LEN = 100;
 
-export function truncateArgsForDisplay(args: unknown): Record<string, unknown> {
+function truncateArgsForDisplay(args: unknown): Record<string, unknown> {
 	if (!args || typeof args !== "object" || Array.isArray(args)) {
 		return {};
 	}

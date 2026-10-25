@@ -65,7 +65,7 @@ export interface OsvVulnerability {
 }
 
 /** One entry of the OSV `affected[]` array (osv.dev schema). */
-export interface OsvAffectedEntry {
+interface OsvAffectedEntry {
 	package?: {
 		name?: string;
 		ecosystem?: string;
@@ -82,23 +82,23 @@ export interface OsvAffectedEntry {
 	};
 }
 
-export interface OsvGroup {
+interface OsvGroup {
 	ids: string[];
 	aliases?: string[];
 }
 
-export interface OsvPackageResult {
+interface OsvPackageResult {
 	package: OsvPackage;
 	vulnerabilities?: OsvVulnerability[];
 	groups?: OsvGroup[];
 }
 
-export interface OsvSource {
+interface OsvSource {
 	path: string;
 	type: string;
 }
 
-export interface OsvResult {
+interface OsvResult {
 	source: OsvSource;
 	packages: OsvPackageResult[];
 }

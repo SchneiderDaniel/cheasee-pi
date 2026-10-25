@@ -6,7 +6,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { isTuiMode } from "./lib/mode.ts";
 
 /** Clear the explain-* widgets (no-op outside TUI mode). */
-export function clearExplainWidgets(ctx: ExtensionContext): void {
+function clearExplainWidgets(ctx: ExtensionContext): void {
 	if (!isTuiMode(ctx)) return;
 	ctx.ui.setWidget("explain-extensions", undefined);
 	ctx.ui.setWidget("explain-prompts", undefined);

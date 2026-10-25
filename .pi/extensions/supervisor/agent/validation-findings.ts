@@ -5,7 +5,7 @@
 
 import { VALID_SEVERITIES } from "./validation-shared.ts";
 
-export function validateFinding(item: unknown, index: number, errors: string[]): void {
+function validateFinding(item: unknown, index: number, errors: string[]): void {
 	if (typeof item !== "object" || item === null) {
 		errors.push(`findings[${index}] must be an object`);
 		return; // maps the loop `continue` — skip this entry's remaining field checks

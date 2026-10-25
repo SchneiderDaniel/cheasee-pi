@@ -38,7 +38,7 @@ import type { FetchFn, ReportOutcome, ReportResult, WriteFileFn } from "./report
 
 export { REPORT_JSON_REL_PATH, REPORT_REL_PATH };
 export { classifyReportBody };
-export type { ReportOutcome, ReportResult };
+export type { ReportOutcome };
 
 const defaultFetch: FetchFn = (url, init) => fetch(url, init);
 
