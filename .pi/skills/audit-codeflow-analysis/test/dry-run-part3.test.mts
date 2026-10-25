@@ -141,6 +141,19 @@ describe("dry-run — derived facts are listed, never filed (issue #2030, Phase 
 		assert.match(r.stdout, /dispositions: .*link-derived 1/);
 	});
 
+	it("drafts no derived fact in the default preview and counts only what it would file", () => {
+		const r = runDryRun(["--report", fixture, "--json", suggestionsJson()]);
+		assert.strictEqual(r.status, 0, r.stderr);
+		// The preview is what the operator takes to be the filing set: a derived
+		// card must not appear there at all, only its skipped count.
+		assert.doesNotMatch(r.stdout, /Fix Security Issues/);
+		assert.doesNotMatch(r.stdout, /\[1\/4\]/);
+		assert.match(r.stdout, /Would file 3 issue\(s\); printing the first 3\./);
+		assert.match(r.stdout, /1 derived fact\(s\) listed, not filed\./);
+		assert.match(r.stdout, /Summary: 4 candidate\(s\) — would file 3 issue\(s\)/);
+		assert.doesNotMatch(r.stdout, /\(none\)/, "a file-less derived fact must not be drafted");
+	});
+
 	it("says nothing about derived facts when the report has none", () => {
 		const outDir = join(dir, "no-derived");
 		const r = runDryRun([

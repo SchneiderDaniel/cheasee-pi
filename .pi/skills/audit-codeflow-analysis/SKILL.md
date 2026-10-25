@@ -332,7 +332,9 @@ never reconcile the difference by editing the vendored UI bundle.
 `scripts/dry-run.mts` exercises the extract → resolve → draft path without
 touching GitHub: it takes the first N findings, maps each cited file onto the
 repo (the markdown exporter emits bare basenames in its pattern sections), and
-prints the issue it would file. It spawns no subagent.
+prints the issue it would file. It spawns no subagent. Facts classified
+`link-derived` are named with their own skipped count and left out of the preview
+and of the `Would file N` total, so nothing file-less is presented as a filing.
 
 ```bash
 node --experimental-strip-types .pi/skills/audit-codeflow-analysis/scripts/dry-run.mts --limit 5

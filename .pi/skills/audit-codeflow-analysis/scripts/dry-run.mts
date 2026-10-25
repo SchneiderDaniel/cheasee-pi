@@ -108,13 +108,14 @@ async function main(): Promise<void> {
 	// facts are routed to refactor/optional issues, the rest are bug-class.
 	const candidates = unique;
 	const issueTypeOf = (fact: IssueFact): IssueType => classifyFinding(fact).issueType;
+	const isDerived = (fact: IssueFact): boolean =>
+		classifyFinding(fact).disposition === "link-derived";
 	const routed = candidates.filter((f) => issueTypeOf(f) !== "bug");
 	// Derived facts restate findings that are already candidates, so they are listed
 	// (the operator sees the whole signal) but never drafted: filing one produced a
 	// file-less issue whose count contradicted the export.
-	const derivedCount = candidates.filter(
-		(f) => classifyFinding(f).disposition === "link-derived",
-	).length;
+	const derivedCount = candidates.filter(isDerived).length;
+	const fileable = candidates.filter((f) => !isDerived(f));
 	const filed = (groups: DraftGroup[]): DraftGroup[] =>
 		groups.filter((g) => g.dispositions.some((d) => d !== "link-derived"));
 
@@ -182,18 +183,22 @@ async function main(): Promise<void> {
 		process.exit(0);
 	}
 
-	const selected = candidates.slice(0, args.limit);
+	// The default preview is the filing set, so derived facts are left out of it and
+	// of every count; their skipped total is narrated instead (never filed silently).
+	const routedFileable = routed.filter((f) => !isDerived(f));
+	const selected = fileable.slice(0, args.limit);
 
 	const sourceLabel = json ? "json" : "markdown";
 	process.stdout.write(
 		`CodeFlow dry run — ${reportPath.replace(`${repoRoot}/`, "")} (${sourceLabel}, ` +
 			`${facts.length} finding(s), ${unique.length} unique, ${facts.length - unique.length} duplicate(s) dropped)\n` +
-			`${routed.length} finding(s) routed by triage:\n` +
-			routed.map((f) => `  [${issueTypeOf(f)}] ${f.title}\n`).join("") +
+			`${routedFileable.length} finding(s) routed by triage:\n` +
+			routedFileable.map((f) => `  [${issueTypeOf(f)}] ${f.title}\n`).join("") +
 			`dispositions: ${dispositionSummary(candidates)}\n` +
 			`\n${coverageReport(markdown, coverage)}\n` +
 			(!json ? jsonNote() : "") +
-			`Would file ${candidates.length} issue(s); printing the first ${selected.length}. No issues are created.\n\n`,
+			(derivedCount > 0 ? `${derivedCount} derived fact(s) listed, not filed.\n` : "") +
+			`Would file ${fileable.length} issue(s); printing the first ${selected.length}. No issues are created.\n\n`,
 	);
 
 	selected.forEach((fact, i) => {
@@ -214,8 +219,9 @@ async function main(): Promise<void> {
 	const byBasename = cited.filter((r) => r.how === "basename").length;
 	const unresolved = cited.filter((r) => r.how === "unresolved");
 	process.stdout.write(
-		`Summary: ${candidates.length} candidate(s) — would file ${candidates.length} issue(s), ` +
-			`${routed.length} routed by triage.\n` +
+		`Summary: ${candidates.length} candidate(s) — would file ${fileable.length} issue(s), ` +
+			`${routedFileable.length} routed by triage` +
+			(derivedCount > 0 ? `, ${derivedCount} derived fact(s) listed, not filed.\n` : ".\n") +
 			`Codebase link: ${cited.length - unresolved.length}/${cited.length} cited file(s) found` +
 			`${byBasename > 0 ? ` (${byBasename} by basename)` : ""}` +
 			`${unresolved.length > 0 ? `; unresolved: ${unresolved.map((r) => r.path).join(", ")}` : ""}.\n` +
