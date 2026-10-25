@@ -153,36 +153,119 @@ func artifactKey(artifact string) string {
 	return ""
 }
 
-func TestBuildCostDoc_EndToEndColdBuildIsRecorded(t *testing.T) {
-	// The audit of #2053 rejected this section once because the after-number was
-	// a replay: the Dockerfile's download steps re-run through a counting proxy,
-	// which never pulls the base image, commits a layer or runs dpkg. That is a
-	// lower bound, not the cold build. The recorded run lives in its own
-	// subsection, so an `end-to-end` row is required and a `not measured` marker
-	// no longer counts as recording it.
+// endToEndSection returns the `### End-to-end cache-pruned build` subsection,
+// which owns the Docker-run measurement. Scoping matters: the replay totals live
+// in the same `##` section, so a whole-section check cannot tell a run's bytes
+// from a proxy run's.
+func endToEndSection(t *testing.T) string {
+	t.Helper()
 	section := buildCostDocSection(t)
+	const heading = "### End-to-end cache-pruned build"
+	i := strings.Index(section, heading)
+	if i < 0 {
+		t.Fatal("docs/development.md must keep the `" + heading + "` subsection — it is where the Docker run is recorded")
+	}
+	rest := section[i+len(heading):]
+	if j := strings.Index(rest, "\n### "); j >= 0 {
+		rest = rest[:j]
+	}
+	return heading + rest
+}
 
-	if strings.Contains(section, "not measured") {
-		t.Error("§Measuring image build cost must record the end-to-end cold build, not mark it `not measured` — the measurement runs in the `docker` job of .github/workflows/tests.yml, which has a daemon")
+func TestBuildCostDoc_EndToEndTransferIsWireCaptured(t *testing.T) {
+	// The first audit of #2053 rejected this subsection because its `end-to-end`
+	// row carried the counting-proxy replay's bytes: a proxy run on another host
+	// never pulls the base image, commits a layer or runs dpkg, so quoting it as
+	// the Docker run's transfer left the download-volume criterion unmeasured.
+	// The run's own transfer now comes from the NIC counter the `docker` job wraps
+	// the build in (`scripts/net-bytes.sh`), and the replay may not stand in for it.
+	run := endToEndSection(t)
+
+	for _, replayOnly := range []string{"914,692,293"} {
+		if strings.Contains(run, replayOnly) {
+			t.Errorf("the end-to-end subsection must not quote %q: the replay's bytes are not this build's transfer", replayOnly)
+		}
+	}
+	flat := flatSection(run)
+	for _, want := range []string{
+		"scripts/net-bytes.sh", // the instrument that produced the transfer
+		"build-cost wire",      // and the label it prints
+		"not back-filled",      // a replay figure may not be pasted into the row
+		"not captured",         // and an unobserved transfer says so instead of borrowing one
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("§End-to-end cache-pruned build must contain %q", want)
+		}
 	}
 
-	row := regexp.MustCompile(`(?m)^\|\s*\*{0,2}end-to-end\*{0,2}\s*\|[^|]*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|\s*\*{0,2}([0-9]+(?:\.[0-9])?) s\*{0,2}\s*\|`)
-	m := row.FindStringSubmatch(section)
+	row := regexp.MustCompile(`(?m)^\|\s*\*{0,2}end-to-end\*{0,2}\s*\|([^|]*)\|([^|]*)\|\s*\*{0,2}([0-9]+(?:\.[0-9])?) s\*{0,2}\s*\|`)
+	m := row.FindStringSubmatch(run)
 	if m == nil {
-		t.Fatal("§Measuring image build cost must record the end-to-end cache-pruned build as an `end-to-end` row of `<bytes> B | <seconds> s`")
+		t.Fatal("§End-to-end cache-pruned build must record the run as an `end-to-end` row of `<environment> | <transfer> | <seconds> s`")
 	}
-	bytes, err := strconv.ParseInt(strings.ReplaceAll(m[1], ",", ""), 10, 64)
+	env, transfer, seconds := m[1], strings.TrimSpace(m[2]), m[3]
+	if !strings.Contains(env, "net-bytes.sh") {
+		t.Errorf("the end-to-end row must name the instrument behind its transfer, got environment %q", env)
+	}
+	// The row is the claim; prose elsewhere in the subsection may explain why the
+	// replay is not used, but a cell may not source its number from it.
+	for _, cell := range []string{env, transfer} {
+		for _, replayOnly := range []string{"counting proxy", "counting-proxy", "replay"} {
+			if strings.Contains(strings.ToLower(cell), replayOnly) {
+				t.Errorf("the end-to-end row must not source a cell from the replay (cell %q names %q)", strings.TrimSpace(cell), replayOnly)
+			}
+		}
+	}
+	if !strings.Contains(transfer, "not captured") && !regexp.MustCompile(`^[0-9,]+ B$`).MatchString(transfer) {
+		t.Errorf("the transfer cell must read `not captured` or a wire byte count, got %q", transfer)
+	}
+	secs, err := strconv.ParseFloat(seconds, 64)
 	if err != nil {
-		t.Fatalf("unparsable end-to-end byte count %q: %v", m[1], err)
+		t.Fatalf("unparsable end-to-end time %q: %v", seconds, err)
 	}
-	if bytes < 100_000_000 {
-		t.Errorf("the end-to-end total reads %d B — too small to be a full cold build", bytes)
+	if secs < 60 {
+		t.Errorf("the end-to-end elapsed time reads %v s — a cache-pruned build takes minutes, this looks derived", secs)
 	}
-	seconds, err := strconv.ParseFloat(m[2], 64)
+}
+
+func TestBuildCostDoc_WireCounterIsWiredIntoTheDockerJob(t *testing.T) {
+	// The counter only exists if the job that runs the cache-pruned build wraps
+	// it: the doc, the script and the workflow have to agree on one label, and the
+	// delta has to print even when the build fails (`if: always()`), otherwise the
+	// transfer of a broken run is lost exactly when it matters.
+	doc := flatSection(buildCostDocSection(t))
+	if !strings.Contains(doc, "scripts/net-bytes.sh") {
+		t.Error("§Measuring image build cost must name scripts/net-bytes.sh as the end-to-end transfer instrument")
+	}
+
+	script, err := os.ReadFile(filepath.Join("..", "..", "scripts", "net-bytes.sh"))
 	if err != nil {
-		t.Fatalf("unparsable end-to-end time %q: %v", m[2], err)
+		t.Fatalf("scripts/net-bytes.sh must exist — it is the wire-byte instrument: %v", err)
 	}
-	if seconds < 60 {
-		t.Errorf("the end-to-end total reads %v s — a cache-pruned build takes minutes, this looks derived", seconds)
+	const label = "build-cost wire"
+	if !strings.Contains(string(script), label) {
+		t.Errorf("scripts/net-bytes.sh must print the %q label the doc quotes", label)
+	}
+	if !strings.Contains(doc, label) {
+		t.Errorf("docs/development.md must quote the %q label so the recorded number is traceable to its instrument", label)
+	}
+
+	workflow, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "tests.yml"))
+	if err != nil {
+		t.Fatalf("reading .github/workflows/tests.yml: %v", err)
+	}
+	before := strings.Index(string(workflow), "net-bytes.sh snapshot")
+	build := strings.Index(string(workflow), "Prime dogfooding test image")
+	delta := strings.Index(string(workflow), "net-bytes.sh delta")
+	if before < 0 || build < 0 || delta < 0 {
+		t.Fatalf("the `docker` job must snapshot the counters before the cache-pruned build and diff them after it (snapshot=%d build=%d delta=%d)", before, build, delta)
+	}
+	if !(before < build && build < delta) {
+		t.Error("the counter must bracket the cache-pruned build: snapshot before the build step, delta after it")
+	}
+	tail := string(workflow)[build:]
+	always := strings.Index(tail, "if: always()")
+	if always < 0 || always > strings.Index(tail, "net-bytes.sh delta") {
+		t.Error("the delta step must run with `if: always()` — a failed build still spends its downloads")
 	}
 }

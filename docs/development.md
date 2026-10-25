@@ -77,6 +77,20 @@ is a **lower bound**, not a substitute for the four commands above — it cannot
 commit layers, pull the base image or run `dpkg`, and §Recorded numbers below
 keeps the two measurements in separate rows for that reason.
 
+On a Docker host the build's own transfer comes off the NIC counters:
+`scripts/net-bytes.sh snapshot` before the cache-pruned build, `delta` after it,
+which prints
+
+```text
+build-cost wire rx=<n> B tx=<n> B
+```
+
+The `docker` job in `.github/workflows/tests.yml` runs both around its
+cache-pruned image build, so any cold run there records the end-to-end volume.
+Three instruments, three rules: the four commands above for time and data-root
+occupancy, `build-cost wire` for the end-to-end transfer, and the replay for the
+per-stage split. A figure never crosses from one row into another.
+
 Two scenarios have to be recorded separately, because they answer different
 questions:
 
@@ -116,9 +130,10 @@ build, so neither is quoted as the other:
   byte and every second in it was observed, and it was not derived from
   advertised artifact sizes;
 - the end-to-end cache-pruned `docker build` is a different measurement, run on
-  a Docker host and recorded in its own subsection below the table. The replay
-  is a lower bound on it, because a daemon additionally spends base-image pull,
-  layer commit/snapshot and `dpkg` unpack+configure time.
+  a Docker host and recorded in its own subsection below the table. Its transfer
+  is the NIC counter, never the replay's; the replay is only a lower bound on it,
+  because a daemon additionally spends layer commit/snapshot and `dpkg`
+  unpack+configure time.
 
 One replay run on the container the change was developed in (Debian 12, amd64,
 2026-10-25):
@@ -179,18 +194,39 @@ no step was a cache hit (`CACHED` appears 0 times in the `--progress=plain`
 log), and the only pull was the pinned base image (`#7 … 28.25MB`). It is the
 cache-pruned case the criterion asks for.
 
-| Measurement | Environment                                                                                  | Transfer      | Elapsed |
-| ----------- | -------------------------------------------------------------------------------------------- | ------------- | ------- |
-| end-to-end  | ubuntu-latest + buildx, 0 cache hits; bytes from the counting-proxy replay of the same steps | 914,692,293 B | 135 s   |
+| Measurement | Environment                                                                                                           | Transfer                                    | Elapsed |
+| ----------- | --------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- | ------- |
+| end-to-end  | ubuntu-latest + buildx, 0 cache hits; transfer from the run's own NIC counter, `scripts/net-bytes.sh` around the step | not captured — the run predates the counter | 135 s   |
+
+The transfer cell reads `not captured` on purpose. That run was measured before
+the `docker` job wrapped the build in the counter, and the replay's total is
+**not back-filled** into it: the counting proxy is a different host and a
+different execution, which is what the first audit of this issue rejected when
+it stood in for an end-to-end figure. The run's log cannot supply the number
+either — it reports the base image pull (`#7 … 28.25MB`) and each tool's own
+sizes, but `npm` and the Chromium download print no byte totals, so a sum over
+those lines would cover about half the volume.
+
+The counter is part of the job now: every cache-pruned run prints
+`build-cost wire rx=<n> B tx=<n> B` and then `docker buildx du` for the cache it
+populated; loopback is excluded so the replay's proxy bytes are never counted
+twice. The counter's arithmetic is unit-tested
+(`cmd/cheasee-pi/net_bytes_script_test.go`: loopback dropped, a shrinking
+counter is an error rather than a zero delta), and it prints on the
+implementation container too — a two-second idle window there produced
+`build-cost wire rx=47542 B tx=375458 B`. The job log of the next cold run is
+where the end-to-end transfer gets recorded — a figure produced by the host that
+ran the build, which is the only place it exists. Fill the transfer cell from
+that line and leave the replay rows below as the instrument that resolves the
+per-stage split. To produce it without waiting for a pull request:
+`gh workflow run tests.yml --ref <branch>`, then read the `docker` job log —
+this is how the run above was taken.
 
 135 s is what a user's `cheasee-pi build` pays there: 77 s of layer execution
 (10:45:48 → 10:47:05, both stages in parallel) plus 58 s of image export and
 `docker load` (`#36` 24.2 s exporting layers, `#37` 32.3 s importing). The step
 wall clock is 242 s; the last 106 s is `#38`, the `type=gha,mode=max` cache
-export, which only CI pays. The runner's log carries no wire byte totals, so
-the transfer column is the counting-proxy figure for the same steps — bytes and
-seconds come from two instruments, and neither was derived from advertised
-sizes.
+export, which only CI pays.
 
 What this run shows that the replay could only assert:
 
@@ -203,10 +239,10 @@ What this run shows that the replay could only assert:
 
 Those seconds are not comparable with the 9 min baseline: this runner's network
 is an order of magnitude faster (Chromium `#14` 14.8 s here, 100.5 s there),
-which is why the transfer column is quoted from the counting proxy and the
-per-layer table above is measured on the development host. A host-matched
-before/after delta, and cache-mount effectiveness, still need the four commands
-at the top of this section on the maintainer host.
+which is why the per-layer transfer table above is the replay's measurement on
+the development host while the end-to-end row takes its transfer from the run's
+own counter. A host-matched before/after delta, and cache-mount effectiveness,
+still need the four commands at the top of this section on the maintainer host.
 
 The Chromium bundle the issue quotes as ~646 MB is the archives _unpacked_; the
 transfer is 316,396,702 B, and it now sits entirely in the `scrapling` stage.
@@ -225,13 +261,16 @@ Two things the table says about the change:
 
 Scenario status after the split. The cold rows pair the observed end-to-end run
 above with the _replay_ totals; they are labelled with the instrument that
-produced them, because only the replay resolves a per-stage split:
+produced them, because only the replay resolves a per-stage split. The `Before`
+volume is the maintainer host's rounded `--progress=plain` read, not a proxy
+run, so read that column as an order of magnitude and the `After` columns
+byte-for-byte:
 
-| Scenario                             | Before                                     | After                                                                                                                                                                                    |
-| ------------------------------------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (maintainer host, observed) | 135 s to a runnable image, 0 cache hits (GitHub runner); 914,692,293 B fetched, counting proxy. ~0.91 GB is the baseline's volume, as it must be — a cold build still fetches everything |
-| Agent-layer invalidation (the point) | 9 min / 1.1 GB (maintainer host, observed) | 419,646,584 B: the agent rows only. The 495,045,709 B scrapling subtotal — Chromium included — is copied from the unchanged stage instead of re-fetched                                  |
-| Re-run of one busted package layer   | that layer's full fetch                    | archive reuse from the cache mounts, so the step re-runs without fetching — visible with `--progress=plain` on a busted pin                                                              |
+| Scenario                             | Before                                     | After                                                                                                                                                                                                  |
+| ------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (maintainer host, observed) | 135 s to a runnable image, 0 cache hits (GitHub runner); transfer from that job's `build-cost wire` counter, replay floor ~0.91 GB. The volume does not shrink — a cold build still fetches everything |
+| Agent-layer invalidation (the point) | 9 min / 1.1 GB (maintainer host, observed) | 419,646,584 B: the agent rows only. The 495,045,709 B scrapling subtotal — Chromium included — is copied from the unchanged stage instead of re-fetched                                                |
+| Re-run of one busted package layer   | that layer's full fetch                    | archive reuse from the cache mounts, so the step re-runs without fetching — visible with `--progress=plain` on a busted pin                                                                            |
 
 The remaining gap is cache-mount **effectiveness** on a real builder: bust one
 package layer (edit a version pin), rebuild with `--progress=plain`, and

@@ -15,6 +15,10 @@
 # docs/development.md §End-to-end cache-pruned build.
 #
 # What it does NOT cover (a Docker host is required for these):
+#   * the build's own wire volume — that is `scripts/net-bytes.sh`, which the
+#     `docker` job wraps around its cache-pruned build and which prints
+#     `build-cost wire rx=<n> B tx=<n> B`; a proxy run on another host is not
+#     that figure, so never quote this script's total in its place;
 #   * layer commit/snapshot time and the base-image pull path of `docker build`
 #     (`docker buildx prune -af` + `time cheasee-pi build`, see
 #     docs/development.md §Measuring image build cost);

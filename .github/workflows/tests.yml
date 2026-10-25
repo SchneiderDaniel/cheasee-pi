@@ -226,6 +226,12 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@v3
 
+      # The cache-pruned build's own transfer is only observable here: the replay
+      # in scripts/measure-cold-build.sh counts a proxy on another host, so the
+      # NIC counters are the end-to-end instrument (#2053).
+      - name: Snapshot network counters before the build
+        run: bash scripts/net-bytes.sh snapshot > "$RUNNER_TEMP/net-before.txt"
+
       # Prime the image the dogfooding script expects so its `docker image
       # inspect` warm path is taken instead of its own 15-30 min cold build.
       - name: Prime dogfooding test image
@@ -236,6 +242,17 @@ jobs:
           load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # `if: always()`: a build that fails late still spent its downloads, and a
+      # lost delta is exactly the case where the number matters. The image sizes
+      # are the other half of #2053's data-root question.
+      - name: Record the build's wire bytes
+        if: always()
+        run: |
+          bash scripts/net-bytes.sh snapshot > "$RUNNER_TEMP/net-after.txt"
+          bash scripts/net-bytes.sh delta "$RUNNER_TEMP/net-before.txt" "$RUNNER_TEMP/net-after.txt"
+          docker buildx du || true
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' || true
 
       - name: Run dogfooding dedup test
         run: bash test/dogfooding-dedup.test.sh
