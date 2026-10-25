@@ -52,10 +52,10 @@ already reconciled.
 
 Measured on the delivered `HEAD` at filing (analyzedAt `1791804971015`):
 
-| Stage                        | cards | titles                                                                                                                                                                                              |
-| ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Stage                        | cards | titles                                                                                                                                                                                             |
+| ---------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | before the filter            | 7     | `Break Circular Dependencies`, `Fix Security Issues` (9 high), `Remove Dead Code` (44), `Split Large Files`, `Extract Duplicated Code` (3), `Fix Architecture Violations` (375), `Reduce Coupling` |
-| after the filter, re-derived | 4     | `Break Circular Dependencies` (2), `Remove Dead Code` (24), `Split Large Files`, `Reduce Coupling`                                                                                                  |
+| after the filter, re-derived | 4     | `Break Circular Dependencies` (2), `Remove Dead Code` (24), `Split Large Files`, `Reduce Coupling`                                                                                                 |
 
 The filter suppressed 9 HIGH security findings (the 5 MEDIUM hits survive), all
 375 layer edges and all 3 duplicate groups, so `Fix Security Issues`,

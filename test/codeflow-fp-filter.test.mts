@@ -2467,7 +2467,10 @@ describe("fp-filter — duplicate group suppression (Phase 5)", () => {
 	it("keeps a code group that reaches shipped source", () => {
 		const mixed = dup({
 			name: "a, b",
-			files: [{ file: "pkg/ext/test/a.ts", line: 1 }, { file: "src/b.ts", line: 1 }],
+			files: [
+				{ file: "pkg/ext/test/a.ts", line: 1 },
+				{ file: "src/b.ts", line: 1 },
+			],
 		});
 		assert.strictEqual(keepsWith(mixed, readFile), true, "one shipped instance is a real clone");
 	});
@@ -2510,7 +2513,10 @@ describe("fp-filter — duplicate group suppression (Phase 5)", () => {
 
 	it("keeps a name group with no line or file evidence", () => {
 		assert.strictEqual(keepsWith(nested({ files: [] }), nestedRead), true);
-		assert.strictEqual(keepsWith(nested({ files: [{ file: "ui/src/controls.rs" }] }), nestedRead), true);
+		assert.strictEqual(
+			keepsWith(nested({ files: [{ file: "ui/src/controls.rs" }] }), nestedRead),
+			true,
+		);
 	});
 
 	it("retitles the N Duplicate Function Names item to the surviving name groups", () => {
@@ -2519,10 +2525,7 @@ describe("fp-filter — duplicate group suppression (Phase 5)", () => {
 				dup({ type: "name", name: "apply", files: [{ file: "ui/src/free.rs", line: 1 }] }),
 				dup({ name: "a, b", files: [{ file: "src/a.ts", line: 1 }] }),
 			],
-			issues: [
-				{ title: "3 Duplicate Function Names" },
-				{ title: "4 Similar Code Blocks" },
-			],
+			issues: [{ title: "3 Duplicate Function Names" }, { title: "4 Similar Code Blocks" }],
 		};
 		const { data } = sanitizeAnalysisData(input, readFile);
 		assert.deepStrictEqual(
@@ -2533,7 +2536,9 @@ describe("fp-filter — duplicate group suppression (Phase 5)", () => {
 
 	it("removes the Duplicate Function Names item when every name group is suppressed", () => {
 		const input = {
-			duplicates: [dup({ type: "name", name: "apply", files: [{ file: "test/a.test.ts", line: 1 }] })],
+			duplicates: [
+				dup({ type: "name", name: "apply", files: [{ file: "test/a.test.ts", line: 1 }] }),
+			],
 			issues: [{ title: "3 Duplicate Function Names" }, { title: "Keep" }],
 		};
 		const { data } = sanitizeAnalysisData(input, readFile);
