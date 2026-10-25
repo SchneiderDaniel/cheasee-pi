@@ -345,4 +345,30 @@ describe("fetch-report CLI wiring", () => {
 			"the CLI must not inline endpoint/containment logic",
 		);
 	});
+
+	it("still re-exports the whole documented surface after the #2033 split", () => {
+		// The split moved `ReportFormat` to report-body-policy.ts; the facade must
+		// keep re-exporting it so existing importers do not break.
+		const lib = readFileSync(resolve(import.meta.dirname, "../lib/fetch-report.ts"), "utf-8");
+		for (const name of [
+			"setFetchFactory",
+			"setWriteFileFactory",
+			"resetReportCache",
+			"parseAnalyzedAt",
+			"classifyReportBody",
+			"fetchAndStoreReport",
+			"ReportFormat",
+			"ReportOutcome",
+			"REPORT_REL_PATH",
+			"REPORT_JSON_REL_PATH",
+		]) {
+			assert.match(
+				lib,
+				new RegExp(
+					`export (async )?(function|const|type|interface|class) ${name}\\b|export (type )?\\{[^}]*\\b${name}\\b`,
+				),
+				`lib/fetch-report.ts must re-export ${name}`,
+			);
+		}
+	});
 });

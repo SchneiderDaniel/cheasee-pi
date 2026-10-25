@@ -22,6 +22,7 @@ import {
 	setFetchFactory,
 	setWriteFileFactory,
 } from "../lib/fetch-report.ts";
+import type { ReportFormat } from "../lib/fetch-report.ts";
 
 interface Shim {
 	base: string;
@@ -252,7 +253,8 @@ async function startJourneyShim(
 
 describe("classifyReportBody", () => {
 	it("classifies by structure, never by substring", () => {
-		assert.strictEqual(classifyReportBody('{"architectureIssues":[]}'), "json");
+		const format: ReportFormat = classifyReportBody('{"architectureIssues":[]}');
+		assert.strictEqual(format, "json");
 		assert.strictEqual(classifyReportBody("# CodeFlow Analysis Report\n"), "markdown");
 		assert.strictEqual(classifyReportBody('{"files":[]}'), "other");
 		assert.strictEqual(classifyReportBody("[]"), "other");
