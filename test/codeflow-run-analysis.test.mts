@@ -1159,6 +1159,7 @@ const VBA_GOD_2036_BASELINE = JSON.parse(
 	};
 	before: { commit: string; codeFiles: number; vbaGodModuleCount: number };
 	after: { ref: string; codeFiles: number; vbaGodModuleCount: number };
+	baseAdvance: { resolvedFiles: string[] };
 	reducedBy: string[];
 	deferred: { reason: string; files?: string[] }[];
 };
@@ -1203,8 +1204,10 @@ describe("vba god module metric oracle (issue #2036)", () => {
 		const files = VBA_GOD_2036_BASELINE.deferred.flatMap((d) => d.files ?? []);
 		assert.strictEqual(
 			VBA_GOD_2036_BASELINE.before.vbaGodModuleCount,
-			VBA_GOD_2036_BASELINE.reducedBy.length + files.length,
-			"the base count must equal reduced + deferred",
+			VBA_GOD_2036_BASELINE.reducedBy.length +
+				files.length +
+				VBA_GOD_2036_BASELINE.baseAdvance.resolvedFiles.length,
+			"the base count must equal reduced + deferred + resolved after the pinned base",
 		);
 		assert.strictEqual(
 			VBA_GOD_2036_BASELINE.after.vbaGodModuleCount,
