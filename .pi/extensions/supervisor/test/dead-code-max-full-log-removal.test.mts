@@ -29,6 +29,10 @@ function readSource(relativePath: string): string {
 
 describe("event/adapter/handlers.ts — dead MAX_FULL_LOG removed", () => {
 	const source = readSource("event/adapter/handlers.ts");
+	// The handler bodies moved to per-family modules (issue #2033); handlers.ts is
+	// now the barrel, so the live symbols are asserted in their new home.
+	const toolSource = readSource("event/adapter/handlers-tool.ts");
+	const phaseSource = readSource("event/adapter/phase.ts");
 
 	it("MAX_FULL_LOG is no longer present in handlers.ts", () => {
 		assert.equal(
@@ -36,11 +40,16 @@ describe("event/adapter/handlers.ts — dead MAX_FULL_LOG removed", () => {
 			false,
 			"MAX_FULL_LOG must be deleted from handlers.ts",
 		);
+		assert.equal(
+			toolSource.includes("MAX_FULL_LOG"),
+			false,
+			"MAX_FULL_LOG must not reappear in the split handler module",
+		);
 	});
 
 	it("MAX_ARGS_STRING_LEN is still declared (live const)", () => {
 		assert.equal(
-			source.includes("const MAX_ARGS_STRING_LEN = 100;"),
+			toolSource.includes("const MAX_ARGS_STRING_LEN = 100;"),
 			true,
 			"MAX_ARGS_STRING_LEN must be kept",
 		);
@@ -48,15 +57,15 @@ describe("event/adapter/handlers.ts — dead MAX_FULL_LOG removed", () => {
 
 	it("truncateArgsForDisplay still references MAX_ARGS_STRING_LEN", () => {
 		assert.match(
-			source,
+			toolSource,
 			/value\.length > MAX_ARGS_STRING_LEN/,
 			"truncateArgsForDisplay must keep its MAX_ARGS_STRING_LEN usage",
 		);
 	});
 
-	it("handlers.ts still defines truncateArgsForDisplay and phasePriority", () => {
-		assert.equal(source.includes("function truncateArgsForDisplay("), true);
-		assert.equal(source.includes("function phasePriority("), true);
+	it("truncateArgsForDisplay and phasePriority still exist", () => {
+		assert.equal(toolSource.includes("function truncateArgsForDisplay("), true);
+		assert.equal(phaseSource.includes("function phasePriority("), true);
 	});
 });
 

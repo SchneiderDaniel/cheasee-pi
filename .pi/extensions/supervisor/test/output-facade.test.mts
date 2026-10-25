@@ -83,8 +83,12 @@ describe("output.ts facade — module boundaries", () => {
 			for (const line of source.split("\n")) {
 				const match = line.match(/^import[^\n]*from "([^"]+)"/);
 				if (match) {
+					// #2033: the scanner leaves read their own sibling modules
 					assert.ok(
-						match[1].startsWith("../config/") || match[1].startsWith("../lib/"),
+						match[1].startsWith("../config/") ||
+							match[1].startsWith("../lib/") ||
+							match[1].startsWith("./validation-") ||
+							match[1].startsWith("./json-"),
 						`${leaf} imports ${match[1]} — must be ../config/* or ../lib/*`,
 					);
 				}

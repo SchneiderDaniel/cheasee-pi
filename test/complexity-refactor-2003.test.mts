@@ -26,12 +26,11 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+// The detector literal has one owner: the fixtures mirror.
+import { ANALYZER_REF, CALC_PATTERNS, calcComplexity } from "./fixtures/complexity-mirror.mts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-
-/** The pinned analyzer ref the metric and the mirror were derived from. */
-const ANALYZER_REF = "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1";
 
 /** Files this change split, and the siblings each split produced. */
 const TOUCHED: Record<string, string[]> = {
@@ -173,47 +172,7 @@ const CEILING = 30;
 const BASE_TEST_CASES = 504;
 
 // ─── CodeFlow calcComplexity mirror (index.html:1663-1685) ────────
-
-const JS_PATTERNS = [
-	/\bif\s*\(/g,
-	/\belse\s+if\s*\(/g,
-	/\bwhile\s*\(/g,
-	/\bfor\s*\(/g,
-	/\bcase\s+/g,
-	/\bcatch\s*\(/g,
-	/\?\s*[^:]+\s*:/g,
-	/&&/g,
-	/\|\|/g,
-];
-const PY_PATTERNS = [
-	/\bif\s+[^(]/g,
-	/\belif\s+/g,
-	/\bwhile\s+[^(]/g,
-	/\bfor\s+\w+\s+in\s+/g,
-	/\bexcept\s*/g,
-	/\bwith\s+/g,
-	/\band\b/g,
-	/\bor\b/g,
-	/\bif\s+.+\s+else\s+/g,
-	/\bfor\s+.+\s+in\s+[^\n]*\]/g,
-];
-const RB_PATTERNS = [/\belsif\s+/g, /\bunless\s+/g, /\bwhen\s+/g, /\brescue\b/g, /\buntil\s+/g];
-const PATTERNS = JS_PATTERNS.concat(PY_PATTERNS, RB_PATTERNS);
-
-/** `Parser.calcComplexity(content, filename)` — the non-script-container path. */
-function calcComplexity(content: string): { score: number; level: string } {
-	if (!content) return { score: 0, level: "low" };
-	let complexity = 1;
-	for (const p of PATTERNS) {
-		const m = content.match(p);
-		if (m) complexity += m.length;
-	}
-	let level = "low";
-	if (complexity > 30) level = "critical";
-	else if (complexity > 20) level = "high";
-	else if (complexity > 10) level = "medium";
-	return { score: complexity, level };
-}
+// Owned by `test/fixtures/complexity-mirror.mts`; imported above.
 
 /** `n` `if (` tokens — score `n + 1`, one hit each. */
 const scored = (hits: number): { score: number; level: string } =>
@@ -227,7 +186,7 @@ const testCases = (src: string): number => (src.match(/^func Test[A-Za-z_0-9]*\(
 describe("high-complexity refactor #2003 — the mirror is the pinned detector", () => {
 	it("pins the 40-hex analyzer ref and all 24 regexes", () => {
 		assert.match(ANALYZER_REF, /^[0-9a-f]{40}$/);
-		assert.equal(PATTERNS.length, 24, "9 JS + 10 Python + 5 Ruby patterns");
+		assert.equal(CALC_PATTERNS.length, 24, "9 JS + 10 Python + 5 Ruby patterns");
 	});
 
 	it("grades exactly at the pinned boundaries (critical ⇔ score > 30)", () => {

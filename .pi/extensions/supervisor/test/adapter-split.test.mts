@@ -46,7 +46,21 @@ const __dirname = dirname(__filename);
 const ADAPTER_DIR = join(__dirname, "../event/adapter");
 const SHIM_FILE = join(__dirname, "../event/adapter.ts");
 
-const MODULES = ["normalize.ts", "handlers.ts", "forward.ts", "index.ts"];
+const MODULES = [
+	"normalize.ts",
+	"handlers.ts",
+	// #2033 split the handler families out; the size guards follow them.
+	"handlers-tool.ts",
+	"handlers-thinking.ts",
+	"handlers-text.ts",
+	"handlers-message.ts",
+	"handlers-done.ts",
+	"handlers-context-info.ts",
+	"handlers-budget.ts",
+	"phase.ts",
+	"forward.ts",
+	"index.ts",
+];
 
 const RUNTIME_EXPORTS: Array<{ name: string; value: unknown }> = [
 	{ name: "normalizeEvent", value: normalizeEvent },
@@ -186,9 +200,19 @@ describe("adapter/ split — shim + export surface", () => {
 		assert.equal(fwd.toolSeqNum, 0);
 	});
 
-	it("index.ts uses star re-exports only (no TS1205-fragile named type re-export)", () => {
+	it("index.ts re-exports explicitly — no star re-export, no TS1205-fragile named type re-export", async () => {
 		const graph = readGraph(join(ADAPTER_DIR, "index.ts"));
-		assert.deepEqual(graph.namedReExports, [], "index.ts must not use named re-exports");
+		assert.deepEqual(graph.starReExports, [], "index.ts must not use `export *`");
+		assert.ok(graph.namedReExports.length > 0, "index.ts must name its surface");
+		// Every runtime key a leaf exports must still reach the barrel, so the
+		// explicit list cannot silently drop a symbol.
+		const barrel = (await import("../event/adapter/index.ts")) as Record<string, unknown>;
+		for (const leaf of ["normalize.ts", "handlers.ts", "forward.ts"]) {
+			const mod = (await import(`../event/adapter/${leaf}`)) as Record<string, unknown>;
+			for (const name of Object.keys(mod)) {
+				assert.ok(name in barrel, `index.ts dropped ${name} from ${leaf}`);
+			}
+		}
 	});
 });
 
@@ -216,10 +240,10 @@ describe("adapter/ split — size guards", () => {
 		}
 	});
 
-	it("handleContextInfo span ≤ 45 lines in handlers.ts", () => {
-		const src = readFileSync(join(ADAPTER_DIR, "handlers.ts"), "utf-8");
+	it("handleContextInfo span ≤ 45 lines in handlers-context-info.ts", () => {
+		const src = readFileSync(join(ADAPTER_DIR, "handlers-context-info.ts"), "utf-8");
 		const span = functionSpan(src, "handleContextInfo");
-		assert.ok(span !== null, "handleContextInfo found in handlers.ts");
+		assert.ok(span !== null, "handleContextInfo found in handlers-context-info.ts");
 		assert.ok(span <= 45, `handleContextInfo spans ${span} lines — block artifact not relocated`);
 	});
 });

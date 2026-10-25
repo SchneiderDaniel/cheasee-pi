@@ -330,9 +330,13 @@ describe("fetch-report CLI wiring", () => {
 			lib.includes('from "../../../extensions/lib/path-containment.ts"'),
 			"must import the shared containment lib",
 		);
+		assert.ok(lib.includes("resolveWithinRoot"), "must use the containment helpers");
+		// #2033 split: the real-path containment gate lives with the writer it guards.
+		const store = readFileSync(resolve(import.meta.dirname, "../lib/report-store.ts"), "utf-8");
 		assert.ok(
-			lib.includes("resolveWithinRoot") && lib.includes("isPathWithinBase"),
-			"must use the containment helpers",
+			store.includes('from "../../../extensions/lib/path-containment.ts"') &&
+				store.includes("isPathWithinBase"),
+			"the artifact store must use the real-path containment helper",
 		);
 
 		const cli = readFileSync(resolve(import.meta.dirname, "../scripts/fetch-report.mts"), "utf-8");
@@ -340,5 +344,31 @@ describe("fetch-report CLI wiring", () => {
 			!/resolveWithinRoot|isPathWithinBase|CODEFLOW_SERVICE_HOST|8470/.test(cli),
 			"the CLI must not inline endpoint/containment logic",
 		);
+	});
+
+	it("still re-exports the whole documented surface after the #2033 split", () => {
+		// The split moved `ReportFormat` to report-body-policy.ts; the facade must
+		// keep re-exporting it so existing importers do not break.
+		const lib = readFileSync(resolve(import.meta.dirname, "../lib/fetch-report.ts"), "utf-8");
+		for (const name of [
+			"setFetchFactory",
+			"setWriteFileFactory",
+			"resetReportCache",
+			"parseAnalyzedAt",
+			"classifyReportBody",
+			"fetchAndStoreReport",
+			"ReportFormat",
+			"ReportOutcome",
+			"REPORT_REL_PATH",
+			"REPORT_JSON_REL_PATH",
+		]) {
+			assert.match(
+				lib,
+				new RegExp(
+					`export (async )?(function|const|type|interface|class) ${name}\\b|export (type )?\\{[^}]*\\b${name}\\b`,
+				),
+				`lib/fetch-report.ts must re-export ${name}`,
+			);
+		}
 	});
 });

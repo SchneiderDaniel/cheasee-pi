@@ -13,6 +13,10 @@
  * issue categories. JSON is treated as best-effort (older bridges may not post
  * it) — its absence never blocks the markdown report.
  *
+ * Split by responsibility (issue #2033): HTTP in bridge-client.ts, the
+ * filesystem in report-store.ts, body classification in report-body-policy.ts,
+ * the JSON-route rules in report-json-route.ts. This module keeps the use case.
+ *
  * `scripts/fetch-report.mts` is the CLI delivery adapter over this use-case.
  *
  * Test seams (module-scoped, reset in tests):
@@ -21,72 +25,23 @@
  *   resetReportCache     — clear the session cache
  */
 
-import { randomUUID } from "node:crypto";
-import {
-	closeSync,
-	constants,
-	existsSync,
-	mkdirSync,
-	openSync,
-	realpathSync,
-	renameSync,
-	rmSync,
-	writeSync,
-} from "node:fs";
-import { dirname } from "node:path";
 import { codeflowServiceUrl } from "../../../extensions/lib/codeflow-endpoint.ts";
-import { isPathWithinBase, resolveWithinRoot } from "../../../extensions/lib/path-containment.ts";
-import { ensureReport } from "./codeflow-run.ts";
-import { hasStructuredFindings, JSON_ONLY_CATEGORIES } from "./report.ts";
+import { resolveWithinRoot } from "../../../extensions/lib/path-containment.ts";
+import { JSON_ONLY_CATEGORIES } from "./report.ts";
+import { getReport } from "./bridge-client.ts";
+import { classifyReportBody, applyMarkdownRoute } from "./report-body-policy.ts";
+import { fetchJsonRoute } from "./report-json-route.ts";
+import { resolveMissingReport } from "./report-missing.ts";
+import { REPORT_JSON_REL_PATH, REPORT_REL_PATH } from "./report-paths.ts";
+import { defaultWriteFile, removeStaleArtifact, writeAtomically } from "./report-store.ts";
+import type { FetchFn, ReportOutcome, ReportResult, WriteFileFn } from "./report-types.ts";
 
-/** Markdown artifact path, relative to the session cwd (gitignored). */
-export const REPORT_REL_PATH = "ignore/codeflow-report.md";
-/** Structured JSON artifact path, relative to the session cwd (gitignored). */
-export const REPORT_JSON_REL_PATH = "ignore/codeflow-report.json";
-
-interface ReportResult {
-	path: string;
-	jsonPath: string | null;
-	bytes: number;
-	analyzedAt: number | null;
-	warnings: string[];
-	/** True when no *usable* structured JSON artifact was stored; the run cannot see the JSON-only categories. */
-	partial: boolean;
-	/** Categories the markdown exporter never emits, empty when a usable JSON artifact was stored. */
-	unavailableCategories: string[];
-	/** True when a misrouted JSON body was recovered from the markdown route. */
-	recoveredFromMarkdownRoute?: boolean;
-}
-
-/** `status` is the HTTP status for a failed fetch, or null for a thrown failure. */
-export type ReportOutcome =
-	{ ok: true; result: ReportResult } | { ok: false; message: string; status: number | null };
-
-type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
-type WriteFileFn = (path: string, data: Uint8Array) => void;
+export { REPORT_JSON_REL_PATH, REPORT_REL_PATH };
+export { classifyReportBody };
+export type { ReportFormat } from "./report-body-policy.ts";
+export type { ReportOutcome };
 
 const defaultFetch: FetchFn = (url, init) => fetch(url, init);
-
-/**
- * `O_CREAT|O_EXCL`: fail rather than open an existing path (so a pre-planted
- * symlink at the temp path can never be followed). `O_NOFOLLOW` is belt and
- * braces for the same component.
- */
-const EXCLUSIVE_WRITE_FLAGS =
-	constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW;
-
-const defaultWriteFile: WriteFileFn = (path, data) => {
-	const fd = openSync(path, EXCLUSIVE_WRITE_FLAGS, 0o600);
-	try {
-		for (let offset = 0; offset < data.length;) {
-			const n = writeSync(fd, data, offset, data.length - offset);
-			if (n <= 0) throw new Error(`Short write to ${path} (${offset}/${data.length} bytes)`);
-			offset += n;
-		}
-	} finally {
-		closeSync(fd);
-	}
-};
 
 let fetchFn: FetchFn = defaultFetch;
 let writeFileFn: WriteFileFn = defaultWriteFile;
@@ -116,174 +71,6 @@ export function parseAnalyzedAt(raw: string | null | undefined): number | null {
 	return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-export type ReportFormat = "json" | "markdown" | "other";
-
-/**
- * Classify a report body by content structure, not by the route it arrived on
- * or a substring marker. The JSON export embeds the markdown marker inside its
- * source snippets, and a pre-#1976 bridge can deliver it on the markdown route,
- * so the stable contract is "a JSON object with an `architectureIssues` array".
- * Falls back to the markdown marker, then `other`.
- */
-export function classifyReportBody(text: string): ReportFormat {
-	const body = text ?? "";
-	try {
-		const o: unknown = JSON.parse(body);
-		if (
-			o !== null &&
-			typeof o === "object" &&
-			!Array.isArray(o) &&
-			Array.isArray((o as Record<string, unknown>).architectureIssues)
-		) {
-			return "json";
-		}
-	} catch {
-		// not JSON — fall through to the markdown marker
-	}
-	return body.includes("# CodeFlow Analysis Report") ? "markdown" : "other";
-}
-
-/** Decode report bytes as UTF-8 for content classification. */
-function decodeBody(bytes: Uint8Array): string {
-	return new TextDecoder().decode(bytes);
-}
-
-/**
- * Markdown narration for a JSON-only recovery: a pre-#1976 shim serves the
- * structured export on the markdown route, so there is no markdown report to
- * persist. `path` must still point at a readable markdown file (Step 1 of the
- * skill reads it), so write a short placeholder that redirects the reader to
- * the authoritative JSON artifact instead of leaving `path` dangling.
- */
-function renderRecoveredMarkdown(analyzedAt: number | null): Uint8Array {
-	const when = analyzedAt === null ? "unknown" : new Date(analyzedAt).toISOString();
-	return new TextEncoder().encode(
-		"# CodeFlow Analysis Report\n\n" +
-			"> **JSON-only recovery.** This shim's markdown route served the structured JSON " +
-			"export and no markdown narration is available, so this file is narration only. " +
-			"The authoritative findings are in `" +
-			REPORT_JSON_REL_PATH +
-			"`.\n\n" +
-			`- Analysis timestamp: ${when}\n`,
-	);
-}
-
-/**
- * Fail closed when the on-disk parent directory resolves (through symlinks)
- * outside `cwd`. The lexical `resolveWithinRoot` check runs first, but a
- * symlinked `ignore` directory defeats it — this resolves the real path after
- * the directory exists on disk.
- */
-function assertRealDirWithinRoot(cwd: string, dir: string): void {
-	if (!isPathWithinBase(realpathSync(dir), realpathSync(cwd))) {
-		throw new Error(
-			`Refusing to write report: "${dir}" resolves outside the project root (symlink escape).`,
-		);
-	}
-}
-
-/**
- * Write bytes via a uniquely-named temp file + rename. The temp name is
- * randomized so it can never be pre-planted, and it is created exclusively with
- * no-follow semantics (see `EXCLUSIVE_WRITE_FLAGS`); the parent directory is
- * verified against the real workspace path after creation. The temp is removed
- * on failure so a crashed write never leaves `*.tmp` next to the report.
- */
-function writeAtomically(cwd: string, target: string, data: Uint8Array): void {
-	const dir = dirname(target);
-	mkdirSync(dir, { recursive: true });
-	assertRealDirWithinRoot(cwd, dir);
-	const tmp = `${target}.${randomUUID()}.tmp`;
-	try {
-		writeFileFn(tmp, data);
-		renameSync(tmp, target);
-	} catch (err) {
-		try {
-			rmSync(tmp, { force: true });
-		} catch {
-			// best-effort cleanup; the original error is what matters
-		}
-		throw err;
-	}
-}
-
-/**
- * Delete an artifact a previous fetch left behind, refusing to reach outside
- * `cwd` through a symlinked parent. Returns true when a file was removed.
- *
- * A refresh that finds no JSON must not leave the earlier analysis's JSON
- * artifact on disk: `dry-run.mts` auto-loads that default path, so a stale file
- * makes a partial run look complete.
- */
-function removeStaleArtifact(cwd: string, target: string): boolean {
-	const dir = dirname(target);
-	if (!existsSync(dir) || !existsSync(target)) return false;
-	assertRealDirWithinRoot(cwd, dir);
-	rmSync(target, { force: true });
-	return true;
-}
-
-/** GET a report route; returns the response or throws on transport failure. */
-async function getReport(url: string, signal?: AbortSignal): Promise<Response> {
-	try {
-		return await fetchFn(url, { method: "GET", signal });
-	} catch (err) {
-		// A cancelled request stays in the abort channel.
-		signal?.throwIfAborted();
-		throw new Error(
-			`CodeFlow request failed (${url}): ${err instanceof Error ? err.message : String(err)}`,
-		);
-	}
-}
-
-/** The shim's per-route bridge telemetry, or null when the route is absent. */
-async function fetchBridgeStatus(
-	base: string,
-	signal?: AbortSignal,
-): Promise<Record<string, Record<string, unknown>> | null> {
-	try {
-		const resp = await fetchFn(`${base}/api/analysis/bridge-status`, { method: "GET", signal });
-		if (!resp.ok) return null;
-		const data: unknown = await resp.json();
-		if (data === null || typeof data !== "object" || Array.isArray(data)) return null;
-		return data as Record<string, Record<string, unknown>>;
-	} catch {
-		// A cancelled status probe stays in the abort channel so a caller awaiting
-		// the report sees the abort rather than a successful result.
-		signal?.throwIfAborted();
-		return null;
-	}
-}
-
-/**
- * Explain a 404 on the JSON route: the bridge telemetry distinguishes a
- * capture-side gap (the export never reached the shim) from a route fault
- * (the shim received the POST but does not serve it). Without telemetry the
- * cause is unknowable and the warning says so rather than guessing.
- */
-async function jsonUnavailableWarning(base: string, signal?: AbortSignal): Promise<string> {
-	const tail = "duplicates, layer violations and suggestions cannot be extracted.";
-	const status = await fetchBridgeStatus(base, signal);
-	const json = status?.["/api/analysis/report.json"];
-	if (json && typeof json === "object") {
-		const postedAt = json.postedAt ?? null;
-		if (postedAt !== null) {
-			return (
-				`Structured JSON report route is down (GET HTTP 404) although the shim received the JSON export ` +
-				`(bridge-status json.postedAt set, httpStatus ${json.httpStatus ?? "unknown"}); ${tail}`
-			);
-		}
-		return (
-			`Structured JSON report was never POSTed by the browser bridge ` +
-			`(bridge-status json.capturedAt ${json.capturedAt ?? "null"}, postedAt null) — a capture-side gap; ${tail}`
-		);
-	}
-	return (
-		`Structured JSON report unavailable (HTTP 404) and bridge-status is unreachable, ` +
-		`so the capture-versus-route cause cannot be determined; ${tail}`
-	);
-}
-
 /**
  * Fetch both report artifacts and persist them. A 404 on the markdown route
  * means the browser has not bridged an analysis yet — returned as an
@@ -302,29 +89,14 @@ export async function fetchAndStoreReport(opts: {
 	const base = codeflowServiceUrl();
 	const url = `${base}/api/analysis/report`;
 
-	const resp = await getReport(url, opts.signal);
+	const resp = await getReport(fetchFn, url, opts.signal);
 	opts.signal?.throwIfAborted();
 
 	if (resp.status === 404) {
-		const actionable = (): ReportOutcome => ({
-			ok: false,
-			status: 404,
-			message:
-				`No CodeFlow report yet — run analysis in CodeFlow (${base}) and wait for it to finish, ` +
-				`then run the fetch script again.`,
-		});
-		// The report slot is empty. Ask the sidecar to fill it headlessly; only an
-		// old shim with no run route keeps the manual actionable 404.
-		if (opts.runOnMissing === false) return actionable();
-		const run = await ensureReport({ signal: opts.signal, fetchFn, base });
-		opts.signal?.throwIfAborted();
-		if (run.ok) {
-			return fetchAndStoreReport({ ...opts, refresh: true, runOnMissing: false });
-		}
-		if (run.kind === "run-route-absent") return actionable();
-		// A failed/timed-out/unavailable run is not "no browser run" — surface the
-		// reason with a null status so the CLI maps it to a transport failure.
-		return { ok: false, status: null, message: run.message };
+		// The report slot is empty — the sidecar may fill it headlessly.
+		const missing = await resolveMissingReport(fetchFn, base, opts.signal, opts.runOnMissing);
+		if (!missing.retry) return missing.outcome;
+		return fetchAndStoreReport({ ...opts, refresh: true, runOnMissing: false });
 	}
 	if (!resp.ok) {
 		return {
@@ -339,92 +111,17 @@ export async function fetchAndStoreReport(opts: {
 
 	const target = resolveWithinRoot(opts.cwd, REPORT_REL_PATH);
 
-	const warnings: string[] = [];
-	// Defense-in-depth: an old bridge or a manual POST can land a JSON body on
-	// the markdown route. Classify by *format* first (so JSON is never written to
-	// the markdown path), then gate *usability* on the domain predicate: a JSON
-	// body that parses to zero facts (an empty stub) is not a structured export
-	// and must not be recovered as one.
-	const markdownBody = decodeBody(bytes);
-	const markdownIsJson = classifyReportBody(markdownBody) === "json";
-	const markdownUsable = markdownIsJson && hasStructuredFindings(markdownBody);
-	const recoveredBytes: Uint8Array | null = markdownUsable ? bytes : null;
-	let jsonBytes: Uint8Array | null = recoveredBytes;
-	const recoveredFromMarkdownRoute = markdownUsable;
-	// Byte count of the markdown artifact actually written to `path`.
-	let markdownBytes: Uint8Array = bytes;
-	if (markdownIsJson) {
-		warnings.push(
-			markdownUsable
-				? "The markdown route returned a JSON export body (the browser bridge misrouted " +
-						"generateReport('json')); it was recovered as the structured artifact. This shim " +
-						"serves no markdown narration, so a placeholder markdown file was written to the " +
-						"markdown path."
-				: "The markdown route returned a JSON body that yields no findings (a stub), so it " +
-						"was not stored as the structured artifact. A placeholder markdown file was written " +
-						"to the markdown path.",
-		);
-		// The JSON body must never sit at the markdown path, but `path` must stay a
-		// readable markdown file (Step 1 reads it), so overwrite it with narration.
-		markdownBytes = renderRecoveredMarkdown(analyzedAt);
-	}
-	writeAtomically(opts.cwd, target, markdownBytes);
+	const markdown = applyMarkdownRoute(bytes, analyzedAt);
+	const warnings = [...markdown.warnings];
+	writeAtomically(writeFileFn, opts.cwd, target, markdown.markdownBytes);
 
-	try {
-		const jsonResp = await getReport(`${base}/api/analysis/report.json`, opts.signal);
-		if (jsonResp.ok) {
-			const body = new Uint8Array(await jsonResp.arrayBuffer());
-			const bodyText = decodeBody(body);
-			if (classifyReportBody(bodyText) !== "json") {
-				warnings.push(
-					"Structured JSON report route returned a body that is neither the JSON export " +
-						"nor markdown; it was not stored as the structured artifact.",
-				);
-			} else if (!hasStructuredFindings(bodyText)) {
-				// A JSON object with an `architectureIssues` array but no facts is a stub,
-				// not a report: never let it masquerade as a complete run.
-				warnings.push(
-					recoveredBytes !== null
-						? `The /api/analysis/report.json route served a smaller export (a fact-less stub, ` +
-								`${body.length} bytes) than the usable export recovered from the markdown route ` +
-								`(${recoveredBytes.length} bytes); the recovered body was kept so no findings are lost.`
-						: `The /api/analysis/report.json route served a stub export with no findings ` +
-								`(${body.length} bytes); it was not stored, so the JSON-only categories are unavailable.`,
-				);
-			} else if (recoveredBytes !== null && body.length < recoveredBytes.length) {
-				// The recovered body came from the markdown route (a browser misroute);
-				// a smaller JSON-route body is a stale or truncated slot, not a richer
-				// report. Keep the larger body so a full export is never silently
-				// replaced by a stub. shortcut: byte length proxies export richness,
-				// upgrade to a finding-count compare if exports can legitimately shrink.
-				warnings.push(
-					`The /api/analysis/report.json route served a smaller export (${body.length} bytes) ` +
-						`than the JSON body recovered from the markdown route (${recoveredBytes.length} bytes); ` +
-						"the recovered body was kept so no findings are lost.",
-				);
-			} else {
-				jsonBytes = body;
-			}
-		} else if (jsonResp.status === 404) {
-			if (jsonBytes === null) warnings.push(await jsonUnavailableWarning(base, opts.signal));
-		} else if (jsonBytes === null) {
-			warnings.push(
-				`Structured JSON report unavailable (HTTP ${jsonResp.status}); duplicates, layer violations and suggestions cannot be extracted.`,
-			);
-		}
-	} catch (err) {
-		opts.signal?.throwIfAborted();
-		if (jsonBytes === null) {
-			warnings.push(
-				`Structured JSON report fetch failed: ${err instanceof Error ? err.message : String(err)}; duplicates, layer violations and suggestions cannot be extracted.`,
-			);
-		}
-	}
+	const jsonRoute = await fetchJsonRoute(fetchFn, base, opts.signal, markdown.recoveredBytes);
+	warnings.push(...jsonRoute.warnings);
 
 	let jsonPath: string | null = null;
 	const jsonTarget = resolveWithinRoot(opts.cwd, REPORT_JSON_REL_PATH);
-	if (jsonBytes !== null) {
-		writeAtomically(opts.cwd, jsonTarget, jsonBytes);
+	if (jsonRoute.jsonBytes !== null) {
+		writeAtomically(writeFileFn, opts.cwd, jsonTarget, jsonRoute.jsonBytes);
 		jsonPath = jsonTarget;
 	} else if (removeStaleArtifact(opts.cwd, jsonTarget)) {
 		warnings.push(
@@ -447,12 +144,12 @@ export async function fetchAndStoreReport(opts: {
 	const result: ReportResult = {
 		path: target,
 		jsonPath,
-		bytes: markdownBytes.length,
+		bytes: markdown.markdownBytes.length,
 		analyzedAt,
 		warnings,
 		partial,
 		unavailableCategories: partial ? [...JSON_ONLY_CATEGORIES] : [],
-		recoveredFromMarkdownRoute,
+		recoveredFromMarkdownRoute: markdown.recoveredBytes !== null,
 	};
 	cache = result;
 	cacheCwd = opts.cwd;
