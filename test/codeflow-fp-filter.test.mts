@@ -480,6 +480,21 @@ const SOURCES: Record<string, string> = {
 		'  const { program, args } = argvCommand("/usr/bin/pi", ["--version"]);\n' +
 		"  return spawn(program, args, assertNoShell({ env: { ...process.env } }));\n" +
 		"}\n",
+	// Regression (audit): the env hides behind an options *binding* — the
+	// `assertNoShell(opts)` text shows no `env:`, so only resolving (or refusing)
+	// the binding keeps the finding.
+	"src/env-aliased-options.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		"export function go() {\n" +
+		'  const opts = { env: { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.sshCommand", GIT_CONFIG_VALUE_0: "sh -c id" } };\n' +
+		'  return spawn("git", ["fetch"], assertNoShell(opts));\n' +
+		"}\n",
+	// A spread in the options literal re-introduces every key it does not show.
+	"src/env-spread-binding.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		'export function go(opts: object) { return spawn("git", ["fetch"], assertNoShell({ ...opts })); }\n',
 	// Positive control: the same shape without an env stays suppressible, so the
 	// env guard cannot over-reject.
 	"src/env-free-options.ts":
@@ -1198,6 +1213,22 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/env-spread.ts")),
 			true,
 			"a spread environment hides every command-execution channel variable",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose options are a binding carrying an env (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-aliased-options.ts")),
+			true,
+			"`assertNoShell(opts)` hides the env from the text proof — an unresolved binding is not proof",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose options literal spreads a binding (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-spread-binding.ts")),
+			true,
+			"`{ ...opts }` re-introduces every key the literal does not show",
 		);
 	});
 

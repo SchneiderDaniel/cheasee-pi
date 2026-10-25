@@ -8,7 +8,13 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import { argvCommand, assertNoShell, assertSafeEnv, spawnArgv, UnsafeArgvError } from "../safe-argv.ts";
+import {
+	argvCommand,
+	assertNoShell,
+	assertSafeEnv,
+	spawnArgv,
+	UnsafeArgvError,
+} from "../safe-argv.ts";
 
 describe("argvCommand", () => {
 	it("returns program and args unchanged, order preserved", () => {
@@ -88,7 +94,10 @@ describe("argvCommand", () => {
 		assert.throws(() => argvCommand("node", ["-r", "./hook.cjs"]), UnsafeArgvError);
 		assert.throws(() => argvCommand("node", ["--import", "./hook.mjs"]), UnsafeArgvError);
 		assert.throws(() => argvCommand("node", ["--loader", "./hook.mjs"]), UnsafeArgvError);
-		assert.throws(() => argvCommand("node", ["--experimental-loader", "./hook.mjs"]), UnsafeArgvError);
+		assert.throws(
+			() => argvCommand("node", ["--experimental-loader", "./hook.mjs"]),
+			UnsafeArgvError,
+		);
 		assert.throws(() => argvCommand("python3", ["-m", "attacker_module"]), UnsafeArgvError);
 	});
 

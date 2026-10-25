@@ -199,7 +199,8 @@
 	};
 	var CP_NAMES = Object.keys(CP_MEMBERS);
 	// A bare shell program passed as the executable argument.
-	var SHELL_PROGRAM = /["'`](?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|cmd(?:\.exe)?|powershell(?:\.exe)?)["'`]/;
+	var SHELL_PROGRAM =
+		/["'`](?:\/[\w./-]*\/)?(?:sh|bash|zsh|dash|cmd(?:\.exe)?|powershell(?:\.exe)?)["'`]/;
 
 	/** Positioned on the opening quote; returns the index just past the close. */
 	function skipString(code, i) {
@@ -402,7 +403,8 @@
 			else if (!star && /^\s*\w+\s*$/.test(clause)) namespaces[clause.trim()] = true;
 		}
 
-		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
+		re =
+			/(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
 		while ((m = re.exec(code)) !== null) {
 			var lhs = m[1].trim();
 			if (m[2]) {
@@ -414,7 +416,8 @@
 		// The dynamic-import form of the same binding: `const cp = await
 		// import("node:child_process")` (and its destructured/`.member` variants)
 		// resolves to the same namespace, so `cp.spawn(...)` must be scanned.
-		re = /(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*import\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
+		re =
+			/(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*import\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
 		while ((m = re.exec(code)) !== null) {
 			var dlhs = m[1].trim();
 			if (m[2]) {
@@ -425,7 +428,8 @@
 
 		// Assignment to a name declared elsewhere (`let cp; cp = require(...)`):
 		// the declaration scans above miss it, so register the receiver too.
-		re = /(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*\(*\s*(?:await\s+)?\(*\s*(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
+		re =
+			/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*\(*\s*(?:await\s+)?\(*\s*(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
 		while ((m = re.exec(code)) !== null) namespaces[m[1]] = true;
 
 		// Fail closed on any other one-line binding of a module result the
@@ -434,12 +438,14 @@
 		// cond ? require(...) : null`). Registering the receiver as a namespace
 		// only ever makes more call sites visible, so an unrecognised shape
 		// denies a suppression rather than hiding a genuine shell-out.
-		re = /(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*[^;=\n]*?(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
+		re =
+			/(?:^|[^\w$.])([A-Za-z_$][\w$]*)\s*=\s*[^;=\n]*?(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)/g;
 		while ((m = re.exec(code)) !== null) namespaces[m[1]] = true;
 
 		// Assignment and destructuring aliases, iterated to a fixpoint.
 		for (var pass = 0; pass < 3; pass++) {
-			re = /(?:const|let|var)\s+(\w+)\s*=\s*(?:promisify\s*\(\s*(\w+)\s*\)|(\w+)\s*\.\s*(\w+)|(\w+))/g;
+			re =
+				/(?:const|let|var)\s+(\w+)\s*=\s*(?:promisify\s*\(\s*(\w+)\s*\)|(\w+)\s*\.\s*(\w+)|(\w+))/g;
 			while ((m = re.exec(code)) !== null) {
 				if (m[2] && members[m[2]]) members[m[1]] = members[m[2]];
 				else if (m[3] && m[4] && CP_MEMBERS[m[4]]) members[m[1]] = m[4];
@@ -469,25 +475,46 @@
 		return false;
 	}
 
+	/** The single argument text of the `assertNoShell(...)` call, or null. */
+	function assertNoShellArgument(optionsText) {
+		var m = /(?:^|[^\w$.])assertNoShell\s*(?:<[^<>]*>)?\s*\(/.exec(optionsText);
+		if (!m) return null;
+		var open = optionsText.indexOf("(", m.index + m[0].length - 1);
+		var args = open < 0 ? null : argumentText(optionsText, open);
+		if (args === null) return null;
+		var parts = splitTopLevel(args);
+		return parts.length === 1 ? stripAssertion(parts[0]).trim() : null;
+	}
+
 	/**
-	 * True when the spawn options bind an environment. `shell:false` says nothing
-	 * about indirect execution: git runs `core.sshCommand` from `GIT_CONFIG_*`,
-	 * node runs a module from `NODE_OPTIONS`, and `LD_PRELOAD`/`BASH_ENV` do the
-	 * same for other programs — so an env the argv proof cannot see is not proof.
-	 * (Residual limit: an env smuggled through a variable the argument text shows
-	 * as a bare identifier, and a program that delegates on its own terms — `git
-	 * fetch` runs the remote's ssh — stay unproven but suppressed.)
+	 * True when the spawn options cannot be proven environment-free. `shell:false`
+	 * says nothing about indirect execution: git runs `core.sshCommand` from
+	 * `GIT_CONFIG_*`, node runs a module from `NODE_OPTIONS`, and `LD_PRELOAD` /
+	 * `BASH_ENV` do the same for other programs — so an env the argv proof cannot
+	 * see is not proof. Only a literal object showing no `env` and no spread is
+	 * provable; an options *binding* (`const opts = { env: … }; assertNoShell(opts)`)
+	 * and a spread hide every key the text does not show, so both fail closed.
+	 * (Residual limit: a program that delegates on its own terms — `git fetch` runs
+	 * the remote's ssh — stays unproven but suppressed.)
 	 */
 	function optionsCarryEnvironment(optionsText) {
+		var text = assertNoShellArgument(optionsText);
+		if (text === null) return true;
+		if (text.charAt(0) !== "{" || text.charAt(text.length - 1) !== "}") return true;
+		var body = text.slice(1, -1);
+		var parts = splitTopLevel(body);
+		for (var i = 0; i < parts.length; i++) {
+			if (/^\s*\.\.\./.test(parts[i])) return true;
+		}
 		// `env: …` or the shorthand `{ cwd, env, stdio }`.
-		return /\benv\s*:|(?:^|[{,])\s*env\s*(?:[,}]|$)/.test(optionsText.trim());
+		return /\benv\s*:|(?:^|[{,])\s*env\s*(?:[,}]|$)/.test(body);
 	}
 
 	/** The call pattern for a bare (non-namespaced) member name. */
 	function callRegex(name) {
 		return new RegExp(
 			"(?:^|[^\\w$.])" + escapeRe(name) + "\\s*(?:<[^<>]*>)?\\s*(?:\\?\\.\\s*)?\\(",
-			"g"
+			"g",
 		);
 	}
 
@@ -593,16 +620,21 @@
 	// crypto and `crypto.subtle` is async. Used only to pin the policy module.
 	function sha256Hex(text) {
 		var K = [
-			0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
-			0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
-			0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
-			0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
-			0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
-			0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
-			0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
-			0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+			0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+			0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+			0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+			0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+			0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+			0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+			0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+			0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+			0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+			0xc67178f2,
 		];
-		var H = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+		var H = [
+			0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+			0x5be0cd19,
+		];
 		var bytes = [];
 		for (var i = 0; i < text.length; i++) {
 			var c = text.charCodeAt(i);
@@ -610,7 +642,12 @@
 			else if (c < 0x800) bytes.push(0xc0 | (c >> 6), 0x80 | (c & 63));
 			else if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
 				var cp = 0x10000 + ((c & 0x3ff) << 10) + (text.charCodeAt(++i) & 0x3ff);
-				bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+				bytes.push(
+					0xf0 | (cp >> 18),
+					0x80 | ((cp >> 12) & 63),
+					0x80 | ((cp >> 6) & 63),
+					0x80 | (cp & 63),
+				);
 			} else bytes.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 63), 0x80 | (c & 63));
 		}
 		var bitLen = bytes.length * 8;
@@ -626,13 +663,24 @@
 		for (var off = 0; off < bytes.length; off += 64) {
 			var w = [];
 			for (var t = 0; t < 16; t++)
-				w[t] = (bytes[off + t * 4] << 24) | (bytes[off + t * 4 + 1] << 16) | (bytes[off + t * 4 + 2] << 8) | bytes[off + t * 4 + 3];
+				w[t] =
+					(bytes[off + t * 4] << 24) |
+					(bytes[off + t * 4 + 1] << 16) |
+					(bytes[off + t * 4 + 2] << 8) |
+					bytes[off + t * 4 + 3];
 			for (t = 16; t < 64; t++) {
 				var s0 = rotr(w[t - 15], 7) ^ rotr(w[t - 15], 18) ^ (w[t - 15] >>> 3);
 				var s1 = rotr(w[t - 2], 17) ^ rotr(w[t - 2], 19) ^ (w[t - 2] >>> 10);
 				w[t] = (w[t - 16] + s0 + w[t - 7] + s1) | 0;
 			}
-			var a = H[0], b = H[1], cc = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+			var a = H[0],
+				b = H[1],
+				cc = H[2],
+				d = H[3],
+				e = H[4],
+				f = H[5],
+				g = H[6],
+				h = H[7];
 			for (t = 0; t < 64; t++) {
 				var S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
 				var ch = (e & f) ^ (~e & g);
@@ -640,10 +688,23 @@
 				var S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
 				var maj = (a & b) ^ (a & cc) ^ (b & cc);
 				var t2 = (S0 + maj) | 0;
-				h = g; g = f; f = e; e = (d + t1) | 0; d = cc; cc = b; b = a; a = (t1 + t2) | 0;
+				h = g;
+				g = f;
+				f = e;
+				e = (d + t1) | 0;
+				d = cc;
+				cc = b;
+				b = a;
+				a = (t1 + t2) | 0;
 			}
-			H[0] = (H[0] + a) | 0; H[1] = (H[1] + b) | 0; H[2] = (H[2] + cc) | 0; H[3] = (H[3] + d) | 0;
-			H[4] = (H[4] + e) | 0; H[5] = (H[5] + f) | 0; H[6] = (H[6] + g) | 0; H[7] = (H[7] + h) | 0;
+			H[0] = (H[0] + a) | 0;
+			H[1] = (H[1] + b) | 0;
+			H[2] = (H[2] + cc) | 0;
+			H[3] = (H[3] + d) | 0;
+			H[4] = (H[4] + e) | 0;
+			H[5] = (H[5] + f) | 0;
+			H[6] = (H[6] + g) | 0;
+			H[7] = (H[7] + h) | 0;
 		}
 		var out = "";
 		for (var k = 0; k < 8; k++) out += ("00000000" + (H[k] >>> 0).toString(16)).slice(-8);
@@ -657,7 +718,7 @@
 	// bytes that hash to `POLICY_MODULE_SHA256` count as provenance. Any edit to
 	// the policy — a reformat included — fails the check and keeps the finding
 	// until the digest here is re-reviewed. An unreadable module is not evidence.
-	var POLICY_MODULE_SHA256 = "478727584fa67de1b44f1ec542d27039d9cefde1f5d15a2b4ce2f4c165002e15";
+	var POLICY_MODULE_SHA256 = "9829e911951d3fcc8d10e8a9176be219d3ca10c0898abb59697e0d00cd916eb5";
 	function moduleDeclaresPolicy(readFile, path) {
 		if (path !== POLICY_MODULE_PATH) return false;
 		var text = readFile && typeof path === "string" ? readFile(path) : null;
@@ -833,22 +894,26 @@
 		var namespaces = Object.keys(cp.namespaces);
 		for (i = 0; i < namespaces.length; i++) {
 			if (
-				new RegExp("(?:^|[^\\w$.])" + escapeRe(namespaces[i]) + "\\s*(?:\\?\\.)?\\s*\\[").test(
-					code,
-				)
+				new RegExp("(?:^|[^\\w$.])" + escapeRe(namespaces[i]) + "\\s*(?:\\?\\.)?\\s*\\[").test(code)
 			)
 				return true;
 		}
 		// `\\)*` follows the module call through a wrapping paren group, so the
 		// `(await import(...)).member` form is denied as well as the bare one.
-		if (/(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\?\.)?\s*[.\[]/.test(code))
+		if (
+			/(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\?\.)?\s*[.\[]/.test(
+				code,
+			)
+		)
 			return true;
 		var members = Object.keys(cp.members);
 		for (i = 0; i < CP_NAMES.length; i++) members.push(CP_NAMES[i]);
 		for (i = 0; i < members.length; i++) {
 			if (
 				new RegExp(
-					"(?:^|[^\\w$])" + escapeRe(members[i]) + "\\s*(?:\\?\\.)?\\s*\\.\\s*(?:call|apply)\\s*\\(",
+					"(?:^|[^\\w$])" +
+						escapeRe(members[i]) +
+						"\\s*(?:\\?\\.)?\\s*\\.\\s*(?:call|apply)\\s*\\(",
 				).test(code)
 			)
 				return true;
@@ -887,7 +952,7 @@
 		for (i = 0; i < namespaceNames.length && safe; i++) {
 			var nsRe = new RegExp(
 				escapeRe(namespaceNames[i]) + "\\s*(?:\\?\\.|\\.)\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
-				"g"
+				"g",
 			);
 			var mm;
 			while ((mm = nsRe.exec(code)) !== null) {
@@ -903,7 +968,8 @@
 	}
 
 	function isFalsePositiveCommandExecution(issue, readFile) {
-		if (typeof issue.severity !== "string" || issue.severity.toLowerCase() !== "medium") return false;
+		if (typeof issue.severity !== "string" || issue.severity.toLowerCase() !== "medium")
+			return false;
 		if (String(issue.title).trim() !== "Command Execution") return false;
 		var content = readFile ? readFile(issue.path) : null;
 		if (typeof content !== "string") return false;

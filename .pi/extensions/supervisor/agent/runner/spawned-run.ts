@@ -53,10 +53,16 @@ function startAgentChild(
 	resolve: (result: AgentRunResult) => void,
 ): ChildHandle | null {
 	try {
-		return spawnAgentChild({ args: opts.args, cwd: opts.effectiveCwd, sandboxEnv: opts.sandboxEnv });
+		return spawnAgentChild({
+			args: opts.args,
+			cwd: opts.effectiveCwd,
+			sandboxEnv: opts.sandboxEnv,
+		});
 	} catch (err: unknown) {
 		const errMsg = err instanceof Error ? err.message : String(err);
-		opts.log.error("agent-runner", `Subprocess spawn rejected: ${errMsg}`, { agentName: opts.agentName });
+		opts.log.error("agent-runner", `Subprocess spawn rejected: ${errMsg}`, {
+			agentName: opts.agentName,
+		});
 		resolve(
 			failWithUiCleanup(opts.ctx, opts.widgetId, {
 				agentName: opts.agentName,

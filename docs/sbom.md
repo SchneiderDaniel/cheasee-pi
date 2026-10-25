@@ -32,9 +32,16 @@ nav_order: 10
 | `typebox`                         | ^1.2.8  | MIT        | Runtime type validation                         |
 | `js-yaml`                         | ^5.2.2  | MIT        | YAML parsing (dev, release tests)               |
 | `vscode-jsonrpc`                  | ^8.2.1  | MIT        | LSP communication                               |
-| `zod`                             | ^4.4.3  | MIT        | Schema-driven config validation                 |
+| `zod`                             | ^4.6.6  | MIT        | Schema-driven config validation                 |
 | `@octokit/rest`                   | ^22.0.1 | MIT        | GitHub REST API client (supervisor pipeline)    |
 | `@octokit/graphql`                | ^8.2.1  | MIT        | GitHub GraphQL API client (supervisor pipeline) |
+
+Security overrides forced in `package.json` (transitive pins the tree would
+otherwise resolve to a vulnerable release):
+
+- `undici` → `8.12.3` — `@earendil-works/pi-coding-agent` pins `8.10.2`, which
+  is vulnerable to GHSA-xjj6-f33q-929c, GHSA-4qv8-2p9j-2685 and
+  GHSA-f72v-6w45-q472 (all fixed in `8.12.2`).
 
 ## Go modules (cheasee-pi CLI)
 
@@ -48,13 +55,14 @@ nav_order: 10
 
 ## Rust crates (web control center)
 
-| Crate          | Version | License | Purpose                                                |
-| -------------- | ------- | ------- | ------------------------------------------------------ |
-| `leptos`       | 0.8     | MIT     | UI framework (server-rendered + hydrated)              |
-| `leptos_axum`  | 0.8     | MIT     | Leptos ↔ Axum SSR integration                          |
-| `leptos_meta`  | 0.8     | MIT     | Head/meta tags + hydration bootstrap                   |
-| `axum`         | 0.8     | MIT     | HTTP server: routing, WebSocket upgrade, static assets |
-| `cargo-leptos` | 0.3     | MIT     | Two-target hydrate/SSR build + content-hashed assets   |
+| Crate          | Version | License | Purpose                                                       |
+| -------------- | ------- | ------- | ------------------------------------------------------------- |
+| `leptos`       | 0.8     | MIT     | UI framework (server-rendered + hydrated)                     |
+| `leptos_axum`  | 0.8     | MIT     | Leptos ↔ Axum SSR integration                                 |
+| `leptos_meta`  | 0.8     | MIT     | Head/meta tags + hydration bootstrap                          |
+| `axum`         | 0.8     | MIT     | HTTP server: routing, WebSocket upgrade, static assets        |
+| `cargo-leptos` | 0.3     | MIT     | Two-target hydrate/SSR build + content-hashed assets          |
+| `tokio`        | 1.53.3  | MIT     | Async runtime for the SSR server (≥1.53.3: RUSTSEC-2026-0386) |
 
 Upstream advisories on transitive leptos-stack crates (tracked, not directly fixable here):
 
@@ -107,13 +115,14 @@ maintenance risk stands.
 
 ## Python packages (venv)
 
-| Package               | License    | Purpose                                |
-| --------------------- | ---------- | -------------------------------------- |
-| `scrapling[fetchers]` | MIT        | Web crawling with progressive fetching |
-| `markdownify`         | MIT        | HTML to Markdown conversion            |
-| `beautifulsoup4`      | MIT        | HTML parsing (scrapling dependency)    |
-| `ddgs`                | MIT        | DuckDuckGo search API                  |
-| Playwright Chromium   | Apache-2.0 | Browser automation for web crawling    |
+| Package               | License    | Purpose                                                  |
+| --------------------- | ---------- | -------------------------------------------------------- |
+| `scrapling[fetchers]` | MIT        | Web crawling with progressive fetching                   |
+| `markdownify`         | MIT        | HTML to Markdown conversion                              |
+| `beautifulsoup4`      | MIT        | HTML parsing (scrapling dependency)                      |
+| `certifi`             | MPL-2.0    | CA trust store (pinned ≥2026.10.19, GHSA-6q48-6c7w-9gw2) |
+| `ddgs`                | MIT        | DuckDuckGo search API                                    |
+| Playwright Chromium   | Apache-2.0 | Browser automation for web crawling                      |
 
 ## Pi extensions
 

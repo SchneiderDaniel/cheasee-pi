@@ -196,7 +196,10 @@ describe("runtime.ts — seam single-module guard + default runtime", () => {
 		assert.ok(sentinel.spawn.mock.calls.length >= 1, "sentinel.spawn must be used");
 		assert.strictEqual(sentinel.spawn.mock.calls[0].arguments[0], TS_MAPPING.command);
 		assert.deepStrictEqual(sentinel.spawn.mock.calls[0].arguments[1], TS_MAPPING.args);
-		assert.ok(sentinel.resolveExecutable.mock.calls.length >= 1, "sentinel.resolveExecutable must be used");
+		assert.ok(
+			sentinel.resolveExecutable.mock.calls.length >= 1,
+			"sentinel.resolveExecutable must be used",
+		);
 		assert.strictEqual(
 			sentinel.resolveExecutable.mock.calls[0].arguments[0],
 			TS_MAPPING.command,
@@ -393,14 +396,12 @@ describe("audit-group.ts — orchestrator error paths", () => {
 
 	it("option-injection mapping command '-a' → resolver returns null, not found, no spawn", async () => {
 		const rt = createMockRuntime();
-		rt.resolveExecutable = mock.fn((name: string) => (name.startsWith("-") ? null : `/usr/bin/${name}`)) as any;
+		rt.resolveExecutable = mock.fn((name: string) =>
+			name.startsWith("-") ? null : `/usr/bin/${name}`,
+		) as any;
 		setLspRuntime(rt);
 
-		const result = await auditFileGroup(
-			{ ...TS_MAPPING, command: "-a" },
-			SINGLE_FILE,
-			"/worktree",
-		);
+		const result = await auditFileGroup({ ...TS_MAPPING, command: "-a" }, SINGLE_FILE, "/worktree");
 
 		assert.deepStrictEqual(result.errors, ["LSP server -a not found on PATH"]);
 		assert.strictEqual((rt.spawn as any).mock.calls.length, 0);

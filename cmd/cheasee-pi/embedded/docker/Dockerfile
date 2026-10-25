@@ -159,9 +159,11 @@ ENV LANG=C.UTF-8 LC_CTYPE=C.UTF-8 LC_ALL=C.UTF-8
 # post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
 # and idna<3.15 is DoS-vulnerable on crafted long inputs. anyio pinned to the
 # release fixing GHSA-82r6-8w77-94w6 (CVE-2026-63374) and GHSA-5p39-cfhj-2xmp
-# (CVE-2026-64847); both fixed in 4.14.2.
+# (CVE-2026-64847); both fixed in 4.14.2. certifi pinned to the release that
+# drops the emSign roots with compromised intermediate CA keys
+# (GHSA-6q48-6c7w-9gw2, fixed 2026.10.19).
 RUN python3 -m venv /opt/venvs/web-search-venv --clear && \
-    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs 'idna>=3.15' 'anyio>=4.14.2'
+    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs 'idna>=3.15' 'anyio>=4.14.2' 'certifi>=2026.10.19'
 
 # scrapling venv: progressive web crawler (patchright-driven stealth).
 # Installed against scrapling-constraints.txt: `scrapling[fetchers]` floats its

@@ -18,7 +18,8 @@ import * as childProcessModule from "node:child_process";
 
 const hasMockModule = typeof mock.module === "function";
 
-const calls: Array<{ file: string; args: readonly string[]; options: Record<string, unknown> }> = [];
+const calls: Array<{ file: string; args: readonly string[]; options: Record<string, unknown> }> =
+	[];
 let execError: Error | null = null;
 const stdout = "git@github.com:alice/foo.git\n";
 
@@ -30,7 +31,12 @@ if (hasMockModule) {
 	// Mirror the real execFile's promisify.custom, which resolves `{stdout, stderr}`
 	// (generic promisify would resolve an array instead).
 	const fakeExecFile = Object.assign(
-		(_file: string, _args: readonly string[], _options: Record<string, unknown>, callback: Function) => {
+		(
+			_file: string,
+			_args: readonly string[],
+			_options: Record<string, unknown>,
+			callback: Function,
+		) => {
 			callback(new Error("use the promisified form"), "", "");
 		},
 		{

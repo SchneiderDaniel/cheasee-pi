@@ -106,7 +106,9 @@ export function spawnArgv(
 }
 
 /** Reject NUL in env keys/values (Node throws ERR_INVALID_ARG_VALUE); other bytes pass. */
-export function assertSafeEnv(env: Record<string, string | undefined>): Record<string, string | undefined> {
+export function assertSafeEnv(
+	env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
 	for (const key of Object.keys(env)) {
 		if (NUL.test(key)) fail(`env.${key}`, "must not contain NUL");
 		const value = env[key];

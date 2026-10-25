@@ -19,15 +19,22 @@ import { UnsafeArgvError } from "../../lib/safe-argv.ts";
 
 const hasMockModule = typeof mock.module === "function";
 
-const spawnCalls: Array<{ program: string; args: readonly string[]; options: Record<string, unknown> }> =
-	[];
+const spawnCalls: Array<{
+	program: string;
+	args: readonly string[];
+	options: Record<string, unknown>;
+}> = [];
 
 if (hasMockModule) {
 	const namedExports: Record<string, unknown> = {};
 	for (const key of Object.keys(childProcessModule)) {
 		namedExports[key] = (childProcessModule as any)[key];
 	}
-	namedExports["spawn"] = (program: string, args: readonly string[], options: Record<string, unknown>) => {
+	namedExports["spawn"] = (
+		program: string,
+		args: readonly string[],
+		options: Record<string, unknown>,
+	) => {
 		spawnCalls.push({ program, args, options });
 		return { on: () => {}, removeAllListeners: () => {}, kill: () => true };
 	};
@@ -50,7 +57,10 @@ describe("createDefaultRuntime.resolveExecutable", () => {
 
 	it("returns null for an unknown binary", async () => {
 		const { createDefaultRuntime } = await loadRuntime();
-		assert.strictEqual(createDefaultRuntime().resolveExecutable("definitely-not-a-real-binary-xyz"), null);
+		assert.strictEqual(
+			createDefaultRuntime().resolveExecutable("definitely-not-a-real-binary-xyz"),
+			null,
+		);
 	});
 
 	it("returns null for option injection and a NUL name", async () => {

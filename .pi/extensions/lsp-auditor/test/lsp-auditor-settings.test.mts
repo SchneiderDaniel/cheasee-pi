@@ -103,7 +103,11 @@ describe("ServerEntrySchema — runtime validation", () => {
 
 	it("rejects an arg containing NUL", () => {
 		assert.ok(
-			!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "ts-ls", args: ["--stdio", "x\0y"] }),
+			!Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "ts-ls",
+				args: ["--stdio", "x\0y"],
+			}),
 		);
 	});
 
@@ -117,7 +121,11 @@ describe("ServerEntrySchema — runtime validation", () => {
 		);
 		// NUL stays fatal — the positive control for this pattern.
 		assert.ok(
-			!Value.Check(ServerEntrySchema, { extensions: [".ts"], command: "ts-ls", args: ["ok\nbad\0"] }),
+			!Value.Check(ServerEntrySchema, {
+				extensions: [".ts"],
+				command: "ts-ls",
+				args: ["ok\nbad\0"],
+			}),
 		);
 	});
 
@@ -327,16 +335,18 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 		withTempSettings(
 			{
 				lspAuditor: {
-					servers: [
-						{ extensions: [".ts"], command: "custom-ts", args: ["--stdio", "a\nb\tc"] },
-					],
+					servers: [{ extensions: [".ts"], command: "custom-ts", args: ["--stdio", "a\nb\tc"] }],
 				},
 			},
 			(worktree) => {
 				const settings = readSettings(worktree);
 				assert.ok(settings?.lspAuditor, "lspAuditor should be present");
 				const entry = settings!.lspAuditor!.servers![0]!;
-				assert.deepStrictEqual(entry.args, ["--stdio", "a\nb\tc"], "newline/tab arg must not be dropped");
+				assert.deepStrictEqual(
+					entry.args,
+					["--stdio", "a\nb\tc"],
+					"newline/tab arg must not be dropped",
+				);
 			},
 		);
 	});

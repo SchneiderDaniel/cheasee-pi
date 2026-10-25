@@ -143,9 +143,7 @@ export async function auditFileGroup(
  * Returns an error string on failure, null on success.
  */
 async function preflightCheck(rt: LspRuntime, command: string): Promise<string | null> {
-	return rt.resolveExecutable(command) === null
-		? `LSP server ${command} not found on PATH`
-		: null;
+	return rt.resolveExecutable(command) === null ? `LSP server ${command} not found on PATH` : null;
 }
 
 /**
