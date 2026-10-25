@@ -10,21 +10,27 @@ import (
 )
 
 // TestCodeFlowServer_EmbeddedSourceStatic guards the removal-only dead-code
-// change: the embedded server.py must no longer contain the dead bool-coercion
+// change: the embedded shim must no longer contain the dead bool-coercion
 // helper, its preserved surface (_load_config, Handler, _walk, inline config
-// fallbacks) must be intact, and the file must still compile under python3 —
-// mirroring the Dockerfile gate (RUN python3 -m py_compile /opt/codeflow/server.py).
+// fallbacks) must be intact across the shim's modules, and every module must
+// still compile under python3 — mirroring the Dockerfile gate
+// (RUN python3 -m py_compile /opt/codeflow/*.py).
 func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
+	var all strings.Builder
+	for _, name := range codeflowShimModules {
+		src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/"+name)
+		if err != nil {
+			t.Fatalf("read embedded codeflow/%s: %v", name, err)
+		}
+		all.Write(src)
+		all.WriteString("\n")
 	}
-	code := string(src)
+	code := all.String()
 
 	// Name split so a repo-wide literal grep for the removed helper stays clean.
 	removed := "_as" + "_bool"
 	if strings.Contains(code, removed) {
-		t.Error("embedded server.py still contains the dead bool-coercion helper")
+		t.Error("embedded shim still contains the dead bool-coercion helper")
 	}
 	for _, want := range []string{
 		"def _load_config",
@@ -69,12 +75,16 @@ func TestCodeFlowServer_EmbeddedSourceStatic(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	// Compile a temp copy so __pycache__ stays out of the worktree.
-	copyPath := filepath.Join(t.TempDir(), "server.py")
-	if err := os.WriteFile(copyPath, src, 0644); err != nil {
-		t.Fatalf("write temp server.py: %v", err)
+	// Compile staged copies so __pycache__ stays out of the worktree.
+	dir := t.TempDir()
+	serverPath := stageCodeflowShim(t, dir)
+	paths := []string{serverPath}
+	for _, name := range codeflowShimModules {
+		if name != "server.py" {
+			paths = append(paths, filepath.Join(dir, name))
+		}
 	}
-	if out, err := exec.Command(python, "-m", "py_compile", copyPath).CombinedOutput(); err != nil {
+	if out, err := exec.Command(python, append([]string{"-m", "py_compile"}, paths...)...).CombinedOutput(); err != nil {
 		t.Errorf("python3 -m py_compile failed: %v\n%s", err, out)
 	}
 }
@@ -87,15 +97,8 @@ func TestCodeFlowServer_FingerprintPure(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
 	dir := t.TempDir()
-	serverPath := filepath.Join(dir, "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
+	serverPath := stageCodeflowShim(t, dir)
 	script := `import re, runpy, sys
 
 m = runpy.run_path(sys.argv[1])
@@ -152,15 +155,8 @@ func TestCodeFlowServer_ScanCacheSlowWorkspace(t *testing.T) {
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	src, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/server.py")
-	if err != nil {
-		t.Fatalf("read embedded server.py: %v", err)
-	}
 	dir := t.TempDir()
-	serverPath := filepath.Join(dir, "server.py")
-	if err := os.WriteFile(serverPath, src, 0644); err != nil {
-		t.Fatalf("write server.py: %v", err)
-	}
+	serverPath := stageCodeflowShim(t, dir)
 	repoRoot := t.TempDir()
 	writeShimFile(t, repoRoot, "a.txt", "hello\n")
 	initGitRepo(t, repoRoot)
