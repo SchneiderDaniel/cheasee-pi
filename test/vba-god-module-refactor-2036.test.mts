@@ -79,6 +79,18 @@ const git = (...args: string[]): string[] =>
 		.split("\n")
 		.filter(Boolean);
 
+/**
+ * The delivered tree: the tracked set plus the declared additions that land with
+ * this branch but may not be committed yet, so the measurement is the same
+ * before and after the merge.
+ */
+const deliveredFiles = (): string[] => [
+	...new Set([
+		...git("ls-files"),
+		...ADDITIONAL_SCORED_FILES.filter((rel) => existsSync(resolve(ROOT, rel))),
+	]),
+];
+
 /** Every measured file of one tree: `> 20` is `VBA God Module`, `> 15` `God Object`. */
 function measureTree(root: string, paths: string[]) {
 	const counts = new Map<string, number>();
@@ -152,10 +164,12 @@ const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as
 };
 
 const SIBLINGS = Object.values(B.splitFamilies).flat();
-// Issue #2023 adds these two scored extension files to the delivered tree.
+// Issue #2023 adds these two scored extension files to the delivered tree;
+// #2031 adds the codeflow route module its server.py split minted.
 const ADDITIONAL_SCORED_FILES = [
 	".pi/extensions/lib/safe-argv.ts",
 	".pi/extensions/lib/test/safe-argv.test.ts",
+	"cmd/cheasee-pi/embedded/docker/codeflow/handler_api.py",
 ];
 const DEFERRED = B.deferred.flatMap((d) => d.files ?? []);
 const BASE_UNCITED = [...DEFERRED, ...B.baseAdvance.resolvedFiles];
@@ -492,7 +506,7 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 	});
 
 	it("re-measures the delivered tree: only the uncited leftovers stay flagged", () => {
-		const after = measureTree(ROOT, git("ls-files"));
+		const after = measureTree(ROOT, deliveredFiles());
 		assert.equal(
 			after.codeFiles,
 			B.after.codeFiles + ADDITIONAL_SCORED_FILES.filter(scored).length,
@@ -519,7 +533,7 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 			"the base's flagged set must include the reductions and both uncited paths",
 		);
 		assert.equal(before.godObject.length, B.before.godObjectCount);
-		const after = measureTree(ROOT, git("ls-files"));
+		const after = measureTree(ROOT, deliveredFiles());
 		assert.ok(
 			after.godObject.length <= before.godObject.length,
 			`God Object grew ${before.godObject.length} -> ${after.godObject.length}`,

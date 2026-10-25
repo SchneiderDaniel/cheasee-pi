@@ -154,6 +154,8 @@ const VBA_BASELINE = JSON.parse(read("test/fixtures/vba-god-module-baseline.json
 	after: { commit: string; files: number; vbaGodModuleCount: number };
 	tradeoffs: Record<string, string>;
 	reducedBy: string[];
+	/** Files a later issue split below the ceiling, cited under that issue. */
+	reducedByLater?: { issue: number; reason: string; files: string[] };
 	deferred: { reason: string; files?: string[]; examples?: string[] }[];
 };
 
@@ -367,9 +369,9 @@ describe("vba god module refactor #2006 — recorded envelope", () => {
 		}
 	});
 
-	it("defers the 16 Rust files and server.py with reasons, all existing", () => {
+	it("defers the 16 Rust files with reasons, all existing", () => {
 		const deferred = VBA_BASELINE.deferred;
-		assert.ok(deferred.length >= 2, "the Rust and server.py deferrals are recorded");
+		assert.equal(deferred.length, 1, "only the Rust set is still deferred");
 		for (const entry of deferred) {
 			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
 		}
@@ -378,20 +380,28 @@ describe("vba god module refactor #2006 — recorded envelope", () => {
 		const rust = deferred.find(
 			(d) => (d.files ?? []).length > 0 && d.files!.every((f) => f.endsWith(".rs")),
 		);
-		const serverPy = deferred.find((d) =>
-			(d.files ?? []).includes("cmd/cheasee-pi/embedded/docker/codeflow/server.py"),
-		);
 		assert.ok(rust, "the Rust set is recorded as deferred");
-		assert.ok(serverPy, "the embedded server.py is recorded as deferred");
 		assert.equal(rust.files!.length, 16, "the whole measured Rust set is deferred");
+	});
+
+	it("cites the #2031 server.py split under the issue that made it", () => {
+		const server = "cmd/cheasee-pi/embedded/docker/codeflow/server.py";
+		assert.deepStrictEqual(VBA_BASELINE.reducedByLater?.files, [server]);
+		assert.equal(VBA_BASELINE.reducedByLater?.issue, 2031);
+		assert.ok(
+			!VBA_BASELINE.deferred.some((d) => (d.files ?? []).includes(server)),
+			"server.py is no longer deferred",
+		);
 	});
 
 	it("accounts for every leftover flag (no silent omission)", () => {
 		const files = VBA_BASELINE.deferred.flatMap((d) => d.files ?? []);
 		assert.equal(
 			VBA_BASELINE.before.vbaGodModuleCount,
-			VBA_BASELINE.reducedBy.length + files.length,
-			"base count must equal reduced + deferred",
+			VBA_BASELINE.reducedBy.length +
+				(VBA_BASELINE.reducedByLater?.files.length ?? 0) +
+				files.length,
+			"base count must equal reduced + reduced-by-a-later-issue + deferred",
 		);
 		assert.equal(
 			VBA_BASELINE.after.vbaGodModuleCount,
