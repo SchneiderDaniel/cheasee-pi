@@ -373,6 +373,11 @@ describe("large-files refactor #2031 — the shim package", () => {
 				"assert hasattr(h, '_api') and hasattr(h, '_list_contents') and hasattr(h, '_file_contents')",
 				"assert hasattr(h, 'do_GET') and hasattr(h, 'do_POST')",
 				"assert 'ThreadingHTTPServer' in ns, 'the entrypoint still binds its server class'",
+				"names = ['_scan', '_walk', '_committed_blobs', '_fingerprint', '_split_fingerprint',",
+				"         '_FP_LEN', '_FP_TTL', '_scan_cache', 'REPO_ROOT', 'EXCLUDE_DIRS', '_BRIDGE_JS',",
+				"         '_BRIDGE_SCRIPT', '_UI_REWRITES', '_FP_FILTER_ROUTE', '_FP_FILTER_PATH']",
+				"missing = [n for n in names if n not in ns]",
+				"assert not missing, 'the split dropped pre-split names: %r' % missing",
 				"print('ok')",
 			].join("\n");
 			const run = spawnSync("python3", ["-c", script], {

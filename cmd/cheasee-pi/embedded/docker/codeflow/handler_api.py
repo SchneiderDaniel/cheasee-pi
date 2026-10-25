@@ -22,6 +22,12 @@ from repo_identity import _scan, _walk
 class RepoRoutes:
     """The `/api/repos/*` route group; `_json`/`_not_found` come from Handler."""
 
+    def _json(self, obj, status=200):
+        raise NotImplementedError
+
+    def _not_found(self):
+        raise NotImplementedError
+
     def _api(self, path):
         # /api/repos/{owner}/{repo}/[...]
         parts = [urllib.parse.unquote(p) for p in path[len("/api/"):].split("/") if p]

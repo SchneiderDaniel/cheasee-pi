@@ -61,7 +61,7 @@ import os
 import sys
 import threading
 import time
-import urllib
+import urllib.parse
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -81,7 +81,19 @@ from analysis_run import (
 )
 from config import EXCLUDE_DIRS, HOST, PORT, REPO_ROOT, UI_DIR
 from handler_api import RepoRoutes
-from repo_identity import _FP_LEN, _fingerprint, _scan, _split_fingerprint
+# _FP_TTL, _committed_blobs, _scan_cache and _walk are bound only so the
+# entrypoint namespace still exposes the surface server.py had before the split
+# (runpy callers read these names; repo_identity owns them).
+from repo_identity import (
+    _FP_LEN,
+    _FP_TTL,
+    _committed_blobs,
+    _fingerprint,
+    _scan,
+    _scan_cache,
+    _split_fingerprint,
+    _walk,
+)
 from report_store import (
     _BRIDGE_STATUS_ROUTE,
     _MAX_REPORT_BYTES,
