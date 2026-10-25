@@ -30,6 +30,9 @@ import vm from "node:vm";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
+const HERE = path.dirname(fileURLToPath(import.meta.url));
+const fpFilter = createRequire(import.meta.url)(path.join(HERE, "fp-filter.js"));
+
 const ANALYZER_START = "// ===== CODEFLOW_ANALYZER_START =====";
 const ANALYZER_END = "// ===== CODEFLOW_ANALYZER_END =====";
 const METRICS_START = "// ===== CODEFLOW_METRICS_START =====";
@@ -51,22 +54,51 @@ function scoreTerms(stats) {
 	const usable = (n) => typeof n === "number" && Number.isFinite(n) && n >= 0;
 	if (![fileCount, linkCount, fnCount, deadCount].every(usable)) return null;
 	if (fileCount === 0 || fnCount === 0) return null;
-	const round3 = (n) => Math.round(n * 1000) / 1000;
 	return {
-		coupling: round3(Math.min(15, Math.max(0, linkCount / fileCount - 3) * 2)),
-		deadCode: round3(Math.min(20, (deadCount / fnCount) * 100)),
+		coupling: Math.round(Math.min(15, Math.max(0, linkCount / fileCount - 3) * 2) * 1000) / 1000,
+		deadCode: Math.round(Math.min(20, (deadCount / fnCount) * 100) * 1000) / 1000,
 	};
 }
 
 // Read one analyzed path out of the snapshot the analyzer ran against, so the
 // false-positive rules can see the cited code. An unreadable path returns null:
 // the filter keeps a finding it cannot disprove.
-function makeReadFile(sourceDir) {
+//
+// Exported so a test can exercise this exact reader (the producer's only
+// filesystem read) instead of re-implementing it.
+export function makeReadFile(sourceDir) {
 	let root;
 	try {
 		root = fs.realpathSync(path.resolve(sourceDir));
 	} catch {
 		return () => null;
+	}
+	// `mod x;` splices `x/`'s files into `x.rs`, so the split moved code the
+	// analyzer attributes to the facade into children it never names. Collect the
+	// children on disk and let fp-filter decide which ones are that module's.
+	function moduleChildren(rel) {
+		if (!rel.endsWith(".rs")) return [];
+		const found = [];
+		const stack = [[path.join(root, rel.slice(0, -3)), rel.slice(0, -3)]];
+		while (stack.length) {
+			const [absDir, prefix] = stack.pop();
+			let entries;
+			try {
+				entries = fs.readdirSync(absDir, { withFileTypes: true });
+			} catch (error) {
+				// No `<stem>/` directory means no children. Any other failure means
+				// the module cannot be resolved completely, so abort the read (the
+				// caller turns that into `null` and the finding keeps standing).
+				if (error && error.code === "ENOENT") continue;
+				throw error;
+			}
+			for (const entry of entries) {
+				const childRel = `${prefix}/${entry.name}`;
+				if (entry.isDirectory()) stack.push([path.join(absDir, entry.name), childRel]);
+				else found.push(childRel);
+			}
+		}
+		return fpFilter.moduleChildPaths(rel, found);
 	}
 	return (rel) => {
 		if (typeof rel !== "string" || rel === "" || path.isAbsolute(rel) || rel.includes("..")) {
@@ -79,8 +111,16 @@ function makeReadFile(sourceDir) {
 			// cannot see that, so resolve the real file and re-check containment.
 			const real = fs.realpathSync(abs);
 			if (!real.startsWith(root + path.sep)) return null;
-			return fs.readFileSync(real, "utf8");
+			const parts = [fs.readFileSync(real, "utf8")];
+			for (const child of moduleChildren(rel)) {
+				const childReal = fs.realpathSync(path.resolve(root, child));
+				if (!childReal.startsWith(root + path.sep)) return null;
+				parts.push(fs.readFileSync(childReal, "utf8"));
+			}
+			return parts.join("\n");
 		} catch {
+			// A facade whose children cannot be read is incomplete, so the finding
+			// must stand: fail open rather than return half a module.
 			return null;
 		}
 	};
@@ -252,7 +292,6 @@ async function main() {
 	// Build `data` with the checkout's own headless pipeline (card/lib/analysis.js).
 	const require = createRequire(import.meta.url);
 	const analysis = require(path.join(uiDir, "card", "lib", "analysis.js"));
-	const fpFilter = require(path.join(path.dirname(fileURLToPath(import.meta.url)), "fp-filter.js"));
 	const { data } = await analysis.analyze({
 		repoRoot: sourceDir,
 		indexHtmlPath,
@@ -315,4 +354,16 @@ async function main() {
 	);
 }
 
-main().catch((error) => fail(error && error.message ? error.message : String(error)));
+// Only an actual `node run-analysis.mjs ...` invocation runs the producer, so a
+// test can import `makeReadFile` without side effects. `argv[1]` is absent when
+// the file is imported (or `-e`-run).
+const SELF = fileURLToPath(import.meta.url);
+let ENTRY = "";
+try {
+	ENTRY = fs.realpathSync(path.resolve(process.argv[1] ?? ""));
+} catch {
+	ENTRY = "";
+}
+if (ENTRY === fs.realpathSync(SELF)) {
+	main().catch((error) => fail(error && error.message ? error.message : String(error)));
+}

@@ -216,17 +216,17 @@ registry_auth() {
 }
 
 fetch_base_image() {
-  local token manifest layer
-  token="$(registry_auth)"
-  manifest="$(curl -fsS -H "Authorization: Bearer $token" \
+  local bearer manifest layer
+  bearer="$(registry_auth)"
+  manifest="$(curl -fsS -H "Authorization: Bearer $bearer" \
     -H 'Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json' \
     "https://registry-1.docker.io/v2/library/$BASE_REPO/manifests/$BASE_DIGEST" |
     jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest' | head -1)"
   [ -n "$manifest" ] || die "cannot resolve the amd64 manifest of $BASE_IMAGE"
-  layer="$(curl -fsS -H "Authorization: Bearer $token" \
+  layer="$(curl -fsS -H "Authorization: Bearer $bearer" \
     -H 'Accept: application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json' \
     "https://registry-1.docker.io/v2/library/$BASE_REPO/manifests/$manifest" | jq -r '.layers[0].digest')"
-  curl -fsSL -H "Authorization: Bearer $token" \
+  curl -fsSL -H "Authorization: Bearer $bearer" \
     "https://registry-1.docker.io/v2/library/$BASE_REPO/blobs/$layer" -o "$WORK/base.tar.gz"
   mkdir -p "$WORK/base"
   tar -xzf "$WORK/base.tar.gz" -C "$WORK/base" --wildcards \

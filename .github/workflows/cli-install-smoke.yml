@@ -20,7 +20,7 @@ on:
       - "cmd/cheasee-pi/**"
       - "go.mod"
       - "go.sum"
-      - "docker/test/cli-install-smoke.test.mts"
+      - "docker/test/cli-install-smoke*.test.mts"
       - ".pi/extensions/**"
       - ".github/workflows/cli-install-smoke.yml"
   workflow_dispatch:
@@ -118,7 +118,9 @@ jobs:
 
       - name: Run CLI install smoke test
         run: |
-          node --experimental-strip-types --test docker/test/cli-install-smoke.test.mts
+          node --experimental-strip-types --test \
+            docker/test/cli-install-smoke.test.mts \
+            docker/test/cli-install-smoke-part2.test.mts
 
       # Daemon-backed acceptance harness for the three-service stack (epic
       # #1098). Its build tag keeps it out of the default `go test` run; here it

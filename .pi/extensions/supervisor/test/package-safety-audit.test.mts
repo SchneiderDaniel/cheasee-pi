@@ -1,13 +1,8 @@
-// ─── Tests: package-safety.ts — runPackageSafetyAudit ───────────────
-// Integration-level tests with mocked exec function.
-// Tests the runPackageSafetyAudit entry point that reads package.json
-// and runs npm view checks for each dependency.
-
 import { describe, it } from "node:test";
-import assert from "node:assert/strict";
-import { runPackageSafetyAudit, SAFETY_THRESHOLD_DAYS } from "../checks/package-safety.ts";
 
-// ─── ExecFn type for mock ──────────────────────────────────────────
+import assert from "node:assert/strict";
+
+import { runPackageSafetyAudit, SAFETY_THRESHOLD_DAYS } from "../checks/package-safety.ts";
 
 type ExecFn = (
 	cmd: string,
@@ -15,11 +10,7 @@ type ExecFn = (
 	opts?: Record<string, unknown>,
 ) => Promise<{ code: number; stdout: string; stderr: string }>;
 
-// ─── Mock package.json paths ───────────────────────────────────────
-
 const FAKE_WORKTREE = "/tmp/fake-worktree";
-
-// ─── Helpers ───────────────────────────────────────────────────────
 
 function mockExecForPackages(pkgDates: Record<string, string>): ExecFn {
 	return async (cmd: string, _args: string[], _opts?: Record<string, unknown>) => {
@@ -47,9 +38,6 @@ function mockExecForPackages(pkgDates: Record<string, string>): ExecFn {
 	};
 }
 
-/**
- * Create a mock exec that also records calls for verification.
- */
 function mockExecWithRecording(
 	pkgDates: Record<string, string>,
 	calls: Array<{ cmd: string; args: string[] }>,
@@ -75,20 +63,13 @@ function mockExecWithRecording(
 	return fn;
 }
 
-// ─── Tests: runPackageSafetyAudit ──────────────────────────────────
-
 describe("runPackageSafetyAudit", () => {
-	// ─── No package.json ──────────────────────────────────────────
-
 	it("returns safe with empty results when worktree path has no package.json", async () => {
 		// Use a non-existent path
 		const result = await runPackageSafetyAudit(mockExecForPackages({}), "/nonexistent/path/12345");
 		assert.equal(result.status, "safe");
 		assert.equal(result.results.length, 0);
 	});
-
-	// ─── Package.json with no deps ────────────────────────────────
-
 	it("returns safe with empty results when package.json has no dependencies", async () => {
 		const result = await runPackageSafetyAudit(
 			mockExecForPackages({}),
@@ -101,7 +82,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.status, "safe");
 		assert.equal(result.results.length, 0);
 	});
-
 	it("returns safe with empty results when package.json has empty dependencies and devDependencies", async () => {
 		const result = await runPackageSafetyAudit(
 			mockExecForPackages({}),
@@ -115,9 +95,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.status, "safe");
 		assert.equal(result.results.length, 0);
 	});
-
-	// ─── All deps old enough → safe ───────────────────────────────
-
 	it("returns safe when all dependencies are older than threshold", async () => {
 		// Create dates 30 days ago
 		const thirtyDaysAgo = new Date();
@@ -141,9 +118,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.results.length, 2);
 		assert.ok(result.results.every((r) => r.safe === true));
 	});
-
-	// ─── Young dep → blocked ─────────────────────────────────────
-
 	it("returns blocked when a dependency is younger than threshold", async () => {
 		const oldDate = new Date();
 		oldDate.setDate(oldDate.getDate() - 30);
@@ -175,9 +149,6 @@ describe("runPackageSafetyAudit", () => {
 		const lodashResult = result.results.find((r) => r.packageName === "lodash");
 		assert.ok(lodashResult!.safe, "lodash should still be safe");
 	});
-
-	// ─── ENOENT fail-closed ──────────────────────────────────────
-
 	it("returns blocked when npm view fails with ENOENT (fail-closed)", async () => {
 		const oldDate = new Date();
 		oldDate.setDate(oldDate.getDate() - 30);
@@ -202,9 +173,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(missingResult!.safe, false);
 		assert.equal(missingResult!.blocked, true);
 	});
-
-	// ─── Unparseable date fail-closed ────────────────────────────
-
 	it("returns blocked when npm view returns unparseable date (fail-closed)", async () => {
 		const oldDate = new Date();
 		oldDate.setDate(oldDate.getDate() - 30);
@@ -229,9 +197,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(weirdResult!.safe, false);
 		assert.equal(weirdResult!.blocked, true);
 	});
-
-	// ─── npm view fails with error code ──────────────────────────
-
 	it("returns blocked when npm view returns non-zero exit code (fail-closed)", async () => {
 		const oldDate = new Date();
 		oldDate.setDate(oldDate.getDate() - 30);
@@ -256,9 +221,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(nfResult!.safe, false);
 		assert.equal(nfResult!.blocked, true);
 	});
-
-	// ─── Empty stdout ───────────────────────────────────────────
-
 	it("returns blocked when npm view returns empty stdout (fail-closed)", async () => {
 		const result = await runPackageSafetyAudit(
 			mockExecForPackages({
@@ -277,9 +239,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(emptyResult!.safe, false);
 		assert.equal(emptyResult!.blocked, true);
 	});
-
-	// ─── Exempt packages (git URL, tarball, local path) ──────────
-
 	it("skips age check for git URL dependencies (exempt)", async () => {
 		const result = await runPackageSafetyAudit(
 			mockExecForPackages({}),
@@ -297,7 +256,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.results[0]!.blocked, false);
 		assert.equal(result.results[0]!.ageDays, 0);
 	});
-
 	it("skips age check for tarball URL dependencies (exempt)", async () => {
 		const result = await runPackageSafetyAudit(
 			mockExecForPackages({}),
@@ -311,7 +269,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.status, "safe");
 		assert.equal(result.results[0]!.safe, true);
 	});
-
 	it("skips age check for local path dependencies (exempt)", async () => {
 		const result = await runPackageSafetyAudit(
 			mockExecForPackages({}),
@@ -325,9 +282,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.status, "safe");
 		assert.equal(result.results[0]!.safe, true);
 	});
-
-	// ─── Result shape ──────────────────────────────────────────
-
 	it("result items have correct shape: packageName, ageDays, safe, blocked, message", async () => {
 		const thirtyDaysAgo = new Date();
 		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -348,9 +302,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.ok(typeof item.blocked === "boolean");
 		assert.ok(typeof item.message === "string");
 	});
-
-	// ─── Configurable threshold ─────────────────────────────────
-
 	it("uses SAFETY_THRESHOLD_DAYS configurable threshold", async () => {
 		// Package published 13 days ago — should be blocked at 14-day threshold
 		const thirteenDaysAgo = new Date();
@@ -367,9 +318,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.status, "blocked");
 		assert.equal(result.results[0]!.safe, false);
 	});
-
-	// ─── Scoped packages ───────────────────────────────────────
-
 	it("handles scoped packages (@scope/name)", async () => {
 		const thirtyDaysAgo = new Date();
 		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -386,9 +334,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.results.length, 1);
 		assert.equal(result.results[0]!.packageName, "@scope/pkg");
 	});
-
-	// ─── Scoped package blocked ────────────────────────────────
-
 	it("blocks young scoped packages", async () => {
 		const youngDate = new Date();
 		youngDate.setDate(youngDate.getDate() - 3);
@@ -405,9 +350,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.results[0]!.safe, false);
 		assert.ok(result.results[0]!.message.includes("@scope/young"));
 	});
-
-	// ─── devDependencies also checked ──────────────────────────
-
 	it("checks devDependencies in addition to dependencies", async () => {
 		const thirtyDaysAgo = new Date();
 		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -427,9 +369,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.status, "safe");
 		assert.equal(result.results.length, 2);
 	});
-
-	// ─── Blocked message format ────────────────────────────────
-
 	it("blocked message includes package name, age, and threshold", async () => {
 		const youngDate = new Date();
 		youngDate.setDate(youngDate.getDate() - 3);
@@ -447,17 +386,11 @@ describe("runPackageSafetyAudit", () => {
 		assert.ok(blocked.message.includes(`${blocked.ageDays}`));
 		assert.ok(blocked.message.includes(`${SAFETY_THRESHOLD_DAYS}`));
 	});
-
-	// ─── Boundary: Empty package.json ──────────────────────────
-
 	it("handles empty package.json ({}) - safe with empty results", async () => {
 		const result = await runPackageSafetyAudit(mockExecForPackages({}), FAKE_WORKTREE, "{}");
 		assert.equal(result.status, "safe");
 		assert.equal(result.results.length, 0);
 	});
-
-	// ─── Boundary: Malformed JSON ──────────────────────────────
-
 	it("handles malformed package.json - returns error status", async () => {
 		const result = await runPackageSafetyAudit(
 			mockExecForPackages({}),
@@ -467,9 +400,6 @@ describe("runPackageSafetyAudit", () => {
 		assert.equal(result.status, "error");
 		assert.ok(result.message);
 	});
-
-	// ─── Mix of exempt, safe, and blocked ──────────────────────
-
 	it("handles mix of exempt, safe, and blocked packages correctly", async () => {
 		const thirtyDaysAgo = new Date();
 		thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -504,9 +434,6 @@ describe("runPackageSafetyAudit", () => {
 		const local = result.results.find((r) => r.packageName === "local-lib")!;
 		assert.equal(local.safe, true);
 	});
-
-	// ─── npm view called with correct args ─────────────────────
-
 	it("calls npm view <pkg> time.created for each dependency", async () => {
 		const calls: Array<{ cmd: string; args: string[] }> = [];
 		const thirtyDaysAgo = new Date();
@@ -540,9 +467,6 @@ describe("runPackageSafetyAudit", () => {
 		}
 	});
 });
-
-// ─── Tests: trusted vendor scope ───────────────────────────────────
-
 describe("runPackageSafetyAudit — trusted vendor scope", () => {
 	it("skips npm view and stays safe for @earendil-works packages", async () => {
 		const calls: Array<{ cmd: string; args: string[] }> = [];

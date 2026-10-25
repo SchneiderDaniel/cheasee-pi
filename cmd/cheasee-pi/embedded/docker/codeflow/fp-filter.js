@@ -1457,6 +1457,31 @@
 
 	// --- entry point ---------------------------------------------------------
 
+	// A Rust facade (`x.rs`) plus everything under `x/` is ONE logical module to
+	// the compiler (`mod x;` splices the children in), and a file-level split moves
+	// code the analyzer used to attribute to the facade into those children. A
+	// reader keyed on the exact path therefore sees a hollow module: the reference
+	// that disproves a finding vanished into a sibling the caller never asked for.
+	// This is the single home for that naming rule. Callers keep owning the I/O and
+	// hand in the candidate paths (the analyzed set in the browser, the directory
+	// tree on disk); non-`.rs` paths have no such children.
+	function moduleChildPaths(logicalPath, candidates) {
+		var out = [];
+		if (typeof logicalPath !== "string" || !/\.rs$/.test(logicalPath)) return out;
+		var prefix = logicalPath.slice(0, -3) + "/";
+		var list = Array.isArray(candidates) ? candidates : [];
+		for (var i = 0; i < list.length; i++) {
+			var candidate = list[i];
+			if (
+				typeof candidate === "string" &&
+				/\.rs$/.test(candidate) &&
+				candidate.indexOf(prefix) === 0
+			)
+				out.push(candidate);
+		}
+		return out.sort();
+	}
+
 	/**
 	 * `readFile(path) -> content|null` over the analyzer's retained file text, for
 	 * the browser. The analyzer frees each file's source (`f.content=null`) before
@@ -1465,18 +1490,29 @@
 	 * in-page filter has nothing to resolve references against and keeps every
 	 * finding. A path with neither field is absent, so the index stays incomplete
 	 * and the filter keeps the finding rather than guessing.
+	 *
+	 * A logical Rust module reads as its facade plus its child modules, so a
+	 * finding recorded against the facade still sees code the split moved away.
 	 */
 	function readFileFrom(data) {
 		var byPath = Object.create(null);
+		var paths = [];
 		var files = data && Array.isArray(data.files) ? data.files : [];
 		for (var i = 0; i < files.length; i++) {
 			var file = files[i];
 			if (!file || typeof file.path !== "string") continue;
+			paths.push(file.path);
 			if (typeof file.content === "string") byPath[file.path] = file.content;
 			else if (typeof file.piFpSource === "string") byPath[file.path] = file.piFpSource;
 		}
 		return function (path) {
-			return typeof path === "string" && path in byPath ? byPath[path] : null;
+			if (typeof path !== "string" || !(path in byPath)) return null;
+			var text = byPath[path];
+			var children = moduleChildPaths(path, paths);
+			for (var j = 0; j < children.length; j++) {
+				if (children[j] in byPath) text += "\n" + byPath[children[j]];
+			}
+			return text;
 		};
 	}
 
@@ -1599,6 +1635,7 @@
 		isFalsePositiveHygiene: isFalsePositiveHygiene,
 		isFalsePositiveDuplicate: isFalsePositiveDuplicate,
 		readFileFrom: readFileFrom,
+		moduleChildPaths: moduleChildPaths,
 		REPO_LAYERS: REPO_LAYERS,
 		resolveLayer: resolveLayer,
 	};

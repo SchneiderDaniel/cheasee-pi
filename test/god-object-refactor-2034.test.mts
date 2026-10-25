@@ -59,6 +59,8 @@ type Baseline = {
 	reducedBy: string[];
 	deferred: { reason: string; requires: string; files: string[] }[];
 	notScored: { reason: string; files: string[] }[];
+	/** Files a later issue split below the ceiling without citing this one. */
+	laterReduced?: { issue: number; reason: string; files: string[] };
 };
 
 const baseline = (): Baseline =>
@@ -606,7 +608,11 @@ describe("god-object refactor #2034 — the metric falls", () => {
 			splitFamilies: Record<string, string[]>;
 		};
 		const deferred = b.deferred.flatMap((d) => d.files);
-		const laterReduced = new Set([...followup.reducedBy, ...UNCITED_REDUCED]);
+		const laterReduced = new Set([
+			...followup.reducedBy,
+			...UNCITED_REDUCED,
+			...(b.laterReduced?.files ?? []),
+		]);
 		const laterSiblings = new Set(Object.values(followup.splitFamilies).flat());
 		assert.ok(
 			live.length <= b.after.godObjectCount,

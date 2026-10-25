@@ -115,26 +115,6 @@ const TOUCHED: Record<string, string[]> = {
 
 const ALL_FILES = [...Object.keys(TOUCHED), ...Object.values(TOUCHED).flat()];
 
-/** The 15 Rust sources under `embedded/docker/ui` and the embedded server.py. */
-const DEFERRED_RUST = [
-	"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/protocol.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs",
-	"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs",
-];
-const DEFERRED_SERVER = "cmd/cheasee-pi/embedded/docker/codeflow/server.py";
-
 // ─── CodeFlow long-file mirror ────────────────────────────────────
 // The predicate itself lives in `./fixtures/long-file-mirror.mts` so the
 // recorded-envelope oracle in `codeflow-run-analysis.test.mts` applies the
@@ -274,11 +254,11 @@ describe("long-file refactor #2005 — register guards", () => {
 		}
 	});
 
-	it("records the Rust set and the embedded server.py as deferred", () => {
+	it("keeps every deferred path existing and out of reducedBy", () => {
 		const flat = BASELINE.deferred.flatMap((d) => d.files ?? []);
-		for (const rel of [...DEFERRED_RUST, DEFERRED_SERVER]) {
-			assert.ok(flat.includes(rel), `${rel} must be split or deferred, never omitted`);
+		for (const rel of flat) {
 			assert.ok(existsSync(resolve(ROOT, rel)), `missing deferred path: ${rel}`);
+			assert.ok(!BASELINE.reducedBy.includes(rel), `${rel} is both deferred and cited as reduced`);
 		}
 	});
 

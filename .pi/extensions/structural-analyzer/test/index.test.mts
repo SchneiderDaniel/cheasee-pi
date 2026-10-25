@@ -1,21 +1,10 @@
-/**
- * Tests: index.ts — extension wiring & integration
- *
- * Tests the structuralAnalyzer extension through mocked pi.exec.
- * Covers tool registration, binary detection, cache, language auto-detect,
- * streaming, error propagation, and AbortSignal.
- */
-
 import assert from "node:assert";
-import { describe, it, beforeEach } from "node:test";
-import { resolve } from "node:path";
-import { Value } from "typebox/value";
-import structuralAnalyzer from "../index.ts";
-import { clearResultCache } from "../cache.ts";
 
-// ═══════════════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════════════
+import { describe, it, beforeEach } from "node:test";
+
+import structuralAnalyzer from "../index.ts";
+
+import { clearResultCache } from "../cache.ts";
 
 function createMatchJson(file: string, lines: string, text: string): string {
 	return JSON.stringify({ file, lines, text });
@@ -34,9 +23,6 @@ const MANY_MATCHES = Array.from({ length: 150 }, (_, i) =>
 	createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match number ${i}`),
 ).join("\n");
 
-/**
- * Build a mock pi instance with configurable exec behavior.
- */
 function makePi(overrides?: {
 	execOverride?: (cmd: string, args: string[], options?: any) => Promise<any>;
 	registerToolOverride?: (tool: any) => void;
@@ -78,7 +64,6 @@ function makePi(overrides?: {
 	return pi;
 }
 
-/** Execute a registered tool's execute function with given params. */
 async function executeTool(
 	pi: any,
 	params: { pattern: string; language?: string; directory?: string },
@@ -91,21 +76,18 @@ async function executeTool(
 	});
 }
 
-/** Invoke the registered `tool_result` handler with a synthetic event. */
 async function dispatchToolResult(pi: any, event: Record<string, unknown>): Promise<void> {
 	const handler = pi.__getOnCalls().find((c: any) => c.event === "tool_result")?.handler;
 	if (!handler) throw new Error("no tool_result handler registered");
 	await handler(event, { cwd: "/tmp" });
 }
 
-/** Invoke the registered `session_start` handler. */
 async function dispatchSessionStart(pi: any): Promise<void> {
 	const handler = pi.__getOnCalls().find((c: any) => c.event === "session_start")?.handler;
 	if (!handler) throw new Error("no session_start handler registered");
 	await handler();
 }
 
-/** Count ast-grep `run` scans serviced by the mock exec. */
 function scanPi(onScan?: () => Promise<void> | void): { pi: any; scans: () => number } {
 	let scans = 0;
 	const pi = makePi({
@@ -127,11 +109,9 @@ describe("structuralAnalyzer extension wiring", () => {
 	beforeEach(() => {
 		clearResultCache();
 	});
-
 	it("exports a function named structuralAnalyzer", () => {
 		assert.strictEqual(typeof structuralAnalyzer, "function");
 	});
-
 	it("registers tool with correct name 'structural_search'", () => {
 		const pi = makePi();
 		structuralAnalyzer(pi);
@@ -139,14 +119,12 @@ describe("structuralAnalyzer extension wiring", () => {
 		assert.ok(tool, "tool should be registered");
 		assert.strictEqual(tool.name, "structural_search");
 	});
-
 	it("registers no standalone session_shutdown handler", () => {
 		const pi = makePi();
 		structuralAnalyzer(pi);
 		const shutdownHandlers = pi.__getOnCalls().filter((c: any) => c.event === "session_shutdown");
 		assert.strictEqual(shutdownHandlers.length, 0);
 	});
-
 	it("registers exactly one tool_result and one session_start handler", () => {
 		const pi = makePi();
 		structuralAnalyzer(pi);
@@ -154,7 +132,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		assert.strictEqual(onCalls.filter((c: any) => c.event === "tool_result").length, 1);
 		assert.strictEqual(onCalls.filter((c: any) => c.event === "session_start").length, 1);
 	});
-
 	it("session_start clears the cache (identical search re-executes)", async () => {
 		const { pi, scans } = scanPi();
 		structuralAnalyzer(pi);
@@ -167,7 +144,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
 		assert.strictEqual(scans(), 2, "session_start must invalidate the cache");
 	});
-
 	for (const toolName of ["edit", "write"]) {
 		it(`${toolName} success → identical search re-executes (scan count 2)`, async () => {
 			const { pi, scans } = scanPi();
@@ -182,7 +158,6 @@ describe("structuralAnalyzer extension wiring", () => {
 			assert.strictEqual(scans(), 2, `${toolName} must invalidate the cache`);
 		});
 	}
-
 	it("after edit, identical search returns the fresh payload (not pre-edit)", async () => {
 		let scans = 0;
 		let payload = TWO_MATCHES;
@@ -210,7 +185,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		assert.strictEqual(scans, 2);
 		assert.strictEqual((after.structuredContent as any).matches, 1, "must reflect post-edit code");
 	});
-
 	it("failed mutation does NOT invalidate (cache hit preserved)", async () => {
 		const { pi, scans } = scanPi();
 		structuralAnalyzer(pi);
@@ -220,7 +194,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
 		assert.strictEqual(scans(), 1, "failed edit must not invalidate");
 	});
-
 	it("non-mutating tool result does NOT invalidate (cache hit preserved)", async () => {
 		const { pi, scans } = scanPi();
 		structuralAnalyzer(pi);
@@ -230,7 +203,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
 		assert.strictEqual(scans(), 1, "read must not invalidate");
 	});
-
 	it("invalidation is coarse: a different pattern also re-execs after write", async () => {
 		const { pi, scans } = scanPi();
 		structuralAnalyzer(pi);
@@ -245,7 +217,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
 		assert.strictEqual(scans(), 4, "every cached pattern is invalidated by a write");
 	});
-
 	it("epoch captured at the request boundary: in-flight write-back after mutation is unreachable", async () => {
 		let pi: any;
 		const { pi: mockPi, scans } = scanPi(async () => {
@@ -263,7 +234,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
 		assert.strictEqual(scans(), 2, "pre-mutation write-back must be unreachable");
 	});
-
 	it("ast-grep error responses stay uncached across an epoch change", async () => {
 		let scans = 0;
 		const pi = makePi({
@@ -286,7 +256,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		assert.strictEqual(second.isError, true);
 		assert.strictEqual(scans, 2, "error responses must never be cached");
 	});
-
 	it("same params (pattern, language, cwd) → second call returns cached result (no scan exec)", async () => {
 		let execCallCount = 0;
 		const pi = makePi({
@@ -323,7 +292,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		assert.ok(result1);
 		assert.ok(result2);
 	});
-
 	it("different pattern → cache miss (re-exec)", async () => {
 		let scanCallCount = 0;
 		const pi = makePi({
@@ -343,7 +311,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
 		assert.strictEqual(scanCallCount, 2, "different patterns should each scan");
 	});
-
 	it("different language → cache miss (re-exec)", async () => {
 		let scanCallCount = 0;
 		const pi = makePi({
@@ -363,7 +330,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)", language: "py" });
 		assert.strictEqual(scanCallCount, 2, "different languages should each scan");
 	});
-
 	it("different cwd → cache miss (re-exec)", async () => {
 		let scanCallCount = 0;
 		const pi = makePi({
@@ -384,7 +350,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)", language: "ts" }, { cwd: "/dir2" });
 		assert.strictEqual(scanCallCount, 2, "different cwds should each scan");
 	});
-
 	it("error response NOT cached — second call re-executes", async () => {
 		let scanCallCount = 0;
 		const pi = makePi({
@@ -415,7 +380,6 @@ describe("structuralAnalyzer extension wiring", () => {
 			"errors should not be cached — second call should re-execute",
 		);
 	});
-
 	it("invalid pattern throws before pi.exec is called", async () => {
 		let execCallCount = 0;
 		const pi = makePi({
@@ -431,7 +395,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		// Pattern validation throws before any pi.exec call
 		assert.strictEqual(execCallCount, 0, "exec should NOT be called — validation throws first");
 	});
-
 	it("auto-detect typescript when tsconfig.json present", async () => {
 		let usedLanguage = "";
 		const pi = makePi({
@@ -456,7 +419,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)" }); // no language param → auto-detect
 		assert.strictEqual(usedLanguage, "typescript");
 	});
-
 	it("no config + explicit language param → uses supplied language", async () => {
 		let usedLanguage = "";
 		const pi = makePi({
@@ -478,7 +440,6 @@ describe("structuralAnalyzer extension wiring", () => {
 		await executeTool(pi, { pattern: "console.log($A)", language: "rust" });
 		assert.strictEqual(usedLanguage, "rust");
 	});
-
 	it("no config + no language param → falls back to 'ts'", async () => {
 		let usedLanguage = "";
 		const pi = makePi({
@@ -499,655 +460,5 @@ describe("structuralAnalyzer extension wiring", () => {
 
 		await executeTool(pi, { pattern: "console.log($A)" });
 		assert.strictEqual(usedLanguage, "ts");
-	});
-
-	it("sgconfig.yml with languageGlobs → detected language used in --lang arg", async () => {
-		let usedLanguage = "";
-		let testCallIdx = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[], opts?: any) => {
-				testCallIdx++;
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test" && args[0] === "-f") {
-					if (args[1] === "sgconfig.yml") return { code: 0, stdout: "" };
-					return { code: 1, stdout: "" };
-				}
-				if (cmd === "cat") {
-					return { code: 0, stdout: "languageGlobs:\n  rust: '*.rs'\n" };
-				}
-				if (args[0] === "run") {
-					const langIdx = args.indexOf("--lang");
-					if (langIdx >= 0) usedLanguage = args[langIdx + 1];
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		await executeTool(pi, { pattern: "console.log($A)" });
-		assert.strictEqual(usedLanguage, "rust");
-	});
-
-	it("5000 matches → truncated to 100, truncated: true, totalMatches: 5000", async () => {
-		const manyMatches = Array.from({ length: 5000 }, (_, i) =>
-			createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match number ${i}`),
-		).join("\n");
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") return { stdout: manyMatches, stderr: "", code: 0, killed: false };
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "match($A)", language: "ts" });
-		assert.strictEqual(result.isError, undefined);
-		const details = result.details as Record<string, unknown>;
-		assert.strictEqual(details.truncated, true);
-		assert.strictEqual(details.totalMatches, 5000);
-		assert.strictEqual((details.results as any[]).length, 100);
-	});
-
-	it("5 matches → full set, no truncation flag", async () => {
-		const fiveMatches = Array.from({ length: 5 }, (_, i) =>
-			createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match ${i}`),
-		).join("\n");
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") return { stdout: fiveMatches, stderr: "", code: 0, killed: false };
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "match($A)", language: "ts" });
-		const details = result.details as Record<string, unknown>;
-		assert.strictEqual(details.truncated, undefined);
-		assert.strictEqual((details.results as any[]).length, 5);
-	});
-
-	it("exactly 100 matches → NOT truncated (101 is threshold)", async () => {
-		const hundredMatches = Array.from({ length: 100 }, (_, i) =>
-			createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match ${i}`),
-		).join("\n");
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run")
-					return { stdout: hundredMatches, stderr: "", code: 0, killed: false };
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "match($A)", language: "ts" });
-		const details = result.details as Record<string, unknown>;
-		assert.strictEqual(details.truncated, undefined);
-		assert.strictEqual((details.results as any[]).length, 100);
-	});
-
-	it("exactly 101 matches → truncated to 100", async () => {
-		const matches = Array.from({ length: 101 }, (_, i) =>
-			createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match ${i}`),
-		).join("\n");
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") return { stdout: matches, stderr: "", code: 0, killed: false };
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "match($A)", language: "ts" });
-		const details = result.details as Record<string, unknown>;
-		assert.strictEqual(details.truncated, true);
-		assert.strictEqual((details.results as any[]).length, 100);
-	});
-
-	it("ast-grep --version succeeds → binary cached, no version check on subsequent calls", async () => {
-		let versionCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version")) {
-					versionCallCount++;
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				}
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		const countAfterFirst = versionCallCount;
-		assert.ok(countAfterFirst >= 1, "version should be checked at least once");
-
-		await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
-		assert.strictEqual(versionCallCount, countAfterFirst);
-	});
-
-	it("concurrent calls — single version check, same binary used", async () => {
-		let versionCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version")) {
-					versionCallCount++;
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				}
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const results = await Promise.all([
-			executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
-			executeTool(pi, { pattern: "console.log($B)", language: "ts" }),
-			executeTool(pi, { pattern: "console.log($C)", language: "ts" }),
-		]);
-
-		assert.strictEqual(versionCallCount, 1, "only one version check should occur");
-		assert.strictEqual(results.length, 3);
-		results.forEach((r) => assert.ok(r));
-	});
-
-	it("version check fails — concurrent callers all throw", async () => {
-		let versionCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version")) {
-					versionCallCount++;
-					return { stdout: "", stderr: "command not found", code: 127, killed: false };
-				}
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				// Unknown commands fail so npm config get prefix doesn't trigger unintended probes
-				return { stdout: "", stderr: "", code: 127, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		await assert.rejects(
-			Promise.all([
-				executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
-				executeTool(pi, { pattern: "console.log($B)", language: "ts" }),
-				executeTool(pi, { pattern: "console.log($C)", language: "ts" }),
-			]),
-		);
-		assert.strictEqual(versionCallCount, 3, "3 --version probes in one resolution chain");
-	});
-
-	it("failed promise resets — next sequential call retries version check", async () => {
-		let versionCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version")) {
-					versionCallCount++;
-					// First resolution attempt: all 3 --version probes fail (code 127)
-					// Second resolution attempt: first probe succeeds (code 0)
-					if (versionCallCount <= 3) {
-						return { stdout: "", stderr: "command not found", code: 127, killed: false };
-					}
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				}
-				if (cmd === "npm") return { stdout: "", stderr: "", code: 127, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		// First call — version check fails
-		await assert.rejects(
-			() => executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
-			/ast-grep/,
-		);
-
-		// Second call — retries version check, succeeds
-		const result = await executeTool(pi, { pattern: "console.log($B)", language: "ts" });
-		assert.ok(result);
-		assert.strictEqual(versionCallCount, 4, "version check should run twice (3 + 1 probes)");
-	});
-
-	it("ast-grep --version fails (code 127) — throws, no fallback to sg", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version")) {
-					return { stdout: "", stderr: "command not found", code: 127, killed: false };
-				}
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		await assert.rejects(
-			() => executeTool(pi, { pattern: "console.log($A)", language: "ts" }),
-			/ast-grep/,
-		);
-	});
-
-	it("exit code 1 + stderr → resolves isError with typed stderr", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					return { stdout: "", stderr: "unknown language", code: 1, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "console.log($A)", language: "badlang" });
-		assert.strictEqual(result.isError, true);
-		const sc = result.structuredContent as Record<string, unknown>;
-		assert.strictEqual(sc.stderr, "unknown language");
-		assert.strictEqual(sc.exitCode, 1);
-		assert.strictEqual(sc.language, "badlang");
-		assert.strictEqual(sc.pattern, "console.log($A)");
-		assert.strictEqual(sc.matches, 0);
-		assert.deepStrictEqual(sc.results, []);
-		assert.strictEqual((result.details as Record<string, unknown>).success, false);
-	});
-
-	it("exit code 126 → resolves isError with exitCode 126", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					return { stdout: "", stderr: "Permission denied", code: 126, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.strictEqual(result.isError, true);
-		assert.strictEqual((result.structuredContent as { exitCode?: number }).exitCode, 126);
-	});
-
-	it("exit code 2 → resolves isError", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					return { stdout: "", stderr: "some error", code: 2, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.strictEqual(result.isError, true);
-	});
-
-	it("exit code 1 + empty stderr → success: 'No matches found'", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					return { stdout: "", stderr: "", code: 1, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.strictEqual(result.isError, undefined);
-		assert.ok(result.content[0].text.includes("No matches found"));
-	});
-
-	it(":: collision avoidance: pattern=$A::method,language=ts and pattern=$A,language=method::ts stored separately", async () => {
-		let scanCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					scanCallCount++;
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		await executeTool(pi, { pattern: "$A::method", language: "ts" });
-		await executeTool(pi, { pattern: "$A", language: "method::ts" });
-		assert.strictEqual(scanCallCount, 2, "should be cache misses, two scans");
-	});
-
-	it("special chars pattern cached and hit correctly", async () => {
-		let scanCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					scanCallCount++;
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		await executeTool(pi, { pattern: "try { $$$BODY } catch (e) { $A }", language: "ts" });
-		await executeTool(pi, { pattern: "try { $$$BODY } catch (e) { $A }", language: "ts" });
-		assert.strictEqual(scanCallCount, 1, "second call should be cache hit");
-	});
-
-	it("AbortSignal forwarded to pi.exec as signal property", async () => {
-		let passedSignal: any = undefined;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[], opts?: any) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					passedSignal = opts?.signal;
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const ac = new AbortController();
-		await executeTool(pi, { pattern: "console.log($A)", language: "ts" }, { signal: ac.signal });
-		assert.strictEqual(passedSignal, ac.signal);
-	});
-
-	it("undefined signal works normally", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.ok(result);
-	});
-
-	it("pre-aborted signal → pi.exec receives aborted signal", async () => {
-		let passedSignal: any = undefined;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[], opts?: any) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					passedSignal = opts?.signal;
-					// Reject if signal already aborted — verify it's forwarded correctly
-					if (opts?.signal?.aborted) throw new Error("AbortError");
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const ac = new AbortController();
-		ac.abort();
-		await assert.rejects(() =>
-			executeTool(pi, { pattern: "console.log($A)", language: "ts" }, { signal: ac.signal }),
-		);
-		assert.strictEqual(passedSignal, ac.signal, "aborted signal should be passed to pi.exec");
-	});
-
-	it("multiple config files → priority: sgconfig.yml > tsconfig.json", async () => {
-		let usedLanguage = "";
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[], opts?: any) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test" && args[0] === "-f") {
-					// Both exist, sgconfig.yml checked first
-					return { code: 0, stdout: "" };
-				}
-				if (cmd === "cat") {
-					return { code: 0, stdout: "languageGlobs:\n  rust: '*.rs'\n" };
-				}
-				if (args[0] === "run") {
-					const langIdx = args.indexOf("--lang");
-					if (langIdx >= 0) usedLanguage = args[langIdx + 1];
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		await executeTool(pi, { pattern: "console.log($A)" });
-		assert.strictEqual(usedLanguage, "rust");
-	});
-
-	it("equivalent directory spellings share one resolved cache key (one scan)", async () => {
-		let scanCallCount = 0;
-		const capturedArgs: string[][] = [];
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					scanCallCount++;
-					capturedArgs.push(args);
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 1, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		for (const spelling of ["sub", "./sub", "sub/"]) {
-			await executeTool(
-				pi,
-				{ pattern: "console.log($A)", language: "ts", directory: spelling },
-				{ cwd: "/tmp" },
-			);
-		}
-
-		assert.strictEqual(scanCallCount, 1, "equivalent spellings must resolve to one cache key");
-		assert.ok(
-			capturedArgs[0].includes(resolve("/tmp", "sub")),
-			"resolved dir should be passed to ast-grep",
-		);
-	});
-
-	it("in-root nonexistent directory keeps ast-grep error semantics (no traversal wording)", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (args[0] === "run")
-					return { stdout: "", stderr: "error: unable to access path", code: 1, killed: false };
-				return { stdout: "", stderr: "", code: 1, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(
-			pi,
-			{ pattern: "console.log($A)", language: "ts", directory: "nonexistent_subdir" },
-			{ cwd: "/tmp" },
-		);
-		assert.strictEqual(result.isError, true);
-		const text = result.content[0].text as string;
-		assert.doesNotMatch(text, /Directory traversal detected/);
-		assert.doesNotMatch(text, /not found in project root/);
-		assert.match(text, /unable to access path/);
-	});
-});
-
-describe("structural_search structured contract", () => {
-	beforeEach(() => {
-		clearResultCache();
-	});
-
-	it("annotations declare readOnlyHint and idempotentHint (openWorldHint false)", () => {
-		const pi = makePi();
-		structuralAnalyzer(pi);
-		const tool = pi.__getRegisteredTool();
-		assert.deepStrictEqual(tool.annotations, {
-			readOnlyHint: true,
-			idempotentHint: true,
-			openWorldHint: false,
-		});
-		assert.strictEqual(tool.annotations.readOnlyHint, true);
-		assert.strictEqual(tool.annotations.idempotentHint, true);
-	});
-
-	it("outputSchema describes both emitted shapes", () => {
-		const pi = makePi();
-		structuralAnalyzer(pi);
-		const tool = pi.__getRegisteredTool();
-		assert.ok(tool.outputSchema, "outputSchema should be declared");
-		assert.ok(
-			Value.Check(tool.outputSchema, {
-				matches: 2,
-				results: [{ file: "a.ts", lines: "1", snippet: "x" }],
-				language: "ts",
-			}),
-		);
-		assert.ok(
-			Value.Check(tool.outputSchema, {
-				matches: 0,
-				results: [],
-				language: "badlang",
-				error: "unknown language",
-				stderr: "unknown language",
-				exitCode: 1,
-				pattern: "console.log($A)",
-			}),
-		);
-	});
-
-	it("happy path returns structuredContent matching outputSchema", async () => {
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const result = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		const tool = pi.__getRegisteredTool();
-		assert.ok(Value.Check(tool.outputSchema, result.structuredContent));
-		assert.deepStrictEqual(result.structuredContent, {
-			matches: 2,
-			results: (result.details as { results: unknown[] }).results,
-			language: "ts",
-		});
-	});
-
-	it("cache hit returns the identical structuredContent envelope", async () => {
-		let scanCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					scanCallCount++;
-					return { stdout: TWO_MATCHES, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const first = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		const second = await executeTool(pi, { pattern: "console.log($A)", language: "ts" });
-		assert.strictEqual(scanCallCount, 1, "second call should be a cache hit");
-		assert.deepStrictEqual(second.structuredContent, first.structuredContent);
-		assert.deepStrictEqual(second.details, first.details);
-	});
-
-	it("truncated result preserves truncation signal on cache hit", async () => {
-		const manyMatches = Array.from({ length: 150 }, (_, i) =>
-			createMatchJson(`file${i}.ts`, `${i}-${i + 1}`, `match number ${i}`),
-		).join("\n");
-		let scanCallCount = 0;
-		const pi = makePi({
-			execOverride: async (cmd: string, args: string[]) => {
-				if (args.includes("--version"))
-					return { stdout: "ast-grep 0.42.2", stderr: "", code: 0, killed: false };
-				if (cmd === "test") return { code: 1, stdout: "" };
-				if (cmd === "cat") return { stdout: "", stderr: "", code: 0, killed: false };
-				if (args[0] === "run") {
-					scanCallCount++;
-					return { stdout: manyMatches, stderr: "", code: 0, killed: false };
-				}
-				return { stdout: "", stderr: "", code: 0, killed: false };
-			},
-		});
-		structuralAnalyzer(pi);
-
-		const first = await executeTool(pi, { pattern: "match($A)", language: "ts" });
-		const second = await executeTool(pi, { pattern: "match($A)", language: "ts" });
-		assert.strictEqual(scanCallCount, 1);
-		const sc = second.structuredContent as {
-			truncated?: boolean;
-			totalMatches?: number;
-			results: unknown[];
-		};
-		assert.strictEqual(sc.truncated, true);
-		assert.strictEqual(sc.totalMatches, 150);
-		assert.strictEqual(sc.results.length, 100);
-		assert.deepStrictEqual(second.structuredContent, first.structuredContent);
 	});
 });

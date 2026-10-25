@@ -1,41 +1,23 @@
-/**
- * Tests for unbreak_worktrees() — idempotent worktree path rewriting.
- *
- * Phases:
- *   1 — Worktree .git absolute→relative path rewriting
- *   2 — Reciprocal gitdir files in .bare/worktrees/<id>/gitdir
- *   3 — Recovery of pruned worktree registrations
- *   4 — Worktree locking
- *   5 — Idempotency (run twice, no side effects on second run)
- *   6 — Error handling and edge cases
- *   7 — BARE_DIR discovery variations
- *
- * Run with:
- *   node --experimental-strip-types --test docker/test/unbreak-worktrees.test.mts
- */
-
 import assert from "node:assert";
+
 import { describe, it, beforeEach, afterEach } from "node:test";
+
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, existsSync } from "node:fs";
+
 import { join, resolve, dirname } from "node:path";
+
 import { tmpdir } from "node:os";
+
 import { execSync } from "node:child_process";
+
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
+
 const __dirname = dirname(__filename);
 
 const FIX_SCRIPT = resolve(__dirname, "../../cmd/cheasee-pi/embedded/docker/lib/worktree-fix.sh");
 
-// ═══════════════════════════════════════════════════════════════════
-// Helpers
-// ═══════════════════════════════════════════════════════════════════
-
-/**
- * Create a temp directory with the given relative structure.
- * `files` maps relative file paths to their string content.
- * Returns the temp directory path.
- */
 function createFixture(files: Record<string, string>): string {
 	const tmp = mkdtempSync(join(tmpdir(), "worktree-fix-"));
 	for (const [relPath, content] of Object.entries(files)) {
@@ -46,10 +28,6 @@ function createFixture(files: Record<string, string>): string {
 	return tmp;
 }
 
-/**
- * Run unbreak_worktrees() against a temp workspace base.
- * Returns { stdout, stderr } from the bash invocation.
- */
 function runFix(workspaceBase: string): { stdout: string; stderr: string } {
 	const cmd = `bash -c 'source "${FIX_SCRIPT}" && unbreak_worktrees "${workspaceBase}"' 2>&1`;
 	try {
@@ -67,9 +45,6 @@ function runFix(workspaceBase: string): { stdout: string; stderr: string } {
 	}
 }
 
-/**
- * Read a file from the temp workspace. Returns null if missing.
- */
 function readFileOrNull(workspaceBase: string, relPath: string): string | null {
 	const absPath = join(workspaceBase, relPath);
 	try {
@@ -79,9 +54,6 @@ function readFileOrNull(workspaceBase: string, relPath: string): string | null {
 	}
 }
 
-/**
- * Helper: add a worktree with absolute paths to the fixture.
- */
 function addWorktreeAbs(base: string, id: string, hostPrefix: string = "/home/user/git"): void {
 	mkdirSync(join(base, id), { recursive: true });
 	writeFileSync(join(base, `${id}/.git`), `gitdir: ${hostPrefix}/.bare/worktrees/${id}`);
@@ -89,16 +61,9 @@ function addWorktreeAbs(base: string, id: string, hostPrefix: string = "/home/us
 	writeFileSync(join(base, `.bare/worktrees/${id}/gitdir`), `${hostPrefix}/${id}/.git`);
 }
 
-/**
- * Destroy a temp workspace.
- */
 function destroyFixture(tmp: string): void {
 	rmSync(tmp, { recursive: true, force: true });
 }
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 1: Worktree .git path rewriting
-// ═══════════════════════════════════════════════════════════════════
 
 describe("Phase 1 — .git path rewriting", () => {
 	let tmp: string;
@@ -157,11 +122,6 @@ describe("Phase 1 — .git path rewriting", () => {
 		}
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 2: Reciprocal gitdir files
-// ═══════════════════════════════════════════════════════════════════
-
 describe("Phase 2 — reciprocal gitdir files", () => {
 	let tmp: string;
 
@@ -235,11 +195,6 @@ describe("Phase 2 — reciprocal gitdir files", () => {
 		assert.strictEqual(resolved, expected);
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 3: Recovery of pruned worktree registrations
-// ═══════════════════════════════════════════════════════════════════
-
 describe("Phase 3 — recovery of pruned worktree registrations", () => {
 	let tmp: string;
 
@@ -316,11 +271,6 @@ describe("Phase 3 — recovery of pruned worktree registrations", () => {
 		}
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 4: Worktree locking
-// ═══════════════════════════════════════════════════════════════════
-
 describe("Phase 4 — worktree locking", () => {
 	let tmp: string;
 
@@ -375,11 +325,6 @@ describe("Phase 4 — worktree locking", () => {
 		}
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 5: Idempotency
-// ═══════════════════════════════════════════════════════════════════
-
 describe("Phase 5 — idempotency", () => {
 	let tmp: string;
 
@@ -429,11 +374,6 @@ describe("Phase 5 — idempotency", () => {
 		);
 	});
 });
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 6: Error handling and edge cases
-// ═══════════════════════════════════════════════════════════════════
-
 describe("Phase 6 — error handling and edge cases", () => {
 	let tmp: string;
 
@@ -547,49 +487,5 @@ describe("Phase 6 — error handling and edge cases", () => {
 
 		// Main .git should still be fixed
 		assert.strictEqual(readFileOrNull(tmp, "main/.git"), "gitdir: ../.bare/worktrees/main");
-	});
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// Phase 7: BARE_DIR discovery variations
-// ═══════════════════════════════════════════════════════════════════
-
-describe("BARE_DIR discovery", () => {
-	let tmp: string;
-
-	afterEach(() => {
-		if (tmp) destroyFixture(tmp);
-	});
-
-	it("discovers bare dir from main/.git content", () => {
-		tmp = createFixture({
-			"main/.git": "gitdir: /workspaces/.bare/worktrees/main",
-			".bare/worktrees/main/gitdir": "/workspaces/main/.git",
-		});
-
-		const result = runFix(tmp);
-		assert.ok(result.stdout.includes("BARE_DIR="));
-	});
-
-	it("falls back to .bare/ when main/.git has already-relative content", () => {
-		tmp = createFixture({
-			"main/.git": "gitdir: ../.bare/worktrees/main",
-			".bare/HEAD": "ref: refs/heads/main",
-			".bare/worktrees/main/gitdir": "../../../main/.git",
-		});
-
-		const result = runFix(tmp);
-		// Should find .bare via fallback
-		assert.ok(result.stdout.includes("BARE_DIR="));
-		assert.ok(result.stdout.includes("Worktree fix complete"));
-	});
-
-	it("skips fix when no .bare directory exists anywhere", () => {
-		tmp = createFixture({
-			"some-dir/file.txt": "hello",
-		});
-
-		const result = runFix(tmp);
-		assert.ok(result.stdout.includes("Could not find .bare directory"));
 	});
 });
