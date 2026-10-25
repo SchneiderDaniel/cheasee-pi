@@ -70,6 +70,7 @@ var codeflowShimModules = []string{
 	"analysis_run.py",
 	"repo_identity.py",
 	"ui_rewrites.py",
+	"handler_api.py",
 }
 
 // stageCodeflowShim writes the embedded shim modules (plus the fp-filter.js the

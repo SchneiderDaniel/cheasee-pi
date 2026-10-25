@@ -56,10 +56,8 @@ Env (deployment overrides, used when config.json is absent):
   ANALYZER_CMD  headless analyzer command          (default: node <script dir>/run-analysis.mjs)
   RUN_TIMEOUT_S headless run bound, seconds        (fallback for run_timeout_s)
 """
-import base64
 import json
 import os
-import subprocess
 import sys
 import threading
 import time
@@ -82,7 +80,8 @@ from analysis_run import (
     _run_snapshot,
 )
 from config import EXCLUDE_DIRS, HOST, PORT, REPO_ROOT, UI_DIR
-from repo_identity import _FP_LEN, _fingerprint, _scan, _split_fingerprint, _walk
+from handler_api import RepoRoutes
+from repo_identity import _FP_LEN, _fingerprint, _scan, _split_fingerprint
 from report_store import (
     _BRIDGE_STATUS_ROUTE,
     _MAX_REPORT_BYTES,
@@ -112,7 +111,7 @@ from ui_rewrites import (
 from bridge_js import BRIDGE_JS as _BRIDGE_JS
 
 
-class Handler(BaseHTTPRequestHandler):
+class Handler(RepoRoutes, BaseHTTPRequestHandler):
     server_version = "CodeFlowShim/1.0"
 
     def _json(self, obj, status=200):
@@ -366,74 +365,6 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
-
-    # --- Emulated GitHub API ----------------------------------------------
-    def _api(self, path):
-        # /api/repos/{owner}/{repo}/[...]
-        parts = [urllib.parse.unquote(p) for p in path[len("/api/"):].split("/") if p]
-        if len(parts) < 3 or parts[0] != "repos":
-            self._not_found()
-            return
-        _, owner, repo = parts[:3]
-        rest = parts[3:]
-        del owner, repo  # shim ignores identity; everything maps to REPO_ROOT
-
-        if not rest:  # repo metadata
-            self._json({"default_branch": "main"})
-            return
-
-        if rest[0] == "git" and len(rest) == 3 and rest[1] == "trees":
-            self._json({"tree": _walk(), "truncated": False})
-            return
-
-        if rest[0] == "contents":
-            self._list_contents("/".join(rest[1:]))
-            return
-
-        self._not_found()
-
-    def _list_contents(self, rel):
-        """Serve GET /contents/{rel} from the scanned committed tree."""
-        rel = rel.strip("/")
-        prefix = rel + "/" if rel else ""
-        scanned = _scan()
-        entries = []
-        seen = set()
-        for e in scanned:
-            path = e["path"]
-            if prefix and not path.startswith(prefix):
-                continue
-            name, sep, _ = path[len(prefix):].partition("/")
-            if not name or name in seen:
-                continue
-            seen.add(name)
-            if sep:
-                entries.append({"type": "dir", "path": prefix + name, "name": name})
-            else:
-                entries.append({"type": "file", "path": path, "name": name, "size": e["size"]})
-        if entries or not rel:
-            self._json(entries)
-            return
-        for e in scanned:
-            if e["path"] == rel:
-                self._file_contents(e["oid"])
-                return
-        self._not_found()
-
-    def _file_contents(self, oid):
-        try:
-            proc = subprocess.run(
-                ["git", "-c", "safe.directory=*", "-C", REPO_ROOT, "cat-file", "blob", oid],
-                capture_output=True,
-                timeout=60,
-            )
-        except (OSError, subprocess.SubprocessError):
-            self._not_found()
-            return
-        if proc.returncode != 0:
-            self._not_found()
-            return
-        self._json({"content": base64.b64encode(proc.stdout).decode(), "encoding": "base64"})
 
     def log_message(self, format, *args):  # quiet
         pass

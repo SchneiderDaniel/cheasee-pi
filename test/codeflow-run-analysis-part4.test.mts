@@ -198,6 +198,7 @@ const VBA_GOD_BASELINE = JSON.parse(
 	before: { commit: string; files: number; vbaGodModuleCount: number };
 	after: { commit: string; files: number; vbaGodModuleCount: number };
 	reducedBy: string[];
+	reducedByLater?: { issue: number; reason: string; files: string[] };
 	deferred: { reason: string; files?: string[] }[];
 };
 
@@ -253,24 +254,29 @@ describe("vba god module metric oracle (issue #2006)", () => {
 		}
 	});
 
-	it("defers the Rust set and server.py, never citing one path twice", () => {
+	it("defers the Rust set, never citing one path twice", () => {
 		const deferred = VBA_GOD_BASELINE.deferred;
-		assert.ok(deferred.length >= 2, "the Rust and server.py deferrals are recorded");
+		assert.strictEqual(deferred.length, 1, "only the Rust set is still deferred");
 		for (const entry of deferred) {
 			assert.ok(entry.reason.length > 0, "every deferred entry states a reason");
 		}
 		const withFiles = deferred.filter((d) => (d.files ?? []).length > 0);
 		const rust = withFiles.find((d) => d.files!.every((f) => f.endsWith(".rs")));
-		const serverPy = withFiles.find((d) =>
-			d.files!.includes("cmd/cheasee-pi/embedded/docker/codeflow/server.py"),
-		);
 		assert.ok(rust, "the Rust set is recorded as deferred");
-		assert.ok(serverPy, "the embedded server.py is recorded as deferred");
+		// #2031 split server.py below the ceiling, so it is cited there instead.
+		assert.deepStrictEqual(VBA_GOD_BASELINE.reducedByLater?.files, [
+			"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+		]);
+		assert.strictEqual(VBA_GOD_BASELINE.reducedByLater?.issue, 2031);
 		for (const rel of withFiles.flatMap((d) => d.files!)) {
 			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
 			assert.ok(
 				!VBA_GOD_BASELINE.reducedBy.includes(rel),
 				`${rel} is both deferred and cited as reduced`,
+			);
+			assert.ok(
+				!(VBA_GOD_BASELINE.reducedByLater?.files ?? []).includes(rel),
+				`${rel} is both deferred and reduced by a later issue`,
 			);
 		}
 	});
@@ -279,8 +285,10 @@ describe("vba god module metric oracle (issue #2006)", () => {
 		const files = VBA_GOD_BASELINE.deferred.flatMap((d) => d.files ?? []);
 		assert.strictEqual(
 			VBA_GOD_BASELINE.before.vbaGodModuleCount,
-			VBA_GOD_BASELINE.reducedBy.length + files.length,
-			"the base count must equal reduced + deferred",
+			VBA_GOD_BASELINE.reducedBy.length +
+				(VBA_GOD_BASELINE.reducedByLater?.files.length ?? 0) +
+				files.length,
+			"the base count must equal reduced + reduced-by-a-later-issue + deferred",
 		);
 		assert.strictEqual(
 			VBA_GOD_BASELINE.after.vbaGodModuleCount,

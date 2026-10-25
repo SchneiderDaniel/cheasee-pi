@@ -1,0 +1,131 @@
+{
+	"provenance": {
+		"issue": 2031,
+		"title": "Split the 43 large files flagged by CodeFlow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"metric": "patterns[Architecture Issues].architectureIssues[] (43 Large Files) — the same predicate as God Object: analyzed files where isCode !== false && functions.length > 15 (index.html detectPatterns `godFiles`). `functions` is the headless parser count mirrored by test/fixtures/function-count-mirror.mts; the ceiling is strictly greater than 15.",
+		"filedAnalyzedAt": 1791804971015,
+		"filedCount": 43
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "cfdb2da308afaddbcffaac1d72488eef9966e5c1",
+		"count": 20,
+		"flagged": [
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+			"cmd/cheasee-pi/embedded/docker/ui/src/auth/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/controls/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/retry/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/retry/tests_wiring.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client/tests_delivery.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/session/relay.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/session/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/stream/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/subscribe/tests.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+			"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs"
+		]
+	},
+	"after": {
+		"ref": "worktree-git-issue-2031-refactor-split-the-43-large-files-flagged-by-codef",
+		"count": 19,
+		"note": "20 - 1: `server.py` fell from 16 to 13 functions when its `/api/repos/*` routes moved to `handler_api.py`. The 19 survivors are the same files, so `after.count` is `deferred` + `unfiledFlagged`."
+	},
+	"reducedBy": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"],
+	"modules": {
+		"cmd/cheasee-pi/embedded/docker/codeflow/server.py": 13,
+		"cmd/cheasee-pi/embedded/docker/codeflow/handler_api.py": 4
+	},
+	"deferred": [
+		{
+			"reason": "no Rust toolchain in the pipeline image — `which cargo rustc` is empty and no workflow compiles `embedded/docker/ui`, so a `mod`-declared move cannot be checked in-gate (#2002-#2006, #2034-#2036 precedent)",
+			"requires": "a cargo gate (rust:1.99-bookworm builder image) in tests.yml; until then a Rust split's \"tests stay green\" is unfalsifiable",
+			"files": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/bash.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/pi_process.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/ws.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs"
+			]
+		},
+		{
+			"reason": "`fp-filter.js` is served byte-verbatim at `/fp-filter.js` and COPYed into the image as one artifact: it is a deliberate dual-consumer UMD (`<script src>` in the served page, CJS `require` in `run-analysis.mjs`), so its boundary is a delivery contract, not a module seam",
+			"requires": "3 COPY lines, 3 serve routes and a third `_BRIDGE_SCRIPT` tag to keep the split serving byte-identically — a delivery redesign, not a refactor",
+			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]
+		}
+	],
+	"unfiledFlagged": [
+		{
+			"reason": "flagged at delivery but not filed by #2031: these are `mod`-declared siblings that earlier Rust splits (#2002-#2006, #2034-#2036) minted. They carry the same blocker as the deferred Rust group — no cargo gate — so they are recorded rather than silently dropped from the live measurement.",
+			"requires": "a cargo gate in tests.yml (same prerequisite as the deferred Rust group)",
+			"files": [
+				"cmd/cheasee-pi/embedded/docker/ui/src/auth/tests.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls/tests.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry/tests.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry/tests_wiring.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client/tests.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/client/tests_delivery.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session/relay.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/session/tests.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/stream/tests.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe/tests.rs"
+			]
+		}
+	],
+	"notScored": [
+		{
+			"reason": "`.mts` is absent from CODE_EXTS at the pinned ref, so the analyzer never scores these (yet they were filed)",
+			"files": [
+				".pi/extensions/context-info/test/context-info.test.mts",
+				".pi/extensions/ripgrep-search/test/ripgrep-search.test.mts",
+				".pi/extensions/supervisor/test/dead-code-file-classification-removal.test.mts",
+				".pi/extensions/supervisor/test/pipeline/merge.test.mts",
+				".pi/skills/audit-codeflow-analysis/scripts/dry-run.mts"
+			]
+		},
+		{
+			"reason": "scored by the analyzer and below the `> 15` ceiling at delivery — reduced by an earlier issue in this chain or never over it; each count is asserted `<= 15` by the oracle",
+			"files": [
+				".pi/extensions/agent-harness/test/harness-fixtures.ts",
+				".pi/extensions/caveman/test/config-ui.test.ts",
+				".pi/extensions/rtk/test/version-gate-lifecycle.test.ts",
+				".pi/extensions/scrapling/test/browser-setup.test.ts",
+				".pi/extensions/supervisor/event/adapter/normalize.ts",
+				".pi/extensions/supervisor/github/octokit-client.ts",
+				".pi/extensions/supervisor/lib/debug.ts",
+				".pi/extensions/supervisor/lib/render-helpers.ts",
+				".pi/extensions/supervisor/pipeline/error-collector.ts",
+				".pi/extensions/supervisor/test/helpers/mock-ctx.ts",
+				".pi/extensions/supervisor/test/helpers/mock-pi.ts",
+				".pi/skills/audit-codeflow-analysis/lib/fetch-report.ts",
+				"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/auth.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/retry.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/rpc/framing.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/src/subscribe.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/event_widgets.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs",
+				"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs",
+				"test/dependency_existence_check_tests/_common.py",
+				"test/dependency_existence_check_tests/test_adapter_extraction.py",
+				"test/dependency_existence_check_tests/test_pipeline_age_guard.py",
+				"test/dependency_existence_check_tests/test_registry_transport.py"
+			]
+		}
+	]
+}

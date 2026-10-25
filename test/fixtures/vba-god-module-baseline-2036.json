@@ -27,7 +27,7 @@
 		"ref": "worktree-git-issue-2036-refactor-break-up-the-25-vba-god-module-files-flag",
 		"codeFiles": 804,
 		"vbaGodModuleCount": 1,
-		"godObjectCount": 27
+		"godObjectCount": 26
 	},
 	"baseAdvance": {
 		"issue": 2034,
@@ -212,5 +212,10 @@
 			"reason": "still flagged on the delivered tree but NOT cited by #2036; owned by the long-file / anti-pattern issues that share the same file set, not by this reduction.",
 			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]
 		}
-	]
+	],
+	"laterReduced": {
+		"issue": 2031,
+		"reason": "#2031 moved server.py's `/api/repos/*` routes into `handler_api.py` (16 -> 13 functions), which also drops it out of the > 15 set this fixture measures live (`after.godObjectCount` 27 -> 26). The vba count is unaffected: server.py was never in the > 20 set here.",
+		"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
+	}
 }

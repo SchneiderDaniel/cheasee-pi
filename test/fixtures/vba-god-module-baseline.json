@@ -29,7 +29,7 @@
 		"ref": "worktree-git-issue-2006-refactor-vba-god-module",
 		"commit": "db16ddbb0c84e1d21274e10ff94486cdc0d3259c",
 		"files": 927,
-		"vbaGodModuleCount": 17,
+		"vbaGodModuleCount": 16,
 		"godObjectCount": 23,
 		"longFileCount": 16,
 		"functions": 3558,
@@ -48,6 +48,11 @@
 		"test/dependency_existence_check_tests/test_adapter_extraction.py",
 		"test/dependency_existence_check_tests/test_registry_transport.py"
 	],
+	"reducedByLater": {
+		"issue": 2031,
+		"reason": "#2031 moved server.py's `/api/repos/*` routes into `handler_api.py` (16 -> 13 functions, so it leaves this metric's > 20 set too). It stops flagging without a #2006 follow-up, so it moves here instead of leaving the ledger.",
+		"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
+	},
 	"deferred": [
 		{
 			"reason": "no Rust toolchain in the pipeline image — `which cargo/rustc` is empty, there is no Docker in-gate and no workflow compiles `embedded/docker/ui` (its builder image needs `rust:1.99`), so a split under that tree could not be compiled or tested before landing (#2002–#2005 precedent)",
@@ -69,10 +74,6 @@
 				"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
 				"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
 			]
-		},
-		{
-			"reason": "`server.py` (51 declarations) is the codeflow bridge: moving code out of it changes the Dockerfile COPY set and the `_BRIDGE_JS`/`_UI_REWRITES` served contract pinned by `bridge.test.mts`, so it is deferred to the change that owns that boundary guard",
-			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"]
 		}
 	]
 }

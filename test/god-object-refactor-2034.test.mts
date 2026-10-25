@@ -57,6 +57,8 @@ type Baseline = {
 	before: { ref: string; commit: string; godObjectCount: number; flagged: string[] };
 	after: { ref: string; godObjectCount: number };
 	reducedBy: string[];
+	/** Files a later issue split below the ceiling, cited under that issue. */
+	reducedByLater?: { issue: number; reason: string; files: string[] };
 	deferred: { reason: string; requires: string; files: string[] }[];
 	notScored: { reason: string; files: string[] }[];
 	/** Files a later issue split below the ceiling without citing this one. */
@@ -212,6 +214,7 @@ describe("god-object refactor #2034 — the partition is explicit", () => {
 		const b = baseline();
 		const partition = [
 			...b.reducedBy,
+			...(b.reducedByLater?.files ?? []),
 			...b.deferred.flatMap((d) => d.files),
 			...b.notScored.flatMap((n) => n.files),
 		];
@@ -231,8 +234,14 @@ describe("god-object refactor #2034 — the partition is explicit", () => {
 		}
 		for (const rel of deferred) assert.equal(notScored.has(rel), false, `${rel} twice`);
 		assert.equal(b.reducedBy.length, 2);
-		assert.equal(deferred.size, 21);
+		assert.equal(deferred.size, 20);
 		assert.equal(notScored.size, 20);
+		// #2031 split `server.py` below the ceiling; it is cited under that issue.
+		assert.deepEqual(b.reducedByLater?.files, [
+			"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+		]);
+		assert.equal(b.reducedByLater?.issue, 2031);
+		assert.equal(deferred.has(b.reducedByLater!.files[0]!), false, "server.py is still deferred");
 	});
 
 	it("justifies every notScored path: the .mts group is the CODE_EXTS gate", () => {
@@ -567,10 +576,11 @@ describe("god-object refactor #2034 — the metric falls", () => {
 		const b = baseline();
 		assert.equal(
 			b.after.godObjectCount,
-			b.before.godObjectCount - (b.reducedBy.length + UNCITED_REDUCED.length),
+			b.before.godObjectCount -
+				(b.reducedBy.length + UNCITED_REDUCED.length + (b.reducedByLater?.files.length ?? 0)),
 			"after != before - split families",
 		);
-		assert.equal(b.after.godObjectCount, 21);
+		assert.equal(b.after.godObjectCount, 20);
 	});
 
 	it("preserves the historical deferral ledger", () => {
@@ -589,7 +599,8 @@ describe("god-object refactor #2034 — the metric falls", () => {
 	});
 
 	it("actually reduced every `reducedBy` file", () => {
-		for (const rel of [...baseline().reducedBy, ...UNCITED_REDUCED]) {
+		const b = baseline();
+		for (const rel of [...b.reducedBy, ...UNCITED_REDUCED, ...(b.reducedByLater?.files ?? [])]) {
 			assert.equal(flagged(rel), false, `${rel} is claimed reduced but still flagged`);
 		}
 	});
@@ -612,13 +623,14 @@ describe("god-object refactor #2034 — the metric falls", () => {
 			...followup.reducedBy,
 			...UNCITED_REDUCED,
 			...(b.laterReduced?.files ?? []),
+			...(b.reducedByLater?.files ?? []),
 		]);
 		const laterSiblings = new Set(Object.values(followup.splitFamilies).flat());
 		assert.ok(
 			live.length <= b.after.godObjectCount,
 			`live flagged ${live.length} > recorded ${b.after.godObjectCount}`,
 		);
-		for (const rel of [...b.reducedBy, ...UNCITED_REDUCED]) {
+		for (const rel of [...b.reducedBy, ...UNCITED_REDUCED, ...(b.reducedByLater?.files ?? [])]) {
 			assert.equal(live.includes(rel), false, `${rel} is still flagged in the live tree`);
 		}
 		for (const rel of live) {
@@ -639,8 +651,10 @@ describe("god-object refactor #2034 — the metric falls", () => {
 			"baseline.reducedBy must list exactly the cited reductions",
 		);
 		assert.deepEqual(UNCITED_REDUCED, ["cmd/cheasee-pi/disk_space_test.go"]);
+		for (const rel of [...UNCITED_REDUCED, ...(b.reducedByLater?.files ?? [])]) {
+			assert.equal(b.reducedBy.includes(rel), false, `${rel} is both cited and cross-cited`);
+		}
 		for (const rel of UNCITED_REDUCED) {
-			assert.equal(b.reducedBy.includes(rel), false, `${rel} is both cited and uncited`);
 			assert.equal(FILED.includes(rel), false, `${rel} is cited, so it is not uncited`);
 		}
 	});
