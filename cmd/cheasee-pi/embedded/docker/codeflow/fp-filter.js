@@ -179,9 +179,11 @@
 	// the hit a false positive needs the cited file's own text. A file is
 	// suppressed only when *every* child-process call it makes is an argv-array
 	// invocation through the shared policy (`argvCommand` for the program,
-	// `assertNoShell` for the options) and no shell-executing construct appears
-	// anywhere. An unreadable file, an unrecognised call shape, a dynamic
-	// program, or any shell call keeps the finding (fail closed).
+	// `assertNoShell` for the options), no shell-executing construct appears
+	// anywhere, and the options bind no environment — an env can name a command
+	// the argv never shows (`GIT_CONFIG_*`, `NODE_OPTIONS`, `LD_PRELOAD`). An
+	// unreadable file, an unrecognised call shape, a dynamic program, an env, or
+	// any shell call keeps the finding (fail closed).
 
 	// `node:child_process` members, by whether they run an argv array or a shell
 	// string. `execFile("sh", ["-c", x])` is still argv-shaped but names a shell,
@@ -465,6 +467,20 @@
 		if (/(?:^|[^\w$])eval\s*\(/.test(code)) return true;
 		if (/\bnew\s+Function\s*\(/.test(code)) return true;
 		return false;
+	}
+
+	/**
+	 * True when the spawn options bind an environment. `shell:false` says nothing
+	 * about indirect execution: git runs `core.sshCommand` from `GIT_CONFIG_*`,
+	 * node runs a module from `NODE_OPTIONS`, and `LD_PRELOAD`/`BASH_ENV` do the
+	 * same for other programs — so an env the argv proof cannot see is not proof.
+	 * (Residual limit: an env smuggled through a variable the argument text shows
+	 * as a bare identifier, and a program that delegates on its own terms — `git
+	 * fetch` runs the remote's ssh — stay unproven but suppressed.)
+	 */
+	function optionsCarryEnvironment(optionsText) {
+		// `env: …` or the shorthand `{ cwd, env, stdio }`.
+		return /\benv\s*:|(?:^|[{,])\s*env\s*(?:[,}]|$)/.test(optionsText.trim());
 	}
 
 	/** The call pattern for a bare (non-namespaced) member name. */
@@ -797,7 +813,10 @@
 		// to be the `assertNoShell` call rejects a call that shadows it behind an
 		// ignored extra argument (`spawn(p, a, opts, assertNoShell({}))`).
 		if (parts.length < 3) return false;
-		return /(?:^|[^\w$.])assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(stripAssertion(parts[2]));
+		var optionsText = stripAssertion(parts[2]);
+		if (!/(?:^|[^\w$.])assertNoShell\s*(?:<[^<>]*>)?\s*\(/.test(optionsText)) return false;
+		// An env binding is an execution channel the argv proof cannot see.
+		return !optionsCarryEnvironment(optionsText);
 	}
 
 	// A computed member access names a child-process function the name-based scan

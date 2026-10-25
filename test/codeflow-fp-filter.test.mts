@@ -91,7 +91,7 @@ const SOURCES: Record<string, string> = {
 	"src/safe-wrapper.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
-		'export function run(args: string[]) {\n' +
+		"export function run(args: string[]) {\n" +
 		'  const { program, args: safeArgs } = argvCommand("/usr/bin/pi", args);\n' +
 		'  return spawn(program, safeArgs as string[], assertNoShell({ stdio: "ignore" }));\n' +
 		"}\n",
@@ -263,7 +263,7 @@ const SOURCES: Record<string, string> = {
 	// constructed flag together.
 	"src/escaped-constructed.ts":
 		'import { spawn } from "node:child_process";\n' +
-		"export function go(cmd: string) { return spawn(\"/bin/\\u0073h\", [\"-\" + \"c\", cmd], { shell: false }); }\n",
+		'export function go(cmd: string) { return spawn("/bin/\\u0073h", ["-" + "c", cmd], { shell: false }); }\n',
 	// Positive control: a plain literal argv holding dashes is still a validated
 	// source — the constructed/escaped guards must not over-reject it.
 	"src/literal-dashed-args.ts":
@@ -276,7 +276,7 @@ const SOURCES: Record<string, string> = {
 	"src/interpolated-argv.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
-		"export function go(x: string) { return spawn(\"/usr/bin/pi\", [`--flag${x}`], assertNoShell({})); }\n",
+		'export function go(x: string) { return spawn("/usr/bin/pi", [`--flag${x}`], assertNoShell({})); }\n',
 	// Regression (audit): `{ shell: false, ...opts }` reads as shell-disabled only
 	// until `opts` spreads a truthy `shell` over it; only the policy's runtime
 	// `assertNoShell` proves the shell is off, so this probe must keep the finding.
@@ -293,41 +293,41 @@ const SOURCES: Record<string, string> = {
 	"src/shadowed-options.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
-		"export function go(opts: object) { return spawn(\"/usr/bin/pi\", [\"--version\"], opts, assertNoShell({})); }\n",
+		'export function go(opts: object) { return spawn("/usr/bin/pi", ["--version"], opts, assertNoShell({})); }\n',
 	// Regression (audit): a parameter named `assertNoShell` shadows the import, so
 	// the call resolves to the parameter — which can return shell-enabled options
 	// — not the policy. The name match is not proof, so the finding survives.
 	"src/shadowed-helper.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
-		"export function go(opts: object, assertNoShell: (o: object) => object) { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell(opts)); }\n",
+		'export function go(opts: object, assertNoShell: (o: object) => object) { return spawn("/usr/bin/pi", ["--version"], assertNoShell(opts)); }\n',
 	// Regression (audit): the shadowing parameter may also sit first, untyped —
 	// the name is bound, not the import.
 	"src/shadowed-param-first.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
-		"export function go(assertNoShell, opts) { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell(opts)); }\n",
+		'export function go(assertNoShell, opts) { return spawn("/usr/bin/pi", ["--version"], assertNoShell(opts)); }\n',
 	// Regression (audit): a function declaration of the same name shadows the
 	// import just as a parameter does.
 	"src/shadowed-function.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"function assertNoShell(opts: object) { return opts; }\n" +
-		"export function go() { return spawn(\"/usr/bin/pi\", [\"--version\"], assertNoShell({})); }\n",
+		'export function go() { return spawn("/usr/bin/pi", ["--version"], assertNoShell({})); }\n',
 	// Regression (audit): a shadowed `argvCommand` proves nothing either — its
 	// output never passed through the policy, so the finding survives.
 	"src/shadowed-command.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
 		"function argvCommand(program: string, args: string[]) { return { program, args }; }\n" +
-		"export function go(args: string[]) { const { program, args: safe } = argvCommand(\"/usr/bin/pi\", args); return spawn(program, safe, assertNoShell({})); }\n",
+		'export function go(args: string[]) { const { program, args: safe } = argvCommand("/usr/bin/pi", args); return spawn(program, safe, assertNoShell({})); }\n',
 	// Positive control: the policy import lists `assertNoShell` between two other
 	// names, so blanking the import clause must not read the list separator as a
 	// shadowing declaration.
 	"src/mid-import.ts":
 		'import { spawn } from "node:child_process";\n' +
 		'import { argvCommand, assertNoShell, assertSafeEnv } from "../.pi/extensions/lib/safe-argv.ts";\n' +
-		"export function go(args: string[]) { const { program, args: safe } = argvCommand(\"/usr/bin/pi\", args); return spawn(program, safe, assertNoShell({})); }\n",
+		'export function go(args: string[]) { const { program, args: safe } = argvCommand("/usr/bin/pi", args); return spawn(program, safe, assertNoShell({})); }\n',
 	// Regression (audit): executable-aware validation — an interpreter turns a
 	// policy-validated argv back into code. `argvCommand("node", ["-e", code])`
 	// hands the interpreter attacker-controlled code, so the finding must stay.
@@ -457,6 +457,35 @@ const SOURCES: Record<string, string> = {
 		'  const { program, args: safe } = argvCommand("git", args);\n' +
 		"  return spawn(program, safe, assertNoShell({}));\n" +
 		"}\n",
+	// Regression (audit): an env in the options names a command the argv proof
+	// never sees — git runs `core.sshCommand` from `GIT_CONFIG_*` during a fetch —
+	// so a literal env binding keeps the finding despite `shell: false`.
+	"src/env-options.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("git", ["fetch"], assertNoShell({ env: { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.sshCommand", GIT_CONFIG_VALUE_0: "sh -c id" } })); }\n',
+	// The shorthand property binds the same env.
+	"src/env-shorthand.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		"export function go(env: Record<string, string>) {\n" +
+		'  const { program, args } = argvCommand("/usr/bin/pi", ["--version"]);\n' +
+		'  return spawn(program, args, assertNoShell({ cwd: "/tmp", env, stdio: "ignore" }));\n' +
+		"}\n",
+	// A spread of `process.env` hides every variable, so it is unproven too.
+	"src/env-spread.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { argvCommand, assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		"export function go() {\n" +
+		'  const { program, args } = argvCommand("/usr/bin/pi", ["--version"]);\n' +
+		"  return spawn(program, args, assertNoShell({ env: { ...process.env } }));\n" +
+		"}\n",
+	// Positive control: the same shape without an env stays suppressible, so the
+	// env guard cannot over-reject.
+	"src/env-free-options.ts":
+		'import { spawn } from "node:child_process";\n' +
+		'import { assertNoShell } from "../.pi/extensions/lib/safe-argv.ts";\n' +
+		'export function go() { return spawn("git", ["fetch"], assertNoShell({ timeout: 5000 })); }\n',
 };
 
 const readFile = (path: unknown): string | null => {
@@ -892,18 +921,31 @@ describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
 });
 
 describe("fp-filter — MEDIUM Command Execution proves the file argv-safe before dropping it", () => {
-	const cmd = (path: string) => sec({ severity: "medium", title: "Command Execution", code: "", path });
+	const cmd = (path: string) =>
+		sec({ severity: "medium", title: "Command Execution", code: "", path });
 
 	it("drops a MEDIUM Command Execution whose file routes every spawn through the policy", () => {
-		assert.strictEqual(keepsSecurity(cmd("src/safe-wrapper.ts")), false, "literal+argvCommand+assertNoShell");
+		assert.strictEqual(
+			keepsSecurity(cmd("src/safe-wrapper.ts")),
+			false,
+			"literal+argvCommand+assertNoShell",
+		);
 	});
 
 	it("drops a MEDIUM Command Execution whose file promisifies `execFile` through the policy", () => {
-		assert.strictEqual(keepsSecurity(cmd("src/safe-promisified.ts")), false, "aliased execFile is still seen");
+		assert.strictEqual(
+			keepsSecurity(cmd("src/safe-promisified.ts")),
+			false,
+			"aliased execFile is still seen",
+		);
 	});
 
 	it("drops a MEDIUM Command Execution whose file only imports the `ChildProcess` type", () => {
-		assert.strictEqual(keepsSecurity(cmd("src/type-only.ts")), false, "a type import is no call site");
+		assert.strictEqual(
+			keepsSecurity(cmd("src/type-only.ts")),
+			false,
+			"a type import is no call site",
+		);
 	});
 
 	it("keeps a MEDIUM Command Execution with a dynamic program (regression)", () => {
@@ -920,7 +962,11 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 	});
 
 	it("keeps a MEDIUM Command Execution whose program is a parameter passed through a wrapper (regression)", () => {
-		assert.strictEqual(keepsSecurity(cmd("src/wrapper-passthrough.ts")), true, "a parameter is not a literal");
+		assert.strictEqual(
+			keepsSecurity(cmd("src/wrapper-passthrough.ts")),
+			true,
+			"a parameter is not a literal",
+		);
 	});
 
 	it("keeps a MEDIUM Command Execution whose argv is not a validated source (regression)", () => {
@@ -932,7 +978,11 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 	});
 
 	it("keeps a MEDIUM Command Execution with an aliased shell exec beside a safe spawn (regression)", () => {
-		assert.strictEqual(keepsSecurity(cmd("src/aliased-exec.ts")), true, "aliased exec() must survive");
+		assert.strictEqual(
+			keepsSecurity(cmd("src/aliased-exec.ts")),
+			true,
+			"aliased exec() must survive",
+		);
 	});
 
 	it("keeps a MEDIUM Command Execution with a computed child-process member beside a safe spawn (regression)", () => {
@@ -1019,7 +1069,7 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 		assert.strictEqual(
 			keepsSecurity(cmd("src/ternary-namespace.ts")),
 			true,
-			'a ternary binding of the module result is unproveable — fail closed',
+			"a ternary binding of the module result is unproveable — fail closed",
 		);
 	});
 
@@ -1060,7 +1110,11 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 	});
 
 	it("keeps a MEDIUM Command Execution with `shell: true` (positive control)", () => {
-		assert.strictEqual(keepsSecurity(cmd("src/shell-true.ts")), true, "a truthy shell option must survive");
+		assert.strictEqual(
+			keepsSecurity(cmd("src/shell-true.ts")),
+			true,
+			"a truthy shell option must survive",
+		);
 	});
 
 	it("keeps a MEDIUM Command Execution that runs a shell program with `-c` (positive control)", () => {
@@ -1120,6 +1174,38 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			keepsSecurity(cmd("src/bare-shell-false.ts")),
 			true,
 			"only the policy's runtime-enforced `assertNoShell` proves the shell is off",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose options bind a literal environment (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-options.ts")),
+			true,
+			"`env: { GIT_CONFIG_* }` makes git run core.sshCommand — shell:false proves nothing",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose options carry the env shorthand (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-shorthand.ts")),
+			true,
+			"`{ cwd, env, stdio }` binds the same environment",
+		);
+	});
+
+	it("keeps a MEDIUM Command Execution whose options spread `process.env` (regression)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-spread.ts")),
+			true,
+			"a spread environment hides every command-execution channel variable",
+		);
+	});
+
+	it("drops a MEDIUM Command Execution whose options bind no environment (positive control)", () => {
+		assert.strictEqual(
+			keepsSecurity(cmd("src/env-free-options.ts")),
+			false,
+			"the env guard must not over-reject ordinary spawn options",
 		);
 	});
 
@@ -1331,7 +1417,11 @@ describe("fp-filter — MEDIUM Command Execution proves the file argv-safe befor
 			{ securityIssues: [cmd("src/safe-wrapper.ts")] },
 			readTampered,
 		);
-		assert.strictEqual(data.securityIssues.length, 1, "a changed policy module is not the reviewed one");
+		assert.strictEqual(
+			data.securityIssues.length,
+			1,
+			"a changed policy module is not the reviewed one",
+		);
 	});
 
 	it("keeps the finding when the cited file cannot be read (absence is not proof)", () => {
