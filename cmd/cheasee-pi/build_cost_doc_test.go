@@ -34,7 +34,7 @@ func TestBuildCostDoc_RecordsBothScenarios(t *testing.T) {
 		"docker buildx du",
 		"docker images --format",
 		"--progress=plain",
-		"content-range", // recipe that measures transfer volume without a daemon
+		"scripts/measure-cold-build.sh", // the no-daemon half of the measurement
 	} {
 		if !strings.Contains(section, want) {
 			t.Errorf("docs/development.md §Measuring image build cost must contain %q", want)
@@ -42,24 +42,27 @@ func TestBuildCostDoc_RecordsBothScenarios(t *testing.T) {
 	}
 }
 
-func TestBuildCostDoc_RecordsMeasuredTransferInventory(t *testing.T) {
-	// #2053's last acceptance criterion asks for a measured after-number. The
-	// docker build wall clock needs a daemon, but the transfer volume does not:
-	// every artifact is measured byte-for-byte over HTTP. A section that drops
-	// those rows (back to "not measured" everywhere, or to a derived guess) must
-	// fail, otherwise the recorded measurement can silently disappear.
+func TestBuildCostDoc_RecordsMeasuredColdRun(t *testing.T) {
+	// #2053's last acceptance criterion asks for a measured after-number, both
+	// bytes and seconds. The rows are single observed transfers, so each one
+	// must carry a byte count and an elapsed time — a table that drops back to
+	// advertised artifact sizes, or to a byte-only inventory, is not the
+	// measurement the criterion asks for.
 	section := buildCostDocSection(t)
-	row := regexp.MustCompile(`(?m)^\|.*\|\s*[0-9,]{6,} B\s*\|`)
+	row := regexp.MustCompile(`(?m)^\|.*\|\s*[0-9,]{6,} B\s*\|\s*[0-9]+(?:\.[0-9])? s\s*\|`)
 	if got := len(row.FindAllString(section, -1)); got < 8 {
-		t.Errorf("§Measuring image build cost must record the measured per-artifact byte inventory (found %d byte rows, want >=8)", got)
+		t.Errorf("§Measuring image build cost must record the measured per-step transfer and time (found %d rows, want >=8)", got)
 	}
 	for _, stage := range []string{"scrapling", "agent"} {
 		if !strings.Contains(section, "| "+stage) {
-			t.Errorf("the byte inventory must attribute rows to the %s stage", stage)
+			t.Errorf("the measurement must attribute rows to the %s stage", stage)
 		}
 	}
-	if !strings.Contains(section, "apt-get --print-uris") {
-		t.Error("the apt rows must state how they were measured (--print-uris against the pinned base image's package set)")
+	if !strings.Contains(section, "scripts/measure-cold-build.sh") {
+		t.Error("the numbers must name the script that produces them")
+	}
+	if _, err := os.Stat(filepath.Join("..", "..", "scripts", "measure-cold-build.sh")); err != nil {
+		t.Errorf("the documented measurement script must exist: %v", err)
 	}
 }
 
@@ -69,13 +72,12 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 	// above it is that same defect, so it is checked arithmetically instead of
 	// trusted.
 	section := buildCostDocSection(t)
-	row := regexp.MustCompile(`^\|\s*(scrapling|agent|\*\*stage\*\*|\*\*both\*\*)\s*\|\s*([^|]*?)\s*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|`)
+	row := regexp.MustCompile(`^\|\s*(scrapling|agent|\*\*stage\*\*|\*\*both\*\*)\s*\|\s*([^|]*?)\s*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|\s*\*{0,2}([0-9]+(?:\.[0-9])?) s\*{0,2}\s*\|`)
 
 	var stage, artifact string
 	perStage := map[string]int{}
-	var subtotals, total map[string]int64
-	subtotals = map[string]int64{}
-	total = map[string]int64{}
+	subtotals, total := map[string]int64{}, map[string]int64{}
+	subtotalsNs, totalNs := map[string]int64{}, map[string]int64{}
 	for _, line := range strings.Split(section, "\n") {
 		m := row.FindStringSubmatch(strings.TrimSpace(line))
 		if m == nil {
@@ -86,14 +88,22 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unparsable byte count in %q: %v", line, err)
 		}
+		secs, err := strconv.ParseFloat(m[4], 64)
+		if err != nil {
+			t.Fatalf("unparsable time in %q: %v", line, err)
+		}
+		ns := int64(secs * 1000)
 		switch stage {
 		case "scrapling", "agent":
 			perStage[stage]++
 			subtotals["rows:"+stage] += bytes
+			subtotalsNs["rows:"+stage] += ns
 		case "**stage**":
 			subtotals["stated:"+artifactKey(artifact)] = bytes
+			subtotalsNs["stated:"+artifactKey(artifact)] = ns
 		case "**both**":
 			total["stated"] = bytes
+			totalNs["stated"] = ns
 		}
 	}
 
@@ -104,9 +114,17 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 		if got, want := subtotals["rows:"+name], subtotals["stated:"+name]; got != want {
 			t.Errorf("%s subtotal states %d B but its rows sum to %d B", name, want, got)
 		}
+		// Rows are rounded to a tenth of a second, so the sum of the printed
+		// rows and the printed subtotal may differ inside the rounding.
+		if got, want := subtotalsNs["rows:"+name], subtotalsNs["stated:"+name]; got < want-2000 || got > want+2000 {
+			t.Errorf("%s subtotal states %d ms but its rows sum to %d ms", name, want, got)
+		}
 	}
 	if got, want := subtotals["rows:scrapling"]+subtotals["rows:agent"], total["stated"]; got != want {
 		t.Errorf("the `both` total states %d B but the stage subtotals sum to %d B", want, got)
+	}
+	if got, want := subtotalsNs["rows:scrapling"]+subtotalsNs["rows:agent"], totalNs["stated"]; got < want-2000 || got > want+2000 {
+		t.Errorf("the `both` total states %d ms but the stage subtotals sum to %d ms", want, got)
 	}
 }
 
@@ -121,18 +139,43 @@ func artifactKey(artifact string) string {
 	return ""
 }
 
-func TestBuildCostDoc_LabelsUnmeasuredWallClock(t *testing.T) {
-	// The audit of #2053 rejected a table cell that presented a figure derived
-	// from the baseline as if a build had been timed. Keep the gap labelled: a
-	// derived number must not read as a measurement.
+func TestBuildCostDoc_RecordsMeasuredColdBuildTime(t *testing.T) {
+	// The audit of #2053 rejected the section while the post-change cold build
+	// read `not measured` for its wall clock and its byte total was a sum of
+	// advertised artifact sizes. Both halves are now measured together, so the
+	// total row must carry a real time next to a real byte count.
 	section := buildCostDocSection(t)
-	if !strings.Contains(section, "not measured") {
-		t.Error("the unmeasured post-change wall clock must be labelled `not measured`")
+	if strings.Contains(section, "not measured") {
+		t.Error("the cold build is measured; a `not measured` cell means the recorded measurement was dropped")
 	}
-	for _, claim := range []string{"min (measured)", "GB (measured)", "measured build"} {
-		for _, line := range strings.Split(section, "\n") {
-			if strings.Contains(line, "After") && strings.Contains(line, claim) {
-				t.Errorf("an `After` cell must not claim a measurement it does not have: %q", line)
+
+	total := regexp.MustCompile(`(?m)^\|\s*\*\*both\*\*\s*\|[^|]*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|\s*\*{0,2}([0-9]+(?:\.[0-9])?) s\*{0,2}\s*\|`)
+	m := total.FindStringSubmatch(section)
+	if m == nil {
+		t.Fatal("§Measuring image build cost must state the grand total as `<bytes> B | <seconds> s`")
+	}
+	bytes, err := strconv.ParseInt(strings.ReplaceAll(m[1], ",", ""), 10, 64)
+	if err != nil {
+		t.Fatalf("unparsable total byte count %q: %v", m[1], err)
+	}
+	if bytes < 100_000_000 {
+		t.Errorf("the cold-build total reads %d B — too small to be the full transfer", bytes)
+	}
+	seconds, err := strconv.ParseFloat(m[2], 64)
+	if err != nil {
+		t.Fatalf("unparsable total time %q: %v", m[2], err)
+	}
+	if seconds < 60 {
+		t.Errorf("the cold-build total reads %v s — a full cold build takes minutes, this looks derived", seconds)
+	}
+
+	for _, line := range strings.Split(section, "\n") {
+		if !strings.Contains(line, "After") {
+			continue
+		}
+		for _, claim := range []string{"? ", "TBD", "unknown", "n/a"} {
+			if strings.Contains(line, claim) {
+				t.Errorf("the `After` row must be measured, not placholder text: %q", line)
 			}
 		}
 	}
