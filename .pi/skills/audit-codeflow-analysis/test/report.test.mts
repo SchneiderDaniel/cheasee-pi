@@ -270,7 +270,7 @@ describe("full-report extraction (acceptance totals)", () => {
 		});
 	});
 
-	it("classifies exactly the 193 bug-kind facts as bug candidates", () => {
+	it("classifies exactly the 186 bug-kind facts as bug candidates", () => {
 		const bugs = facts.filter((f) => classifyFinding(f).issueType === "bug");
 		assert.strictEqual(bugs.length, FULL_REPORT_TOTALS.bugCandidates);
 		const routed = facts.filter((f) => classifyFinding(f).issueType !== "bug");
@@ -280,6 +280,7 @@ describe("full-report extraction (acceptance totals)", () => {
 				(f) =>
 					f.kind === "pattern" ||
 					f.kind === "anti-pattern" ||
+					f.kind === "suggestion" ||
 					/Large Files|Highly Coupled/.test(f.title),
 			),
 			`unexpected routed facts: ${routed.map((f) => f.title).join(", ")}`,

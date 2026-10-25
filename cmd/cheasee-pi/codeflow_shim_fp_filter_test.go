@@ -30,7 +30,7 @@ pat, repl = m["_UI_REWRITES"][0]
 src = b"<script>function generateReport(format){return format;}</script>"
 out = pat.sub(lambda _: repl, src)
 assert out.count(b"function __piFpGenerateReport(format){return format;}") == 1, out
-assert out.count(b"piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data))") == 1, out
+assert out.count(b"piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data), { deriveSuggestions: function (d) {") == 1, out
 assert b'if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;' in out, out
 assert b'if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;' in out, out
 assert b'if ("stats" in __piFp.data) data.stats = __piFp.data.stats;' in out, out
@@ -44,6 +44,9 @@ assert b'" duplicate group(s)");' in out, out
 assert b'if ("duplicates" in __piFp.data) data.duplicates = __piFp.data.duplicates;' in out, out
 assert b'if ("issues" in __piFp.data) data.issues = __piFp.data.issues;' in out, out
 assert b"data.files.forEach(function (f) { if (f) f.piFpSource = null; })" in out, "the retained source must be released: %r" % out
+assert b"Parser.generateSuggestions" in out, "the page's own deriver must be passed: %r" % out
+assert b'if ("suggestions" in __piFp.data) data.suggestions = __piFp.data.suggestions;' in out, out
+assert b"derived suggestion(s): derivation unavailable" in out, out
 assert b'"use strict"' in out, out
 assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
 assert b"__codeflowBridgeReportError" in out, "sanitizer failure must be visible: %r" % out
@@ -225,5 +228,94 @@ func TestCodeFlowServer_FpFilterServed(t *testing.T) {
 		if n := bytes.Count(body, []byte(want)); n != 1 {
 			t.Errorf("served index.html must contain %q exactly once, got %d\nbody: %s", want, n, body)
 		}
+	}
+}
+
+// TestCodeFlowServer_FpFilterSuggestions covers the derived `suggestions[]` cards
+// (issue #2030): the wrapper passes the page's own `Parser.generateSuggestions` as
+// the deriver and copies the reconciled array back, so the served UI cannot export
+// cards naming findings the filter just dropped. With no deriver available the
+// cards are dropped and the degradation is logged — never silently exported.
+func TestCodeFlowServer_FpFilterSuggestions(t *testing.T) {
+	python, err := exec.LookPath("python3")
+	if err != nil {
+		t.Skip("python3 not available")
+	}
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node not available")
+	}
+	dir := t.TempDir()
+	serverPath := stageCodeflowShim(t, dir)
+	filterPath := filepath.Join(dir, "fp-filter.js")
+
+	script := `import runpy, sys
+
+m = runpy.run_path(sys.argv[1])
+pat, repl = m["_UI_REWRITES"][0]
+rewritten = pat.sub(lambda _: repl, b"function generateReport(format){ return data; }").decode()
+
+# The page exposes its own deriver; it must also see the *filtered* arrays.
+deriver = """const data = {
+  suggestions: [ { title: 'Fix Architecture Violations', desc: '375 layer violations found.' } ],
+  layerViolations: [ { from: 'a.ts', to: 'b.ts', fromLayer: 'ui', toLayer: 'db' } ],
+  duplicates: [ { type: 'code', name: 'withEnv, exec, cacheGet', files: [ { file: 'a.ts' } ] } ],
+  issues: [], stats: { dead: 3 }, securityIssues: [], files: []
+};
+const Parser = { generateSuggestions: function (d) {
+  globalThis.__deriverSaw = { layers: d.layerViolations.length, duplicates: d.duplicates.length };
+  return [ { title: 'Remove Dead Code', desc: d.stats.dead + ' unused functions detected.' } ];
+} };
+const piFpFilter = require(process.argv[2]);
+""" + rewritten + """
+generateReport('md');
+process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions, seen: globalThis.__deriverSaw }));
+"""
+open(sys.argv[3], "w").write(deriver)
+
+# A page with Parser but no deriver: the export still happens, empty, and says so.
+missing = """const data = { suggestions: [ { title: 'Fix Security Issues', desc: '9 high-severity issues found.' } ], issues: [], stats: { dead: 0 }, files: [], securityIssues: [], layerViolations: [] };
+const Parser = { functionKey: function (fn) { return fn.name; } };
+const piFpFilter = require(process.argv[2]);
+""" + rewritten + """
+generateReport('md');
+process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions }));
+"""
+open(sys.argv[4], "w").write(missing)
+`
+	scriptPath := filepath.Join(dir, "emit_suggestions.py")
+	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
+		t.Fatalf("write emit script: %v", err)
+	}
+	withDeriver := filepath.Join(dir, "with-deriver.cjs")
+	withoutDeriver := filepath.Join(dir, "without-deriver.cjs")
+	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, withDeriver, withoutDeriver).CombinedOutput(); err != nil {
+		t.Fatalf("emit harnesses: %v\n%s", err, out)
+	}
+
+	out, err := exec.Command(node, withDeriver, filterPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("deriver harness failed: %v\n%s", err, out)
+	}
+	want := `RESULT{"suggestions":[{"title":"Remove Dead Code","desc":"3 unused functions detected."}],"seen":{"layers":0,"duplicates":0}}`
+	if !strings.Contains(string(out), want) {
+		t.Errorf("the served wrapper must re-derive from the filtered data, got: %s\nwant: %s", out, want)
+	}
+	if strings.Contains(string(out), "derivation unavailable") {
+		t.Errorf("the healthy path must stay quiet, got: %s", out)
+	}
+
+	out, err = exec.Command(node, withoutDeriver, filterPath).CombinedOutput()
+	if err != nil {
+		t.Fatalf("missing-deriver harness failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), `RESULT{"suggestions":[]}`) {
+		t.Errorf("a page without a deriver must export no cards, got: %s", out)
+	}
+	if !strings.Contains(
+		string(out),
+		"fp-filter: dropped 1 derived suggestion(s): derivation unavailable",
+	) {
+		t.Errorf("the degradation must be visible on the page's log surface, got: %s", out)
 	}
 }

@@ -282,7 +282,7 @@ describe("dry-run --emit-findings", () => {
 		assert.ok(!existsSync(outDir), "must not create the target directory on a missing report");
 	});
 
-	it("lists 207 findings / 193 bug candidates and emits one file per fact (#1982 totals)", () => {
+	it("lists 207 findings / 186 bug candidates and emits one file per fact (#1982 totals)", () => {
 		const json = join(dir, "full.json");
 		writeFileSync(json, JSON.stringify(buildFullReport()), "utf-8");
 		const report = join(dir, "full.md");
@@ -308,7 +308,7 @@ describe("dry-run --emit-findings", () => {
 			"every emitted filename must fit the filesystem limit",
 		);
 		assert.match(emit.stdout, /207 candidate\(s\) written/);
-		assert.match(emit.stdout, /14 finding\(s\) routed by triage/);
+		assert.match(emit.stdout, /21 finding\(s\) routed by triage/);
 	});
 
 	it("fails closed instead of mixing a rerun with stale findings", () => {

@@ -207,3 +207,24 @@ describe("package.json test wiring", () => {
 		}
 	});
 });
+
+describe("audit-codeflow-analysis SKILL.md — derived facts (issue #2030)", () => {
+	it("marks the suggestions[] row as derived, not a finding of its own", () => {
+		assert.match(body, /`suggestions\[\]`\s*\|\s*suggestion\s*\|[^\n]*\*\*derived\*\*/);
+		assert.match(body, /never a finding on its own/);
+	});
+
+	it("names link-derived among the dispositions and says it is never filed", () => {
+		assert.match(body, /`file-bug` \/ `file-refactor` \/ `offer-optional` \/ `link-derived`/);
+		assert.match(body, /`link-derived`/);
+		assert.match(body, /`derived` \(`link-derived`\)[^\n]*\n[^\n]*\n[^\n]*file nothing for it/);
+		assert.match(body, /listed here, never drafted|listed in the run report/);
+	});
+
+	it("still delegates the mapping instead of restating it", () => {
+		assert.match(body, /classifyFinding/);
+		assert.doesNotMatch(body, /`anti-pattern` is chore/);
+		assert.doesNotMatch(body, /`pattern` is informational/);
+		assert.doesNotMatch(body, /`suggestion` is `bug`/);
+	});
+});

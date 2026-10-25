@@ -13,7 +13,9 @@
  *
  * `deadFunctions` is the analyzer's own name for the dead-code list the export
  * reports as `unusedFunctions`; only name/file are recorded, which is all the
- * reference rule reads.
+ * reference rule reads. `suggestions` is the analyzer's derived card set — the
+ * pipeline re-derives it after filtering, so the recording pins the stale shape
+ * the replay proves gone.
  *
  * Source: https://github.com/braedonsaunders/codeflow at the revision pinned by
  * `ARG CODEFLOW_REF` in cmd/cheasee-pi/embedded/docker/codeflow/Dockerfile
@@ -69,6 +71,14 @@ try {
 			title: i.title,
 			severity: i.severity,
 			category: i.category,
+		})),
+		// The derived cards (issue #2030) carry no file of their own; only the title,
+		// count and priority matter to the pipeline that re-derives them from the
+		// same arrays, so the recording stays readable.
+		suggestions: (data.suggestions || []).map((s) => ({
+			title: s.title,
+			desc: s.desc,
+			priority: s.priority,
 		})),
 		securityIssues: (data.securityIssues || []).map((i) => ({
 			title: i.title,

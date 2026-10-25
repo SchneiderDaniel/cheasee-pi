@@ -225,10 +225,10 @@ export function reportSectionCoverage(markdown: string): SectionCoverage[] {
 }
 
 /** Issue type the triage policy assigns to a fact. */
-export type IssueType = "bug" | "chore" | "informational" | "out-of-scope";
+export type IssueType = "bug" | "chore" | "informational" | "out-of-scope" | "derived";
 
 /** What drafting and the confirmation gate should do with a fact. */
-export type Disposition = "file-bug" | "file-refactor" | "offer-optional" | "drop";
+export type Disposition = "file-bug" | "file-refactor" | "offer-optional" | "drop" | "link-derived";
 
 /** The derived architecture metrics the exporter emits as `<N> Metric` titles. */
 const METRIC_TITLE = /^\d+\s+(large files|highly coupled|high complexity files)\b/i;
@@ -238,14 +238,23 @@ const METRIC_TITLE = /^\d+\s+(large files|highly coupled|high complexity files)\
  * drafted, so scope is never a drafting decision. `pattern` is informational and
  * offered as an optional filing; `anti-pattern` and the derived
  * size/coupling/complexity metrics are refactor scope and filed by default (with a
- * confirmation-gate opt-out); every other known kind is bug-template scope. Pure
- * and deterministic.
+ * confirmation-gate opt-out); a `suggestion` card is *derived* — it restates the
+ * findings underneath it, so it resolves through those facts and is never filed
+ * standalone (filing it produced file-less issues whose counts contradicted the
+ * export); every other known kind is bug-template scope. Pure and deterministic.
  */
 export function classifyFinding(fact: IssueFact): {
 	issueType: IssueType;
 	disposition: Disposition;
 	reason: string;
 } {
+	if (fact.kind === "suggestion") {
+		return {
+			issueType: "derived",
+			disposition: "link-derived",
+			reason: "derived aggregate — resolves through its source facts; never filed standalone",
+		};
+	}
 	if (fact.kind === "pattern") {
 		return {
 			issueType: "informational",
@@ -268,14 +277,7 @@ export function classifyFinding(fact: IssueFact): {
 		};
 	}
 	if (
-		[
-			"architecture",
-			"security",
-			"dead-code",
-			"duplicate",
-			"layer-violation",
-			"suggestion",
-		].includes(fact.kind)
+		["architecture", "security", "dead-code", "duplicate", "layer-violation"].includes(fact.kind)
 	) {
 		return { issueType: "bug", disposition: "file-bug", reason: "bug-template kind" };
 	}

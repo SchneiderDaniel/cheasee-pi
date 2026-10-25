@@ -32,10 +32,12 @@ type Suppressed = {
 	hygiene: any[];
 	deadCode: any[];
 	duplicates: any[];
+	suggestions: any[];
 };
 
 const {
 	sanitizeAnalysisData,
+	reconcileAggregateIssues,
 	isFalsePositiveHygiene,
 	isFalsePositiveLayerViolation,
 	readFileFrom,
@@ -45,7 +47,9 @@ const {
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
+		opts?: { deriveSuggestions?: (filtered: any) => unknown },
 	) => { data: any; suppressed: Suppressed };
+	reconcileAggregateIssues: (issues: unknown[], counts: Record<string, number | null>) => unknown[];
 	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
 	isFalsePositiveLayerViolation: (
 		violation: unknown,
@@ -908,7 +912,7 @@ describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
 			const { suppressed } = sanitizeAnalysisData(input, readFile);
 			assert.deepStrictEqual(
 				Object.keys(suppressed).sort(),
-				["deadCode", "duplicates", "hygiene", "layerViolations", "security"],
+				["deadCode", "duplicates", "hygiene", "layerViolations", "security", "suggestions"],
 				JSON.stringify(input),
 			);
 		}
@@ -972,6 +976,7 @@ describe("fp-filter — hygiene integration and invariants (Phase 2)", () => {
 			hygiene: [],
 			deadCode: [],
 			duplicates: [],
+			suggestions: [],
 		});
 	});
 });
@@ -1587,6 +1592,7 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 			hygiene: [],
 			deadCode: [],
 			duplicates: [],
+			suggestions: [],
 		});
 	});
 
@@ -1601,6 +1607,7 @@ describe("fp-filter — non-mutating and idempotent (Phases 1-2)", () => {
 			hygiene: [],
 			deadCode: [],
 			duplicates: [],
+			suggestions: [],
 		});
 	});
 
@@ -2299,6 +2306,7 @@ describe("fp-filter — unused-function wiring and stats (Phase 2)", () => {
 			hygiene: [],
 			deadCode: [],
 			duplicates: [],
+			suggestions: [],
 		});
 	});
 });
@@ -2405,6 +2413,148 @@ describe("fp-filter — duplicate group suppression (Phase 5)", () => {
 		const input = { duplicates: [dup({ name: "a, b, c" }), dup({ name: "a, b" })] };
 		const first = sanitizeAnalysisData(input, readFile);
 		const second = sanitizeAnalysisData(first.data, readFile);
+		assert.deepStrictEqual(second.data, first.data);
+		assert.deepStrictEqual(second.suppressed.duplicates, []);
+	});
+
+	// Issue #2030: the derived `Extract Duplicated Code` / `Resolve Naming
+	// Conflicts` cards may not outlive the groups they count, so the two residual
+	// non-actionable group shapes are recognized too — clones confined to test/doc
+	// artifacts (the analyzer's own name grouping skips non-production paths; the
+	// code grouping omits the guard), and name groups whose every instance is a
+	// nested declaration (`impl`/`class`/module member), where one name repeats
+	// per receiver.
+	const NESTED: Record<string, string> = {
+		"ui/src/controls.rs": "impl Controls {\n    pub fn apply(&self) {}\n}\n",
+		"ui/src/stream.rs": "impl Assembler {\n\tpub fn apply(&mut self) {}\n}\n",
+		"ui/src/free.rs": "pub fn apply() {}\n",
+		"test/a.test.ts": "\tit('x', () => {});\n",
+	};
+	const nestedRead = (path: unknown): string | null =>
+		typeof path === "string" && path in NESTED ? NESTED[path] : null;
+	const nested = (over: Record<string, unknown> = {}) => ({
+		type: "name",
+		name: "apply",
+		files: [{ file: "ui/src/controls.rs", line: 2 }],
+		...over,
+	});
+
+	/** Sanitize one group against a chosen reader and report whether it survived. */
+	function keepsWith(
+		entry: Record<string, unknown>,
+		reader: (path: unknown) => string | null,
+	): boolean {
+		const { data, suppressed } = sanitizeAnalysisData({ duplicates: [entry] }, reader);
+		assert.strictEqual(
+			suppressed.duplicates.length + data.duplicates.length,
+			1,
+			"no duplicate group may vanish",
+		);
+		return data.duplicates.length === 1;
+	}
+
+	it("suppresses a code group whose every instance is a test or doc artifact", () => {
+		const testOnly = dup({
+			name: "acquire, acquire, editor",
+			files: [
+				{ file: "pkg/ext/test/index.test.ts", line: 203 },
+				{ file: "pkg/ext/tests/helpers/capture.ts", line: 315 },
+			],
+		});
+		assert.strictEqual(keepsWith(testOnly, readFile), false);
+	});
+
+	it("keeps a code group that reaches shipped source", () => {
+		const mixed = dup({
+			name: "a, b",
+			files: [
+				{ file: "pkg/ext/test/a.ts", line: 1 },
+				{ file: "src/b.ts", line: 1 },
+			],
+		});
+		assert.strictEqual(keepsWith(mixed, readFile), true, "one shipped instance is a real clone");
+	});
+
+	it("keeps a code group with no readable file list (unknown is not evidence)", () => {
+		assert.strictEqual(keepsWith(dup({ name: "a, b", files: [] }), readFile), true);
+		assert.strictEqual(keepsWith({ type: "code", name: "a, b" }, readFile), true);
+	});
+
+	it("suppresses a name group whose every instance is nested or an artifact", () => {
+		const group = nested({
+			files: [
+				{ file: "ui/src/controls.rs", line: 2 },
+				{ file: "ui/src/stream.rs", line: 2 },
+				{ file: "test/a.test.ts", line: 1 },
+			],
+		});
+		assert.strictEqual(keepsWith(group, nestedRead), false);
+	});
+
+	it("keeps a name group carrying a top-level free function", () => {
+		const group = nested({
+			files: [
+				{ file: "ui/src/controls.rs", line: 2 },
+				{ file: "ui/src/free.rs", line: 1 },
+			],
+		});
+		assert.strictEqual(
+			keepsWith(group, nestedRead),
+			true,
+			"a column-0 free function is shipped code, not a member name",
+		);
+	});
+
+	it("keeps a name group whose source is unreadable (fail open)", () => {
+		const group = nested({ files: [{ file: "ui/src/gone.rs", line: 2 }] });
+		assert.strictEqual(keepsWith(group, nestedRead), true, "no source, no proof");
+		assert.strictEqual(keepsWith(group, readFile), true);
+	});
+
+	it("keeps a name group with no line or file evidence", () => {
+		assert.strictEqual(keepsWith(nested({ files: [] }), nestedRead), true);
+		assert.strictEqual(
+			keepsWith(nested({ files: [{ file: "ui/src/controls.rs" }] }), nestedRead),
+			true,
+		);
+	});
+
+	it("retitles the N Duplicate Function Names item to the surviving name groups", () => {
+		const input = {
+			duplicates: [
+				dup({ type: "name", name: "apply", files: [{ file: "ui/src/free.rs", line: 1 }] }),
+				dup({ name: "a, b", files: [{ file: "src/a.ts", line: 1 }] }),
+			],
+			issues: [{ title: "3 Duplicate Function Names" }, { title: "4 Similar Code Blocks" }],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(
+			data.issues.map((i: { title: string }) => i.title),
+			["1 Duplicate Function Names", "1 Similar Code Blocks"],
+		);
+	});
+
+	it("removes the Duplicate Function Names item when every name group is suppressed", () => {
+		const input = {
+			duplicates: [
+				dup({ type: "name", name: "apply", files: [{ file: "test/a.test.ts", line: 1 }] }),
+			],
+			issues: [{ title: "3 Duplicate Function Names" }, { title: "Keep" }],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(data.issues, [{ title: "Keep" }]);
+	});
+
+	it("is idempotent when an artifact and a name group are suppressed", () => {
+		const input = {
+			duplicates: [
+				dup({ name: "a, b", files: [{ file: "pkg/test/a.ts", line: 1 }] }),
+				nested({ files: [{ file: "ui/src/controls.rs", line: 2 }] }),
+				nested({ files: [{ file: "ui/src/free.rs", line: 1 }] }),
+			],
+		};
+		const first = sanitizeAnalysisData(input, nestedRead);
+		const second = sanitizeAnalysisData(first.data, nestedRead);
 		assert.deepStrictEqual(second.data, first.data);
 		assert.deepStrictEqual(second.suppressed.duplicates, []);
 	});
@@ -2540,5 +2690,217 @@ describe("fp-filter — acceptance score (Phase 5)", () => {
 		assert.strictEqual(clean.layerViolations.length, 0);
 		assert.ok(calcHealth(clean).score >= 90, `expected an A, got ${calcHealth(clean).score}`);
 		assert.deepStrictEqual(calcHealth(clean), { score: 93, grade: "A" });
+	});
+});
+
+// Issue #2030. The analyzer derives `data.suggestions` from the arrays above
+// *before* the filter drops the false positives, so the exported cards can name
+// counts the export no longer carries (`Fix Architecture Violations: 375` over an
+// empty `layerViolations`). The invariant owned here: no exported aggregate may
+// outlive or contradict the arrays it summarizes. The derivation policy stays in
+// the pinned analyzer and arrives as a port — never a copy of the seven rules.
+describe("fp-filter — derived suggestion cards (issue #2030, Phase 1)", () => {
+	const stale = [
+		{ priority: "critical", title: "Fix Security Issues", desc: "9 high-severity issues found." },
+		{ priority: "high", title: "Fix Architecture Violations", desc: "375 layer violations." },
+	];
+	const derived = [
+		{ priority: "high", title: "Remove Dead Code", desc: "1 unused functions detected." },
+		{ priority: "medium", title: "Reduce Coupling", desc: "1 files are imported by many others." },
+	];
+
+	it("replaces the analyzer's cards with the deriver's verdict, in order", () => {
+		let calls = 0;
+		const { data, suppressed } = sanitizeAnalysisData({ suggestions: stale }, readFile, {
+			deriveSuggestions: () => {
+				calls++;
+				return derived;
+			},
+		});
+		assert.strictEqual(calls, 1, "one derivation per call");
+		assert.deepStrictEqual(data.suggestions, derived);
+		assert.deepStrictEqual(suppressed.suggestions, [], "a re-derived set suppresses nothing");
+	});
+
+	it("hands the deriver the already-sanitized data, never the raw report", () => {
+		const input = {
+			stats: { files: 3, security: 2, violations: 2 },
+			securityIssues: [sec({ code: "" }), sec()],
+			layerViolations: [violation(), violation({ to: `${UI}src/retry.rs` })],
+			files: LAYER_FILES,
+			connections: CONNECTIONS,
+			suggestions: stale,
+		};
+		let seen: any = null;
+		const { data } = sanitizeAnalysisData(input, readFile, {
+			deriveSuggestions: (filtered: any) => {
+				seen = filtered;
+				return derived;
+			},
+		});
+		assert.strictEqual(seen.layerViolations.length, 0, "derivation must not see dropped edges");
+		assert.strictEqual(seen.securityIssues.length, 1);
+		assert.deepStrictEqual(seen.stats, { files: 3, security: 1, violations: 0 });
+		assert.deepStrictEqual(data.suggestions, derived);
+	});
+
+	it("drops every card when no deriver is supplied, and records the raw array", () => {
+		const raw = structuredClone(stale);
+		const { data, suppressed } = sanitizeAnalysisData({ suggestions: raw }, readFile);
+		assert.deepStrictEqual(data.suggestions, [], "stale cards are never shipped");
+		assert.deepStrictEqual(suppressed.suggestions, stale);
+		assert.deepStrictEqual(raw, stale, "the dropped cards are recorded, not stolen");
+	});
+
+	it("treats a deriver that returns a non-array as unavailable", () => {
+		for (const bad of [undefined, null, {}, "Drop Dead Code"]) {
+			const { data, suppressed } = sanitizeAnalysisData({ suggestions: stale }, readFile, {
+				deriveSuggestions: () => bad,
+			});
+			assert.deepStrictEqual(data.suggestions, [], JSON.stringify(bad));
+			assert.deepStrictEqual(suppressed.suggestions, stale, JSON.stringify(bad));
+		}
+	});
+
+	it("propagates a deriver throw, so no partial export is built", () => {
+		assert.throws(
+			() =>
+				sanitizeAnalysisData({ suggestions: stale }, readFile, {
+					deriveSuggestions: () => {
+						throw new Error("derivation exploded");
+					},
+				}),
+			/derivation exploded/,
+		);
+	});
+
+	it("adds no suggestions key when the report carries none", () => {
+		for (const input of [{ marker: "FIXTURE" }, { suggestions: 7 }, { suggestions: null }]) {
+			const { data, suppressed } = sanitizeAnalysisData(input, readFile, {
+				deriveSuggestions: () => derived,
+			});
+			assert.strictEqual("suggestions" in data, false, JSON.stringify(input));
+			assert.deepStrictEqual(suppressed.suggestions, []);
+		}
+		// An empty array is a report that derived no card: the deriver still runs, so
+		// the export can never contradict a fresh derivation.
+		const empty = sanitizeAnalysisData({ suggestions: [] }, readFile, {
+			deriveSuggestions: () => derived,
+		});
+		assert.deepStrictEqual(empty.data.suggestions, derived);
+	});
+
+	it("is pure and idempotent: the input array keeps its identity and a rerun is a no-op", () => {
+		const suggestions = structuredClone(stale);
+		const input = { suggestions, marker: "FIXTURE" };
+		const first = sanitizeAnalysisData(input, readFile, { deriveSuggestions: () => derived });
+		assert.notStrictEqual(first.data, input);
+		assert.strictEqual(input.suggestions, suggestions, "the raw array is never rebound");
+		assert.deepStrictEqual(suggestions, stale);
+
+		const second = sanitizeAnalysisData(first.data, readFile, { deriveSuggestions: () => derived });
+		assert.deepStrictEqual(second.data, first.data);
+		assert.deepStrictEqual(second.suppressed.suggestions, []);
+	});
+
+	it("reports a suggestions bucket on every call, including invalid data", () => {
+		for (const input of [null, undefined, 7, "marker", { marker: "FIXTURE" }]) {
+			const { suppressed } = sanitizeAnalysisData(input, readFile);
+			assert.deepStrictEqual(suppressed.suggestions, [], JSON.stringify(input) ?? "undefined");
+		}
+	});
+});
+
+describe("fp-filter — aggregate items follow their array (issue #2030, Phase 2)", () => {
+	it("drops the Architecture Violations item when the edges are gone", () => {
+		const input = {
+			files: LAYER_FILES,
+			connections: CONNECTIONS,
+			layerViolations: [violation()],
+			issues: [{ title: "375 Architecture Violations" }, { title: "Keep" }],
+		};
+		const before = structuredClone(input);
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(input, before, "input must not be touched");
+		assert.deepStrictEqual(data.issues, [{ title: "Keep" }]);
+	});
+
+	it("leaves an Architecture Violations item alone when the array was not filtered", () => {
+		const entry = { title: "375 Architecture Violations" };
+		const { data } = sanitizeAnalysisData({ issues: [entry] }, readFile);
+		assert.deepStrictEqual(data.issues, [entry]);
+	});
+
+	it("retitles to the surviving count, preserving the other fields", () => {
+		const entry = { type: "warning", title: "375 Architecture Violations", desc: "inverted" };
+		const out = reconcileAggregateIssues([entry, { title: "Other" }], {
+			"Architecture Violations": 2,
+		});
+		assert.deepStrictEqual(out, [
+			{ type: "warning", title: "2 Architecture Violations", desc: "inverted" },
+			{ title: "Other" },
+		]);
+		assert.strictEqual(entry.title, "375 Architecture Violations", "the input item is not mutated");
+	});
+
+	it("rewrites only the labels it was given a count for", () => {
+		const issues = [{ title: "3 Unused Functions" }, { title: "9 Similar Code Blocks" }];
+		assert.deepStrictEqual(reconcileAggregateIssues(issues, {}), issues);
+		assert.deepStrictEqual(
+			reconcileAggregateIssues(issues, { "Unused Functions": null, "Similar Code Blocks": 0 }),
+			[{ title: "3 Unused Functions" }],
+		);
+	});
+
+	it("passes malformed and non-matching entries through, in order", () => {
+		const issues = [
+			null,
+			"marker",
+			{ title: 7 },
+			{ title: "142 Highly Coupled" },
+			{ title: "Circular dependency" },
+			{ title: "2 Similar Code Blocks" },
+		];
+		assert.deepStrictEqual(reconcileAggregateIssues(issues, { "Similar Code Blocks": 4 }), [
+			null,
+			"marker",
+			{ title: 7 },
+			{ title: "142 Highly Coupled" },
+			{ title: "Circular dependency" },
+			{ title: "4 Similar Code Blocks" },
+		]);
+	});
+
+	it("keeps the Unused Functions regressions byte-identical after the refactor", () => {
+		// The list-bearing entry is filtered item-wise; the count-only summary rides
+		// the same reconciliation as the other two labels.
+		const deadFiles = [{ path: "src/use.ts" }, { path: "src/other.ts" }];
+		const deadRead = (p: unknown) => (p === "src/use.ts" ? "function hit(){} keep();\n" : null);
+		const input = {
+			files: deadFiles,
+			issues: [{ title: "3 Unused Functions" }, { title: "1 Large Files" }],
+			deadFunctions: [
+				{ name: "hit", file: "src/use.ts" },
+				{ name: "keep", file: "src/use.ts" },
+				{ name: "ghost", file: "src/other.ts" },
+			],
+			stats: { dead: 3 },
+		};
+		const { data } = sanitizeAnalysisData(input, deadRead);
+		assert.strictEqual(data.issues[0].title, `${data.stats.dead} Unused Functions`);
+		assert.deepStrictEqual(data.issues[1], input.issues[1]);
+	});
+
+	it("is idempotent: reconciling an already-reconciled report changes nothing", () => {
+		const input = {
+			files: LAYER_FILES,
+			connections: CONNECTIONS,
+			layerViolations: [violation()],
+			duplicates: [{ type: "code", name: "a, b, c", files: [{ file: "a.ts" }] }],
+			issues: [{ title: "375 Architecture Violations" }, { title: "9 Similar Code Blocks" }],
+		};
+		const first = sanitizeAnalysisData(input, readFile);
+		const second = sanitizeAnalysisData(first.data, readFile);
+		assert.deepStrictEqual(second.data, first.data);
 	});
 });
