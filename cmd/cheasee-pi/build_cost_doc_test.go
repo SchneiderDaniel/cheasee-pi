@@ -86,7 +86,7 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 	// above it is that same defect, so it is checked arithmetically instead of
 	// trusted.
 	section := buildCostDocSection(t)
-	row := regexp.MustCompile(`^\|\s*(scrapling|agent|\*\*stage\*\*|\*\*both\*\*)\s*\|\s*([^|]*?)\s*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|\s*\*{0,2}([0-9]+(?:\.[0-9])?) s\*{0,2}\s*\|`)
+	row := regexp.MustCompile(`^\|\s*(pythonbase|websearch|scrapling|agent|\*\*stage\*\*|\*\*both\*\*)\s*\|\s*([^|]*?)\s*\|\s*\*{0,2}([0-9,]+) B\*{0,2}\s*\|\s*\*{0,2}([0-9]+(?:\.[0-9])?) s\*{0,2}\s*\|`)
 
 	var stage, artifact string
 	perStage := map[string]int{}
@@ -108,7 +108,7 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 		}
 		ns := int64(secs * 1000)
 		switch stage {
-		case "scrapling", "agent":
+		case "pythonbase", "websearch", "scrapling", "agent":
 			perStage[stage]++
 			subtotals["rows:"+stage] += bytes
 			subtotalsNs["rows:"+stage] += ns
@@ -121,9 +121,10 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 		}
 	}
 
-	for _, name := range []string{"scrapling", "agent"} {
-		if perStage[name] < 3 {
-			t.Fatalf("expected the byte inventory to list at least 3 %s rows, parsed %d", name, perStage[name])
+	minRows := map[string]int{"pythonbase": 2, "websearch": 1, "scrapling": 2, "agent": 3}
+	for name, min := range minRows {
+		if perStage[name] < min {
+			t.Fatalf("expected the byte inventory to list at least %d %s rows, parsed %d", min, name, perStage[name])
 		}
 		if got, want := subtotals["rows:"+name], subtotals["stated:"+name]; got != want {
 			t.Errorf("%s subtotal states %d B but its rows sum to %d B", name, want, got)
@@ -134,10 +135,15 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 			t.Errorf("%s subtotal states %d ms but its rows sum to %d ms", name, want, got)
 		}
 	}
-	if got, want := subtotals["rows:scrapling"]+subtotals["rows:agent"], total["stated"]; got != want {
+	var rowBytes, rowNs int64
+	for name := range minRows {
+		rowBytes += subtotals["rows:"+name]
+		rowNs += subtotalsNs["rows:"+name]
+	}
+	if got, want := rowBytes, total["stated"]; got != want {
 		t.Errorf("the `both` total states %d B but the stage subtotals sum to %d B", want, got)
 	}
-	if got, want := subtotalsNs["rows:scrapling"]+subtotalsNs["rows:agent"], totalNs["stated"]; got < want-2000 || got > want+2000 {
+	if got, want := rowNs, totalNs["stated"]; got < want-2000 || got > want+2000 {
 		t.Errorf("the `both` total states %d ms but the stage subtotals sum to %d ms", want, got)
 	}
 }
@@ -145,7 +151,7 @@ func TestBuildCostDoc_TotalsMatchTheirRows(t *testing.T) {
 // artifactKey turns a subtotal's artifact cell into the stage name it belongs
 // to, so a subtotal row cannot claim a different stage than the rows above it.
 func artifactKey(artifact string) string {
-	for _, name := range []string{"scrapling", "agent"} {
+	for _, name := range []string{"pythonbase", "websearch", "scrapling", "agent"} {
 		if strings.Contains(artifact, name) {
 			return name
 		}

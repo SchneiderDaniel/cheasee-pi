@@ -10,20 +10,21 @@
 ARG BASE_IMAGE=debian:12-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 
 # ---------------------------------------------------------------
-# Stage: scrapling — Python venvs + Chromium browser cache
+# Stage: pythonbase — python3 + venv support, shared parent of both venv stages
 # ---------------------------------------------------------------
-# Isolated on purpose (issue #2053): this stage is fed by BASE_IMAGE and
-# scrapling-constraints.txt only, so a change to any agent-stage layer copies
-# /opt/venvs and /opt/playwright-browsers from cache instead of re-fetching
-# the ~646M browser bundle. That is the cache-evicted case (#2050); cache
-# mounts alone only cheapen a re-run of the same cached layer.
+# Isolated from the agent stage on purpose (issue #2053): the `websearch` and
+# `scrapling` stages are fed by BASE_IMAGE and their requirements files only, so
+# a change to any agent-stage layer copies /opt/venvs and /opt/playwright-browsers
+# from cache instead of re-fetching the ~646M browser bundle. That is the
+# cache-evicted case (#2050); cache mounts alone only cheapen a re-run of the
+# same cached layer.
 #
 # It deliberately does NOT inherit the agent stage: the venv is not relocatable
-# across python builds, so both stages must resolve the identical BASE_IMAGE
-# digest — one shared ARG, so a divergence can only be introduced by editing
-# the FROM lines (a test pins it). Duplicating python3/python3-venv here costs
-# one cache-mounted apt layer.
-FROM ${BASE_IMAGE} AS scrapling
+# across python builds, so both venv stages must resolve the identical
+# BASE_IMAGE digest — one shared ARG, so a divergence can only be introduced by
+# editing the FROM lines (a test pins it). Installing python3/python3-venv here
+# costs one cache-mounted apt layer, shared by both venv stages.
+FROM ${BASE_IMAGE} AS pythonbase
 
 # Every apt RUN below starts by deleting /etc/apt/apt.conf.d/docker-clean. The
 # Debian base images ship that hook, and its DPkg::Post-Invoke deletes
@@ -40,6 +41,37 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         python3-venv \
         ca-certificates
 
+# ---------------------------------------------------------------
+# Stage: websearch — ddgs (DuckDuckGo search) venv
+# ---------------------------------------------------------------
+# A stage of its own rather than a layer of the browser stage (issue #2053):
+# while the search venv lived above the chromium download, bumping one of its
+# pins re-ran that download (~646M/arch). Nothing here is an input of the
+# browser layer, so a pin bump now stops at this stage.
+FROM pythonbase AS websearch
+
+# web_search venv: ddgs (DuckDuckGo search). idna pinned to the
+# post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
+# and idna<3.15 is DoS-vulnerable on crafted long inputs. anyio pinned to the
+# release fixing GHSA-82r6-8w77-94w6 (CVE-2026-63374) and GHSA-5p39-cfhj-2xmp
+# (CVE-2026-64847); both fixed in 4.14.2. certifi pinned to the release that
+# drops the emSign roots with compromised intermediate CA keys
+# (GHSA-6q48-6c7w-9gw2, fixed 2026.10.19).
+# Keep in sync with .pi/extensions/web-search/requirements.txt.
+RUN --mount=type=cache,target=/root/.cache/pip \
+    python3 -m venv /opt/venvs/web-search-venv --clear && \
+    /opt/venvs/web-search-venv/bin/pip install ddgs 'idna>=3.15' 'anyio>=4.14.2' 'certifi>=2026.10.19'
+
+# World-readable so agentuser (created in the agent stage) can use the copy;
+# COPY --from preserves these modes.
+RUN chmod -R a+rX /opt/venvs
+
+# ---------------------------------------------------------------
+# Stage: scrapling — scrapling venv + Chromium browser cache
+# ---------------------------------------------------------------
+# Own stage as well: its only inputs are pythonbase and scrapling-constraints.txt.
+FROM pythonbase AS scrapling
+
 # scrapling venv: progressive web crawler (patchright-driven stealth).
 # Installed against scrapling-constraints.txt: `scrapling[fetchers]` floats its
 # browser drivers, and a floating patchright resolution is how the baked browser
@@ -47,17 +79,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
 # The constraints file is COPY-ed into the agent stage as well — the runtime
 # venv re-creation there needs the same pins.
 COPY scrapling-constraints.txt /opt/venvs/scrapling-constraints.txt
-
-# web_search venv: ddgs (DuckDuckGo search). idna pinned to the
-# post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
-# and idna<3.15 is DoS-vulnerable on crafted long inputs. anyio pinned to the
-# release fixing GHSA-82r6-8w77-94w6 (CVE-2026-63374) and GHSA-5p39-cfhj-2xmp
-# (CVE-2026-64847); both fixed in 4.14.2. certifi pinned to the release that
-# drops the emSign roots with compromised intermediate keys (GHSA-6q48-6c7w-9gw2).
-# Keep in sync with .pi/extensions/web-search/requirements.txt.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    python3 -m venv /opt/venvs/web-search-venv --clear && \
-    /opt/venvs/web-search-venv/bin/pip install ddgs 'idna>=3.15' 'anyio>=4.14.2' 'certifi>=2026.10.19'
 
 # No --no-cache-dir: the pip mount above is the cache a re-run reads, and
 # --no-cache-dir would leave it empty. The mount never enters the layer, so the
@@ -270,12 +291,12 @@ ENV LANG=C.UTF-8 LC_CTYPE=C.UTF-8 LC_ALL=C.UTF-8
 # ---------------------------------------------------------------
 # Layer 5e: Python venvs + Chromium browser cache (copied in)
 # ---------------------------------------------------------------
-# Both artifacts are produced in the isolated `scrapling` stage at the top of
-# this file, so nothing below re-downloads them. Copying (instead of
-# re-creating here) is also what keeps the patchright↔chromium revision
+# Both artifacts are produced in the isolated `websearch` / `scrapling` stages
+# at the top of this file, so nothing below re-downloads them. Copying (instead
+# of re-creating here) is also what keeps the patchright↔chromium revision
 # binding in exactly one place: the agent stage never resolves browsers.json.
 COPY --from=scrapling /opt/venvs/scrapling-venv /opt/venvs/scrapling-venv
-COPY --from=scrapling /opt/venvs/web-search-venv /opt/venvs/web-search-venv
+COPY --from=websearch /opt/venvs/web-search-venv /opt/venvs/web-search-venv
 COPY --from=scrapling /opt/playwright-browsers /opt/playwright-browsers
 # Runtime venv re-creation (a workspace without the baked copy) uses the same
 # pins, so an in-container `pip install` cannot reintroduce the drift.

@@ -123,7 +123,7 @@ func TestDockerfile_AgentCopiesBrowserArtifacts(t *testing.T) {
 	content := stage(t, readDockerfile(t), "agent")
 	for _, want := range []string{
 		"COPY --from=scrapling /opt/venvs/scrapling-venv /opt/venvs/scrapling-venv",
-		"COPY --from=scrapling /opt/venvs/web-search-venv /opt/venvs/web-search-venv",
+		"COPY --from=websearch /opt/venvs/web-search-venv /opt/venvs/web-search-venv",
 		"COPY --from=scrapling /opt/playwright-browsers /opt/playwright-browsers",
 	} {
 		if !strings.Contains(content, want) {
@@ -183,5 +183,67 @@ func TestDockerfile_ComposeBuildTargetsSingleFile(t *testing.T) {
 	}
 	if strings.Contains(string(data), "scrapling") {
 		t.Error("docker-compose.yml must not gain a scrapling service/stage knob — the split is Dockerfile-internal")
+	}
+}
+
+func TestDockerfile_WebSearchVenvSeparateFromBrowserStage(t *testing.T) {
+	// A web-search pin bump (idna/anyio/…) must not cost the ~646M chromium
+	// download: while the venv lived in the scrapling stage, its pip layer sat
+	// above the browser layer and every bump re-fetched chromium. The venv owns
+	// its own stage now, so the browser layer's inputs stay unchanged.
+	content := readDockerfile(t)
+	scrapling := stage(t, content, "scrapling")
+	for _, forbidden := range []string{"web-search-venv", "ddgs"} {
+		if strings.Contains(scrapling, forbidden) {
+			t.Errorf("scrapling stage must not build the web-search venv (%q) — it sits above the browser download", forbidden)
+		}
+	}
+	websearch := stage(t, content, "websearch")
+	if !strings.Contains(websearch, "python3 -m venv /opt/venvs/web-search-venv") {
+		t.Error("the websearch stage must create /opt/venvs/web-search-venv")
+	}
+	if !strings.Contains(websearch, "chmod -R a+rX /opt/venvs") {
+		t.Error("the websearch stage must make its venv world-readable before the COPY (agentuser)")
+	}
+	for _, forbidden := range []string{"patchright install", "browsers.json", "scrapling-venv"} {
+		if strings.Contains(websearch, forbidden) {
+			t.Errorf("websearch stage must not contain %q — scrapling artifacts belong to the scrapling stage", forbidden)
+		}
+	}
+	// Neither venv stage may be built FROM the other: a shared parent is the
+	// only ancestry they may have, or one artifact's churn reaches the other.
+	for _, line := range strings.Split(content, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[0] != "FROM" || f[2] != "AS" {
+			continue
+		}
+		if f[3] != "scrapling" && f[3] != "websearch" {
+			continue
+		}
+		if f[1] == "scrapling" || f[1] == "websearch" {
+			t.Errorf("stage %q must not be built FROM the other venv stage: %q", f[3], line)
+		}
+	}
+}
+
+func TestDockerfile_VenvStagesShareOnePinnedParent(t *testing.T) {
+	// Both venvs must be built by the identical interpreter: the venv is not
+	// relocatable across python builds, so one shared parent stage is the guard.
+	content := readDockerfile(t)
+	parents := map[string]string{}
+	for _, line := range strings.Split(content, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 4 || f[0] != "FROM" || f[2] != "AS" {
+			continue
+		}
+		if f[3] == "scrapling" || f[3] == "websearch" {
+			parents[f[3]] = f[1]
+		}
+	}
+	if len(parents) != 2 {
+		t.Fatalf("both `scrapling` and `websearch` stages are required, got %v", parents)
+	}
+	if parents["scrapling"] != parents["websearch"] {
+		t.Errorf("both venv stages must share one parent (same python build), got scrapling=%q websearch=%q", parents["scrapling"], parents["websearch"])
 	}
 }

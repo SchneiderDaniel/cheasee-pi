@@ -114,8 +114,9 @@ docker's garbage collection, or a switch to a different builder drops them
 (`#2050` saw a data-root reset take the cache from 6.045 GB to 50 MB). They
 reduce the cost of re-running a layer; they do not make a cold build free. What
 survives a full cache reset is the digest pins plus the dedicated `scrapling`
-stage, which keeps the ~646 MB Chromium download out of the agent stage's
-dependency chain.
+and `websearch` stages, which keep the ~646 MB Chromium download out of the
+agent stage's dependency chain — and out of the web-search venv's, so a search
+pin bump no longer re-fetches the browser.
 
 ## UI sidecar network posture
 

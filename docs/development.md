@@ -104,7 +104,8 @@ questions:
    cache, change one early agent layer (add a package to an `apt-get install`
    line), then time `cheasee-pi build` and re-read `docker buildx du`. Before
    the stage split this re-downloaded the Chromium bundle (~646 MB unpacked);
-   now the venvs and the browser come from the unchanged `scrapling` stage.
+   now the venvs and the browser come from the unchanged `websearch` and
+   `scrapling` stages.
 
 Cache mounts (`RUN --mount=type=cache`) are only visible in the _re-run_ case:
 bust one package layer (edit a version pin), rebuild with
@@ -142,27 +143,29 @@ build, so neither is quoted as the other:
 One replay run on the container the change was developed in (Debian 12, amd64,
 2026-10-25):
 
-| Stage     | Step                                                                                                         | Observed transfer | Observed time |
-| --------- | ------------------------------------------------------------------------------------------------------------ | ----------------- | ------------- |
-| scrapling | base image `debian:12-slim` at the pinned digest (one layer, shared by both stages)                          | 28,368,487 B      | 13.2 s        |
-| scrapling | apt: python3, python3-venv, ca-certificates (index + archives)                                               | 23,495,467 B      | 10.2 s        |
-| scrapling | pip: scrapling[fetchers] + markdownify + beautifulsoup4 (constraints-pinned)                                 | 120,044,892 B     | 50.5 s        |
-| scrapling | pip: ddgs + idna + anyio (web-search venv)                                                                   | 6,740,161 B       | 7.8 s         |
-| scrapling | patchright install chromium (chromium + headless shell + ffmpeg)                                             | 316,396,702 B     | 115.2 s       |
-| **stage** | **scrapling subtotal**                                                                                       | **495,045,709 B** | **196.9 s**   |
-| agent     | apt: curl, gnupg, ca-certificates                                                                            | 14,972,525 B      | 6.7 s         |
-| agent     | NodeSource setup_22.x + apt: nodejs                                                                          | 48,959,117 B      | 20.7 s        |
-| agent     | apt: toolchain + Playwright system libraries (26 packages)                                                   | 74,272,204 B      | 25.6 s        |
-| agent     | GitHub CLI keyring + apt: gh                                                                                 | 37,548,364 B      | 21.3 s        |
-| agent     | npm globals: ast-grep, eslint, jscpd, prettier, pyright, shell-quote, typescript, typescript-language-server | 44,918,157 B      | 21.0 s        |
-| agent     | rust-analyzer 2026-08-10.1                                                                                   | 14,856,284 B      | 5.6 s         |
-| agent     | rtk 0.45.0 (install.sh + release asset)                                                                      | 4,603,892 B       | 3.1 s         |
-| agent     | osv-scanner 2.4.0                                                                                            | 56,819,425 B      | 14.5 s        |
-| agent     | Go 1.25.8 toolchain (download + unpack)                                                                      | 59,936,816 B      | 21.3 s        |
-| agent     | cheasee-pi clone (depth 1) + npm ci                                                                          | 50,258,044 B      | 17.5 s        |
-| agent     | @earendil-works/pi-coding-agent 1.0.2                                                                        | 12,501,756 B      | 18.8 s        |
-| **stage** | **agent subtotal**                                                                                           | **419,646,584 B** | **176.1 s**   |
-| **both**  | **cold build transfer (replay)**                                                                             | **914,692,293 B** | **373.0 s**   |
+| Stage      | Step                                                                                                         | Observed transfer | Observed time |
+| ---------- | ------------------------------------------------------------------------------------------------------------ | ----------------- | ------------- |
+| pythonbase | base image `debian:12-slim` at the pinned digest (one layer, shared by every stage)                          | 28,368,487 B      | 13.2 s        |
+| pythonbase | apt: python3, python3-venv, ca-certificates (index + archives)                                               | 23,495,467 B      | 10.2 s        |
+| **stage**  | **pythonbase subtotal**                                                                                      | **51,863,954 B**  | **23.4 s**    |
+| scrapling  | pip: scrapling[fetchers] + markdownify + beautifulsoup4 (constraints-pinned)                                 | 120,044,892 B     | 50.5 s        |
+| websearch  | pip: ddgs + idna + anyio (web-search venv)                                                                   | 6,740,161 B       | 7.8 s         |
+| **stage**  | **websearch subtotal**                                                                                       | **6,740,161 B**   | **7.8 s**     |
+| scrapling  | patchright install chromium (chromium + headless shell + ffmpeg)                                             | 316,396,702 B     | 115.2 s       |
+| **stage**  | **scrapling subtotal**                                                                                       | **436,441,594 B** | **165.7 s**   |
+| agent      | apt: curl, gnupg, ca-certificates                                                                            | 14,972,525 B      | 6.7 s         |
+| agent      | NodeSource setup_22.x + apt: nodejs                                                                          | 48,959,117 B      | 20.7 s        |
+| agent      | apt: toolchain + Playwright system libraries (26 packages)                                                   | 74,272,204 B      | 25.6 s        |
+| agent      | GitHub CLI keyring + apt: gh                                                                                 | 37,548,364 B      | 21.3 s        |
+| agent      | npm globals: ast-grep, eslint, jscpd, prettier, pyright, shell-quote, typescript, typescript-language-server | 44,918,157 B      | 21.0 s        |
+| agent      | rust-analyzer 2026-08-10.1                                                                                   | 14,856,284 B      | 5.6 s         |
+| agent      | rtk 0.45.0 (install.sh + release asset)                                                                      | 4,603,892 B       | 3.1 s         |
+| agent      | osv-scanner 2.4.0                                                                                            | 56,819,425 B      | 14.5 s        |
+| agent      | Go 1.25.8 toolchain (download + unpack)                                                                      | 59,936,816 B      | 21.3 s        |
+| agent      | cheasee-pi clone (depth 1) + npm ci                                                                          | 50,258,044 B      | 17.5 s        |
+| agent      | @earendil-works/pi-coding-agent 1.0.2                                                                        | 12,501,756 B      | 18.8 s        |
+| **stage**  | **agent subtotal**                                                                                           | **419,646,584 B** | **176.1 s**   |
+| **both**   | **cold build transfer (replay)**                                                                             | **914,692,293 B** | **373.0 s**   |
 
 Every number in the table is a byte that was actually transferred and a wall
 clock that was actually run, not a sum of advertised artifact sizes: one
@@ -251,11 +254,14 @@ still need the four commands at the top of this section on the maintainer host.
 The Chromium bundle the issue quotes as ~646 MB is the archives _unpacked_; the
 transfer is 316,396,702 B, and it now sits entirely in the `scrapling` stage.
 
-Two things the table says about the change:
+Three things the table says about the change:
 
-- Chromium is 64% of the scrapling stage's 495 MB. That is the transfer a
+- Chromium is 72% of the scrapling stage's 436 MB. That is the transfer a
   change to any agent-stage layer used to pull again, and the stage split is
   what stops it — the agent stage's own rows are 419,646,584 B.
+- The web-search venv sits in its own stage: its row is 6,740,161 B, so bumping
+  a ddgs/idna/anyio pin re-runs that row only, never the 316 MB chromium
+  download that used to sit above it.
 - The four agent apt rows and their indexes are 175,752,210 B (42% of the agent
   stage). Those are the rows the `--mount=type=cache` flags serve on a re-run:
   apt reads the archives and the `Packages` indexes back from the mounted
@@ -273,7 +279,7 @@ byte-for-byte:
 | Scenario                             | Before                                     | After                                                                                                                                                                                                               |
 | ------------------------------------ | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Fully cold (`buildx prune -af`)      | 9 min / 1.1 GB (maintainer host, observed) | 147 s to a runnable image, 0 cache hits (GitHub runner), 870,674,261 B downloaded — both from that job's own step and `build-cost wire` counter. The volume does not shrink — a cold build still fetches everything |
-| Agent-layer invalidation (the point) | 9 min / 1.1 GB (maintainer host, observed) | 419,646,584 B: the agent rows only. The 495,045,709 B scrapling subtotal — Chromium included — is copied from the unchanged stage instead of re-fetched                                                             |
+| Agent-layer invalidation (the point) | 9 min / 1.1 GB (maintainer host, observed) | 419,646,584 B: the agent rows only. The 436,441,594 B scrapling and 6,740,161 B websearch subtotals — Chromium included — are copied from the unchanged stages instead of re-fetched                                |
 | Re-run of one busted package layer   | that layer's full fetch                    | archive reuse from the cache mounts, so the step re-runs without fetching — visible with `--progress=plain` on a busted pin                                                                                         |
 
 The remaining gap is cache-mount **effectiveness** on a real builder: bust one

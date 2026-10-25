@@ -37,16 +37,24 @@ var sha256Pin = regexp.MustCompile(`@sha256:[0-9a-f]{64}$`)
 
 // unpinnedFROMs returns every FROM line whose image is not fixed by a digest.
 // `${ARG}` references are resolved through the file's ARG defaults; an
-// unresolvable reference is an offender (it could point anywhere).
+// unresolvable reference is an offender (it could point anywhere). A reference
+// to an earlier stage (`FROM pythonbase AS scrapling`) is not a pull: it is
+// pinned by that stage's own FROM, which is checked in the same pass.
 func unpinnedFROMs(content string) []string {
 	args := map[string]string{}
+	stages := map[string]bool{}
 	for _, line := range strings.Split(content, "\n") {
 		f := strings.Fields(line)
-		if len(f) < 2 || f[0] != "ARG" {
+		if len(f) == 0 {
 			continue
 		}
-		if k, v, ok := strings.Cut(f[1], "="); ok {
-			args[k] = v
+		if f[0] == "ARG" && len(f) > 1 {
+			if k, v, ok := strings.Cut(f[1], "="); ok {
+				args[k] = v
+			}
+		}
+		if f[0] == "FROM" && len(f) >= 4 && f[len(f)-2] == "AS" {
+			stages[f[len(f)-1]] = true
 		}
 	}
 	var offenders []string
@@ -62,6 +70,9 @@ func unpinnedFROMs(content string) []string {
 				continue
 			}
 			image = f[2]
+		}
+		if stages[image] {
+			continue
 		}
 		if ref, ok := strings.CutPrefix(image, "${"); ok {
 			image = args[strings.TrimSuffix(ref, "}")]
@@ -171,6 +182,8 @@ func TestUnpinnedFROMs_DetectsUnpinnedForms(t *testing.T) {
 		{"unresolvable arg", "FROM ${BASE_IMAGE} AS s\n", true},
 		{"pinned", "FROM debian:12-slim" + pin + " AS s\n", false},
 		{"pinned with platform flag", "FROM --platform=linux/amd64 debian:12-slim" + pin + "\n", false},
+		{"earlier stage reference", "FROM debian:12-slim" + pin + " AS base\nFROM base AS s\n", false},
+		{"unknown stage reference", "FROM nowhere AS s\n", true},
 	}
 	for _, c := range cases {
 		got := unpinnedFROMs(c.content)

@@ -381,11 +381,13 @@ echo >&2
 printf '| Stage | Step | Observed transfer | Observed time |\n'
 printf '| ----- | ---- | ----------------- | ------------- |\n'
 
-measure scrapling "base image ${BASE_TAG}@${BASE_DIGEST:0:19}… (pull, one layer)" fetch_base_image
+measure pythonbase "base image ${BASE_TAG}@${BASE_DIGEST:0:19}… (pull, one layer)" fetch_base_image
 
-measure scrapling "apt: python3, python3-venv, ca-certificates (index + archives)" step_scrapling_apt
+measure pythonbase "apt: python3, python3-venv, ca-certificates (index + archives)" step_scrapling_apt
+subtotal pythonbase pythonbase
 measure scrapling "pip: scrapling[fetchers] + markdownify + beautifulsoup4 (constraints-pinned)" step_scrapling_venv
-measure scrapling "pip: ddgs + idna + anyio (web-search venv)" step_websearch_venv
+measure websearch "pip: ddgs + idna + anyio (web-search venv)" step_websearch_venv
+subtotal websearch websearch
 measure scrapling "patchright install chromium (chromium + headless shell + ffmpeg)" step_chromium
 subtotal scrapling scrapling
 
