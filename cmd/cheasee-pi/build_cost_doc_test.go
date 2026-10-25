@@ -191,7 +191,7 @@ func TestBuildCostDoc_EndToEndTransferIsWireCaptured(t *testing.T) {
 		"scripts/net-bytes.sh", // the instrument that produced the transfer
 		"build-cost wire",      // and the label it prints
 		"not back-filled",      // a replay figure may not be pasted into the row
-		"not captured",         // and an unobserved transfer says so instead of borrowing one
+		"0 cache hits",         // the row is a cache-pruned build or it is not the criterion
 	} {
 		if !strings.Contains(flat, want) {
 			t.Errorf("§End-to-end cache-pruned build must contain %q", want)
@@ -216,8 +216,14 @@ func TestBuildCostDoc_EndToEndTransferIsWireCaptured(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(transfer, "not captured") && !regexp.MustCompile(`^[0-9,]+ B$`).MatchString(transfer) {
-		t.Errorf("the transfer cell must read `not captured` or a wire byte count, got %q", transfer)
+	if !regexp.MustCompile(`^[0-9,]+ B$`).MatchString(transfer) {
+		t.Errorf("the transfer cell must read a wire byte count captured by the run's own NIC counter, got %q", transfer)
+	}
+	// The cell is only traceable if the counter's own output is quoted next to it:
+	// the row may not carry a number the doc cannot point back to a run's log line.
+	bare := strings.TrimSuffix(strings.ReplaceAll(transfer, ",", ""), " B")
+	if counter := "build-cost wire rx=" + bare + " B"; !strings.Contains(flat, counter) {
+		t.Errorf("§End-to-end cache-pruned build must quote the counter's line %q behind the row's %q", counter, transfer)
 	}
 	secs, err := strconv.ParseFloat(seconds, 64)
 	if err != nil {

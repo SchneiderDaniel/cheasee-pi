@@ -25,14 +25,14 @@
 	},
 	"after": {
 		"ref": "worktree-git-issue-2036-refactor-break-up-the-25-vba-god-module-files-flag",
-		"codeFiles": 790,
+		"codeFiles": 800,
 		"vbaGodModuleCount": 1,
 		"godObjectCount": 28
 	},
 	"baseAdvance": {
 		"issue": 2034,
-		"reason": "#2034 merged after the pinned base, added five scored sibling files, and reduced the uncited disk-space test below the threshold.",
-		"scoredFilesAdded": 5,
+		"reason": "Files added to the scored tree after the pinned base: #2034 added five scored sibling files and reduced the uncited disk-space test below the threshold; #2053 added ten (eight Go build-contract tests under cmd/cheasee-pi/ and scripts/net-bytes.sh, scripts/measure-cold-build.sh).",
+		"scoredFilesAdded": 15,
 		"resolvedFiles": ["cmd/cheasee-pi/disk_space_test.go"]
 	},
 	"tradeoffs": {
