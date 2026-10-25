@@ -44,8 +44,10 @@ describe("canonical single homes exist", () => {
 	});
 
 	it("the four reduce_* reducers exist and Assembler::apply is reduce_event", () => {
-		assert.match(read(`${UI}/stream.rs`), /pub fn reduce_transcript\b/);
-		assert.match(read(`${UI}/stream.rs`), /pub fn reduce_event\b/);
+		// The stream split moved the reducers out of `stream.rs` into the modules
+		// that own them (`assembler.rs` reduce_event, `chat.rs` reduce_transcript).
+		assert.match(read(`${UI}/stream/chat.rs`), /pub fn reduce_transcript\b/);
+		assert.match(read(`${UI}/stream/assembler.rs`), /pub fn reduce_event\b/);
 		assert.match(read(`${UI}/controls.rs`), /pub fn reduce_controls\b/);
 		assert.match(read(`${UI}/extension_ui.rs`), /pub fn reduce_chrome\b/);
 		assert.match(read(`${UI}/components/session_list.rs`), /pub fn reduce_sessions\b/);
