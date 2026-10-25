@@ -24,7 +24,7 @@
 		["python", "ddgs", null, ".pi/extensions/web-search/requirements.txt", 1],
 		["python", "idna", null, ".pi/extensions/web-search/requirements.txt", 6],
 		["python", "anyio", null, ".pi/extensions/web-search/requirements.txt", 11],
-		["python", "certifi", null, ".pi/extensions/web-search/requirements.txt", 15],
+		["python", "certifi", null, ".pi/extensions/web-search/requirements.txt", 16],
 		["rust", "leptos", "0.8", "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml", 6],
 		["rust", "leptos_meta", "0.8", "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml", 14],
 		["rust", "serde", "1", "cmd/cheasee-pi/embedded/docker/ui/Cargo.toml", 24],

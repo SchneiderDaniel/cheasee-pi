@@ -27,8 +27,9 @@
 # path end-to-end.
 #
 # Scope: the cache-hit guarantee holds ONLY for default builds. --prune /
-# --no-cache / --pull wipe the cache by design, and the floating
-# FROM debian:12-slim digest drift is the upper bound on any pi-only rebuild.
+# --no-cache / --pull wipe the cache by design. The base image is digest-pinned
+# since #2053, so a tag retag can no longer bust the early layers; changing the
+# pin (or rotating it) does, and that is the upper bound on a pi-only rebuild.
 #
 # Requires: cheasee-pi on PATH (or CHEASEE_PI_BIN=/path/to/cheasee-pi), a
 # working docker daemon, ~15-25 min. Run manually — never inside a CI/Auditor

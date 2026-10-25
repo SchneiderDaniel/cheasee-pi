@@ -22,3 +22,8 @@ patchright==1.62.2
 playwright==1.62.0
 markdownify==1.2.3
 beautifulsoup4==4.15.0
+# certifi arrives transitively (httpx) and every TLS client in this venv trusts
+# its bundle: 2026.10.19 is the first release without the emSign roots that had
+# compromised intermediate keys (GHSA-6q48-6c7w-9gw2). Keep it in step with the
+# web-search requirements.
+certifi==2026.10.23

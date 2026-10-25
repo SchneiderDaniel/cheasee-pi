@@ -63,11 +63,17 @@ func TestDockerfile_PiLayerAfterCloneBeforeEntrypoint(t *testing.T) {
 	if !(installIdx < echoIdx && echoIdx < layer7Idx) {
 		t.Errorf("stamp echo (offset %d) must sit inside the pi RUN: after the install line (offset %d) and before the Layer 7 header (offset %d)", echoIdx, installIdx, layer7Idx)
 	}
-	// No duplicate install, and the npm cache clean stays within the moved block.
+	// No duplicate install; the /tmp scratch cleanup stays in the moved block.
+	// 'npm cache clean --force' is gone (issue #2053): the cache is a BuildKit
+	// mount now, so the cleanup wiped the cache it was meant to keep.
 	if got := strings.Count(content, "npm install -g --force @earendil-works/pi-coding-agent"); got != 1 {
 		t.Errorf("exactly one pi install line required, got %d", got)
 	}
-	if block := content[installIdx:layer7Idx]; !strings.Contains(block, "npm cache clean --force") {
-		t.Error("moved pi RUN must retain 'npm cache clean --force'")
+	block := content[installIdx:layer7Idx]
+	if !strings.Contains(block, "rm -rf /tmp/*") {
+		t.Error("moved pi RUN must retain 'rm -rf /tmp/*'")
+	}
+	if strings.Contains(block, "npm cache clean") {
+		t.Error("moved pi RUN must not run 'npm cache clean' — it empties the mounted npm cache")
 	}
 }
