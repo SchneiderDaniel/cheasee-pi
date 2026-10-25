@@ -62,10 +62,7 @@ function setupRuntime(diagnosticsByUri: Record<string, unknown[]>): void {
 
 	const runtime: LspRuntime = {
 		spawn: mock.fn(() => fakeChild()) as any,
-		execFile: mock.fn((...args: any[]) => {
-			const cb = [...args].reverse().find((a) => typeof a === "function");
-			cb(null, "", "");
-		}) as any,
+		resolveExecutable: mock.fn((name: string) => `/usr/bin/${name}`) as any,
 		existsSync: mock.fn(() => true),
 		readFile: mock.fn(async () => "const x = 1;\n") as any,
 		loadJsonRpc: mock.fn(async (): Promise<JsonRpcModule | null> => ({

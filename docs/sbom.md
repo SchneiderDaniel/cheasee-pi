@@ -32,9 +32,16 @@ nav_order: 10
 | `typebox`                         | ^1.2.8  | MIT        | Runtime type validation                         |
 | `js-yaml`                         | ^5.2.2  | MIT        | YAML parsing (dev, release tests)               |
 | `vscode-jsonrpc`                  | ^8.2.1  | MIT        | LSP communication                               |
-| `zod`                             | ^4.4.3  | MIT        | Schema-driven config validation                 |
+| `zod`                             | ^4.6.6  | MIT        | Schema-driven config validation                 |
 | `@octokit/rest`                   | ^22.0.1 | MIT        | GitHub REST API client (supervisor pipeline)    |
 | `@octokit/graphql`                | ^8.2.1  | MIT        | GitHub GraphQL API client (supervisor pipeline) |
+
+Security overrides forced in `package.json` (transitive pins the tree would
+otherwise resolve to a vulnerable release):
+
+- `undici` → `8.12.3` — `@earendil-works/pi-coding-agent` pins `8.10.2`, which
+  is vulnerable to GHSA-xjj6-f33q-929c, GHSA-4qv8-2p9j-2685 and
+  GHSA-f72v-6w45-q472 (all fixed in `8.12.2`).
 
 ## Go modules (cheasee-pi CLI)
 
@@ -48,13 +55,14 @@ nav_order: 10
 
 ## Rust crates (web control center)
 
-| Crate          | Version | License | Purpose                                                |
-| -------------- | ------- | ------- | ------------------------------------------------------ |
-| `leptos`       | 0.8     | MIT     | UI framework (server-rendered + hydrated)              |
-| `leptos_axum`  | 0.8     | MIT     | Leptos ↔ Axum SSR integration                          |
-| `leptos_meta`  | 0.8     | MIT     | Head/meta tags + hydration bootstrap                   |
-| `axum`         | 0.8     | MIT     | HTTP server: routing, WebSocket upgrade, static assets |
-| `cargo-leptos` | 0.3     | MIT     | Two-target hydrate/SSR build + content-hashed assets   |
+| Crate          | Version | License | Purpose                                                       |
+| -------------- | ------- | ------- | ------------------------------------------------------------- |
+| `leptos`       | 0.8     | MIT     | UI framework (server-rendered + hydrated)                     |
+| `leptos_axum`  | 0.8     | MIT     | Leptos ↔ Axum SSR integration                                 |
+| `leptos_meta`  | 0.8     | MIT     | Head/meta tags + hydration bootstrap                          |
+| `axum`         | 0.8     | MIT     | HTTP server: routing, WebSocket upgrade, static assets        |
+| `cargo-leptos` | 0.3     | MIT     | Two-target hydrate/SSR build + content-hashed assets          |
+| `tokio`        | 1.53.3  | MIT     | Async runtime for the SSR server (≥1.53.3: RUSTSEC-2026-0386) |
 
 Upstream advisories on transitive leptos-stack crates (tracked, not directly fixable here):
 
@@ -73,11 +81,16 @@ newest published releases of their crates, and neither RUSTSEC advisory has a
 patched version — both are unmaintained-only and carry no assigned severity.
 `osv-scanner scan source -L cmd/cheasee-pi/embedded/docker/ui/Cargo.lock`
 reports exactly these two, so the inventory above is the current, rerun result.
-Re-checked while resolving #2026: crates.io still reports `paste` 1.0.15
-(published 2024-05-07) and `proc-macro-error2` 2.0.1 (2024-09-06) as the newest
-releases of their crates, and the pipeline image carries no Rust toolchain, so
-neither a replacement nor a removal is reachable in-gate. The accepted
-maintenance risk stands.
+Re-checked against the crates.io API while resolving #2026 and again for
+#2023: `paste` 1.0.15 (published 2024-05-07) and `proc-macro-error2` 2.0.1
+(2024-09-06) are still the newest releases of their crates, and neither
+advisory names a patched version — so no lock bump exists to take. Removal is
+only reachable from upstream (a leptos/tachys/rstml release that drops them, or
+a vendored fork of that macro stack), and this image carries no Rust toolchain,
+so the lock cannot be regenerated here. Re-check trigger: the next leptos bump,
+confirmed with
+`osv-scanner scan source -L cmd/cheasee-pi/embedded/docker/ui/Cargo.lock`.
+The accepted maintenance risk stands.
 
 ## System dependencies
 
@@ -107,13 +120,14 @@ maintenance risk stands.
 
 ## Python packages (venv)
 
-| Package               | License    | Purpose                                |
-| --------------------- | ---------- | -------------------------------------- |
-| `scrapling[fetchers]` | MIT        | Web crawling with progressive fetching |
-| `markdownify`         | MIT        | HTML to Markdown conversion            |
-| `beautifulsoup4`      | MIT        | HTML parsing (scrapling dependency)    |
-| `ddgs`                | MIT        | DuckDuckGo search API                  |
-| Playwright Chromium   | Apache-2.0 | Browser automation for web crawling    |
+| Package               | License    | Purpose                                                  |
+| --------------------- | ---------- | -------------------------------------------------------- |
+| `scrapling[fetchers]` | MIT        | Web crawling with progressive fetching                   |
+| `markdownify`         | MIT        | HTML to Markdown conversion                              |
+| `beautifulsoup4`      | MIT        | HTML parsing (scrapling dependency)                      |
+| `certifi`             | MPL-2.0    | CA trust store (pinned ≥2026.10.19, GHSA-6q48-6c7w-9gw2) |
+| `ddgs`                | MIT        | DuckDuckGo search API                                    |
+| Playwright Chromium   | Apache-2.0 | Browser automation for web crawling                      |
 
 ## Pi extensions
 

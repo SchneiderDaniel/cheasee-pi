@@ -159,9 +159,11 @@ ENV LANG=C.UTF-8 LC_CTYPE=C.UTF-8 LC_ALL=C.UTF-8
 # post-CVE-2026-45409 release — an old ddgs resolution pulls requests → idna,
 # and idna<3.15 is DoS-vulnerable on crafted long inputs. anyio pinned to the
 # release fixing GHSA-82r6-8w77-94w6 (CVE-2026-63374) and GHSA-5p39-cfhj-2xmp
-# (CVE-2026-64847); both fixed in 4.14.2.
+# (CVE-2026-64847); both fixed in 4.14.2. certifi pinned to the release that
+# drops the emSign roots with compromised intermediate CA keys
+# (GHSA-6q48-6c7w-9gw2, fixed 2026.10.19).
 RUN python3 -m venv /opt/venvs/web-search-venv --clear && \
-    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs 'idna>=3.15' 'anyio>=4.14.2'
+    /opt/venvs/web-search-venv/bin/pip install --no-cache-dir ddgs 'idna>=3.15' 'anyio>=4.14.2' 'certifi>=2026.10.19'
 
 # scrapling venv: progressive web crawler (patchright-driven stealth).
 # Installed against scrapling-constraints.txt: `scrapling[fetchers]` floats its
@@ -298,22 +300,23 @@ RUN groupadd --gid 1001 agentuser && \
 # package layout would run a second npm install at build and break the
 # dogfooding dedup.
 ARG CHEASEE_REF=main
-# Content-addressed cache-bust for the clone below (issue #2054): the CLI
+# Content-addressed cache-bust for the fetch below (issue #2054): the CLI
 # resolves CHEASEE_REF's upstream commit (git ls-remote) and supplies it here,
 # so this layer re-runs exactly when upstream moves and stays cached when it
-# does not — never a bare constant that can freeze in the Docker layer cache
-# for months. An offline CLI keeps passing its last resolved commit (cached on
-# the host), so the cache key is unchanged and the cached layer is reused.
+# does not. Fetching that SHA, rather than cloning the moving ref, keeps the
+# baked source consistent if the ref advances between probe and build. An
+# offline CLI keeps passing its last resolved commit (cached on the host), so
+# the cache key is unchanged and the cached layer is reused. If no commit has
+# ever been resolved, fetch CHEASEE_REF directly.
 # Referenced in the RUN so BuildKit folds it into the cache key (an
 # unreferenced ARG would not invalidate anything).
-# The layer FAILS CLOSED when the clone's HEAD differs from CHEASEE_COMMIT:
-# that can only mean the ref moved between the probe and the clone, and
-# caching the clone under the probed commit's key would bake unreviewed
-# content — re-running the build after the ref settles is the correct outcome.
 ARG CHEASEE_COMMIT
-RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
+RUN git init /opt/cheasee-pi \
+    && git -C /opt/cheasee-pi remote add origin https://github.com/SchneiderDaniel/cheasee-pi \
+    && if [ -n "${CHEASEE_COMMIT}" ]; then git -C /opt/cheasee-pi fetch --depth 1 origin "${CHEASEE_COMMIT}"; else git -C /opt/cheasee-pi fetch --depth 1 origin "${CHEASEE_REF}"; fi \
+    && git -C /opt/cheasee-pi checkout --detach FETCH_HEAD \
     && BAKED_COMMIT="$(git -C /opt/cheasee-pi rev-parse HEAD)" \
-    && if [ -n "${CHEASEE_COMMIT}" ] && [ "${CHEASEE_COMMIT}" != "${BAKED_COMMIT}" ]; then echo "error: cheasee-pi upstream moved mid-build (resolved ${CHEASEE_COMMIT}, cloned ${BAKED_COMMIT}); re-run the build" >&2; exit 1; fi \
+    && if [ -n "${CHEASEE_COMMIT}" ] && [ "${CHEASEE_COMMIT}" != "${BAKED_COMMIT}" ]; then echo "error: fetched cheasee-pi commit differs from CHEASEE_COMMIT (resolved ${CHEASEE_COMMIT}, fetched ${BAKED_COMMIT})" >&2; exit 1; fi \
     && echo "${BAKED_COMMIT}" > /opt/cheasee-pi/BUILD_COMMIT \
     && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
     && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \

@@ -74,14 +74,9 @@ function setupRuntime(opts: RuntimeOpts = {}): void {
 
 	const runtime: LspRuntime = {
 		spawn: mock.fn(() => fakeChild()) as any,
-		execFile: mock.fn((...args: any[]) => {
-			const cb = [...args].reverse().find((a) => typeof a === "function");
-			if (opts.whichFails) {
-				cb(new Error("not found"), "", "");
-			} else {
-				cb(null, "", "");
-			}
-		}) as any,
+		resolveExecutable: mock.fn((name: string) =>
+			opts.whichFails ? null : `/usr/bin/${name}`,
+		) as any,
 		existsSync: mock.fn(() => true),
 		readFile: mock.fn(async () => "const x: number = 1;\n") as any,
 		loadJsonRpc: mock.fn(async (): Promise<JsonRpcModule | null> => ({
