@@ -55,15 +55,15 @@
 		}
 	],
 	"before": {
-		"commit": "delivered HEAD at filing",
+		"commit": "delivered HEAD at filing (analyzedAt 1791804971015)",
 		"cards": 7,
 		"contradictions": {
 			"Fix Security Issues": {
-				"desc": "14 high-severity security issues found.",
-				"actual": "stats.security 0 after the filter (every HIGH hit is a proven false positive)"
+				"desc": "9 high-severity security issues found.",
+				"actual": "stats.security 0 after the filter (the 5 MEDIUM hits survive; every HIGH is a proven false positive)"
 			},
 			"Fix Architecture Violations": {
-				"desc": "332 layer violations found.",
+				"desc": "375 layer violations found.",
 				"actual": "layerViolations [] after the filter (the repo declares no ordered layer taxonomy)"
 			},
 			"Extract Duplicated Code": {
@@ -71,18 +71,27 @@
 				"actual": "duplicates [] after the filter (all three are aggregate shapes)"
 			},
 			"Remove Dead Code": {
-				"desc": "27 unused functions detected.",
-				"actual": "stats.dead 27 — honest, but derived from the pre-filter count"
+				"desc": "44 unused functions detected.",
+				"actual": "stats.dead 24 after the filter - the card restates the pre-filter count"
 			}
 		},
 		"stats": {
-			"files": 1031,
-			"functions": 3756,
-			"connections": 4098,
-			"dead": 27,
-			"security": 14,
-			"duplicates": 3,
-			"violations": 332
+			"dead": 24,
+			"security": 0,
+			"duplicates": 0,
+			"violations": 0
+		}
+	},
+	"remeasured": {
+		"note": "Not the filed snapshot, and never asserted: replays on the moving tree drift with it. The issue-snapshot replay (git archive 17c991c0) measured these counts before the filter, which is why only `before` is pinned as literals.",
+		"ref": "17c991c033073dccdd549c335abe6c594643b009",
+		"preFilter": {
+			"files": 723,
+			"functions": 3505,
+			"dead": 45,
+			"security": 9,
+			"duplicates": 7,
+			"violations": 357
 		}
 	},
 	"after": {
@@ -114,12 +123,12 @@
 		},
 		{
 			"title": "Split Large Files",
-			"source": "issues[] '20 Large Files'",
+			"source": "issues[] '21 Large Files'",
 			"owner": "references/long-file-2005.md and test/fixtures/long-file-baseline.json"
 		},
 		{
 			"title": "Reduce Coupling",
-			"source": "issues[] '156 Highly Coupled'",
+			"source": "issues[] '142 Highly Coupled'",
 			"owner": "references/coupling-2002.md and test/fixtures/coupling-baseline.json"
 		}
 	],

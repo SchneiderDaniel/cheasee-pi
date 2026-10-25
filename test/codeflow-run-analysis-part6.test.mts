@@ -216,8 +216,13 @@ describe("suggestions-2030 baseline", () => {
 	const baseline = JSON.parse(readFileSync(FIXTURE, "utf-8")) as {
 		pin: string;
 		derivations: { title: string; source: string }[];
-		before: { cards: number; contradictions: Record<string, { desc: string; actual: string }> };
+		before: {
+			cards: number;
+			contradictions: Record<string, { desc: string; actual: string }>;
+			stats: Record<string, number>;
+		};
 		after: { cards: number; removed: string[] };
+		remeasured: { ref: string; note: string; preFilter: Record<string, number> };
 		residual: { title: string; source: string; owner: string }[];
 		invariants: string[];
 	};
@@ -265,6 +270,39 @@ describe("suggestions-2030 baseline", () => {
 			assert.match(entry.desc, /\d+/, `${title} must record the shipped count`);
 			assert.ok(entry.actual.length > 0, `${title} must record the surviving source`);
 		}
+	});
+
+	// The audit found `before` carrying a later re-measurement instead of the filed
+	// snapshot, so the literals below are the filing's own counts (issue #2030).
+	// A re-measurement may exist, but only outside `before` and never asserted.
+	it("pins the filed measurements in `before`, not a later re-measurement", () => {
+		const filed: Record<string, string> = {
+			"Fix Security Issues": "9 high-severity security issues found.",
+			"Fix Architecture Violations": "375 layer violations found.",
+			"Extract Duplicated Code": "3 instances of similar code found.",
+			"Remove Dead Code": "44 unused functions detected.",
+		};
+		for (const [title, desc] of Object.entries(filed)) {
+			assert.strictEqual(
+				baseline.before.contradictions[title].desc,
+				desc,
+				`${title} must keep the count the filing shipped`,
+			);
+		}
+		assert.strictEqual(baseline.before.stats.dead, 24, "the filed snapshot's filtered dead count");
+		assert.strictEqual(baseline.before.stats.security, 0);
+		assert.strictEqual(baseline.before.stats.duplicates, 0);
+		assert.strictEqual(baseline.before.stats.violations, 0);
+
+		const remeasured = baseline.remeasured;
+		assert.ok(remeasured, "a later re-measurement is recorded separately, never inside `before`");
+		assert.ok(remeasured.note.length > 0, "it says why it is not the filed snapshot");
+		assert.ok(remeasured.ref.length > 0, "it names the revision it measured");
+		assert.notStrictEqual(
+			remeasured.preFilter.dead,
+			baseline.before.stats.dead,
+			"a re-measurement may not masquerade as the filed snapshot",
+		);
 	});
 
 	it("keeps the residual cards owned by a register, never by this one", () => {

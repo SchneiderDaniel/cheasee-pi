@@ -588,12 +588,13 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 				"the summary dead count must agree with the reported list",
 			);
 
-			// Issue #2030: a derived card may not outlive the array it summarizes.
-			// Each card's own source is read off this export, so a card whose source is
-			// empty fails here instead of shipping a count the report cannot back. Cards
-			// whose source survives (`Extract Duplicated Code`, `Resolve Naming
-			// Conflicts` — one code group and three name groups survive on this
-			// snapshot) are honest and stay.
+			// Issue #2030: a derived card may not outlive the array it summarizes. Each
+			// card's own source is read off this export, so a card whose source is empty
+			// fails here instead of shipping a count the report cannot back. On this
+			// snapshot all four sources are emptied: every HIGH hit is a false positive,
+			// the repo declares no ordered layer taxonomy, the code groups are clone
+			// aggregates or clones confined to test artifacts, and the name groups are
+			// `impl` members / test helpers sharing a name.
 			const cardSources: Record<string, number> = {
 				"Fix Security Issues": highsOf(report).length,
 				"Fix Architecture Violations": (report.layerViolations ?? []).length,
@@ -610,11 +611,11 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 				if (source === undefined) continue;
 				assert.ok(source > 0, `card "${title}" survived over an empty source array`);
 			}
-			// Both emptied arrays must therefore have lost their card.
-			assert.strictEqual(cardSources["Fix Security Issues"], 0);
-			assert.strictEqual(cardSources["Fix Architecture Violations"], 0);
-			assert.ok(!cards.includes("Fix Security Issues"), cards.join(", "));
-			assert.ok(!cards.includes("Fix Architecture Violations"), cards.join(", "));
+			for (const title of Object.keys(cardSources)) {
+				assert.strictEqual(cardSources[title], 0, `${title} must have no surviving source`);
+				assert.ok(!cards.includes(title), `${title} must not survive: ${cards.join(", ")}`);
+			}
+			assert.deepStrictEqual(report.duplicates ?? [], [], "no duplicate group may survive");
 		},
 	);
 
@@ -666,6 +667,20 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 				[],
 				"no layer violation may survive the filter",
 			);
+			// Issue #2030: the cards are re-derived from this filtered data, so none may
+			// name a source the export no longer carries.
+			const derivedTitles = (report.suggestions ?? []).map((s: { title: string }) => s.title);
+			for (const title of [
+				"Fix Security Issues",
+				"Extract Duplicated Code",
+				"Fix Architecture Violations",
+				"Resolve Naming Conflicts",
+			]) {
+				assert.ok(
+					!derivedTitles.includes(title),
+					`${title} must not survive over an empty source: ${derivedTitles.join(", ")}`,
+				);
+			}
 			// 89 (B) is the measured ceiling: MEDIUM findings outside this issue stay
 			// (the filter's own file, `lib/exec-env.ts`), and the health term counts
 			// them.

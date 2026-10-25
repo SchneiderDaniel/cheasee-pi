@@ -2416,6 +2416,143 @@ describe("fp-filter — duplicate group suppression (Phase 5)", () => {
 		assert.deepStrictEqual(second.data, first.data);
 		assert.deepStrictEqual(second.suppressed.duplicates, []);
 	});
+
+	// Issue #2030: the derived `Extract Duplicated Code` / `Resolve Naming
+	// Conflicts` cards may not outlive the groups they count, so the two residual
+	// non-actionable group shapes are recognized too — clones confined to test/doc
+	// artifacts (the analyzer's own name grouping skips non-production paths; the
+	// code grouping omits the guard), and name groups whose every instance is a
+	// nested declaration (`impl`/`class`/module member), where one name repeats
+	// per receiver.
+	const NESTED: Record<string, string> = {
+		"ui/src/controls.rs": "impl Controls {\n    pub fn apply(&self) {}\n}\n",
+		"ui/src/stream.rs": "impl Assembler {\n\tpub fn apply(&mut self) {}\n}\n",
+		"ui/src/free.rs": "pub fn apply() {}\n",
+		"test/a.test.ts": "\tit('x', () => {});\n",
+	};
+	const nestedRead = (path: unknown): string | null =>
+		typeof path === "string" && path in NESTED ? NESTED[path] : null;
+	const nested = (over: Record<string, unknown> = {}) => ({
+		type: "name",
+		name: "apply",
+		files: [{ file: "ui/src/controls.rs", line: 2 }],
+		...over,
+	});
+
+	/** Sanitize one group against a chosen reader and report whether it survived. */
+	function keepsWith(
+		entry: Record<string, unknown>,
+		reader: (path: unknown) => string | null,
+	): boolean {
+		const { data, suppressed } = sanitizeAnalysisData({ duplicates: [entry] }, reader);
+		assert.strictEqual(
+			suppressed.duplicates.length + data.duplicates.length,
+			1,
+			"no duplicate group may vanish",
+		);
+		return data.duplicates.length === 1;
+	}
+
+	it("suppresses a code group whose every instance is a test or doc artifact", () => {
+		const testOnly = dup({
+			name: "acquire, acquire, editor",
+			files: [
+				{ file: "pkg/ext/test/index.test.ts", line: 203 },
+				{ file: "pkg/ext/tests/helpers/capture.ts", line: 315 },
+			],
+		});
+		assert.strictEqual(keepsWith(testOnly, readFile), false);
+	});
+
+	it("keeps a code group that reaches shipped source", () => {
+		const mixed = dup({
+			name: "a, b",
+			files: [{ file: "pkg/ext/test/a.ts", line: 1 }, { file: "src/b.ts", line: 1 }],
+		});
+		assert.strictEqual(keepsWith(mixed, readFile), true, "one shipped instance is a real clone");
+	});
+
+	it("keeps a code group with no readable file list (unknown is not evidence)", () => {
+		assert.strictEqual(keepsWith(dup({ name: "a, b", files: [] }), readFile), true);
+		assert.strictEqual(keepsWith({ type: "code", name: "a, b" }, readFile), true);
+	});
+
+	it("suppresses a name group whose every instance is nested or an artifact", () => {
+		const group = nested({
+			files: [
+				{ file: "ui/src/controls.rs", line: 2 },
+				{ file: "ui/src/stream.rs", line: 2 },
+				{ file: "test/a.test.ts", line: 1 },
+			],
+		});
+		assert.strictEqual(keepsWith(group, nestedRead), false);
+	});
+
+	it("keeps a name group carrying a top-level free function", () => {
+		const group = nested({
+			files: [
+				{ file: "ui/src/controls.rs", line: 2 },
+				{ file: "ui/src/free.rs", line: 1 },
+			],
+		});
+		assert.strictEqual(
+			keepsWith(group, nestedRead),
+			true,
+			"a column-0 free function is shipped code, not a member name",
+		);
+	});
+
+	it("keeps a name group whose source is unreadable (fail open)", () => {
+		const group = nested({ files: [{ file: "ui/src/gone.rs", line: 2 }] });
+		assert.strictEqual(keepsWith(group, nestedRead), true, "no source, no proof");
+		assert.strictEqual(keepsWith(group, readFile), true);
+	});
+
+	it("keeps a name group with no line or file evidence", () => {
+		assert.strictEqual(keepsWith(nested({ files: [] }), nestedRead), true);
+		assert.strictEqual(keepsWith(nested({ files: [{ file: "ui/src/controls.rs" }] }), nestedRead), true);
+	});
+
+	it("retitles the N Duplicate Function Names item to the surviving name groups", () => {
+		const input = {
+			duplicates: [
+				dup({ type: "name", name: "apply", files: [{ file: "ui/src/free.rs", line: 1 }] }),
+				dup({ name: "a, b", files: [{ file: "src/a.ts", line: 1 }] }),
+			],
+			issues: [
+				{ title: "3 Duplicate Function Names" },
+				{ title: "4 Similar Code Blocks" },
+			],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(
+			data.issues.map((i: { title: string }) => i.title),
+			["1 Duplicate Function Names", "1 Similar Code Blocks"],
+		);
+	});
+
+	it("removes the Duplicate Function Names item when every name group is suppressed", () => {
+		const input = {
+			duplicates: [dup({ type: "name", name: "apply", files: [{ file: "test/a.test.ts", line: 1 }] })],
+			issues: [{ title: "3 Duplicate Function Names" }, { title: "Keep" }],
+		};
+		const { data } = sanitizeAnalysisData(input, readFile);
+		assert.deepStrictEqual(data.issues, [{ title: "Keep" }]);
+	});
+
+	it("is idempotent when an artifact and a name group are suppressed", () => {
+		const input = {
+			duplicates: [
+				dup({ name: "a, b", files: [{ file: "pkg/test/a.ts", line: 1 }] }),
+				nested({ files: [{ file: "ui/src/controls.rs", line: 2 }] }),
+				nested({ files: [{ file: "ui/src/free.rs", line: 1 }] }),
+			],
+		};
+		const first = sanitizeAnalysisData(input, nestedRead);
+		const second = sanitizeAnalysisData(first.data, nestedRead);
+		assert.deepStrictEqual(second.data, first.data);
+		assert.deepStrictEqual(second.suppressed.duplicates, []);
+	});
 });
 
 describe("fp-filter — browser readFile source", () => {
