@@ -75,9 +75,16 @@ const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCj
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
+		opts?: { deriveSuggestions?: (filtered: any) => unknown },
 	) => {
 		data: any;
-		suppressed: { security: any[]; layerViolations: any[]; hygiene: any[]; deadCode: any[] };
+		suppressed: {
+			security: any[];
+			layerViolations: any[];
+			hygiene: any[];
+			deadCode: any[];
+			suggestions: any[];
+		};
 	};
 	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
 	readFileFrom: (data: unknown) => (path: unknown) => string | null;
@@ -290,6 +297,46 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		const after = calcHealth(data);
 		assert.ok(after.score >= 90, `expected an A (>= 90), got ${after.score} (${after.grade})`);
 		assert.strictEqual(after.grade, "A");
+	});
+
+	// Issue #2030: the recording carries the analyzer's derived cards, which name
+	// findings the filter is about to drop. `Parser.generateSuggestions` is the only
+	// derivation policy and it lives in the pinned checkout, so the replay injects a
+	// stub (never a copy of the rules) and proves the pipeline contract: stale cards
+	// are dropped, and a deriver's verdict replaces them whole.
+	it("re-derives the recorded suggestion cards instead of shipping stale ones", () => {
+		const recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
+		assert.ok(
+			Array.isArray(recorded.suggestions) && recorded.suggestions.length > 0,
+			"the recording must carry the derived cards the issue reports",
+		);
+		const stale = recorded.suggestions.map((s: { title: string }) => s.title);
+		assert.ok(stale.includes("Fix Security Issues"), stale.join(", "));
+		assert.ok(stale.includes("Fix Architecture Violations"), stale.join(", "));
+
+		// No deriver: fail closed, and record what was dropped.
+		const failClosed = sanitizeAnalysisData(recorded, makeRepoReadFile());
+		assert.deepStrictEqual(failClosed.data.suggestions, [], "stale cards are never shipped");
+		assert.deepStrictEqual(
+			failClosed.suppressed.suggestions,
+			recorded.suggestions,
+			"the dropped cards must be recorded, never silently lost",
+		);
+
+		// With a deriver: its verdict replaces the recorded cards whole.
+		const kept = [{ title: "Remove Dead Code", desc: "unused functions detected." }];
+		const { data } = sanitizeAnalysisData(recorded, makeRepoReadFile(), {
+			deriveSuggestions: () => kept,
+		});
+		assert.deepStrictEqual(data.suggestions, kept);
+		// The contradiction the stale cards named is real on this very replay: the
+		// filter has already emptied the arrays those cards counted.
+		assert.deepStrictEqual(highsOf(data), [], "the card claimed highs the export cannot show");
+		assert.deepStrictEqual(
+			data.layerViolations,
+			[],
+			"the card claimed edges the export cannot show",
+		);
 	});
 
 	it("keeps the four cited files free of any shell-executing construct", () => {
@@ -540,6 +587,34 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 				report.unusedFunctions.length,
 				"the summary dead count must agree with the reported list",
 			);
+
+			// Issue #2030: a derived card may not outlive the array it summarizes.
+			// Each card's own source is read off this export, so a card whose source is
+			// empty fails here instead of shipping a count the report cannot back. Cards
+			// whose source survives (`Extract Duplicated Code`, `Resolve Naming
+			// Conflicts` — one code group and three name groups survive on this
+			// snapshot) are honest and stay.
+			const cardSources: Record<string, number> = {
+				"Fix Security Issues": highsOf(report).length,
+				"Fix Architecture Violations": (report.layerViolations ?? []).length,
+				"Extract Duplicated Code": (report.duplicates ?? []).filter(
+					(d: { type?: string }) => d.type === "code",
+				).length,
+				"Resolve Naming Conflicts": (report.duplicates ?? []).filter(
+					(d: { type?: string }) => d.type === "name",
+				).length,
+			};
+			const cards = (report.suggestions ?? []).map((s: { title: string }) => s.title);
+			for (const title of cards) {
+				const source = cardSources[title];
+				if (source === undefined) continue;
+				assert.ok(source > 0, `card "${title}" survived over an empty source array`);
+			}
+			// Both emptied arrays must therefore have lost their card.
+			assert.strictEqual(cardSources["Fix Security Issues"], 0);
+			assert.strictEqual(cardSources["Fix Architecture Violations"], 0);
+			assert.ok(!cards.includes("Fix Security Issues"), cards.join(", "));
+			assert.ok(!cards.includes("Fix Architecture Violations"), cards.join(", "));
 		},
 	);
 

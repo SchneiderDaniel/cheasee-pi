@@ -45,7 +45,7 @@ import {
 	issueTable,
 	writeFindingFiles,
 } from "./dry-run-lib.mts";
-import type { FileResolution } from "./dry-run-lib.mts";
+import type { DraftGroup, FileResolution } from "./dry-run-lib.mts";
 import { parseArgs, selfCheck, jsonNote, coverageReport } from "./dry-run-args.mts";
 export { slugifyFinding } from "./dry-run-lib.mts";
 
@@ -109,6 +109,14 @@ async function main(): Promise<void> {
 	const candidates = unique;
 	const issueTypeOf = (fact: IssueFact): IssueType => classifyFinding(fact).issueType;
 	const routed = candidates.filter((f) => issueTypeOf(f) !== "bug");
+	// Derived facts restate findings that are already candidates, so they are listed
+	// (the operator sees the whole signal) but never drafted: filing one produced a
+	// file-less issue whose count contradicted the export.
+	const derivedCount = candidates.filter(
+		(f) => classifyFinding(f).disposition === "link-derived",
+	).length;
+	const filed = (groups: DraftGroup[]): DraftGroup[] =>
+		groups.filter((g) => g.dispositions.some((d) => d !== "link-derived"));
 
 	if (args.emitFindings) {
 		// Extraction only: write the candidate set and exit. No subagent is
@@ -131,15 +139,17 @@ async function main(): Promise<void> {
 		// calls no `gh`; the confirmation gate decides what is filed.
 		const groups =
 			args.by === "group" ? groupFactsByFileGraph(candidates) : groupFactsBySubject(candidates);
+		const draftable = filed(groups);
 		const analyzedAt = args.analyzedAt ?? readAnalyzedAt(json, markdown);
 		const dir = resolve(repoRoot, args.emitIssuesDir ?? "ignore/codeflow-issue-drafts");
-		const files = writeIssueFiles(dir, groups, { analyzedAt, allGroups: groups });
+		const files = writeIssueFiles(dir, draftable, { analyzedAt, allGroups: draftable });
 		process.stdout.write(
 			`CodeFlow issue drafts — ${files.length} proposed issue(s) written to ${dir.replace(`${repoRoot}/`, "")}\n` +
 				`grouping: ${args.by}\n` +
 				`analyzedAt: ${analyzedAt ?? "(unknown — pass --analyzed-at)"}\n` +
 				`dispositions: ${dispositionSummary(candidates)}\n` +
-				`\nproposed set:\n${issueTable(groups)}\n` +
+				(derivedCount > 0 ? `${derivedCount} derived fact(s) listed, not filed.\n` : "") +
+				`\nproposed set:\n${issueTable(draftable)}\n` +
 				`\n${coverageReport(markdown, coverage)}` +
 				(!json ? `\n${jsonNote()}` : "") +
 				`\nNo issues created.\n`,

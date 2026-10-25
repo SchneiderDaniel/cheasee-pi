@@ -129,14 +129,7 @@ describe("classifyFinding — disposition (issue #1992)", () => {
 	});
 
 	it("assigns file-bug to every bug-template kind", () => {
-		for (const kind of [
-			"architecture",
-			"security",
-			"dead-code",
-			"duplicate",
-			"layer-violation",
-			"suggestion",
-		]) {
+		for (const kind of ["architecture", "security", "dead-code", "duplicate", "layer-violation"]) {
 			const r = classifyFinding(fact(kind, "x"));
 			assert.strictEqual(r.issueType, "bug", kind);
 			assert.strictEqual(r.disposition, "file-bug", kind);
@@ -173,7 +166,13 @@ describe("classifyFinding — disposition (issue #1992)", () => {
 			fact("anti-pattern", "God Object"),
 			fact("mystery", "x"),
 		];
-		const allowed = new Set<Disposition>(["file-bug", "file-refactor", "offer-optional", "drop"]);
+		const allowed = new Set<Disposition>([
+			"file-bug",
+			"file-refactor",
+			"offer-optional",
+			"drop",
+			"link-derived",
+		]);
 		for (const f of all) {
 			const a = classifyFinding(f);
 			assert.deepStrictEqual(a, classifyFinding(f));

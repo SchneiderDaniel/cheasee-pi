@@ -1,0 +1,133 @@
+{
+	"provenance": {
+		"issue": 2030,
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"snapshot": "git archive HEAD",
+		"signal": "suggestions[] (derived) — seven top-level cards with no file of their own",
+		"note": "The analyzer derives `data.suggestions` inside `Parser.analyze` (index.html:5473) from the same arrays the false-positive filter then shrinks, and the filter never re-derived them, so the export shipped cards naming findings it did not carry. `before` is measured on the delivered HEAD before the fix; `after` is informational and drifts with the tree — the contracts are `invariants`."
+	},
+	"pin": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+	"derivations": [
+		{
+			"title": "Remove Dead Code",
+			"source": "stats.dead",
+			"firesWhen": "stats.dead > 10"
+		},
+		{
+			"title": "Break Circular Dependencies",
+			"source": "issues[] titles matching 'Circular'",
+			"firesWhen": "at least one matching issue"
+		},
+		{
+			"title": "Split Large Files",
+			"source": "issues[] titles matching 'Large'",
+			"firesWhen": "at least one matching issue"
+		},
+		{
+			"title": "Reduce Coupling",
+			"source": "issues[] titles matching 'Coupled'",
+			"firesWhen": "at least one matching issue"
+		},
+		{
+			"title": "Resolve Naming Conflicts",
+			"source": "duplicates[] entries with type 'name'",
+			"firesWhen": "at least one name-duplicate group"
+		},
+		{
+			"title": "Extract Duplicated Code",
+			"source": "duplicates[] entries with type 'code'",
+			"firesWhen": "at least one code-duplicate group"
+		},
+		{
+			"title": "Fix Architecture Violations",
+			"source": "layerViolations[]",
+			"firesWhen": "layerViolations is non-empty"
+		},
+		{
+			"title": "Fix Security Issues",
+			"source": "securityIssues[] with severity 'high'",
+			"firesWhen": "at least one HIGH finding"
+		},
+		{
+			"title": "Add Test Coverage",
+			"source": "files[] test-file ratio",
+			"firesWhen": "under 10% test files in a repo of more than 10 files"
+		}
+	],
+	"before": {
+		"commit": "delivered HEAD at filing",
+		"cards": 7,
+		"contradictions": {
+			"Fix Security Issues": {
+				"desc": "14 high-severity security issues found.",
+				"actual": "stats.security 0 after the filter (every HIGH hit is a proven false positive)"
+			},
+			"Fix Architecture Violations": {
+				"desc": "332 layer violations found.",
+				"actual": "layerViolations [] after the filter (the repo declares no ordered layer taxonomy)"
+			},
+			"Extract Duplicated Code": {
+				"desc": "3 instances of similar code found.",
+				"actual": "duplicates [] after the filter (all three are aggregate shapes)"
+			},
+			"Remove Dead Code": {
+				"desc": "27 unused functions detected.",
+				"actual": "stats.dead 27 — honest, but derived from the pre-filter count"
+			}
+		},
+		"stats": {
+			"files": 1031,
+			"functions": 3756,
+			"connections": 4098,
+			"dead": 27,
+			"security": 14,
+			"duplicates": 3,
+			"violations": 332
+		}
+	},
+	"after": {
+		"cards": 4,
+		"titles": [
+			"Break Circular Dependencies",
+			"Remove Dead Code",
+			"Split Large Files",
+			"Reduce Coupling"
+		],
+		"removed": [
+			"Fix Security Issues",
+			"Extract Duplicated Code",
+			"Fix Architecture Violations",
+			"Resolve Naming Conflicts"
+		],
+		"note": "Informational. The four survivors name metrics that are genuinely non-empty after the filter; the four removed titles lost their only source array."
+	},
+	"residual": [
+		{
+			"title": "Break Circular Dependencies",
+			"source": "issues[] '2 Circular Dependencies'",
+			"owner": "the circular-dependency architecture fact; not re-owned here"
+		},
+		{
+			"title": "Remove Dead Code",
+			"source": "unusedFunctions[] / stats.dead",
+			"owner": "#2026 (dead-code reference rule) — the derived card only restates its count"
+		},
+		{
+			"title": "Split Large Files",
+			"source": "issues[] '20 Large Files'",
+			"owner": "references/long-file-2005.md and test/fixtures/long-file-baseline.json"
+		},
+		{
+			"title": "Reduce Coupling",
+			"source": "issues[] '156 Highly Coupled'",
+			"owner": "references/coupling-2002.md and test/fixtures/coupling-baseline.json"
+		}
+	],
+	"invariants": [
+		"The exported suggestions[] equals Parser.generateSuggestions(sanitizedData): no card exists whose source array or stat is empty, and every desc count names the surviving source.",
+		"architectureIssues carries no '<N> Architecture Violations' item when layerViolations[] is empty, and its title names the surviving count otherwise.",
+		"classifyFinding on a suggestions[] fact returns issueType 'derived' and disposition 'link-derived', so a derived card is listed but never filed standalone.",
+		"No exported card from suggestions[] is titled 'Fix Security Issues', 'Extract Duplicated Code', 'Fix Architecture Violations' or 'Resolve Naming Conflicts' when their source arrays are empty.",
+		"With no deriver available the filter exports suggestions[] as an empty array and records the raw cards in suppressed.suggestions, so a missing derivation is visible instead of stale."
+	]
+}

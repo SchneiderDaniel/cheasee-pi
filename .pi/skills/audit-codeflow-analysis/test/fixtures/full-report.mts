@@ -2,15 +2,16 @@
  * Synthetic 207-fact CodeFlow JSON report — the acceptance shape of #1982.
  *
  * Generated rather than checked in so the per-category distribution stays
- * visible: 193 bug candidates (2 architecture + 13 security + 16 dead-code +
- * 10 duplicate + 145 layer-violation + 7 suggestion), 2 derived size/coupling
- * metrics (chore) and 12 design/anti-patterns (informational/chore). Every fact
- * cites a real checkout file, so `selectCandidates` keeps all 207 and an
- * end-to-end emit writes one candidate per fact.
+ * visible: 186 bug candidates (2 architecture + 13 security + 16 dead-code +
+ * 10 duplicate + 145 layer-violation), 2 derived size/coupling metrics (chore),
+ * 12 design/anti-patterns (informational/chore) and 7 derived `suggestion`
+ * aggregates (issue #2030 — listed, never filed). Every fact cites a real
+ * checkout file, so `selectCandidates` keeps all 207 and an end-to-end emit
+ * writes one candidate per fact.
  */
 const REAL_FILE = ".pi/skills/audit-codeflow-analysis/lib/report.ts";
 
-export const FULL_REPORT_TOTALS = { facts: 207, bugCandidates: 193, routed: 14 };
+export const FULL_REPORT_TOTALS = { facts: 207, bugCandidates: 186, routed: 21 };
 
 const count = <T,>(n: number, make: (i: number) => T): T[] =>
 	Array.from({ length: n }, (_, i) => make(i));

@@ -74,7 +74,8 @@ def _ts_rewrite(anchor, tail=b""):
 # not pin it in the tab after the report is built.
 #
 # It overwrites the *properties* of `data` (the finding arrays, the dead-function
-# list and the stats counts) instead of rebinding `data`:
+# list, the derived suggestion cards and the stats counts) instead of rebinding
+# `data`:
 # a page that declares `data` as a constant cannot be reassigned, and the former
 # reassignment threw, was swallowed, and exported the unfiltered report. The
 # assignments sit inside the same try as the filter call, so a write that a
@@ -88,7 +89,14 @@ _FP_WRAPPER_BODY = (
     b'() { "use strict";'
     b" var __piFp;"
     b" try {"
-    b" __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data));"
+    # The analyzer derives `data.suggestions` from the arrays this filter shrinks,
+    # so the page's own `Parser.generateSuggestions` is passed as the deriver
+    # port — the seven rules are never mirrored here. A page without it yields
+    # `null`, which the filter turns into "no cards" rather than stale ones.
+    b" __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data),"
+    b" { deriveSuggestions: function (d) {"
+    b" return typeof Parser !== 'undefined' && Parser && typeof Parser.generateSuggestions === 'function' ? Parser.generateSuggestions(d) : null;"
+    b" } });"
     b' if ("files" in data && Array.isArray(data.files)) data.files.forEach(function (f) { if (f) f.piFpSource = null; });'
     b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
     b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
@@ -96,16 +104,20 @@ _FP_WRAPPER_BODY = (
     b' if ("unusedFunctions" in __piFp.data) data.unusedFunctions = __piFp.data.unusedFunctions;'
     b' if ("duplicates" in __piFp.data) data.duplicates = __piFp.data.duplicates;'
     b' if ("issues" in __piFp.data) data.issues = __piFp.data.issues;'
+    b' if ("suggestions" in __piFp.data) data.suggestions = __piFp.data.suggestions;'
     b' if ("stats" in __piFp.data) data.stats = __piFp.data.stats;'
     b" } catch (e) { var m = String((e && e.message) || e);"
     b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
     b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
     b" var __piFpDead = (__piFp.suppressed.deadCode || []).length;"
     b" var __piFpDup = (__piFp.suppressed.duplicates || []).length;"
+    b" var __piFpSugg = (__piFp.suppressed.suggestions || []).length;"
     b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length || __piFpDead || __piFpDup) { try {"
     b' console.info("fp-filter: suppressed " + __piFp.suppressed.security.length +'
     b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s), " + __piFpDead + " unused function(s), " + __piFpDup + " duplicate group(s)");'
     b" } catch (_) {} }"
+    # Same wording as the headless runner: a missing deriver must never be silent.
+    b" if (__piFpSugg) { try { console.info('fp-filter: dropped ' + __piFpSugg + ' derived suggestion(s): derivation unavailable'); } catch (_) {} }"
     b" return __piFpGenerateReport.apply(this, arguments); }\n"
     b"function __piFpGenerateReport("
 )

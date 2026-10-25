@@ -135,7 +135,7 @@ Structured JSON sources (authoritative):
 | `architectureIssues[]` | architecture    | `affectedFiles[]`, `affectedItems[].file`/`.toFile`, `affectedItems[].files[].file` |
 | `duplicates[]`         | duplicate       | `files[].file`                                                                      |
 | `layerViolations[]`    | layer-violation | `from`, `to`                                                                        |
-| `suggestions[]`        | suggestion      | (none — derived from other signals)                                                 |
+| `suggestions[]`        | suggestion      | (none — **derived**: restates other signals, never a finding on its own)            |
 | `unusedFunctions[]`    | dead-code       | `file`                                                                              |
 | `securityIssues[]`     | security        | `path`                                                                              |
 
@@ -270,7 +270,8 @@ keep:
 **Kind → issue type.** Scope is decided once, before any issue is drafted, by
 `classifyFinding` in `lib/report.ts` — that function is the single policy source.
 Consult its result per fact and act on both the returned `issueType` and its
-`disposition` (`file-bug` / `file-refactor` / `offer-optional` / `drop`); never
+`disposition` (`file-bug` / `file-refactor` / `offer-optional` / `link-derived` /
+`drop`); never
 re-derive a kind → issue-type mapping here:
 
 - `bug` (`file-bug`) — a bug-class candidate; draft it with the bug template.
@@ -282,6 +283,11 @@ re-derive a kind → issue-type mapping here:
   observation, not a defect): present it in the Step 5 gate with its disposition
   stated so the user can act on it. Never filed as a bug, never left structurally
   unactionable.
+- `derived` (`link-derived`) — a fact that restates the findings underneath it
+  (`suggestions[]`): list it in the run report, name the source facts that own the
+  work, and file nothing for it. A derived fact has no code of its own to fix, so a
+  standalone issue for it is always a file-less card whose count can contradict the
+  export that produced it.
 - `out-of-scope` (`drop`) — drop it and state why.
 
 Do the duplicate check (`gh issue list`) for every draft. Drop drafts that match
@@ -342,13 +348,16 @@ per group, plus `MANIFEST.txt` (`<file>\t<title>\t<issueType>\t<dispositions>\tf
 It is not truncated by `--limit`, reads `analyzedAt` from the structured export
 (or the markdown `**Analyzed:**` line) unless `--analyzed-at VALUE` overrides it,
 prints the proposed-set table, and fails closed on a destination that already
-holds `.md` drafts. It never calls `gh`.
+holds `.md` drafts. It drafts nothing for a `link-derived` fact and prints the
+skipped count on its own line, so the proposed set is never silently shrunk. It
+never calls `gh`.
 
 `--emit-findings [DIR]` writes one `NN-<slug>.md` per post-dedupe candidate
 (default `ignore/codeflow-findings/`), spawns no subagent, is not truncated by
 `--limit`, and leaves the directory in place. It prints the written count plus a
 `dispositions:` line naming each nonzero disposition (`file-bug`,
-`file-refactor`, `offer-optional`) with its count. It fails closed (exit `2`,
+`file-refactor`, `offer-optional`, `link-derived`) with its count — a derived
+fact is listed here, never drafted. It fails closed (exit `2`,
 writes nothing) when the destination already holds `.md` findings, so a rerun can
 never mix stale candidates into the set: point at a fresh directory or remove the
 stale files first.
@@ -370,6 +379,10 @@ report.
   never presented as a complete audit.
 - The metric policy is applied once: size/coupling/complexity metrics are routed
   as chore/refactor, never as bugs.
+- Derived facts (`suggestions[]`) are listed in the run report, with the source
+  facts that own their work, and never filed standalone: no draft, no `MANIFEST.txt`
+  row, and the printed summary names how many were skipped instead of silently
+  shrinking the proposed set.
 - The `analyzedAt` re-fetch before filing matches the Step 1 value.
 - Duplicates dropped by `dedupeIssues` are reported as a count.
 - No filed issue used the bug template unless it came from a `bug`-class
