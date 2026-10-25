@@ -11,13 +11,13 @@ func TestDockerfile_PiLayerAfterCloneBeforeEntrypoint(t *testing.T) {
 	// every build (PI_BUILD_STAMP cache-busting contract), so it must sit
 	// AFTER the expensive clone/npm-ci/symlink layers (6b) and BEFORE the
 	// entrypoint COPY (7) — otherwise a pi bump re-runs the whole clone +
-	// npm ci. The byte-offset chain pins the order: clone < npm ci < symlink
+	// npm ci. The byte-offset chain pins the order: fetch < npm ci < symlink
 	// wiring < pi install < entrypoint COPY.
 	markers := []struct {
 		name string
 		text string
 	}{
-		{"clone (6b)", "git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi"},
+		{"fetch (6b)", `git -C /opt/cheasee-pi fetch --depth 1 origin "${CHEASEE_COMMIT}"`},
 		{"npm ci (6b)", "npm ci --no-audit --no-fund"},
 		{"symlink wiring (6b)", "chown -R agentuser:agentuser /home/agentuser/.pi"},
 		{"pi install (6c)", "npm install -g --force @earendil-works/pi-coding-agent"},
@@ -33,7 +33,7 @@ func TestDockerfile_PiLayerAfterCloneBeforeEntrypoint(t *testing.T) {
 	}
 	for i := 1; i < len(idxs); i++ {
 		if idxs[i-1] > idxs[i] {
-			t.Errorf("layer order broken: %s (offset %d) must precede %s (offset %d); the pi layer must sit after the 6b clone/npm-ci/symlink layers and before Layer 7's COPY", markers[i-1].name, idxs[i-1], markers[i].name, idxs[i])
+			t.Errorf("layer order broken: %s (offset %d) must precede %s (offset %d); the pi layer must sit after the 6b fetch/npm-ci/symlink layers and before Layer 7's COPY", markers[i-1].name, idxs[i-1], markers[i].name, idxs[i])
 		}
 	}
 	// Renumered 5h -> 6c: the new header must be present and the old one gone

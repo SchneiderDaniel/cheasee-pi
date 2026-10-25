@@ -71,13 +71,8 @@ export interface LspRuntime {
 		removeAllListeners: (event?: string) => void;
 		kill: (signal?: string | number) => boolean;
 	};
-	/** Execute a file with callback (replaces node:child_process.execFile) */
-	execFile: (
-		file: string,
-		args: string[],
-		options: Record<string, unknown>,
-		callback: (err: Error | null, stdout: string, stderr: string) => void,
-	) => void;
+	/** Resolve an executable name to its absolute path on PATH, or null (replaces `which` execFile) */
+	resolveExecutable: (name: string) => string | null;
 	/** Check if a file exists synchronously (replaces node:fs.existsSync) */
 	existsSync: (path: string) => boolean;
 	/** Read a file asynchronously (replaces node:fs/promises.readFile) */

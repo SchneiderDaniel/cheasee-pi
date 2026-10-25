@@ -37,10 +37,6 @@ const CHECKOUT_URL = "https://github.com/braedonsaunders/codeflow";
 // (not HEAD) means the assertions reproduce the affected report rather than
 // whatever the branch happens to be.
 const ISSUE_SNAPSHOT = "17c991c033073dccdd549c335abe6c594643b009";
-// Measured on that snapshot with the pinned analyzer: every HIGH security hit
-// (the reported nine) and the entire layer category (357 edges) is a false
-// positive. Deterministic for a fixed revision plus fixed analyzer pin.
-const EXPECTED_SECURITY_SUPPRESSED = 9;
 const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
 // The dead-code report on that snapshot: 45 entries, of which the 20 the issue
 // lists in the Rust/TS sources are referenced by the snapshot (trait-impl
@@ -58,6 +54,21 @@ const CITED_DEAD = [
 ];
 // The filtered report these expectations imply.
 const EXPECTED_HEALTH_SCORE = 93;
+
+// Issue #2023: the four sites whose MEDIUM `Command Execution` finding must be
+// resolved on the fixed tree. Each spawn forwards an argv array through the
+// shared policy, and the one site that also forwards an environment routes it
+// through the policy's `sanitizeSpawnEnv` — so no cited file carries an
+// execution channel the static proof cannot see, and none may keep the finding.
+const CITED_COMMAND_EXECUTION_PATHS = [
+	".pi/extensions/context-info/codeflow.ts",
+	".pi/extensions/lsp-auditor/lsp-client/audit-group.ts",
+	".pi/extensions/lsp-auditor/lsp-client/runtime.ts",
+	".pi/extensions/supervisor/agent/runner/spawn.ts",
+];
+// The fixed tree suppresses 9 HIGH + 4 MEDIUM (the four cited paths). A live run
+// over the moving tree must never drop below it.
+const MIN_SECURITY_SUPPRESSED = 16;
 
 const requireCjs = createRequire(import.meta.url);
 const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCjs(FILTER) as {
@@ -125,6 +136,14 @@ const inventedLayerOf = (data: {
 		(v) => !groundsLayer(v.fromLayer, v.from) || !groundsLayer(v.toLayer, v.to),
 	);
 
+/** The cited MEDIUM `Command Execution` hits that must not survive the filter. */
+const commandExecutionOf = (data: { securityIssues: Array<{ title: string; path: string }> }) =>
+	data.securityIssues.filter(
+		(s) =>
+			String(s.title).trim() === "Command Execution" &&
+			CITED_COMMAND_EXECUTION_PATHS.includes(s.path),
+	);
+
 /** Read one analyzed path out of the repo, mirroring the producer's containment. */
 function makeRepoReadFile(): (path: unknown) => string | null {
 	const root = realpathSync(REPO_ROOT);
@@ -172,6 +191,13 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		// positives the issue and the previous audit found (else the assertions
 		// below would pass vacuously).
 		assert.ok(highsOf(recorded).length >= 9, "recording must carry the HIGH security hits");
+		assert.deepStrictEqual(
+			commandExecutionOf(recorded)
+				.map((s) => s.path)
+				.sort(),
+			[...CITED_COMMAND_EXECUTION_PATHS].sort(),
+			"recording must carry the four cited MEDIUM Command Execution hits",
+		);
 		assert.ok(crossLanguageOf(recorded).length > 0, "recording must carry cross-language edges");
 		assert.ok(
 			sameExtensionOf(recorded).length > 0,
@@ -202,6 +228,15 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		);
 
 		assert.deepStrictEqual(highsOf(data), [], "no HIGH security finding may survive");
+		// The recording is the pre-fix analyzer output, but the filter reads the
+		// files on disk — the fixed ones. Every cited spawn routes its argv through
+		// the shared policy and its environment (where it has one) through
+		// `sanitizeSpawnEnv`, so the whole-file finding is a proven false positive.
+		assert.deepStrictEqual(
+			commandExecutionOf(data).map((s: { path: string }) => s.path),
+			[],
+			"every cited Command Execution hit is a proven false positive",
+		);
 		assert.deepStrictEqual(
 			crossLanguageOf(data),
 			[],
@@ -238,6 +273,20 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		const after = calcHealth(data);
 		assert.ok(after.score >= 90, `expected an A (>= 90), got ${after.score} (${after.grade})`);
 		assert.strictEqual(after.grade, "A");
+	});
+
+	it("keeps the four cited files free of any shell-executing construct", () => {
+		// Positive controls: the patterns must catch a real shell-out, so the file
+		// assertions below cannot pass vacuously.
+		assert.match("spawn(x, y, { shell: true });", /\bshell\s*:\s*(?!false\b)/);
+		assert.match("execSync(cmd);", /\bexecSync\b/);
+		// A future edit that reintroduces a shell would make the whole-file finding
+		// true again; pin the seam shut at the source level.
+		for (const rel of CITED_COMMAND_EXECUTION_PATHS) {
+			const source = repoFile(rel);
+			assert.doesNotMatch(source, /\bshell\s*:\s*(?!false\b)/, `${rel} must not ask for a shell`);
+			assert.doesNotMatch(source, /\bexecSync\b/, `${rel} must not call execSync`);
+		}
 	});
 
 	// The served page does not read the filesystem, and its analyzer frees every
@@ -403,10 +452,12 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 					run.stderr,
 				);
 			assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
-			assert.strictEqual(
-				Number(suppressed![1]),
-				EXPECTED_SECURITY_SUPPRESSED,
-				"all nine HIGH security hits must be suppressed on the issue snapshot",
+			// The live run reads the *snapshot's* files — the pre-fix ones — so the
+			// argv-safety rule has nothing to prove there and keeps those MEDIUM hits.
+			// Only the HIGH findings are tree-independent.
+			assert.ok(
+				Number(suppressed![1]) >= 9,
+				"every HIGH security hit must be suppressed on the issue snapshot",
 			);
 			assert.strictEqual(
 				Number(suppressed![2]),
@@ -479,6 +530,64 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 				report.summary.unusedFunctions,
 				report.unusedFunctions.length,
 				"the summary dead count must agree with the reported list",
+			);
+		},
+	);
+
+	// Issue #2023: the authoritative fixed-tree re-run. The snapshot test above
+	// reproduces the pre-fix report; this one drives the pinned analyzer over
+	// `git archive HEAD` (the fixed tree) and requires every cited MEDIUM
+	// `Command Execution` finding to be gone. Counts are contract assertions, not
+	// literals — the raw layer count moves with every commit on the branch.
+	it(
+		"headless report on the fixed tree resolves the four cited Command Execution hits",
+		{ skip: UI_DIR ? false : SKIP },
+		() => {
+			const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
+			const outDir = mkdtempSync(join(tmpdir(), "fp-accept-out-"));
+			cleanups.push(snapshotDir, outDir);
+
+			const archive = execFileSync("git", ["archive", "HEAD"], {
+				cwd: REPO_ROOT,
+				maxBuffer: 1 << 30,
+			});
+			execFileSync("tar", ["-x", "-C", snapshotDir], { input: archive });
+
+			const run = spawnSync(process.execPath, [RUNNER, snapshotDir, UI_DIR!, outDir], {
+				encoding: "utf-8",
+				timeout: 300_000,
+			});
+			assert.strictEqual(run.status, 0, `producer failed:\n${run.stderr}`);
+
+			const suppressed =
+				/fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) hygiene finding\(s\), (\d+) unused function\(s\)/.exec(
+					run.stderr,
+				);
+			assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
+			assert.ok(
+				Number(suppressed![1]) >= MIN_SECURITY_SUPPRESSED,
+				"HIGH + cited-MEDIUM security false positives must be suppressed on the fixed tree",
+			);
+			assert.ok(Number(suppressed![2]) > 0, "the layer-violation category must be suppressed");
+
+			const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
+			assert.deepStrictEqual(
+				commandExecutionOf(report).map((s: { path: string }) => s.path),
+				[],
+				"no cited Command Execution finding may survive on the fixed tree",
+			);
+			assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
+			assert.deepStrictEqual(
+				report.layerViolations,
+				[],
+				"no layer violation may survive the filter",
+			);
+			// 89 (B) is the measured ceiling: MEDIUM findings outside this issue stay
+			// (the filter's own file, `lib/exec-env.ts`), and the health term counts
+			// them.
+			assert.ok(
+				report.summary.healthScore >= 89,
+				`the corrected score must stay at or above the measured 89 (B): ${report.summary.healthScore} (${report.summary.healthGrade})`,
 			);
 		},
 	);

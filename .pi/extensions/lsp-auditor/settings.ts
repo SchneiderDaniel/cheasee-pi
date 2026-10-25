@@ -19,8 +19,11 @@ import { Value } from "typebox/value";
 /** Schema for a single LSP server entry. Enforces types at runtime. */
 export const ServerEntrySchema = Type.Object({
 	extensions: Type.Array(Type.String(), { minItems: 1 }),
-	command: Type.String({ minLength: 1 }),
-	args: Type.Optional(Type.Array(Type.String())),
+	// Reject NUL/control bytes and a leading '-' in the program, so a malformed
+	// config cannot smuggle an option into the preflight resolver (`which -a`).
+	// Argument bytes may be any non-NUL text — newlines and tabs are valid argv.
+	command: Type.String({ minLength: 1, pattern: "^(?!-)\\S[^\\u0000-\\u001f]*$" }),
+	args: Type.Optional(Type.Array(Type.String({ pattern: "^[^\\u0000]*$" }))),
 	severityThreshold: Type.Optional(
 		Type.Union([Type.Literal("error"), Type.Literal("warning"), Type.Literal("info")]),
 	),
