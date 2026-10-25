@@ -1,97 +1,152 @@
-// `run-analysis.mjs` is the headless producer and `makeReadFile` is its only
-// filesystem read. Because a Rust facade (`x.rs`) plus its `x/` module children
-// compile as one unit, that reader has to hand the filter the whole module —
-// otherwise a finding the split merely moved keeps reporting as dead.
-
 import assert from "node:assert";
 
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
-import { tmpdir } from "node:os";
-
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { fileURLToPath } from "node:url";
 
-import { after, before, describe, it } from "node:test";
+import { describe, it } from "node:test";
+
+import { measureComplexity } from "./fixtures/complexity-mirror.mts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
-const RUNNER = resolve(HERE, "..", "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs");
-
-// Importing must not run the producer: only a direct invocation does.
-const { makeReadFile } = (await import(RUNNER)) as {
-	makeReadFile: (dir: string) => (path: unknown) => string | null;
+// ─── High-complexity-files oracle (issue #2033) ─────────────────────
+// Same shape as the #2005 block: the pinned analyzer run needs the CodeFlow
+// checkout and a `git archive` of two commits, so the measurement stays out of
+// this in-gate suite (the mirror that enforces the `<= 30` per-sibling
+// invariant lives in `test/complexity-refactor-2033.test.mts`). This block
+// replays the recorded before/after and guards the record's shape.
+const COMPLEXITY_2033 = JSON.parse(
+	readFileSync(resolve(HERE, "fixtures", "complexity-baseline-2033.json"), "utf-8"),
+) as {
+	provenance: {
+		issue: number;
+		ref: string;
+		metric: string;
+		filedCount: number;
+		filedAnalyzedAt: number;
+	};
+	filedBaseline: { commit: string; files: number; codeFiles: number; criticalCount: number };
+	before: { commit: string; files: number; codeFiles: number; criticalCount: number };
+	after: { criticalCount: number; expectedDrop: number };
+	partition: { scored: number; critical: number; notScored: number; belowCeiling: number };
+	reducedBy: Array<{ path: string; before: number; parts: number; siblings: string[] }>;
+	deferred: Record<string, { reason: string; requires: string }>;
+	notScored: string[];
 };
 
-let root = "";
-
-before(() => {
-	root = mkdtempSync(join(tmpdir(), "codeflow-read-"));
-	mkdirSync(join(root, "src", "retry"), { recursive: true });
-	writeFileSync(join(root, "src", "retry.rs"), "mod wiring;\n");
-	writeFileSync(join(root, "src", "retry", "wiring.rs"), "pub fn reconnect_delay() -> u64 { 1 }\n");
-	mkdirSync(join(root, "src", "retry", "nested"), { recursive: true });
-	writeFileSync(join(root, "src", "retry", "nested", "replay.rs"), "pub fn replay() {}\n");
-	writeFileSync(join(root, "src", "plain.rs"), "fn alone() {}\n");
-	writeFileSync(join(root, "a.test.mts"), "test('a', () => {});\n");
-	writeFileSync(join(root, "a-part2.test.mts"), "test('b', () => {});\n");
-});
-
-after(() => {
-	if (root) rmSync(root, { recursive: true, force: true });
-});
-
-describe("run-analysis.mjs — the producer reads whole Rust modules", () => {
-	it("is exported as a function and did not run the producer on import", () => {
-		assert.strictEqual(typeof makeReadFile, "function");
-	});
-
-	it("folds a facade's child modules into its text", () => {
-		const text = makeReadFile(root)("src/retry.rs");
-		assert.match(String(text), /mod wiring;/);
-		assert.match(String(text), /pub fn reconnect_delay/, "the child's definition must be visible");
-		assert.match(String(text), /pub fn replay/, "nested children are part of the module too");
-	});
-
-	it("returns a child module's own text only", () => {
+describe("complexity metric oracle (issue #2033)", () => {
+	it("records a real drop between two measured trees on the pinned analyzer", () => {
+		assert.strictEqual(COMPLEXITY_2033.provenance.issue, 2033);
 		assert.strictEqual(
-			makeReadFile(root)("src/retry/wiring.rs"),
-			"pub fn reconnect_delay() -> u64 { 1 }\n",
+			COMPLEXITY_2033.provenance.filedCount,
+			286,
+			"the issue's filed count is a superset, not the analyzer's flag set",
+		);
+		assert.strictEqual(COMPLEXITY_2033.provenance.filedAnalyzedAt, 1791804971015);
+		assert.match(COMPLEXITY_2033.provenance.ref, /^[0-9a-f]{40}$/, "pinned analyzer ref");
+		assert.match(
+			COMPLEXITY_2033.provenance.metric,
+			/level === "critical"/,
+			"the metric names the critical predicate",
+		);
+		assert.match(COMPLEXITY_2033.provenance.metric, /> 30/, "the metric names the ceiling");
+		for (const [side, ref] of [
+			["filedBaseline", COMPLEXITY_2033.filedBaseline],
+			["before", COMPLEXITY_2033.before],
+		] as const) {
+			assert.match(ref.commit, /^[0-9a-f]{40}$/, `${side}.commit must be an immutable commit`);
+		}
+		assert.notStrictEqual(
+			COMPLEXITY_2033.before.commit,
+			COMPLEXITY_2033.filedBaseline.commit,
+			"the branch base advanced past the filed baseline; both are recorded",
+		);
+		assert.strictEqual(
+			COMPLEXITY_2033.after.criticalCount,
+			COMPLEXITY_2033.before.criticalCount - COMPLEXITY_2033.after.expectedDrop,
+			"after is before minus the reduced families",
+		);
+		assert.ok(
+			COMPLEXITY_2033.after.criticalCount < COMPLEXITY_2033.before.criticalCount,
+			"the flagged-file count must fall",
 		);
 	});
 
-	it("leaves a facade with no module directory, and non-Rust peers, alone", () => {
-		const read = makeReadFile(root);
-		assert.strictEqual(read("src/plain.rs"), "fn alone() {}\n");
-		assert.strictEqual(read("a.test.mts"), "test('a', () => {});\n");
-	});
-
-	it("keeps the containment guards", () => {
-		const read = makeReadFile(root);
-		assert.strictEqual(read("src/missing.rs"), null);
-		assert.strictEqual(read("/etc/passwd"), null, "absolute paths are refused");
-		assert.strictEqual(read("../escape.rs"), null, "traversal is refused");
-		assert.strictEqual(read(""), null);
-		assert.strictEqual(read(undefined), null);
-		assert.strictEqual(read("toString"), null);
-	});
-
-	it("fails open when a module child cannot be read", () => {
-		// A dangling child leaves the module incomplete, so the finding must stand
-		// rather than be judged on half a module.
-		const broken = mkdtempSync(join(tmpdir(), "codeflow-read-broken-"));
-		try {
-			mkdirSync(join(broken, "src", "m"), { recursive: true });
-			writeFileSync(join(broken, "src", "m.rs"), "mod gone;\n");
-			writeFileSync(join(broken, "src", "m", "gone.rs"), "fn x() {}\n");
-			const read = makeReadFile(broken);
-			assert.match(String(read("src/m.rs")), /fn x/);
-			rmSync(join(broken, "src", "m", "gone.rs"));
-			symlinkSync(join(broken, "src", "absent.rs"), join(broken, "src", "m", "gone.rs"));
-			assert.strictEqual(read("src/m.rs"), null, "an unreadable child must void the module");
-		} finally {
-			rmSync(broken, { recursive: true, force: true });
+	it("cites only existing, non-test-only reduction sources", () => {
+		assert.strictEqual(COMPLEXITY_2033.reducedBy.length, 12, "the 12 Wave-1 families");
+		for (const family of COMPLEXITY_2033.reducedBy) {
+			assert.ok(existsSync(resolve(HERE, "..", family.path)), `missing: ${family.path}`);
+			assert.ok(!family.path.endsWith(".mts"), `${family.path} is test-only (never scored)`);
+			assert.strictEqual(family.parts, 1 + family.siblings.length);
+			for (const rel of family.siblings) {
+				assert.ok(existsSync(resolve(HERE, "..", rel)), `missing sibling: ${rel}`);
+			}
 		}
+	});
+
+	it("defers every leftover flag with a requires pointer, never omitting one", () => {
+		const deferred = Object.entries(COMPLEXITY_2033.deferred);
+		assert.strictEqual(
+			deferred.length,
+			COMPLEXITY_2033.after.criticalCount,
+			"the deferral list is exactly the remaining flag set",
+		);
+		for (const [rel, entry] of deferred) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing deferred path: ${rel}`);
+			assert.ok(entry.reason.length > 0, `${rel} states no reason`);
+			assert.ok(entry.requires.length > 0, `${rel} states no requires pointer`);
+		}
+		const rust = deferred.filter(([rel]) => rel.endsWith(".rs"));
+		assert.ok(rust.length >= 8, "the Rust UI set is recorded as deferred");
+		assert.ok(
+			rust.every(([, e]) => /Rust toolchain/.test(e.requires)),
+			"the Rust deferral names the missing toolchain",
+		);
+	});
+
+	it("records the unscorable .mts paths as such", () => {
+		assert.strictEqual(COMPLEXITY_2033.notScored.length, COMPLEXITY_2033.partition.notScored);
+		assert.ok(COMPLEXITY_2033.notScored.length > 0);
+		for (const rel of COMPLEXITY_2033.notScored) {
+			assert.ok(rel.endsWith(".mts"), `${rel} is not a .mts`);
+			assert.strictEqual(
+				rel in COMPLEXITY_2033.deferred,
+				false,
+				`${rel} is both notScored and deferred`,
+			);
+		}
+	});
+
+	it("names the record and the reference doc next to the fixture", () => {
+		for (const rel of [
+			"test/complexity-refactor-2033.test.mts",
+			".pi/skills/audit-codeflow-analysis/references/complexity-2033.md",
+		]) {
+			assert.ok(existsSync(resolve(HERE, "..", rel)), `missing register artifact: ${rel}`);
+		}
+	});
+
+	it("ties the recorded after envelope to the delivered tree", () => {
+		// Recompute the pinned predicate over the delivered tree with the same mirror
+		// the per-family oracle uses, so the recorded count and the deferral list
+		// cannot drift from the source they describe.
+		const measured = measureComplexity(resolve(HERE, ".."));
+		assert.strictEqual(
+			measured.flagged.length,
+			COMPLEXITY_2033.after.criticalCount,
+			"the recorded after count must equal the measured flag count",
+		);
+		assert.deepStrictEqual(
+			measured.flagged,
+			Object.keys(COMPLEXITY_2033.deferred).sort(),
+			"every measured flag must be a recorded deferral",
+		);
+		assert.ok(
+			measured.flagged.length < COMPLEXITY_2033.before.criticalCount,
+			"the delivered tree carries fewer flags than the branch base",
+		);
 	});
 });

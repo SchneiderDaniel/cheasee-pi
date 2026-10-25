@@ -332,10 +332,7 @@ describe("fetch-report CLI wiring", () => {
 		);
 		assert.ok(lib.includes("resolveWithinRoot"), "must use the containment helpers");
 		// #2033 split: the real-path containment gate lives with the writer it guards.
-		const store = readFileSync(
-			resolve(import.meta.dirname, "../lib/report-store.ts"),
-			"utf-8",
-		);
+		const store = readFileSync(resolve(import.meta.dirname, "../lib/report-store.ts"), "utf-8");
 		assert.ok(
 			store.includes('from "../../../extensions/lib/path-containment.ts"') &&
 				store.includes("isPathWithinBase"),

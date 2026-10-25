@@ -14,7 +14,7 @@
 //       and every unscorable cited `.mts` path is recorded as such.
 //
 // The recorded envelope lives in `test/fixtures/complexity-baseline-2033.json`
-// and is replayed by `test/codeflow-run-analysis-part3.test.mts`.
+// and is replayed by `test/codeflow-run-analysis-part5.test.mts`.
 //
 // Run: node --experimental-strip-types --test test/complexity-refactor-2033.test.mts
 
@@ -160,11 +160,7 @@ describe("complexity refactor #2033 — the split families", () => {
 
 	it("no family or sibling uses a star re-export", () => {
 		for (const rel of ALL_TOUCHED) {
-			assert.equal(
-				/export\s+\*\s+from/.test(read(rel)),
-				false,
-				`${rel} re-exports with export *`,
-			);
+			assert.equal(/export\s+\*\s+from/.test(read(rel)), false, `${rel} re-exports with export *`);
 		}
 	});
 
@@ -192,10 +188,7 @@ describe("complexity refactor #2033 — the split families", () => {
 		for (const [rel, names] of Object.entries(entryPoints)) {
 			const src = read(rel);
 			for (const name of names) {
-				assert.ok(
-					new RegExp(`\\b${name}\\b`).test(src),
-					`${rel} no longer mentions ${name}`,
-				);
+				assert.ok(new RegExp(`\\b${name}\\b`).test(src), `${rel} no longer mentions ${name}`);
 			}
 		}
 	});

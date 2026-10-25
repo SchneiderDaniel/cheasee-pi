@@ -200,9 +200,19 @@ describe("adapter/ split — shim + export surface", () => {
 		assert.equal(fwd.toolSeqNum, 0);
 	});
 
-	it("index.ts uses star re-exports only (no TS1205-fragile named type re-export)", () => {
+	it("index.ts re-exports explicitly — no star re-export, no TS1205-fragile named type re-export", async () => {
 		const graph = readGraph(join(ADAPTER_DIR, "index.ts"));
-		assert.deepEqual(graph.namedReExports, [], "index.ts must not use named re-exports");
+		assert.deepEqual(graph.starReExports, [], "index.ts must not use `export *`");
+		assert.ok(graph.namedReExports.length > 0, "index.ts must name its surface");
+		// Every runtime key a leaf exports must still reach the barrel, so the
+		// explicit list cannot silently drop a symbol.
+		const barrel = (await import("../event/adapter/index.ts")) as Record<string, unknown>;
+		for (const leaf of ["normalize.ts", "handlers.ts", "forward.ts"]) {
+			const mod = (await import(`../event/adapter/${leaf}`)) as Record<string, unknown>;
+			for (const name of Object.keys(mod)) {
+				assert.ok(name in barrel, `index.ts dropped ${name} from ${leaf}`);
+			}
+		}
 	});
 });
 

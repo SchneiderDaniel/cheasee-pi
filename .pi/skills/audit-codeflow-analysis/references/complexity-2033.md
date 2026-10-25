@@ -28,13 +28,15 @@ calcComplexity(content) {
 and the issue title counts
 
 ```js
-architectureIssues['N High Complexity Files'] = analyzed.filter(f => f.complexity.level === 'critical')
+architectureIssues["N High Complexity Files"] = analyzed.filter(
+	(f) => f.complexity.level === "critical",
+);
 ```
 
 Three consequences shape every decision below:
 
 1. **The score is token-proportional over RAW text.** Comments and string
-   literals count. A split only moves the metric when *every* sibling lands
+   literals count. A split only moves the metric when _every_ sibling lands
    `<= 30`; shuffling branches between files changes nothing.
 2. **`.mts` is never scored.** `codeExts` has `.ts` but not `.mts`, so 93 of the
    filed paths cannot move the metric at all. They are recorded as `notScored`,
@@ -48,10 +50,10 @@ The detector literal has exactly one owner: `test/fixtures/complexity-mirror.mts
 (24 regexes = 9 JS/C + 10 Python + 5 Ruby, re-exporting `ANALYZER_REF` and
 `CODE_EXTS` from `long-file-mirror.mts`). Two consumers apply it:
 
-| artifact | role |
-| --- | --- |
-| `test/complexity-refactor-2033.test.mts` | per-family and per-sibling `<= 30`, no-new-flag, monotone-envelope invariants |
-| `test/codeflow-run-analysis.test.mts` | replays the recorded envelope against the delivered tree |
+| artifact                                    | role                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------- |
+| `test/complexity-refactor-2033.test.mts`    | per-family and per-sibling `<= 30`, no-new-flag, monotone-envelope invariants |
+| `test/codeflow-run-analysis-part5.test.mts` | replays the recorded envelope against the delivered tree                      |
 
 `complexity-refactor-2003.test.mts` now imports the same mirror instead of
 inlining its own copy — one literal, one owner.
@@ -62,33 +64,35 @@ node --experimental-strip-types --test test/complexity-refactor-2033.test.mts
 
 ## The measured envelope
 
-| snapshot | commit | files | scored | critical |
-| --- | --- | --- | --- | --- |
-| filed baseline (architecture record) | `e075a867` | 1293 | 732 | 198 |
-| this branch's base | `2ec70a61` | 1359 | 792 | 199 |
-| delivered | measured in-gate | 1359 | 792 | **187** |
+| snapshot                             | commit           | files | scored | critical |
+| ------------------------------------ | ---------------- | ----- | ------ | -------- |
+| filed baseline (architecture record) | `e075a867`       | 1293  | 732    | 198      |
+| merge base (`origin/main`)           | `434bcfde`       | 1561  | 806    | 204      |
+| delivered                            | measured in-gate | 1641  | 881    | **192**  |
 
-The tree advanced between `e075a867` and `2ec70a61` (main merged more work), which
-is why the record holds two baselines: `filedBaseline` proves the architecture's
-198, `before` is what this change actually reduced. Acceptance is the **drop**
-(−12), and the envelope may only fall.
+The tree advanced between `e075a867` and `434bcfde` (main merged more work, adding
+and removing flags of its own), which is why the record holds two baselines:
+`filedBaseline` proves the architecture's 198, `before` is what this change
+actually reduced. Acceptance is the **drop** (−12), and the envelope may only
+fall. The delivered tree carries more files and more scored files than its base
+(the split adds siblings), so the drop is fewer branches, never fewer files.
 
 ## What was split (12 families, 79 parts)
 
-| family | before | parts | seam |
-| --- | --- | --- | --- |
-| `lib/fetch-report.ts` | 110 | 8 | use case / HTTP / filesystem / body policy / JSON route / empty slot |
-| `worktree-sandbox/unsafe-write.ts` | 124 | 8 | entry point / grammars / targets / per-command checkers |
-| `agent-harness/agent-harness.ts` | 115 | 8 | state machine / sub-key / meta lookup / guards / bookkeeping |
-| `supervisor/agent/task.ts` | 112 | 9 | dispatcher / issue block / conditional blocks / templates / JSON contract |
-| `event/adapter/handlers.ts` | 104 | 9 | one event family per module + shared phase table |
-| `supervisor/checks/osv-severity.ts` | 100 | 7 | CVSS arithmetic / vocabulary / OSV mapping / shapes / census |
-| `supervisor/agent/output.ts` | 100 | 8 | facade / parse core / recovery / refusal / typed build / comment extraction |
-| `supervisor/agent/last-json-scanner.ts` | 131 | 7 | scanner / escape state / quote heuristic / sanitizers / fence / line filter |
-| `supervisor/github/git.ts` | 97 | 6 | commit leaf / push / commit+push / scope gate / exemption / rejection marker |
-| `context-info/index.ts` | 89 | 9 | composition root / session bootstrap / event wiring / probes |
-| `supervisor/pipeline/merge.ts` | 38 | 3 | pre-Done gate vs post-Done orchestration |
-| `supervisor/agent/validation.ts` | 74 | 5 | one validator group per artifact kind |
+| family                                  | before | parts | seam                                                                         |
+| --------------------------------------- | ------ | ----- | ---------------------------------------------------------------------------- |
+| `lib/fetch-report.ts`                   | 110    | 8     | use case / HTTP / filesystem / body policy / JSON route / empty slot         |
+| `worktree-sandbox/unsafe-write.ts`      | 124    | 8     | entry point / grammars / targets / per-command checkers                      |
+| `agent-harness/agent-harness.ts`        | 115    | 8     | state machine / sub-key / meta lookup / guards / bookkeeping                 |
+| `supervisor/agent/task.ts`              | 112    | 9     | dispatcher / issue block / conditional blocks / templates / JSON contract    |
+| `event/adapter/handlers.ts`             | 104    | 9     | one event family per module + shared phase table                             |
+| `supervisor/checks/osv-severity.ts`     | 100    | 7     | CVSS arithmetic / vocabulary / OSV mapping / shapes / census                 |
+| `supervisor/agent/output.ts`            | 100    | 8     | facade / parse core / recovery / refusal / typed build / comment extraction  |
+| `supervisor/agent/last-json-scanner.ts` | 131    | 7     | scanner / escape state / quote heuristic / sanitizers / fence / line filter  |
+| `supervisor/github/git.ts`              | 97     | 6     | commit leaf / push / commit+push / scope gate / exemption / rejection marker |
+| `context-info/index.ts`                 | 89     | 9     | composition root / session bootstrap / event wiring / probes                 |
+| `supervisor/pipeline/merge.ts`          | 38     | 3     | pre-Done gate vs post-Done orchestration                                     |
+| `supervisor/agent/validation.ts`        | 74     | 5     | one validator group per artifact kind                                        |
 
 Every family keeps its documented entry point and re-exports the moved names
 **explicitly** — no `export *` — so existing importers are untouched. One
@@ -120,12 +124,12 @@ Every remaining flag is recorded in the fixture's `deferred` map with a
 `requires` pointer, and the oracle asserts that the deferred set **equals** the
 measured critical set — a new flag cannot appear unnoticed.
 
-| group | n | requires |
-| --- | --- | --- |
-| Rust UI (`embedded/docker/ui/**`) | 16 | a lane with the Rust toolchain (`cargo build`/`cargo test`) |
-| embedded `codeflow`/`lib`/shell | 6 | the boundary-guard change (embed allow-list, Dockerfile `COPY`, shim copy-set) |
-| Go test families (`*_test.go`) | 34 | its own issue (84 new `package main` files raises coupling) |
-| remaining JS/TS/Go sources | ~131 | a later issue with a seam analysis per file |
+| group                             | n    | requires                                                                       |
+| --------------------------------- | ---- | ------------------------------------------------------------------------------ |
+| Rust UI (`embedded/docker/ui/**`) | 16   | a lane with the Rust toolchain (`cargo build`/`cargo test`)                    |
+| embedded `codeflow`/`lib`/shell   | 6    | the boundary-guard change (embed allow-list, Dockerfile `COPY`, shim copy-set) |
+| Go test families (`*_test.go`)    | 34   | its own issue (84 new `package main` files raises coupling)                    |
+| remaining JS/TS/Go sources        | ~131 | a later issue with a seam analysis per file                                    |
 
 Cohesive single-concept modules were left whole on purpose: `timed-map.ts`,
 `harness-state.ts`, `load-config.ts`, `pipeline/run-lock.ts`. Fragmenting them

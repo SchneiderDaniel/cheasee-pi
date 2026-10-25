@@ -13,7 +13,7 @@ import type { WriteGrammar } from "./unsafe-write-grammars.ts";
  * the pattern keeps its glob metacharacter, so checkWriteToken rejects it
  * (hasShellExpansion) — glob operands fail closed instead of being dropped.
  */
-function tokenText(entry: ParseEntry | undefined): string | null {
+export function tokenText(entry: ParseEntry | undefined): string | null {
 	if (typeof entry === "string") return entry;
 	if (typeof entry === "object" && "op" in entry && entry.op === "glob") return entry.pattern;
 	return null;

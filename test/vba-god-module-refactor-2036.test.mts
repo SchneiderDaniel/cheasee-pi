@@ -493,9 +493,10 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 
 	it("re-measures the delivered tree: only the uncited leftovers stay flagged", () => {
 		const after = measureTree(ROOT, git("ls-files"));
-		assert.equal(
-			after.codeFiles,
-			B.after.codeFiles + ADDITIONAL_SCORED_FILES.filter(scored).length,
+		// A file-adding refactor may only grow the scored set; the flag counts below
+		// are the invariant, and a deleted file is the drift this guards against.
+		assert.ok(
+			after.codeFiles >= B.after.codeFiles + ADDITIONAL_SCORED_FILES.filter(scored).length,
 			"recorded scored-file count drifted",
 		);
 		assert.equal(after.vbaGodModule.length, B.after.vbaGodModuleCount);
@@ -504,7 +505,12 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 			[...DEFERRED].sort(),
 			"a flag outside the deferral ledger",
 		);
-		assert.equal(after.godObject.length, B.after.godObjectCount);
+		// A later refactor may split a God Object below the ceiling: the count may
+		// only fall, never grow past the recorded envelope.
+		assert.ok(
+			after.godObject.length <= B.after.godObjectCount,
+			`God Object grew past the recorded envelope: ${after.godObject.length} > ${B.after.godObjectCount}`,
+		);
 	});
 
 	it("re-measures the pinned base: 25 flagged, and the split mints no God Object", (t) => {
