@@ -103,32 +103,32 @@ export async function resolveBranchConflicts(
 		`When done, output CONFLICTS_RESOLVED on its own line.`,
 	].join("\n");
 
-		// Dispatch developer via subprocess for consistent widget rendering.
-		// Per-agent timeout via the shared resolver (agentTimeoutSec.developer
-		// wins over legacy agentTimeoutsMin.developer; configured 0 → null =
-		// no timeout — the old truthiness check silently turned 0 into the
-		// 30-min default).
-		log.info("pipeline-merge", "Dispatching developer for conflict resolution");
-		try {
-			const agentPath = resolvePath(wt, ".pi/extensions/supervisor/agents/developer.md");
-			const { existsSync } = await import("node:fs");
-			if (!existsSync(agentPath)) {
-				throw new Error(`Agent file not found: ${agentPath}`);
-			}
-			const developerAgent = parseAgentFile(agentPath);
+	// Dispatch developer via subprocess for consistent widget rendering.
+	// Per-agent timeout via the shared resolver (agentTimeoutSec.developer
+	// wins over legacy agentTimeoutsMin.developer; configured 0 → null =
+	// no timeout — the old truthiness check silently turned 0 into the
+	// 30-min default).
+	log.info("pipeline-merge", "Dispatching developer for conflict resolution");
+	try {
+		const agentPath = resolvePath(wt, ".pi/extensions/supervisor/agents/developer.md");
+		const { existsSync } = await import("node:fs");
+		if (!existsSync(agentPath)) {
+			throw new Error(`Agent file not found: ${agentPath}`);
+		}
+		const developerAgent = parseAgentFile(agentPath);
 
-			const devTimeoutPolicy = resolveTimeoutPolicy("developer", config);
+		const devTimeoutPolicy = resolveTimeoutPolicy("developer", config);
 
-			const devResult = await (runner ?? runAgentSubprocess)({
-				agent: developerAgent,
-				task: devTask,
-				ctx,
-				timeoutMs: devTimeoutPolicy.timeoutMs,
-				cwd: wt,
-				maxToolCalls: config.maxToolCalls,
-				agentTokenBudget: config.agentTokenBudget,
-				killGraceSec: config.agentKillGraceSec,
-			});
+		const devResult = await (runner ?? runAgentSubprocess)({
+			agent: developerAgent,
+			task: devTask,
+			ctx,
+			timeoutMs: devTimeoutPolicy.timeoutMs,
+			cwd: wt,
+			maxToolCalls: config.maxToolCalls,
+			agentTokenBudget: config.agentTokenBudget,
+			killGraceSec: config.agentKillGraceSec,
+		});
 
 		const devSuccess = devResult.success;
 		// Timeout metadata is user-visible on this path too (audit #4): name the

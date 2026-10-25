@@ -182,7 +182,11 @@ describe("index.ts /session-logger command — hasUI guard", () => {
 			ui: { notify: (msg: string, type: string) => calls.push({ msg, type }) },
 		});
 		assert.strictEqual(calls.length, 0, "notify must not be attempted without UI");
-		assert.strictEqual(JSON.parse(readFileSync(statePath(), "utf8")).logger, true, "preference still persisted");
+		assert.strictEqual(
+			JSON.parse(readFileSync(statePath(), "utf8")).logger,
+			true,
+			"preference still persisted",
+		);
 	});
 
 	it("hasUI true + saveState throws — error AND info notify both fire", async () => {

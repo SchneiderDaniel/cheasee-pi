@@ -116,7 +116,12 @@ export async function runPreAudit(
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? (err as any).stderr?.toString() || err.message : String(err);
 		pi.sendUserMessage?.(`LSP audit skipped: git diff failed (${msg})`, { deliverAs: "followUp" });
-		return { proceed: true, note: `LSP audit skipped: git diff failed`, diagnostics: [], retryCount };
+		return {
+			proceed: true,
+			note: `LSP audit skipped: git diff failed`,
+			diagnostics: [],
+			retryCount,
+		};
 	}
 
 	const modifiedFiles = extractModifiedFiles(gitOutput, resolvePath(worktreePath));

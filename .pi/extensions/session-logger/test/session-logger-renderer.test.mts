@@ -428,7 +428,11 @@ describe("parseSessionStats — perTurnTokens characterization", () => {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 	it("parseSessionStats is a function", () => {
-		assert.strictEqual(typeof parseSessionStats, "function", "parseSessionStats should be a function");
+		assert.strictEqual(
+			typeof parseSessionStats,
+			"function",
+			"parseSessionStats should be a function",
+		);
 	});
 
 	function writeJsonl(entries: Record<string, unknown>[]): string {
@@ -677,7 +681,11 @@ describe("renderSessionToMarkdown — header name/mode overrides", () => {
 	}
 
 	it("renderSessionToMarkdown is a function that accepts overrides", () => {
-		assert.strictEqual(typeof renderSessionToMarkdown, "function", "renderSessionToMarkdown should be a function");
+		assert.strictEqual(
+			typeof renderSessionToMarkdown,
+			"function",
+			"renderSessionToMarkdown should be a function",
+		);
 	});
 
 	it("with mode override renders Mode row between Start and CWD", () => {
@@ -831,7 +839,11 @@ describe("parseSessionStats — subagent tool calls from supervisor custom entri
 
 		const parsed = parseSessionStats(filepath);
 		assert.ok(parsed, "should parse");
-		assert.strictEqual(parsed.toolStats.read.calls, 2, "2 read calls total (1 native + 1 subagent)");
+		assert.strictEqual(
+			parsed.toolStats.read.calls,
+			2,
+			"2 read calls total (1 native + 1 subagent)",
+		);
 	});
 
 	it("extracts per-agent subagentToolStats breakdown", () => {
@@ -964,7 +976,11 @@ describe("parseSessionStats — subagent tool calls from supervisor custom entri
 
 		const parsed = parseSessionStats(filepath);
 		assert.ok(parsed, "should parse");
-		assert.strictEqual(Object.keys(parsed.toolStats).length, 0, "no tools from non-tool-complete events");
+		assert.strictEqual(
+			Object.keys(parsed.toolStats).length,
+			0,
+			"no tools from non-tool-complete events",
+		);
 	});
 
 	it("customType other than supervisor with eventType tool-complete ignored", () => {
@@ -1064,7 +1080,11 @@ describe("parseSessionStats — subagent tool calls from supervisor custom entri
 		const filepath = writeJsonl([]);
 		const parsed = parseSessionStats(filepath);
 		assert.ok(parsed, "should parse");
-		assert.strictEqual(parsed.subagentToolStats, undefined, "subagentToolStats undefined for empty");
+		assert.strictEqual(
+			parsed.subagentToolStats,
+			undefined,
+			"subagentToolStats undefined for empty",
+		);
 	});
 
 	it("multiple agents each contribute distinct entries", () => {
@@ -1245,12 +1265,10 @@ describe("parseSessionStats — fileModifications action filter (Set membership)
 	});
 
 	it("toolCall without arguments.path falls back to ?", () => {
-		const fileMods = parseFileMods([
-			assistantWithToolCalls([{ type: "toolCall", name: "read" }]),
-		]);
+		const fileMods = parseFileMods([assistantWithToolCalls([{ type: "toolCall", name: "read" }])]);
 
 		assert.strictEqual(fileMods.length, 1);
-		assert.strictEqual(fileMods[0].path, "?", "path ?? \"?\" fallback preserved");
+		assert.strictEqual(fileMods[0].path, "?", 'path ?? "?" fallback preserved');
 	});
 
 	it("interleaved non-toolCall content items are skipped, toolCalls still captured", () => {
@@ -1496,10 +1514,7 @@ describe("parseSessionStats — nestedCalls rollup (JSONL authority)", () => {
 			]),
 		);
 		assert.ok(parsed);
-		assert.strictEqual(
-			parsed.nestedCallAnnotations!.codemode.incomplete,
-			"arguments-omitted",
-		);
+		assert.strictEqual(parsed.nestedCallAnnotations!.codemode.incomplete, "arguments-omitted");
 	});
 
 	it("complete:false with an unfinished call → incomplete=unfinished", () => {
@@ -1619,9 +1634,10 @@ describe("renderSessionToMarkdown — nested calls in Tool Usage", () => {
 		fs.rmSync(tmpDir, { recursive: true, force: true });
 	});
 
-	function renderNested(
-		nestedCalls: { calls: Array<Record<string, unknown>>; complete: boolean },
-	): string {
+	function renderNested(nestedCalls: {
+		calls: Array<Record<string, unknown>>;
+		complete: boolean;
+	}): string {
 		const filepath = path.join(tmpDir, "test-session.jsonl");
 		const header = {
 			type: "session",
@@ -1644,11 +1660,7 @@ describe("renderSessionToMarkdown — nested calls in Tool Usage", () => {
 				},
 			},
 		];
-		fs.writeFileSync(
-			filepath,
-			entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
-			"utf-8",
-		);
+		fs.writeFileSync(filepath, entries.map((e) => JSON.stringify(e)).join("\n") + "\n", "utf-8");
 		return renderSessionToMarkdown(filepath);
 	}
 

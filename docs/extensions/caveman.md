@@ -67,6 +67,7 @@ flowchart TD
 The extension injects these rules into the agent's system prompt via `before_agent_start`:
 
 **BASE** (always injected when caveman is on):
+
 ```
 ## Caveman Mode — Active
 
@@ -76,6 +77,7 @@ All technical substance stay. Only fluff die.
 ```
 
 **Full intensity** adds:
+
 ```
 Rules:
 - Drop articles (a/an/the), filler (just/really/basically/actually/simply)
@@ -100,22 +102,23 @@ Rules:
 
 ### Intensity Level Characteristics
 
-| Aspect | Lite | Full |
-|--------|------|------|
-| Articles | Kept | Dropped |
-| Sentences | Full sentences | Fragments |
-| Filler | Dropped | Dropped |
-| Pleasantries | Dropped | Dropped |
-| Hedging | Dropped | Dropped |
-| Synonyms | Normal | Short (big, fix) |
-| Code blocks | Unchanged | Unchanged |
-| Error quotes | Exact | Exact |
-| Security warnings | Normal | Auto-clarity |
-| Irreversible actions | Normal | Auto-clarity |
+| Aspect               | Lite           | Full             |
+| -------------------- | -------------- | ---------------- |
+| Articles             | Kept           | Dropped          |
+| Sentences            | Full sentences | Fragments        |
+| Filler               | Dropped        | Dropped          |
+| Pleasantries         | Dropped        | Dropped          |
+| Hedging              | Dropped        | Dropped          |
+| Synonyms             | Normal         | Short (big, fix) |
+| Code blocks          | Unchanged      | Unchanged        |
+| Error quotes         | Exact          | Exact            |
+| Security warnings    | Normal         | Auto-clarity     |
+| Irreversible actions | Normal         | Auto-clarity     |
 
 ### Testing
 
 Tests cover:
+
 - Compression: all 3 levels, mode skip (JSON/RPC)
 - Config: load, save, default fallback
 - Session: level resolution from AGENTS.md, entry append logic

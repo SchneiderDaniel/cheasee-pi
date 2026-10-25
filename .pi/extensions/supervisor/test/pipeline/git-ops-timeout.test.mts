@@ -38,7 +38,9 @@ const notify = { info: () => {}, error: () => {} };
 const SHA = "abc1234567890abc1234567890abc1234567890a";
 
 /** Answers the commitAndPush argv sequence; overrides inject failures. */
-function happyGit(overrides: (args: string[]) => { code: number; stdout?: string; stderr?: string } | null) {
+function happyGit(
+	overrides: (args: string[]) => { code: number; stdout?: string; stderr?: string } | null,
+) {
 	return makeMockPiAndHandler(overrides);
 }
 
@@ -106,7 +108,9 @@ describe("preserveTimedOutWork — adapter (issue #1987)", () => {
 	});
 
 	it("clean worktree → committed:false, files:[], no commit/push issued", async () => {
-		const { pi, calls } = happyGit((args) => (args[0] === "status" ? { code: 0, stdout: "" } : null));
+		const { pi, calls } = happyGit((args) =>
+			args[0] === "status" ? { code: 0, stdout: "" } : null,
+		);
 		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
 
 		assert.equal(result.committed, false);
@@ -199,21 +203,32 @@ describe("preserveTimedOutWork — adapter (issue #1987)", () => {
 		});
 		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
 		assert.equal(result.committed, false);
-		assert.ok(result.error && /git rev-list failed/.test(result.error), `error surfaced: ${result.error}`);
+		assert.ok(
+			result.error && /git rev-list failed/.test(result.error),
+			`error surfaced: ${result.error}`,
+		);
 	});
 
 	it("git add failure → fail-soft {committed:false, error}, no throw", async () => {
 		const { pi } = happyGit((args) => (args[0] === "add" ? { code: 1, stderr: "boom" } : null));
 		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
 		assert.equal(result.committed, false);
-		assert.ok(result.error && /git add failed/.test(result.error), `error surfaced: ${result.error}`);
+		assert.ok(
+			result.error && /git add failed/.test(result.error),
+			`error surfaced: ${result.error}`,
+		);
 	});
 
 	it("git push failure → fail-soft {committed:false, error}, no throw", async () => {
-		const { pi } = happyGit((args) => (args[0] === "push" ? { code: 1, stderr: "rejected" } : null));
+		const { pi } = happyGit((args) =>
+			args[0] === "push" ? { code: 1, stderr: "rejected" } : null,
+		);
 		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
 		assert.equal(result.committed, false);
-		assert.ok(result.error && /git push failed/.test(result.error), `error surfaced: ${result.error}`);
+		assert.ok(
+			result.error && /git push failed/.test(result.error),
+			`error surfaced: ${result.error}`,
+		);
 	});
 
 	it("bounds the preservation push so a stalled remote cannot hang the timeout path", async () => {
@@ -234,9 +249,14 @@ describe("preserveTimedOutWork — adapter (issue #1987)", () => {
 	});
 
 	it("git status failure → fail-soft {committed:false, error}", async () => {
-		const { pi } = happyGit((args) => (args[0] === "status" ? { code: 128, stderr: "not a repo" } : null));
+		const { pi } = happyGit((args) =>
+			args[0] === "status" ? { code: 128, stderr: "not a repo" } : null,
+		);
 		const result = await preserveTimedOutWork(pi, "/wt", "origin", "feature", 1987, notify);
 		assert.equal(result.committed, false);
-		assert.ok(result.error && /git status failed/.test(result.error), `error surfaced: ${result.error}`);
+		assert.ok(
+			result.error && /git status failed/.test(result.error),
+			`error surfaced: ${result.error}`,
+		);
 	});
 });

@@ -74,10 +74,7 @@ describe("over-deletion guard — pass-through seams preserved", () => {
 	it("helpers.ts keeps exec in the functions that call it", () => {
 		const source = readSource("pipeline/helpers.ts");
 		for (const fn of ["fetchIssue", "fetchFreshIssueData", "loadAgentFile"]) {
-			assert.ok(
-				paramBlock(source, fn).includes("exec: ExecFn"),
-				`${fn} must keep exec: ExecFn`,
-			);
+			assert.ok(paramBlock(source, fn).includes("exec: ExecFn"), `${fn} must keep exec: ExecFn`);
 		}
 	});
 

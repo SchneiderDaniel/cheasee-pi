@@ -33,10 +33,7 @@ interface ExecCall {
 
 type GitReply = { code: number; stdout?: string; stderr?: string } | null;
 
-function createMockPi(
-	calls?: ExecCall[],
-	gitHandler?: (args: string[]) => GitReply,
-): ExtensionAPI {
+function createMockPi(calls?: ExecCall[], gitHandler?: (args: string[]) => GitReply): ExtensionAPI {
 	const callLog = calls || [];
 	return {
 		exec: ((cmd: string, args: string[], opts?: Record<string, unknown>) => {
@@ -203,6 +200,12 @@ function buildRetryRunContext(opts: {
 			postIssueComment: async () => {},
 			closeIssue: async () => {},
 			setItemStatusField: async () => {},
+			listComments: async () =>
+				(opts.comments ?? []).map((c) => ({
+					author: c.author?.login ? { login: c.author.login } : undefined,
+					body: c.body ?? undefined,
+				})),
+			getAuthenticatedLogin: async () => "user1",
 		},
 		opts.portCalls,
 	);
@@ -697,6 +700,10 @@ const TEST_PLAN_QUOTE =
 	'## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment';
 
 function trustedComment(body: string): { author: { login: string }; body: string } {
+	// Genuine rejections are authored by the automation account (the port's
+	// getAuthenticatedLogin returns "user1" in this harness), so the pipeline
+	// treats them as its own output (issue #2044); quoted Test Plan text does
+	// not start with the heading and is never selected.
 	return { author: { login: "user1" }, body };
 }
 
@@ -909,7 +916,10 @@ function runDeveloper(opts: {
 	queueAgent?: string;
 	gitHandler?: (args: string[]) => GitReply;
 }): { runner: ReturnType<typeof mock.fn>; runCtx: RunContext } {
-	const runner = createQueueRunner(opts.queue ?? [makeDevResult({})], opts.queueAgent ?? "developer");
+	const runner = createQueueRunner(
+		opts.queue ?? [makeDevResult({})],
+		opts.queueAgent ?? "developer",
+	);
 	const runCtx = buildRetryRunContext({
 		runner,
 		portCalls: [],

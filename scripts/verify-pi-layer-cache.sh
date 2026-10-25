@@ -19,11 +19,12 @@
 #             stamp file present in the final image                          (AC4)
 #
 # WHY COMPOSE-DIRECT FOR BUILDS 2/3: `cheasee-pi build` always injects a
-# fresh PI_BUILD_STAMP (build.go: fmt.Sprintf("%d", time.Now().Unix())) by
-# design. AC3 (entrypoint-only change must not reinstall pi) is only testable
-# when the stamp is HELD CONSTANT across builds 2→3, so those builds run
-# through `docker compose build` directly with the script's own stamp. Build 1
-# still exercises the real CLI path end-to-end.
+# fresh PI_BUILD_STAMP (up_compose.go applyComposeEnv:
+# fmt.Sprintf("%d", time.Now().Unix())) by design. AC3 (entrypoint-only change
+# must not reinstall pi) is only testable when the stamp is HELD CONSTANT
+# across builds 2→3, so those builds run through `docker compose build`
+# directly with the script's own stamp. Build 1 still exercises the real CLI
+# path end-to-end.
 #
 # Scope: the cache-hit guarantee holds ONLY for default builds. --prune /
 # --no-cache / --pull wipe the cache by design, and the floating
@@ -139,19 +140,20 @@ build() { # <out-log> — runs `cheasee-pi build` (default flags) in WORKDIR
 }
 
 # compose_build <stamp> <out-log> — runs `docker compose build` directly with
-# the given PI_BUILD_STAMP (default flags), from the CLI's cache-dir build
-# context. Mirrors what build.go does for its compose argv (minus the CLI's
-# own stamp injection, which is the point: AC3 needs the stamp held constant).
-# Compose validates every volume spec even for `build`, so the workspace env
-# vars must be set (same env application as applyComposeEnv).
+# the given PI_BUILD_STAMP supplied through the compose env (default flags),
+# from the CLI's cache-dir build context. Mirrors what applyComposeEnv does
+# (the env carries the stamp; docker-compose.yml declares it on the agent
+# service only), minus the CLI's own stamp injection — which is the point: AC3
+# needs the stamp held constant.
 compose_build() { # <stamp> <out-log>
   local stamp=$1 out=$2
   (cd "$CACHE_DIR" \
     && WORKSPACE_HOST_PATH="$WORKDIR" \
        WORKSPACE_BARE_PATH="$(dirname "$WORKDIR")/.bare" \
        COMPOSE_PROJECT_NAME="$PROJECT" \
-       docker compose -f "$COMPOSE_FILE" build \
-         --build-arg "PI_BUILD_STAMP=$stamp") 2>&1 | tee "$out"
+       PI_BUILD_STAMP="$stamp" \
+       CHEASEE_COMMIT="$CHEASEE_COMMIT" \
+       docker compose -f "$COMPOSE_FILE" build) 2>&1 | tee "$out"
 }
 
 failures=0
@@ -161,6 +163,16 @@ clone_pat='RUN git clone --depth 1 --branch ${CHEASEE_REF}'
 symlink_pat='RUN mkdir -p /home/agentuser/.pi/agent/skills'
 pi_pat='RUN npm install -g --force @earendil-works/pi-coding-agent'
 copy_pat='COPY entrypoint.sh /usr/local/bin/entrypoint.sh'
+
+# The clone layer's cache key includes CHEASEE_COMMIT (issue #2054), so builds
+# 2/3 — which bypass the CLI — must supply the same commit the CLI resolved for
+# build 1; an empty value is a different key and would legitimately re-run the
+# clone, voiding AC1 below. Mirrors resolveCheaseeCommitFn: the exact
+# refs/heads/<ref> hash.
+CHEASEE_REF_MAIN="${CHEASEE_REF:-main}"
+CHEASEE_COMMIT="$(git ls-remote https://github.com/SchneiderDaniel/cheasee-pi "$CHEASEE_REF_MAIN" 2>/dev/null \
+  | awk -v r="refs/heads/$CHEASEE_REF_MAIN" '$2 == r { print $1; exit }')"
+echo "resolved CHEASEE_COMMIT=${CHEASEE_COMMIT:-<none>} (ref $CHEASEE_REF_MAIN)"
 
 echo "== build 1 (warm the cache, real CLI path) =="
 build "$TMP/build1.log"

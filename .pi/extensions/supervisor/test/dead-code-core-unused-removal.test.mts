@@ -110,10 +110,7 @@ describe("stages barrel — public contract intact", () => {
 			const value = (barrel as Record<string, unknown>)[key];
 			if (typeof value === "function" || typeof value === "number") continue;
 			// re-exported value exports may be objects/functions; anything else is a surprise
-			assert.ok(
-				typeof value === "object",
-				`unexpected export type for ${key}: ${typeof value}`,
-			);
+			assert.ok(typeof value === "object", `unexpected export type for ${key}: ${typeof value}`);
 		}
 	});
 });
@@ -130,7 +127,13 @@ describe("tsc gate — core.ts clean under --noUnusedLocals", () => {
 			const e = err as { stdout?: string; stderr?: string };
 			output = `${e.stdout ?? ""}${e.stderr ?? ""}`;
 		}
-		const matches = output.match(/pipeline\/stages\/core\.ts\(\d+,\d+\): error TS(6133|6192|6196)/g);
-		assert.equal(matches, null, `core.ts must have no unused-symbol errors, got:\n${matches?.join("\n")}`);
+		const matches = output.match(
+			/pipeline\/stages\/core\.ts\(\d+,\d+\): error TS(6133|6192|6196)/g,
+		);
+		assert.equal(
+			matches,
+			null,
+			`core.ts must have no unused-symbol errors, got:\n${matches?.join("\n")}`,
+		);
 	});
 });

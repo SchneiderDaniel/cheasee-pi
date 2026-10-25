@@ -23,7 +23,9 @@ func TestCLIDoc_AllInitFlags(t *testing.T) {
 // only check on the doc side. The "skill repos" rows elsewhere are untouched.
 
 func TestCLIDoc_SkillRepoFlagRow(t *testing.T) {
-	content := readCliDoc(t)
+	// Collapse whitespace so Prettier's markdown-table column padding does not
+	// break the row guard — the cell wording, not the padding, is the contract.
+	content := strings.Join(strings.Fields(readCliDoc(t)), " ")
 	row := "| `--skill-repo <spec>` | Custom skills installed into the container (repeatable) |"
 	if !strings.Contains(content, row) {
 		t.Errorf("docs/cli.md --skill-repo row must be %q", row)

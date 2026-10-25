@@ -44,9 +44,7 @@ export type EmptyWorktreeAction =
  * @param signals - Pre-fetched signals from the handler
  * @returns EmptyWorktreeAction or null if classifier doesn't apply (hasCommits is true)
  */
-export function classifyEmptyWorktree(
-	signals: EmptyWorktreeSignals,
-): EmptyWorktreeAction | null {
+export function classifyEmptyWorktree(signals: EmptyWorktreeSignals): EmptyWorktreeAction | null {
 	const { hasCommits, changeOnMain, openPrs } = signals;
 
 	// Not an empty-worktree situation — caller should not have invoked classifier
@@ -81,7 +79,8 @@ export function classifyEmptyWorktree(
 	// Case 1: No commits, changes absent on main — loop back to Implementation
 	return {
 		kind: "loop",
-		reason: "No commits on worktree branch and required changes not present on main — looping back to Implementation.",
+		reason:
+			"No commits on worktree branch and required changes not present on main — looping back to Implementation.",
 	};
 }
 
@@ -97,19 +96,14 @@ export function buildResolvedByComment(resolvedBy: {
 	prNumber: number;
 	source: string;
 }): string {
-	const lines: string[] = [
-		"## Issue Already Resolved",
-		"",
-	];
+	const lines: string[] = ["## Issue Already Resolved", ""];
 
 	if (resolvedBy.prNumber > 0) {
 		lines.push(
 			`Required changes were already present on \`main\` via commit \`${resolvedBy.sha}\` (PR #${resolvedBy.prNumber}). Closing.`,
 		);
 	} else if (resolvedBy.source === "main-branch") {
-		lines.push(
-			"Required changes are already present on \`main\`. Closing.",
-		);
+		lines.push("Required changes are already present on \`main\`. Closing.");
 	} else {
 		lines.push(
 			`Required changes were already present on \`main\`. Closing (source: ${resolvedBy.source}).`,

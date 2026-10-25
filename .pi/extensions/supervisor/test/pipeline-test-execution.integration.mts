@@ -19,10 +19,7 @@ import {
 	buildPlanWithGlob,
 } from "./helper/comment-builder.mts";
 
-import {
-	mockRunCommand,
-	type ExecResult,
-} from "./helper/mock-exec.mts";
+import { mockRunCommand, type ExecResult } from "./helper/mock-exec.mts";
 
 // ---------------------------------------------------------------------------
 // Full auditor decision simulation

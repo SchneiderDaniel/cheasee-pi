@@ -1,14 +1,20 @@
 // ─── Pipeline Stages — auditor output dispatch ───────────────────
 // Auditor-specific comment building and posting: gate-rejection
 // short-circuit, structured-vs-text-marker fallback, approval/
-// rejection comment construction.
-// Note: empty `catch {}` blocks around postIssueComment in the
-// text-marker fallback are preserved verbatim (separate audit concern).
+// rejection comment construction. Rejections upsert the auditor's prior
+// rejection in place (issue #2044); post failures surface via the collector.
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { SupervisorConfig, AgentRunResult, AgentOutput } from "../../config/types.ts";
+import type {
+	SupervisorConfig,
+	AgentRunResult,
+	AgentOutput,
+	FilteredIssueData,
+} from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { GitHubPort } from "../../github/ports.ts";
+import { AUDIT_GATE_REJECTED_HEADING } from "../../lib/audit-headings.ts";
+import { postApprovalComment, postOrUpdateAuditRejection } from "./audit-rejection-ops.ts";
 import {
 	parseAgentOutput,
 	isSuccess as isAgentOutputSuccess,
@@ -31,18 +37,25 @@ export async function handleAuditorOutput(
 	collector?: ErrorCollector,
 	gateRejected?: GateRejected,
 	port?: GitHubPort,
+	loopFilteredData?: FilteredIssueData,
 ): Promise<void> {
-	// If gate rejected, post gate-specific rejection comment and skip normal processing
+	// If gate rejected, upsert the gate-specific rejection comment and skip normal processing
 	if (gateRejected) {
 		const gateBody = buildGateRejectionComment(gateRejected);
 		if (gateBody) {
-			try {
-				if (port) await port.postIssueComment(issueNum, config.repo, gateBody);
-				ctx.ui.notify(
-					`Audit score gate rejected: ${gateRejected.score.passing}/${gateRejected.total} < ${gateRejected.required}/${gateRejected.total}`,
-					"warning",
-				);
-			} catch (grErr: unknown) {}
+			await postOrUpdateAuditRejection(
+				issueNum,
+				config,
+				gateBody,
+				loopFilteredData,
+				collector,
+				port,
+				ctx,
+			);
+			ctx.ui.notify(
+				`Audit score gate rejected: ${gateRejected.score.passing}/${gateRejected.total} < ${gateRejected.required}/${gateRejected.total}`,
+				"warning",
+			);
 		}
 		return;
 	}
@@ -75,43 +88,75 @@ export async function handleAuditorOutput(
 
 	// Fallback to old text-marker-based extraction
 	if (!actionFromOutput) {
-		await handleAuditorOutputFallback(pi, ctx, agentOutput, toolNamesSet, issueNum, config, port);
+		await handleAuditorOutputFallback(
+			pi,
+			ctx,
+			agentOutput,
+			toolNamesSet,
+			issueNum,
+			config,
+			collector,
+			port,
+			loopFilteredData,
+		);
 		return;
 	}
 
-	// Structured path: build comment from AgentOutput
-	if (actionFromOutput === "APPROVED") {
-		const bodyToPost =
-			commentBodyFromOutput || buildApprovalCommentFromOutput(agentOutput, toolNamesSet);
-		if (bodyToPost) {
-			try {
-				if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
-				ctx.ui.notify("Audit approval comment posted (from structured output)", "info");
-			} catch (acErr: unknown) {
-				collector?.push(
-					"stages",
-					"warn",
-					`Failed to post audit comment: ${acErr instanceof Error ? acErr.message : String(acErr)}`,
-				);
-			}
-		}
-	} else if (actionFromOutput === "REJECTED") {
-		const bodyToPost =
-			commentBodyFromOutput || buildRejectionCommentFromOutput(agentOutput, toolNamesSet);
-		if (bodyToPost) {
-			try {
-				if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
-				ctx.ui.notify("Audit rejection comment posted (from structured output)", "info");
-			} catch (rcErr: unknown) {
-				collector?.push(
-					"stages",
-					"warn",
-					`Failed to post rejection comment: ${
-						rcErr instanceof Error ? rcErr.message : String(rcErr)
-					}`,
-				);
-			}
-		}
+	// Structured path: post the resolved verdict
+	await handleStructuredVerdict(
+		actionFromOutput,
+		commentBodyFromOutput,
+		agentOutput,
+		toolNamesSet,
+		issueNum,
+		config,
+		collector,
+		port,
+		loopFilteredData,
+		ctx,
+	);
+}
+
+/** Post the structured auditor verdict — approval as-is, rejection upserted. */
+async function handleStructuredVerdict(
+	action: "APPROVED" | "REJECTED",
+	commentBody: string | undefined,
+	agentOutput: string,
+	toolNamesSet: Set<string>,
+	issueNum: number,
+	config: SupervisorConfig,
+	collector: ErrorCollector | undefined,
+	port: GitHubPort | undefined,
+	loopFilteredData: FilteredIssueData | undefined,
+	ctx: ExtensionCommandContext,
+): Promise<void> {
+	const bodyToPost =
+		commentBody ||
+		(action === "APPROVED"
+			? buildApprovalCommentFromOutput(agentOutput, toolNamesSet)
+			: buildRejectionCommentFromOutput(agentOutput, toolNamesSet));
+	if (!bodyToPost) return;
+	if (action === "APPROVED") {
+		await postApprovalComment(
+			bodyToPost,
+			"Audit approval comment posted (from structured output)",
+			issueNum,
+			config,
+			collector,
+			port,
+			loopFilteredData,
+			ctx,
+		);
+	} else {
+		await postOrUpdateAuditRejection(
+			issueNum,
+			config,
+			bodyToPost,
+			loopFilteredData,
+			collector,
+			port,
+			ctx,
+		);
 	}
 }
 
@@ -237,7 +282,7 @@ export function buildRejectionCommentFromOutput(
  */
 function buildGateRejectionComment(gateRejected: GateRejected): string | null {
 	const lines: string[] = [
-		"## Audit Score Gate Rejected",
+		AUDIT_GATE_REJECTED_HEADING,
 		"",
 		`**Score:** ${gateRejected.score.passing}/${gateRejected.total} — requires at least ${gateRejected.required}/${gateRejected.total} (threshold: ${gateRejected.required}/${gateRejected.total})`,
 		"",
@@ -259,8 +304,8 @@ function buildGateRejectionComment(gateRejected: GateRejected): string | null {
 /**
  * Text-marker fallback path for auditor output: `extractStructuredAuditOutput`
  * markers, then bare-text `Approved`/`Rejected` wrap as a last resort.
- * Empty `catch {}` blocks around postIssueComment are preserved verbatim —
- * port failures here are swallowed silently, matching pre-split behavior.
+ * Rejections route through postOrUpdateAuditRejection; post failures surface
+ * via the collector instead of being swallowed.
  */
 async function handleAuditorOutputFallback(
 	pi: ExtensionAPI,
@@ -269,7 +314,9 @@ async function handleAuditorOutputFallback(
 	toolNamesSet: Set<string>,
 	issueNum: number,
 	config: SupervisorConfig,
-	port: GitHubPort | undefined,
+	collector?: ErrorCollector,
+	port?: GitHubPort,
+	loopFilteredData?: FilteredIssueData,
 ): Promise<void> {
 	const auditOutput = extractStructuredAuditOutput(agentOutput, toolNamesSet);
 
@@ -279,17 +326,26 @@ async function handleAuditorOutputFallback(
 		const rejectedMatch = /^Rejected[^a-zA-Z]/.test(trimmed) || /\bRejected\b/i.test(trimmed);
 
 		if (approvedMatch && !rejectedMatch) {
-			try {
-				const body = `## Audit Approved\n\n${trimmed.slice(0, 2000)}`;
-				if (port) await port.postIssueComment(issueNum, config.repo, body);
-				ctx.ui.notify("Audit approval comment posted (bare text fallback)", "info");
-			} catch (acErr: unknown) {}
+			await postApprovalComment(
+				`## Audit Approved\n\n${trimmed.slice(0, 2000)}`,
+				"Audit approval comment posted (bare text fallback)",
+				issueNum,
+				config,
+				collector,
+				port,
+				loopFilteredData,
+				ctx,
+			);
 		} else if (rejectedMatch) {
-			try {
-				const body = `## Audit Rejected\n\n${trimmed.slice(0, 2000)}`;
-				if (port) await port.postIssueComment(issueNum, config.repo, body);
-				ctx.ui.notify("Audit rejection comment posted (bare text fallback)", "info");
-			} catch (rcErr: unknown) {}
+			await postOrUpdateAuditRejection(
+				issueNum,
+				config,
+				`## Audit Rejected\n\n${trimmed.slice(0, 2000)}`,
+				loopFilteredData,
+				collector,
+				port,
+				ctx,
+			);
 		}
 		return;
 	}
@@ -298,19 +354,30 @@ async function handleAuditorOutputFallback(
 		const bodyToPost =
 			auditOutput.commentBody || buildApprovalCommentFromOutput(agentOutput, toolNamesSet);
 		if (bodyToPost) {
-			try {
-				if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
-				ctx.ui.notify("Audit comment posted (text marker fallback)", "info");
-			} catch (acErr: unknown) {}
+			await postApprovalComment(
+				bodyToPost,
+				"Audit comment posted (text marker fallback)",
+				issueNum,
+				config,
+				collector,
+				port,
+				loopFilteredData,
+				ctx,
+			);
 		}
 	} else if (auditOutput.decision === "REJECTED") {
 		const bodyToPost =
 			auditOutput.commentBody || buildRejectionCommentFromOutput(agentOutput, toolNamesSet);
 		if (bodyToPost) {
-			try {
-				if (port) await port.postIssueComment(issueNum, config.repo, bodyToPost);
-				ctx.ui.notify("Audit rejection comment posted (text marker fallback)", "info");
-			} catch (rcErr: unknown) {}
+			await postOrUpdateAuditRejection(
+				issueNum,
+				config,
+				bodyToPost,
+				loopFilteredData,
+				collector,
+				port,
+				ctx,
+			);
 		}
 	}
 }

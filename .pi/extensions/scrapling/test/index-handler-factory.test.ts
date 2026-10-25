@@ -11,9 +11,6 @@ import type { CrawlResult, CrawledPage } from "../types.ts";
 import { setCrawlFactory, resetCrawlFactory } from "../index.ts";
 import webCrawlExtension from "../index.ts";
 
-
-
-
 // ── Register tool once ──
 
 const tools: any[] = [];
@@ -36,7 +33,13 @@ interface CrawlCall {
 }
 
 let crawlCalls: CrawlCall[] = [];
-let cannedResult: CrawlResult = { success: true, results: [], totalTokens: 0, attempted: 0, failed: [] };
+let cannedResult: CrawlResult = {
+	success: true,
+	results: [],
+	totalTokens: 0,
+	attempted: 0,
+	failed: [],
+};
 
 /**
  * Inject a factory that records calls and returns the current cannedResult.
@@ -301,8 +304,20 @@ describe("factory injection — setCrawlFactory / resetCrawlFactory boundary", (
 
 	it("(entity) factory returns multi-page result with mixed method values — handler formats both", async () => {
 		const pages: CrawledPage[] = [
-			{ url: "https://light.com", markdown: "Light", method: "lightweight", rawLength: 5, truncated: false },
-			{ url: "https://stealth.com", markdown: "Stealth", method: "stealth", rawLength: 7, truncated: false },
+			{
+				url: "https://light.com",
+				markdown: "Light",
+				method: "lightweight",
+				rawLength: 5,
+				truncated: false,
+			},
+			{
+				url: "https://stealth.com",
+				markdown: "Stealth",
+				method: "stealth",
+				rawLength: 7,
+				truncated: false,
+			},
 		];
 		injectFactory({ success: true, results: pages, totalTokens: 3, attempted: 2, failed: [] });
 

@@ -16,10 +16,10 @@ Requires: `gh` CLI authenticated.
 /skill:audit-code-simplification <target>
 ```
 
-| Target              | What it analyzes                                |
-| ------------------- | ----------------------------------------------- |
-| `root` (or omitted) | Main repo                                       |
-| `<any-path>`        | Arbitrary directory                             |
+| Target              | What it analyzes    |
+| ------------------- | ------------------- |
+| `root` (or omitted) | Main repo           |
+| `<any-path>`        | Arbitrary directory |
 
 ## Workflow
 
@@ -78,40 +78,47 @@ Use `gh issue create --parent <umbrella-number>`.
 ## The Five Principles
 
 ### 1. Preserve Behavior Exactly
+
 ### 2. Follow Project Conventions
+
 ### 3. Prefer Clarity Over Cleverness
+
 ### 4. Maintain Balance
+
 ### 5. Scope to What Changed
 
 ## Simplification Patterns
 
 ### Structural complexity
-| Pattern | Signal | Simplification |
-|---------|--------|----------------|
-| Deep nesting (3+ levels) | Hard to follow | Guard clauses or helper functions |
-| Long functions (50+ lines) | Multiple responsibilities | Split into focused functions |
-| Nested ternaries | Mental stack | if/else chains or lookup objects |
-| Boolean parameter flags | `doThing(true, false)` | Options objects or separate functions |
-| Repeated conditionals | Same check in multiple places | Predicate function |
-| Unnecessary async/await | Wrapping sync call | Drop async/await |
+
+| Pattern                    | Signal                        | Simplification                        |
+| -------------------------- | ----------------------------- | ------------------------------------- |
+| Deep nesting (3+ levels)   | Hard to follow                | Guard clauses or helper functions     |
+| Long functions (50+ lines) | Multiple responsibilities     | Split into focused functions          |
+| Nested ternaries           | Mental stack                  | if/else chains or lookup objects      |
+| Boolean parameter flags    | `doThing(true, false)`        | Options objects or separate functions |
+| Repeated conditionals      | Same check in multiple places | Predicate function                    |
+| Unnecessary async/await    | Wrapping sync call            | Drop async/await                      |
 
 ### Naming and readability
-| Pattern | Signal | Simplification |
-|---------|--------|----------------|
-| Generic names | `data`, `result`, `temp` | Describe content |
-| Abbreviated names | `usr`, `cfg` | Full words |
-| Misleading names | `get` that mutates | Rename |
-| "What" comments | `// increment counter` | Delete |
+
+| Pattern           | Signal                   | Simplification   |
+| ----------------- | ------------------------ | ---------------- |
+| Generic names     | `data`, `result`, `temp` | Describe content |
+| Abbreviated names | `usr`, `cfg`             | Full words       |
+| Misleading names  | `get` that mutates       | Rename           |
+| "What" comments   | `// increment counter`   | Delete           |
 
 ### Redundancy
-| Pattern | Simplification |
-|---------|----------------|
-| Duplicated logic | Shared function |
-| Dead code | Remove |
-| Unnecessary abstractions | Inline |
-| Over-engineered patterns | Direct approach |
-| Redundant type assertions | Remove |
-| Pass-through wrappers | Delete, update callers |
+
+| Pattern                   | Simplification         |
+| ------------------------- | ---------------------- |
+| Duplicated logic          | Shared function        |
+| Dead code                 | Remove                 |
+| Unnecessary abstractions  | Inline                 |
+| Over-engineered patterns  | Direct approach        |
+| Redundant type assertions | Remove                 |
+| Pass-through wrappers     | Delete, update callers |
 
 ## Tone
 

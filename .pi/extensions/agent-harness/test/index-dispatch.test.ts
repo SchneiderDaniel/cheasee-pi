@@ -9,9 +9,7 @@ import assert from "node:assert/strict";
 import { AgentHarness } from "../index.ts";
 import type { ToolCallResult, ResolvedHarnessRules } from "../index.ts";
 import agentHarness from "../index.ts";
-import {
-	DESTRUCTIVE_CASCADE_THRESHOLD,
-} from "../lib/harness-rules.ts";
+import { DESTRUCTIVE_CASCADE_THRESHOLD } from "../lib/harness-rules.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import {
@@ -109,9 +107,7 @@ describe("AgentHarness — annotation-derived defaults", () => {
 
 	it("hardcoded TOOL_META wins over provider annotations (web_crawl)", () => {
 		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [
-			{ name: "web_crawl", annotations: { openWorldHint: true } },
-		]);
+		h.setToolInfoProvider(() => [{ name: "web_crawl", annotations: { openWorldHint: true } }]);
 		const results = callNTimes(h, "web_crawl", 20, { url: "https://x" });
 		assert.equal(results[18], null, "19th call passes");
 		assert.ok(results[19]?.block, "hardcoded cascadeThreshold 20 wins");
@@ -216,10 +212,7 @@ describe("AgentHarness — nested call attribution", () => {
 		h.handleToolCall({ toolName: "beta", input: {}, toolCallId: "b1" }, makeCtx());
 		h.handleToolCall(nested("read", "p1/1", "p1"), makeCtx());
 		const r = h.handleToolCall({ toolName: "alpha", input: {} }, makeCtx());
-		assert.ok(
-			r?.block,
-			"parent cascade includes the nested roll-up despite beta interleaving",
-		);
+		assert.ok(r?.block, "parent cascade includes the nested roll-up despite beta interleaving");
 	});
 
 	it("nested roll-up targets the parent's bash sub-key, not a sibling same-tool sub-key", () => {
@@ -301,10 +294,7 @@ describe("AgentHarness — nested call attribution", () => {
 			{ toolName: "write", input: { path: "seed.ts", content: "" }, toolCallId: "p1" },
 			makeCtx(),
 		);
-		h.handleToolCall(
-			{ toolName: "read", input: { path: "a.ts" }, toolCallId: "r1" },
-			makeCtx(),
-		);
+		h.handleToolCall({ toolName: "read", input: { path: "a.ts" }, toolCallId: "r1" }, makeCtx());
 		h.handleTurnStart();
 		h.handleToolCall(nested("write", "p1/1", "p1", { path: "b.ts", content: "" }), makeCtx());
 		assert.equal(
@@ -388,9 +378,21 @@ describe("AgentHarness — tool-info provider wiring", () => {
 		(api as any).getAllTools = () => [{ name: "read", annotations: { readOnlyHint: true } }];
 		agentHarness(api);
 		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx());
-		await api.fire("tool_call", { toolName: "read", input: { path: "a.ts" }, isError: true }, makeConfigCtx());
-		await api.fire("tool_call", { toolName: "read", input: { path: "b.ts" }, isError: true }, makeConfigCtx());
-		const r = await api.fire("tool_call", { toolName: "read", input: { path: "c.ts" } }, makeConfigCtx());
+		await api.fire(
+			"tool_call",
+			{ toolName: "read", input: { path: "a.ts" }, isError: true },
+			makeConfigCtx(),
+		);
+		await api.fire(
+			"tool_call",
+			{ toolName: "read", input: { path: "b.ts" }, isError: true },
+			makeConfigCtx(),
+		);
+		const r = await api.fire(
+			"tool_call",
+			{ toolName: "read", input: { path: "c.ts" } },
+			makeConfigCtx(),
+		);
 		assert.equal(r, undefined, "third read passes");
 	});
 

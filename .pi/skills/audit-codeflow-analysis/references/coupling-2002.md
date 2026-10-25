@@ -1,8 +1,8 @@
 # Coupling reduction record (#2002 — `134 Highly Coupled`)
 
 The issue is filed from the CodeFlow `Architecture Issues` section: the pinned
-analyzer titles that section with a count of files whose *resolved cross-file
-identifier references* exceed a fixed threshold. This file records what the
+analyzer titles that section with a count of files whose _resolved cross-file
+identifier references_ exceed a fixed threshold. This file records what the
 metric actually measures, the reproduction, the measured drop, and what was
 deliberately left alone.
 
@@ -31,15 +31,15 @@ of a known function name. Two consequences drive this change:
    same-named method or word.
 2. **A definition read out of a comment or a string literal is a phantom** whose
    "callers" are every file containing that word. The assembly-language regexes
-   in `Parser.extractOtherLanguages` run for *every* non-Python file when the
+   in `Parser.extractOtherLanguages` run for _every_ non-Python file when the
    headless run has no acorn, so prose like `… MkdirAll(dir, 0755)` or
    `an internal error only (e.g. …)` declares a function named `MkdirAll` or
    `only`.
 
-Both are *non-dependency* edges: the referencing file never calls the
+Both are _non-dependency_ edges: the referencing file never calls the
 definition. Removing them is the only way to move this metric, because splitting
 a flagged file moves its edges to the new file rather than deleting them (the
-architecture note's own warning: splitting only helps when *each* part falls
+architecture note's own warning: splitting only helps when _each_ part falls
 back under the threshold).
 
 ## Reproduction
@@ -66,10 +66,10 @@ test and re-measure identically.
 
 ## Before / after (pinned analyzer, same snapshot method)
 
-| Ref | commit | files | functions | connections | coupled | coupling term |
-|-----|--------|-------|-----------|-------------|---------|---------------|
-| `origin/main` | `051d0c37` | 752 | 3552 | 3408 | 138 | 3.064 |
-| this branch | `21436919` | 754 | 3539 | 2789 | 101 | 1.398 |
+| Ref           | commit     | files | functions | connections | coupled | coupling term |
+| ------------- | ---------- | ----- | --------- | ----------- | ------- | ------------- |
+| `origin/main` | `051d0c37` | 752   | 3552      | 3408        | 138     | 3.064         |
+| this branch   | `21436919` | 754   | 3539      | 2789        | 101     | 1.398         |
 
 The issue was filed with **`134 Highly Coupled`** at `analyzedAt`
 1791738325602 against the then-main; re-running the pinned analyzer on the
@@ -97,19 +97,19 @@ and in the Go/TS fixture literals of `init_split_test.go`,
 **Pass 2 — disambiguate collision-prone private helpers.** Renames only, no
 behaviour change, each verified by its own compiler/test suite:
 
-| old | new | file |
-|-----|-----|------|
-| `write` / `child` | `writeLogRecord` / `childLogger` | `.pi/extensions/supervisor/lib/debug.ts` |
-| `identity` | `identityPassThrough` | `.pi/extensions/supervisor/test/helpers/mock-pi.ts` |
-| `entry` / `config` | `makeEntry` / `makeConfig` | `.pi/extensions/caveman/test/session-level.test.ts` |
-| `exists` | `pathExists` | `.pi/extensions/lib/ensureVenv.test.ts` |
-| `stdout` | `renderStdout` | `.pi/extensions/scrapling/test/python-adapter.test.ts` |
-| `build` | `buildThing` | `.pi/extensions/lib/test/source-graph.test.ts` |
-| `slice` | `sliceFixtureSection` | `.pi/skills/audit-codeflow-analysis/test/fixtures/generate-report-fixtures.mjs` |
-| `indexOf` | `indexOfArg` | `cmd/cheasee-pi/up_env_test.go` |
-| `configPath` | `repositoryConfigPath` | `cmd/cheasee-pi/config.go`, `config_jsonfile.go` |
-| `writeFile` | `writeShimFile` | `cmd/cheasee-pi/codeflow_shim_test.go`, `codeflow_shim_fp_filter_test.go` |
-| `variant` | `permute_blobs` | `cmd/cheasee-pi/codeflow_shim_fp_filter_test.go` (embedded Python fixture) |
+| old                | new                              | file                                                                            |
+| ------------------ | -------------------------------- | ------------------------------------------------------------------------------- |
+| `write` / `child`  | `writeLogRecord` / `childLogger` | `.pi/extensions/supervisor/lib/debug.ts`                                        |
+| `identity`         | `identityPassThrough`            | `.pi/extensions/supervisor/test/helpers/mock-pi.ts`                             |
+| `entry` / `config` | `makeEntry` / `makeConfig`       | `.pi/extensions/caveman/test/session-level.test.ts`                             |
+| `exists`           | `pathExists`                     | `.pi/extensions/lib/ensureVenv.test.ts`                                         |
+| `stdout`           | `renderStdout`                   | `.pi/extensions/scrapling/test/python-adapter.test.ts`                          |
+| `build`            | `buildThing`                     | `.pi/extensions/lib/test/source-graph.test.ts`                                  |
+| `slice`            | `sliceFixtureSection`            | `.pi/skills/audit-codeflow-analysis/test/fixtures/generate-report-fixtures.mjs` |
+| `indexOf`          | `indexOfArg`                     | `cmd/cheasee-pi/up_env_test.go`                                                 |
+| `configPath`       | `repositoryConfigPath`           | `cmd/cheasee-pi/config.go`, `config_jsonfile.go`                                |
+| `writeFile`        | `writeShimFile`                  | `cmd/cheasee-pi/codeflow_shim_test.go`, `codeflow_shim_fp_filter_test.go`       |
+| `variant`          | `permute_blobs`                  | `cmd/cheasee-pi/codeflow_shim_fp_filter_test.go` (embedded Python fixture)      |
 
 The renamed symbols' only readers are the files that define them or the test
 files that exercise them. `up_env_test.go` and `codeflow_shim_*_test.go` are
@@ -131,7 +131,7 @@ including the guard that no test-only `.mts` file is cited as a reduction source
 ## Deliberately not done
 
 - **Trait / interface implementations.** `framing.rs fn clone`, `config.go
-  Path()`, `helpers_test.go Run()/Output()/CombinedOutput()` sit at 33–37
+Path()`, `helpers_test.go Run()/Output()/CombinedOutput()` sit at 33–37
   references each and are pure detector noise, but the names are the port
   contract; renaming them would be a wide, meaningless churn. Documented as a
   detector limitation.
@@ -141,11 +141,11 @@ including the guard that no test-only `.mts` file is cited as a reduction source
   image has no Rust toolchain, so the change cannot be verified in-gate.
   Left for a change that can run `cargo test --no-default-features --features ssr`.
 - **File splits (the test plan's phases 1–7).** Not applied. The plan's own
-  trade-off note accepts this: a split only helps when *each* part falls back
+  trade-off note accepts this: a split only helps when _each_ part falls back
   under the threshold, and splitting a 36-reference coordinator yields two
   ~18-reference files — still above `> 8`, so the flagged count does not move
   while the diff and the analyzed file count both grow. Phase 8 (the measured
-  gate) *was* executed and is what this record pins; phases 1–7 were the plan's
+  gate) _was_ executed and is what this record pins; phases 1–7 were the plan's
   hypothesis about how the number would move, and the measurement disproved it
   in favour of the two passes above.
 - **Rust `session.rs` / `main.rs` / `stream.rs`.** Flagged for coupling too, but

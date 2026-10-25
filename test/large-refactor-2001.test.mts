@@ -132,12 +132,10 @@ function countFunctions(src: string, ext: string): number {
 
 /** Non-blank, non-comment-first lines — the repo's own file-size measure. */
 function countNBNC(src: string): number {
-	return src
-		.split("\n")
-		.filter((l) => {
-			const t = l.trim();
-			return t !== "" && !t.startsWith("//") && !t.startsWith("/*") && !t.startsWith("*");
-		}).length;
+	return src.split("\n").filter((l) => {
+		const t = l.trim();
+		return t !== "" && !t.startsWith("//") && !t.startsWith("/*") && !t.startsWith("*");
+	}).length;
 }
 
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf-8");
@@ -180,10 +178,7 @@ describe("large-files refactor #2001 — split files under the metric", () => {
 		it(`${rel} has <= ${CEILING} functions and < 800 nbnc`, () => {
 			const src = read(rel);
 			const count = countFunctions(src, extOf(rel));
-			assert.ok(
-				count <= CEILING,
-				`${rel} has ${count} CodeFlow functions (ceiling ${CEILING})`,
-			);
+			assert.ok(count <= CEILING, `${rel} has ${count} CodeFlow functions (ceiling ${CEILING})`);
 			assert.ok(countNBNC(src) < 800, `${rel} is over the 800-nbnc file-size ceiling`);
 		});
 	}

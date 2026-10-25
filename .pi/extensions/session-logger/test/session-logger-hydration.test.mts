@@ -16,10 +16,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, lstat } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import defaultExport, {
-	createSessionLoggerGate,
-	hydrateSessionLoggerGate,
-} from "../index.ts";
+import defaultExport, { createSessionLoggerGate, hydrateSessionLoggerGate } from "../index.ts";
 import { beginSession } from "../pipeline.ts";
 import { createExtensionStateStore } from "../../lib/extension-state.ts";
 

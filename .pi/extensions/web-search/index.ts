@@ -11,12 +11,7 @@ import { Type } from "typebox";
 import { SEARCH_SCRIPT } from "./python-script.ts";
 import { runSearchScript, parseSearchResults } from "./executor.ts";
 import { ensureWebSearchVenv } from "./venv-setup.ts";
-import type {
-	SearchResult,
-	SearchParams,
-	SearchCacheEntry,
-	WebSearchPayload,
-} from "./types.ts";
+import type { SearchResult, SearchParams, SearchCacheEntry, WebSearchPayload } from "./types.ts";
 import { WebSearchOutputSchema } from "./types.ts";
 
 /** In-session cache for search results to avoid redundant lookups */

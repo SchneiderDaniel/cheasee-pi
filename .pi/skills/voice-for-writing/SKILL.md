@@ -36,6 +36,7 @@ You MUST trigger this skill when the task involves writing **any user-facing tex
 ### Step 1 — Detect Target Language
 
 Determine language from:
+
 - Explicit user request ("write in German")
 - File path hints (e.g. `docs/de/`)
 - ISO language code in context
@@ -79,6 +80,7 @@ Before finalizing, verify the output against each dimension in the voice file. I
 Use `/skill:voice-trainer` to analyze writing samples and generate new voice files.
 
 The prompt:
+
 1. Collects sample text (paste, URL, or file)
 2. Analyzes 7 style dimensions
 3. Writes `voice-{lang}.md` to the `references/` folder

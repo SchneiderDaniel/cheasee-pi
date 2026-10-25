@@ -11,7 +11,7 @@ import { describe, it, mock } from "node:test";
 import assert from "node:assert/strict";
 import { dirname, resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AgentRunResult, SupervisorConfig } from "../config/types.ts";
@@ -27,6 +27,7 @@ const __dirname = dirname(__filename);
 const HANDLER_TS = resolve(__dirname, "../pipeline/handler/agent-loop.ts");
 const HANDLER_HELPERS_TS = resolve(__dirname, "../pipeline/handler/agent-loop-helpers.ts");
 const HANDLER_STEPS_TS = resolve(__dirname, "../pipeline/handler/agent-loop-steps.ts");
+const ISSUE_FILTER_TS = resolve(__dirname, "../lib/issue-filter.ts");
 
 // runAgentLoop with the audit module mocked needs --experimental-test-module-mocks.
 // Without it the Phase 4 integration suite is skipped; the pure-function and
@@ -158,22 +159,26 @@ const HOOK_CONFIG: SupervisorConfig = {
 	agentTimeoutsMin: {},
 };
 
-const HOOK_FIELDS: Array<{ id: string; name: string; type: string; options: Array<{ id: string; name: string }> }> =
-	[
-		{
-			id: "status-field-id",
-			name: "Status",
-			type: "single_select",
-			options: [
-				{ id: "opt-research", name: "Research" },
-				{ id: "opt-architecture", name: "Architecture" },
-				{ id: "opt-test-design", name: "TestDesign" },
-				{ id: "opt-implementation", name: "Implementation" },
-				{ id: "opt-audit", name: "Audit" },
-				{ id: "opt-done", name: "Done" },
-			],
-		},
-	];
+const HOOK_FIELDS: Array<{
+	id: string;
+	name: string;
+	type: string;
+	options: Array<{ id: string; name: string }>;
+}> = [
+	{
+		id: "status-field-id",
+		name: "Status",
+		type: "single_select",
+		options: [
+			{ id: "opt-research", name: "Research" },
+			{ id: "opt-architecture", name: "Architecture" },
+			{ id: "opt-test-design", name: "TestDesign" },
+			{ id: "opt-implementation", name: "Implementation" },
+			{ id: "opt-audit", name: "Audit" },
+			{ id: "opt-done", name: "Done" },
+		],
+	},
+];
 
 // The mocked audit runner's next result; set per test, read at call time.
 let nextAuditResult: Record<string, unknown> = { nextStatus: "Audit", note: "ok" };
@@ -369,7 +374,8 @@ if (hasMockModule) {
 			);
 			assert.equal(blockedMessages.length, 0, "no gate-failure message on a pass");
 			const blocked = notify.mock.calls.find(
-				(c: any) => c.arguments[1] === "warning" && String(c.arguments[0]).includes("Pre-transition"),
+				(c: any) =>
+					c.arguments[1] === "warning" && String(c.arguments[0]).includes("Pre-transition"),
 			);
 			assert.equal(blocked, undefined, "no blocked-transition warning on a pass");
 		});
@@ -430,20 +436,25 @@ describe("Regression — gate wiring module-graph edges (Phase 5, Issue #787)", 
 			graph.importedNames.includes("applyGateFailureContext"),
 			"applyGateFailureContext imported from the stages barrel",
 		);
-		assert.ok(
-			graph.specifiers.includes("../stages/index.ts"),
-			"wired through ../stages/index.ts",
-		);
+		assert.ok(graph.specifiers.includes("../stages/index.ts"), "wired through ../stages/index.ts");
 	});
 
-	it("auditor rejection path consumes the shared anchored matcher — issue #1668", () => {
-		const graph = readGraph(HANDLER_STEPS_TS);
+	it("auditor rejection path consumes the shared anchored matcher — issue #1668/#2044", () => {
+		// Issue #2044 moved rejection discovery out of the trust-filtered comments:
+		// the handler consumes `auditRejections`, populated by issue-filter.ts via the
+		// shared anchored matcher.
+		const stepsSrc = readFileSync(HANDLER_STEPS_TS, "utf-8");
 		assert.ok(
-			graph.importedNames.includes("isAuditRejectedComment"),
-			"auditFeedback scan imports the shared anchored matcher",
+			stepsSrc.includes("auditRejections"),
+			"auditFeedback scan consumes trust-independent auditRejections (#2044)",
+		);
+		const graph = readGraph(ISSUE_FILTER_TS);
+		assert.ok(
+			graph.importedNames.includes("isAuditRejectionComment"),
+			"discovery matches via the shared anchored matcher (gate rejections included)",
 		);
 		assert.ok(
-			graph.specifiers.includes("../../lib/audit-headings.ts"),
+			graph.specifiers.includes("./audit-headings.ts"),
 			"matched via lib/audit-headings.ts (no unanchored substring regex)",
 		);
 	});

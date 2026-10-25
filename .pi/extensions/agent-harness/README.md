@@ -7,6 +7,7 @@
 Every incorrect tool call costs tokens. Every error loop burns context window. Every redundant read repeats work. Agent Harness intercepts these patterns at the tool call boundary and blocks them before they execute.
 
 **What it saves:**
+
 - `bash | grep` → redirected to `ripgrep_search` (faster, structured, cached)
 - `bash grep > file` → passes through (a write redirect is a write op; `ripgrep_search` cannot write output files)
 - `bash cat` → redirected to `read` (avoids spawning subshells)
@@ -21,14 +22,14 @@ Plus deterministic read caching across turns — the harness stores an existence
 Agent Harness hooks into pi's `tool_call` event and runs every call through a 9-step validation pipeline before execution:
 
 0. **Nested attribution** — `ctx.executeTool()`-issued calls carry `parentToolCallId`; nested counts and errors roll up to the parent tool (resolved through a call-id index) and nested calls are never blocked
-0. **Force-bypass gate** — Per-call escape hatch: `input._harness.force: true` or `# bypass-harness` comment annotation skips all guards. Requires `hasUI: true` (interactive session).
-1. **Pass-through check** — Tools like `ask_user` pass through immediately (no validation overhead)
-2. **Error tracking** — Failed calls are recorded; after 2+ errors on same tool, further calls are blocked
-3. **Cache invalidation** — any `write`/`edit` or file-modifying `bash` clears the entire read cache
-4. **Error retry guard** — If the same tool errored ≥2 times, subsequent calls are blocked with redirect suggestion
-5. **Read cache** — Same path+offset+limit within 6 turns / 30 s → block with hint in TUI; non-TUI passes through. Marker only, no content stored.
-6. **Cascade detection** — 8+ consecutive calls to the same tool triggers block with batching suggestion
-7. **Tool mismatch** — `bash | grep` → `ripgrep_search`, `bash cat` → `read`
+1. **Force-bypass gate** — Per-call escape hatch: `input._harness.force: true` or `# bypass-harness` comment annotation skips all guards. Requires `hasUI: true` (interactive session).
+2. **Pass-through check** — Tools like `ask_user` pass through immediately (no validation overhead)
+3. **Error tracking** — Failed calls are recorded; after 2+ errors on same tool, further calls are blocked
+4. **Cache invalidation** — any `write`/`edit` or file-modifying `bash` clears the entire read cache
+5. **Error retry guard** — If the same tool errored ≥2 times, subsequent calls are blocked with redirect suggestion
+6. **Read cache** — Same path+offset+limit within 6 turns / 30 s → block with hint in TUI; non-TUI passes through. Marker only, no content stored.
+7. **Cascade detection** — 8+ consecutive calls to the same tool triggers block with batching suggestion
+8. **Tool mismatch** — `bash | grep` → `ripgrep_search`, `bash cat` → `read`
 
 ### Configuration
 
@@ -94,12 +95,12 @@ parentToolCallId set}
 
 ### Tool Mismatch Detection
 
-| Pattern | Detected By | Redirect To |
-|---------|-------------|-------------|
-| `bash | grep` | `getBashSubKey()` token analysis | `ripgrep_search` |
-| `bash cat` | `getBashSubKey()` | `read` |
-| `bash rg` | `getBashSubKey()` | `ripgrep_search` |
-| `bash find . -name` | `getBashSubKey()` | `ripgrep_search` / `bash ls` |
+| Pattern             | Detected By       | Redirect To                      |
+| ------------------- | ----------------- | -------------------------------- |
+| `bash               | grep`             | `getBashSubKey()` token analysis | `ripgrep_search` |
+| `bash cat`          | `getBashSubKey()` | `read`                           |
+| `bash rg`           | `getBashSubKey()` | `ripgrep_search`                 |
+| `bash find . -name` | `getBashSubKey()` | `ripgrep_search` / `bash ls`     |
 
 ### Key Design Decisions
 
@@ -119,12 +120,12 @@ Top-level `cascadeThreshold` is the global default; `toolMeta.<tool>.cascadeThre
 
 ```json
 {
-  "toolMeta": {
-    "read": { "cascadeThreshold": 6, "passThrough": false },
-    "bash": { "cascadeThreshold": 4, "passThrough": false },
-    "ask_user": { "passThrough": true }
-  },
-  "cascadeThreshold": 8
+	"toolMeta": {
+		"read": { "cascadeThreshold": 6, "passThrough": false },
+		"bash": { "cascadeThreshold": 4, "passThrough": false },
+		"ask_user": { "passThrough": true }
+	},
+	"cascadeThreshold": 8
 }
 ```
 
@@ -134,25 +135,28 @@ Unknown top-level keys are rejected: the config is discarded, the harness warns,
 
 Two redundant signals for bypassing all guards on a per-call basis:
 
-| Signal | Scope | Example |
-|--------|-------|---------|
-| `_harness.force: true` | Any tool | `input: { _harness: { force: true }, command: "grep foo" }` |
-| `# bypass-harness` comment | Bash only | `command: "grep foo # bypass-harness"` |
+| Signal                     | Scope     | Example                                                     |
+| -------------------------- | --------- | ----------------------------------------------------------- |
+| `_harness.force: true`     | Any tool  | `input: { _harness: { force: true }, command: "grep foo" }` |
+| `# bypass-harness` comment | Bash only | `command: "grep foo # bypass-harness"`                      |
 
 Both signals require `hasUI: true` context (interactive session). If `hasUI` is `false` or `undefined`, the bypass is silently ignored and normal guards apply.
 
 **`_harness` field contract:**
+
 - Namespace-prefixed (`_harness`) to avoid collision with tool schemas
 - Underscore prefix marks it as a reserved internal contract
 - Always consumed and stripped by the harness before the tool executes — tools never see it
 - Even on non-bypass paths (`force: false` or missing), `_harness` is still removed from input
 
 **`# bypass-harness` token parsing:**
+
 - Token-wise parser strips quoted-string literals before scanning
 - Only checks the first logical line (heredoc and `\` continuation content falls through to false)
 - Best-effort — for edge cases (heredocs, line continuations), use `_harness.force`
 
 **Cascade counter semantics:**
+
 - Force-bypassed calls **count as real calls** (inflate the cascade counter)
 - Blocked calls (non-bypassed) still do NOT inflate the counter (Bug 5 invariant preserved)
 - A bypassed call itself never triggers a cascade block (bypass gate runs before cascade check)

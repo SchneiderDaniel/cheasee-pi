@@ -8,13 +8,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-	deriveToolMetaFromAnnotations,
-} from "./tool-annotations.ts";
-import {
-	CASCADE_THRESHOLD,
-	DESTRUCTIVE_CASCADE_THRESHOLD,
-} from "./harness-rules.ts";
+import { deriveToolMetaFromAnnotations } from "./tool-annotations.ts";
+import { CASCADE_THRESHOLD, DESTRUCTIVE_CASCADE_THRESHOLD } from "./harness-rules.ts";
 
 describe("deriveToolMetaFromAnnotations — absent annotations", () => {
 	it("undefined + any threshold → undefined (caller keeps its conservative default)", () => {
@@ -52,10 +47,7 @@ describe("deriveToolMetaFromAnnotations — read-only wins", () => {
 	});
 
 	it("{ readOnlyHint: true, destructiveHint: true } → read-only wins, no threshold", () => {
-		const meta = deriveToolMetaFromAnnotations(
-			{ readOnlyHint: true, destructiveHint: true },
-			8,
-		);
+		const meta = deriveToolMetaFromAnnotations({ readOnlyHint: true, destructiveHint: true }, 8);
 		assert.equal(meta?.trackErrors, false);
 		assert.equal(meta?.destructive, false);
 		assert.equal(meta?.cascadeThreshold, undefined, "read-only gets no destructive escalation");
@@ -100,10 +92,7 @@ describe("deriveToolMetaFromAnnotations — open-world is classification only", 
 	});
 
 	it("{ destructiveHint: false, openWorldHint: true }, threshold 8 → openWorld alone sets no threshold", () => {
-		const meta = deriveToolMetaFromAnnotations(
-			{ destructiveHint: false, openWorldHint: true },
-			8,
-		);
+		const meta = deriveToolMetaFromAnnotations({ destructiveHint: false, openWorldHint: true }, 8);
 		assert.equal(meta?.destructive, false);
 		assert.equal(meta?.openWorld, true);
 		assert.equal(meta?.cascadeThreshold, undefined);
@@ -134,10 +123,7 @@ describe("deriveToolMetaFromAnnotations — min-clamp against configured thresho
 				Number.isInteger(derived) && derived > 0,
 				`derived ${derived} must be a finite positive integer`,
 			);
-			assert.ok(
-				derived <= threshold,
-				`derived ${derived} must not exceed configured ${threshold}`,
-			);
+			assert.ok(derived <= threshold, `derived ${derived} must not exceed configured ${threshold}`);
 		}
 	});
 });

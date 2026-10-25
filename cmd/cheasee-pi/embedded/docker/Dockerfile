@@ -298,7 +298,23 @@ RUN groupadd --gid 1001 agentuser && \
 # package layout would run a second npm install at build and break the
 # dogfooding dedup.
 ARG CHEASEE_REF=main
+# Content-addressed cache-bust for the clone below (issue #2054): the CLI
+# resolves CHEASEE_REF's upstream commit (git ls-remote) and supplies it here,
+# so this layer re-runs exactly when upstream moves and stays cached when it
+# does not — never a bare constant that can freeze in the Docker layer cache
+# for months. An offline CLI keeps passing its last resolved commit (cached on
+# the host), so the cache key is unchanged and the cached layer is reused.
+# Referenced in the RUN so BuildKit folds it into the cache key (an
+# unreferenced ARG would not invalidate anything).
+# The layer FAILS CLOSED when the clone's HEAD differs from CHEASEE_COMMIT:
+# that can only mean the ref moved between the probe and the clone, and
+# caching the clone under the probed commit's key would bake unreviewed
+# content — re-running the build after the ref settles is the correct outcome.
+ARG CHEASEE_COMMIT
 RUN git clone --depth 1 --branch ${CHEASEE_REF} https://github.com/SchneiderDaniel/cheasee-pi /opt/cheasee-pi \
+    && BAKED_COMMIT="$(git -C /opt/cheasee-pi rev-parse HEAD)" \
+    && if [ -n "${CHEASEE_COMMIT}" ] && [ "${CHEASEE_COMMIT}" != "${BAKED_COMMIT}" ]; then echo "error: cheasee-pi upstream moved mid-build (resolved ${CHEASEE_COMMIT}, cloned ${BAKED_COMMIT}); re-run the build" >&2; exit 1; fi \
+    && echo "${BAKED_COMMIT}" > /opt/cheasee-pi/BUILD_COMMIT \
     && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
     && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
     && npm cache clean --force \
@@ -328,11 +344,14 @@ RUN mkdir -p /home/agentuser/.pi/agent/skills /home/agentuser/.pi/agent/prompts 
 # install; the expensive clone/npm-ci layers stay cached. Kept BEFORE
 # Layer 7's entrypoint COPY because that layer changes most frequently:
 # if pi sat absolute-last, every entrypoint/lib change would reinstall it.
+# PI_VERSION defaults to the pinned released version (matches the compose
+# default); `PI_VERSION=latest` is the explicit override.
 ARG PI_VERSION=1.0.2
-# Cache-busting stamp: any change to this ARG invalidates the npm layer,
-# so @latest is re-resolved on every build instead of reusing a stale layer.
-# Set it to a per-build value (e.g. $(date +%s)) via `docker compose build
-# --build-arg PI_BUILD_STAMP=$(date +%s)`.
+# Cache-busting stamp: any change to this ARG invalidates the npm layer, so
+# the requested PI_VERSION is re-resolved on every build instead of reusing a
+# stale layer. Scoped to this service by docker-compose.yml build.args (the
+# CLI supplies it via the compose env); the ui sidecar deliberately does not
+# declare it.
 ARG PI_BUILD_STAMP
 RUN npm install -g --force @earendil-works/pi-coding-agent@${PI_VERSION} \
     && npm cache clean --force \

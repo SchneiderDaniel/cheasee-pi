@@ -45,10 +45,7 @@ describe("classifyEmptyWorktree — case 1 (loop)", () => {
 		const result = classifyEmptyWorktree(signals);
 		if (result && result.kind === "loop") {
 			assert.ok(result.reason.includes("No commits"), "reason should mention no commits");
-			assert.ok(
-				result.reason.includes("looping"),
-				"reason should mention looping back",
-			);
+			assert.ok(result.reason.includes("looping"), "reason should mention looping back");
 		}
 	});
 });
@@ -89,7 +86,15 @@ describe("classifyEmptyWorktree — case 3 (leave open for PR)", () => {
 		const signals: EmptyWorktreeSignals = {
 			hasCommits: false,
 			changeOnMain: true,
-			openPrs: [{ number: 42, sha: "abc123", source: "closing-keyword", branch: "fix-branch", state: "open" }],
+			openPrs: [
+				{
+					number: 42,
+					sha: "abc123",
+					source: "closing-keyword",
+					branch: "fix-branch",
+					state: "open",
+				},
+			],
 		};
 		const result = classifyEmptyWorktree(signals);
 		assert.ok(result, "should return an action");
@@ -104,7 +109,9 @@ describe("classifyEmptyWorktree — case 3 (leave open for PR)", () => {
 		const signals: EmptyWorktreeSignals = {
 			hasCommits: false,
 			changeOnMain: false,
-			openPrs: [{ number: 99, sha: "def456", source: "branch-head", branch: "other-branch", state: "open" }],
+			openPrs: [
+				{ number: 99, sha: "def456", source: "branch-head", branch: "other-branch", state: "open" },
+			],
 		};
 		const result = classifyEmptyWorktree(signals);
 		assert.ok(result, "should return an action");
@@ -135,13 +142,15 @@ describe("classifyEmptyWorktree — case 3 (leave open for PR)", () => {
 		const signals: EmptyWorktreeSignals = {
 			hasCommits: false,
 			changeOnMain: true,
-			openPrs: [{
-				number: 1342,
-				sha: "8078920",
-				source: "closing-keyword",
-				branch: "fix-1289-delete-gh-superseded-modules",
-				state: "open",
-			}],
+			openPrs: [
+				{
+					number: 1342,
+					sha: "8078920",
+					source: "closing-keyword",
+					branch: "fix-1289-delete-gh-superseded-modules",
+					state: "open",
+				},
+			],
 		};
 		const result = classifyEmptyWorktree(signals);
 		if (result && result.kind === "leaveOpenForPr") {
@@ -176,7 +185,15 @@ describe("classifyEmptyWorktree — edge cases", () => {
 		const signals: EmptyWorktreeSignals = {
 			hasCommits: false,
 			changeOnMain: true,
-			openPrs: [{ number: 1341, sha: "8078920", source: "closing-keyword", branch: "main", state: "merged" }],
+			openPrs: [
+				{
+					number: 1341,
+					sha: "8078920",
+					source: "closing-keyword",
+					branch: "main",
+					state: "merged",
+				},
+			],
 		};
 		const result = classifyEmptyWorktree(signals);
 		assert.ok(result, "should return an action");

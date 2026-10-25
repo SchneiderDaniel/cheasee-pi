@@ -57,13 +57,13 @@ flowchart TD
 
 ### Server Mappings
 
-| Extension | LSP Server | Notes |
-|-----------|-----------|-------|
-| `.ts` | `typescript-language-server` | Full TS/TSX support |
-| `.py` | `pylsp` | Python LSP |
-| `.rs` | `rust-analyzer` | Rust LSP |
-| `.go` | `gopls` | Go LSP |
-| (others) | — | Skipped with warning |
+| Extension | LSP Server                   | Notes                |
+| --------- | ---------------------------- | -------------------- |
+| `.ts`     | `typescript-language-server` | Full TS/TSX support  |
+| `.py`     | `pylsp`                      | Python LSP           |
+| `.rs`     | `rust-analyzer`              | Rust LSP             |
+| `.go`     | `gopls`                      | Go LSP               |
+| (others)  | —                            | Skipped with warning |
 
 ### Key Design Decisions
 
@@ -78,21 +78,24 @@ flowchart TD
 ### Retry Logic
 
 ```typescript
-MAX_RETRIES = 3
+MAX_RETRIES = 3;
 
 function shouldRetry(attempts: number, error: Error): boolean {
-  if (attempts >= MAX_RETRIES) return false;
-  // Only retry on transient errors (connection refused, timeout, process crash)
-  // Not on permanent errors (invalid file, missing server binary)
-  return error.message.includes('ECONNREFUSED') ||
-         error.message.includes('ETIMEDOUT') ||
-         error.message.includes('process exited');
+	if (attempts >= MAX_RETRIES) return false;
+	// Only retry on transient errors (connection refused, timeout, process crash)
+	// Not on permanent errors (invalid file, missing server binary)
+	return (
+		error.message.includes("ECONNREFUSED") ||
+		error.message.includes("ETIMEDOUT") ||
+		error.message.includes("process exited")
+	);
 }
 ```
 
 ### Testing
 
 Tests cover:
+
 - File discovery: git diff parsing, empty diffs, binary file exclusion
 - Server mappings: extension matching, unknown extension fallback
 - LSP client: spawn, didOpen, diagnostic collection, timeout handling

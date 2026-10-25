@@ -10,7 +10,7 @@ import type {
 	ProjectField,
 	ProjectItem,
 } from "../config/types.ts";
-import { filterIssueData } from "../lib/issue-filter.ts";
+import { filterIssueData, type RawIssueData } from "../lib/issue-filter.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
@@ -154,13 +154,26 @@ export async function checkDependencies(
 
 // ─── Fetch Fresh Issue Data ──────────────────────────────────────
 
+/**
+ * Fresh issue data, plus a degraded variant when complete comment discovery or
+ * the automation identity is unavailable. The audit-rejection upsert must not
+ * proceed on degraded data (issue #2044 audit findings #1/#2): an incomplete
+ * page or an unknown identity could hide the prior rejection. Callers decide
+ * whether the step needs the verified data; `data` stays usable best-effort.
+ */
+export type FreshIssueResolution =
+	| { kind: "loaded"; data: FilteredIssueData }
+	| { kind: "failed"; reason: string; data: FilteredIssueData };
+
 export async function fetchFreshIssueData(
 	exec: ExecFn,
 	config: SupervisorConfig,
 	issueNum: number,
 	fallbackData: Record<string, unknown>,
 	collector?: ErrorCollector,
-): Promise<FilteredIssueData> {
+	port?: GitHubPort,
+): Promise<FreshIssueResolution> {
+	let rawIssue: RawIssueData;
 	try {
 		const raw = await exec("gh", [
 			"issue",
@@ -171,14 +184,70 @@ export async function fetchFreshIssueData(
 			"--json",
 			"number,title,body,author,comments",
 		]);
-		return filterIssueData(JSON.parse(raw.stdout || "{}"), config.codeowners);
+		rawIssue = JSON.parse(raw.stdout || "{}");
 	} catch {
 		collector?.push(
 			"helpers",
 			"warn",
 			`Failed to fetch fresh data for issue #${issueNum}, using cached data`,
 		);
-		return filterIssueData(fallbackData, config.codeowners);
+		rawIssue = fallbackData as RawIssueData;
+	}
+
+	// Paginate comment discovery via the port (issue #2044 audit finding #4);
+	// the prior rejection can sit beyond the page `gh issue view` returns. A
+	// failed paginated request must stop the loop: the single gh page is not
+	// proof that no prior rejection exists (issue #2044 audit finding #1).
+	if (port) {
+		try {
+			rawIssue = { ...rawIssue, comments: await port.listComments(issueNum, config.repo) };
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			collector?.push(
+				"helpers",
+				"error",
+				`Failed to list all comments for issue #${issueNum}: ${msg}`,
+			);
+			return {
+				kind: "failed",
+				reason: `Cannot list all comments for issue #${issueNum}: ${msg}`,
+				data: filterIssueData(rawIssue, config.codeowners),
+			};
+		}
+	}
+
+	if (!port) return { kind: "loaded", data: filterIssueData(rawIssue, config.codeowners) };
+
+	// Without a verified identity the prior rejection cannot be told apart from
+	// a forgery, so rejection processing stops instead of posting a duplicate
+	// (issue #2044 audit finding #2).
+	const automationLogin = await resolveAutomationLogin(port, collector);
+	if (!automationLogin) {
+		return {
+			kind: "failed",
+			reason: `Cannot resolve authenticated login for issue #${issueNum}`,
+			data: filterIssueData(rawIssue, config.codeowners),
+		};
+	}
+	return { kind: "loaded", data: filterIssueData(rawIssue, config.codeowners, automationLogin) };
+}
+
+/**
+ * Login of the token owner, used to verify that rejection comments are the
+ * supervisor's own. Unresolved → undefined, which callers must treat as a stop
+ * (fail closed: without a verified identity, prior rejections cannot be told
+ * apart from forged ones — issue #2044 audit findings #2/#3).
+ */
+export async function resolveAutomationLogin(
+	port: GitHubPort,
+	collector?: ErrorCollector,
+): Promise<string | undefined> {
+	try {
+		return await port.getAuthenticatedLogin();
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		collector?.push("helpers", "error", `Failed to resolve authenticated login: ${msg}`);
+		return undefined;
 	}
 }
 

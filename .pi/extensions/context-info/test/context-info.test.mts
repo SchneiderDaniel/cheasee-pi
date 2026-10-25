@@ -10,11 +10,7 @@
 
 import assert from "node:assert";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import {
-	formatCacheHitRate,
-	formatSessionTimer,
-	formatCacheStats,
-} from "../formatting.ts";
+import { formatCacheHitRate, formatSessionTimer, formatCacheStats } from "../formatting.ts";
 
 // Runtime import from index.ts — verified through the test assertion below.
 // All local imports in index.ts use .ts extensions (changed from .js)

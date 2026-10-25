@@ -13,10 +13,7 @@
 
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import {
-	mapSessionEntriesToRetryEntries,
-	countBranchRetryAttempts,
-} from "../branch-retries.ts";
+import { mapSessionEntriesToRetryEntries, countBranchRetryAttempts } from "../branch-retries.ts";
 
 // ─── Fixtures ────────────────────────────────────────────────────────
 
@@ -54,12 +51,10 @@ describe("countBranchRetryAttempts — active-branch scope", () => {
 	});
 
 	it("counts only branch retries when siblings also match (mixed)", () => {
-		const { sm, calls } = fakeSm([retryEntry(35)], [
-			retryEntry(35),
-			retryEntry(35),
-			retryEntry(35),
-			retryEntry(35),
-		]);
+		const { sm, calls } = fakeSm(
+			[retryEntry(35)],
+			[retryEntry(35), retryEntry(35), retryEntry(35), retryEntry(35)],
+		);
 		assert.strictEqual(countBranchRetryAttempts(sm as never, 35), 1);
 		assert.strictEqual(calls.entries, 0);
 	});

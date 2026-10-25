@@ -91,6 +91,7 @@ Single-file extension with dual tools and trust-gated persistence:
 ```
 
 Core concerns:
+
 - **`ask_user` tool** — Choice and freetext modes with mode-adaptive rendering
 - **`ask_user_read` tool** — Retrieve past Q&A entries by id, list, or text query
 - **Persistence manager** — JSONL-based Q&A log with auto-rotation at 100 entries
@@ -120,12 +121,12 @@ flowchart TD
 
 ### Mode-Specific Rendering
 
-| Mode | ask_user | ask_user_read |
-|------|----------|---------------|
-| TUI | Scrollable dialog with option buttons | Inline list with IDs |
-| RPC | Flat numbered list | Structured JSON |
-| JSON | Cancel non-essential; text for essential | Structured JSON |
-| Print | Same as JSON | Same as JSON |
+| Mode  | ask_user                                 | ask_user_read        |
+| ----- | ---------------------------------------- | -------------------- |
+| TUI   | Scrollable dialog with option buttons    | Inline list with IDs |
+| RPC   | Flat numbered list                       | Structured JSON      |
+| JSON  | Cancel non-essential; text for essential | Structured JSON      |
+| Print | Same as JSON                             | Same as JSON         |
 
 ### Choice Mode Mechanics
 

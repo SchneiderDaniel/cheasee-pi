@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -41,7 +42,8 @@ workflow    cheasee-pi init → auth add <provider> → cheasee-pi start; docs b
   provider    LLM vendor; key in ~/.config/cheasee-pi/auth.json, injected as env vars
   skill repo  reusable pi instructions; installed via pi install -l (writes .pi/settings.json)
   CodeFlow    optional browser sidecar; port 8470 + fnv32(repo-slug) % 1024
-  CHEASEE_REF Dockerfile build ARG (default main); which cheasee-pi ref the image clones
+  CHEASEE_REF Dockerfile build ARG (default main); which cheasee-pi ref the image
+              clones. The baked commit is recorded at /opt/cheasee-pi/BUILD_COMMIT
 `
 
 // aboutFooter reuses root.go's docsDailyUsageURL (single source for the
@@ -49,12 +51,59 @@ workflow    cheasee-pi init → auth add <provider> → cheasee-pi start; docs b
 // codeflow_hint.go relative-path convention).
 const aboutFooter = "Full workflow: docs/daily-usage.md — " + docsDailyUsageURL
 
+// aboutBakedCommit reports the commit baked into the current workspace's image
+// at /opt/cheasee-pi (issue #2054). It reads the CLI's record of that image's
+// last successful build — the resolved commit, or (when the upstream probe
+// failed) the commit the built image itself recorded — so it equals the baked
+// copy. Scoped to the workspace's own image: the compose dir is shared by
+// every workspace, so a shared record reported another workspace's commit
+// while this image still held a stale one (issue #2054 audit). Empty when the
+// cwd is not a workspace or no build has been recorded yet (the glossary then
+// omits the line).
+func aboutBakedCommit() string {
+	imageRef := aboutImageRef()
+	if imageRef == "" {
+		return ""
+	}
+	dir, err := aboutCacheDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  \u26a0 baked cheasee-pi commit: %v\n", err)
+		return ""
+	}
+	return readBakedCommit(dir, imageRef).commit
+}
+
+// aboutImageRef is the image `about` describes: the current workspace's image,
+// resolved from the working directory (the same resolution start/down use).
+// Empty outside a cheasee-pi workspace — there is then no image to report.
+// Injectable so tests never depend on the cwd.
+var aboutImageRef = func() string {
+	wd, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	root, state, err := resolveStartWorkspace(wd)
+	if err != nil || state != WorkspaceInitialized {
+		return ""
+	}
+	return cheaseeImageRef(root)
+}
+
+// aboutCacheDir resolves the dir holding the baked-commit records; injectable
+// so tests never touch the real user cache.
+var aboutCacheDir = CacheDir
+
 func runAboutE(cmd *cobra.Command, _ []string) error {
 	// A broken stdout writer must fail the command, not silently succeed
 	// with partial output: check each write, stop on the first failure.
 	out := cmd.OutOrStdout()
 	if _, err := fmt.Fprint(out, aboutText); err != nil {
 		return fmt.Errorf("writing about glossary: %w", err)
+	}
+	if commit := aboutBakedCommit(); commit != "" {
+		if _, err := fmt.Fprintf(out, "\n  baked cheasee-pi commit  %s   (/opt/cheasee-pi/BUILD_COMMIT)\n", commit); err != nil {
+			return fmt.Errorf("writing about baked commit: %w", err)
+		}
 	}
 	if _, err := fmt.Fprintln(out, aboutFooter); err != nil {
 		return fmt.Errorf("writing about footer: %w", err)

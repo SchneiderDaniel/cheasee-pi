@@ -39,13 +39,13 @@ flowchart TD
     D -- yes --> F{WORKTREE_SANDBOX_PATH set?}
     F -- no --> G[Pass through]
     F -- yes --> H{Tool type?}
-    
+
     H -- read/write/edit --> I[rewritePath]
     I --> J{Path outside sandbox?}
     J -- yes --> K[Block with reason]
     J -- no --> L{Rewrite relative → absolute}
     L --> M[Allow]
-    
+
     H -- bash --> N[findUnsafeCd]
     N --> O{Cd outside sandbox?}
     O -- yes --> P[Block]
@@ -59,6 +59,7 @@ flowchart TD
 ### Shell-Aware Parsing
 
 Uses `shell-quote`'s `parse()` which correctly handles:
+
 - Quoted strings (single and double)
 - Shell operators (`&&`, `||`, `;`, `|`, `>`, `>>`)
 - Comments (`# ...`)
@@ -67,17 +68,17 @@ Uses `shell-quote`'s `parse()` which correctly handles:
 
 ### Bypass Vectors Blocked
 
-| Vector | Example | Detection |
-|--------|---------|-----------|
-| Variable expansion | `cd $HOME/escape` | `hasShellExpansion()` |
-| Command substitution | `` cd `escape` `` | `hasShellExpansion()` |
-| Tilde expansion | `cd ~/../escape` | `hasShellExpansion()` |
-| Pipe prefix | `echo \| cd /escape` | `isCommandStart()` |
-| Bare cd | `cd && ./escape` | `findMeaningfulToken()` exhausted → block |
-| Redirect escape | `cmd > /escape` | `findUnsafeWriteInBash()` redirect detection |
-| cp/mv destination | `cp x /escape/file` | `findUnsafeWriteInBash()` command detection |
-| Empty variable | `$UNSET_VAR` resolves to `""` | `isPathSafe()` with empty string |
-| `cd -` | `cd -` | Returns to previous dir — always blocked |
+| Vector               | Example                       | Detection                                    |
+| -------------------- | ----------------------------- | -------------------------------------------- |
+| Variable expansion   | `cd $HOME/escape`             | `hasShellExpansion()`                        |
+| Command substitution | `` cd `escape` ``             | `hasShellExpansion()`                        |
+| Tilde expansion      | `cd ~/../escape`              | `hasShellExpansion()`                        |
+| Pipe prefix          | `echo \| cd /escape`          | `isCommandStart()`                           |
+| Bare cd              | `cd && ./escape`              | `findMeaningfulToken()` exhausted → block    |
+| Redirect escape      | `cmd > /escape`               | `findUnsafeWriteInBash()` redirect detection |
+| cp/mv destination    | `cp x /escape/file`           | `findUnsafeWriteInBash()` command detection  |
+| Empty variable       | `$UNSET_VAR` resolves to `""` | `isPathSafe()` with empty string             |
+| `cd -`               | `cd -`                        | Returns to previous dir — always blocked     |
 
 ### Key Design Decisions
 
@@ -91,17 +92,18 @@ Uses `shell-quote`'s `parse()` which correctly handles:
 
 ### Path Rewriting Rules
 
-| Input path | Type | Result |
-|-----------|------|--------|
-| `relative/path.ts` | relative | Rewritten to `<sandbox>/relative/path.ts` |
-| `/absolute/within/sandbox` | absolute (within) | Pass through unchanged |
-| `/absolute/outside` | absolute (outside) | Blocked |
-| `../../outside` | relative (traversal) | Blocked (resolves outside sandbox) |
-| Directory path for `read` | any | Blocked with guidance to use `bash ls` instead |
+| Input path                 | Type                 | Result                                         |
+| -------------------------- | -------------------- | ---------------------------------------------- |
+| `relative/path.ts`         | relative             | Rewritten to `<sandbox>/relative/path.ts`      |
+| `/absolute/within/sandbox` | absolute (within)    | Pass through unchanged                         |
+| `/absolute/outside`        | absolute (outside)   | Blocked                                        |
+| `../../outside`            | relative (traversal) | Blocked (resolves outside sandbox)             |
+| Directory path for `read`  | any                  | Blocked with guidance to use `bash ls` instead |
 
 ### Testing
 
 Tests cover:
+
 - All 5 bypass vectors with real shell commands
 - Path rewriting for read/write/edit (relative, absolute, traversal)
 - Directory read blocking

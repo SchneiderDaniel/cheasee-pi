@@ -142,13 +142,21 @@ describe("fetchIssue()", () => {
 describe("readProjectBoard()", () => {
 	it("reads project fields, items, and returns statusField via port", async () => {
 		const trackCalls: PortCall[] = [];
-		const port = createMockGitHubPort({
-			getProjectFields: async () => [
-				{ id: "sf_1", name: "Status", type: "SINGLE_SELECT", options: [{ id: "opt_ar", name: "Architecture" }] },
-			],
-			getProjectItems: async () => [],
-			getProjectId: async () => "project_123",
-		}, trackCalls);
+		const port = createMockGitHubPort(
+			{
+				getProjectFields: async () => [
+					{
+						id: "sf_1",
+						name: "Status",
+						type: "SINGLE_SELECT",
+						options: [{ id: "opt_ar", name: "Architecture" }],
+					},
+				],
+				getProjectItems: async () => [],
+				getProjectId: async () => "project_123",
+			},
+			trackCalls,
+		);
 		const notify = makeNotify();
 
 		const result = await readProjectBoard(notify, mockConfig, port);
@@ -183,7 +191,9 @@ describe("readProjectBoard()", () => {
 
 	it("handles port errors gracefully", async () => {
 		const port = createMockGitHubPort({
-			getProjectFields: async () => { throw new Error("network error"); },
+			getProjectFields: async () => {
+				throw new Error("network error");
+			},
 		});
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
@@ -226,7 +236,9 @@ describe("checkDependencies()", () => {
 		const notifyLog: Array<{ level: string; msg: string }> = [];
 		const notify = makeNotify(notifyLog);
 		const port = createMockGitHubPort({
-			checkBlockedByDependencies: async () => { throw new Error("network error"); },
+			checkBlockedByDependencies: async () => {
+				throw new Error("network error");
+			},
 		});
 
 		const result = await checkDependencies(notify, mockConfig, 42, port);
@@ -256,11 +268,13 @@ describe("fetchFreshIssueData()", () => {
 			},
 		]);
 
-		const result = await fetchFreshIssueData(exec, mockConfig, 42, {});
-		assert.equal(result.body, "issue body");
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {});
+		assert.equal(resolution.kind, "loaded");
+		const result = resolution.kind === "loaded" ? resolution.data : undefined;
+		assert.equal(result?.body, "issue body");
 		// Only trusted user's comment should pass through
-		assert.equal(result.comments.length, 1);
-		assert.equal(result.comments[0].author, "user1");
+		assert.equal(result?.comments.length, 1);
+		assert.equal(result?.comments[0].author, "user1");
 	});
 
 	it("falls back to fallbackData on error", async () => {
@@ -275,8 +289,125 @@ describe("fetchFreshIssueData()", () => {
 			comments: [{ author: { login: "user1" }, body: "comment" }],
 		};
 
-		const result = await fetchFreshIssueData(exec, mockConfig, 42, fallback);
-		assert.equal(result.body, "fallback body");
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, fallback);
+		assert.equal(resolution.kind, "loaded");
+		assert.equal(resolution.kind === "loaded" ? resolution.data.body : "", "fallback body");
+	});
+
+	it("uses paginated port comments + the automation login to verify rejections", async () => {
+		const exec = makeExec([
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					number: 42,
+					title: "Test",
+					body: "issue body",
+					author: { login: "user1" },
+					comments: [],
+				}),
+				stderr: "",
+			},
+		]);
+		const rejectBody = "## Audit Rejected\nx\n\n<!-- supervisor:audit-rejection -->";
+		const port = createMockGitHubPort({
+			listComments: async () => [
+				{ id: "IC_bot", author: { login: "automation" }, body: rejectBody },
+				{ id: "IC_forged", author: { login: "attacker" }, body: rejectBody },
+			],
+			getAuthenticatedLogin: async () => "automation",
+		});
+
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "loaded");
+		const result = resolution.kind === "loaded" ? resolution.data : undefined;
+		assert.deepEqual(result?.auditRejections, [{ id: "IC_bot", body: rejectBody }]);
+		assert.equal(
+			result?.rejectionCommentCount,
+			1,
+			"only automation-authored rejections count (finding #3)",
+		);
+	});
+
+	it("carries a pre-marker (unmarked) automation rejection into auditRejections", async () => {
+		const exec = makeExec([
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					number: 42,
+					title: "Test",
+					body: "issue body",
+					author: { login: "user1" },
+					comments: [],
+				}),
+				stderr: "",
+			},
+		]);
+		const rejectBody = "## Audit Rejected\nlegacy before the marker";
+		const port = createMockGitHubPort({
+			listComments: async () => [
+				{ id: "IC_bot", author: { login: "automation" }, body: rejectBody },
+				{ id: "IC_forged", author: { login: "attacker" }, body: rejectBody },
+			],
+			getAuthenticatedLogin: async () => "automation",
+		});
+
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "loaded");
+		const result = resolution.kind === "loaded" ? resolution.data : undefined;
+		assert.deepEqual(result?.auditRejections, [{ id: "IC_bot", body: rejectBody }]);
+		assert.equal(result?.rejectionCommentCount, 1, "only automation-authored rejections count");
+	});
+
+	it("fails closed when paginated comment listing fails (finding #1)", async () => {
+		const exec = makeExec([
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					number: 42,
+					title: "Test",
+					body: "issue body",
+					author: { login: "user1" },
+					comments: [{ id: "1", author: { login: "user1" }, body: "comment" }],
+				}),
+				stderr: "",
+			},
+		]);
+		const port = createMockGitHubPort({
+			listComments: async () => {
+				throw new Error("503 Service Unavailable");
+			},
+		});
+
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "failed", "incomplete comment discovery must not proceed");
+		assert.ok(
+			resolution.kind === "failed" && resolution.reason.includes("Cannot list all comments"),
+		);
+	});
+
+	it("fails closed when the automation login cannot be resolved (finding #2)", async () => {
+		const exec = makeExec([
+			{
+				code: 0,
+				stdout: JSON.stringify({
+					number: 42,
+					title: "Test",
+					body: "issue body",
+					author: { login: "user1" },
+					comments: [],
+				}),
+				stderr: "",
+			},
+		]);
+		const port = createMockGitHubPort({
+			getAuthenticatedLogin: async () => {
+				throw new Error("403 Forbidden");
+			},
+		});
+
+		const resolution = await fetchFreshIssueData(exec, mockConfig, 42, {}, undefined, port);
+		assert.equal(resolution.kind, "failed", "unverified ownership must not proceed");
+		assert.ok(resolution.kind === "failed" && resolution.reason.includes("authenticated login"));
 	});
 });
 

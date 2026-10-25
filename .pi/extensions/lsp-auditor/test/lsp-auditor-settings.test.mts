@@ -181,7 +181,11 @@ describe("ServerEntrySchema — runtime validation", () => {
 	it("Static type is assignable to expected shape (compile-time check)", () => {
 		// This is a compile-time assertion: if LspAuditorSettings has the right
 		// shape, this assignment works. If the schema drifts, this line fails.
-		const _check: LspAuditorSettings extends { servers?: Array<{ extensions: string[]; command: string }> } ? true : never = true;
+		const _check: LspAuditorSettings extends {
+			servers?: Array<{ extensions: string[]; command: string }>;
+		}
+			? true
+			: never = true;
 		assert.strictEqual(_check, true);
 	});
 });
@@ -366,9 +370,7 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 		withTempSettings(
 			{
 				lspAuditor: {
-					servers: [
-						{ extensions: [".ts"], command: "ts-ls", args: "--stdio" },
-					],
+					servers: [{ extensions: [".ts"], command: "ts-ls", args: "--stdio" }],
 				},
 			},
 			(worktree) => {
@@ -485,9 +487,7 @@ describe("readSettings → buildServerMappings — filesystem integration", () =
 			withTempSettings(
 				{
 					lspAuditor: {
-						servers: [
-							{ extensions: [".ts"], command: "ts-ls", args: "--stdio" },
-						],
+						servers: [{ extensions: [".ts"], command: "ts-ls", args: "--stdio" }],
 					},
 				},
 				(worktree) => {

@@ -14,8 +14,7 @@ describe("SEARCH_SCRIPT — RS framing", () => {
 	const DUMPS_OK = 'json.dumps({"ok": True, "results": out})';
 	const DUMPS_ERR = 'json.dumps({"ok": False, "error": str(e)})';
 
-	const countOccurrences = (hay: string, needle: string): number =>
-		hay.split(needle).length - 1;
+	const countOccurrences = (hay: string, needle: string): number => hay.split(needle).length - 1;
 
 	it("(D) embeds FRAME from protocol.ts as a JSON-escaped Python literal", () => {
 		assert.ok(SEARCH_SCRIPT.includes(FRAME_PY), "script should embed JSON.stringify(FRAME)");

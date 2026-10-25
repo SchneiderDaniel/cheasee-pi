@@ -210,7 +210,10 @@ describe("vba god module refactor #2006 — the mirror is the pinned detector", 
 	it("runs the cross-language RULES pass over `.go` in addition to GO_RULE", () => {
 		const src = "func TestOne(t *testing.T) {\n\tif err != nil {\n\t}\n}\n";
 		assert.equal(countFunctions(src, "go"), 1, "the shared RULES pass re-adds the same name@line");
-		assert.equal(countFunctions("func TestOne(t *testing.T) {}\nfunc TestTwo(t *testing.T) {}\n", "go"), 2);
+		assert.equal(
+			countFunctions("func TestOne(t *testing.T) {}\nfunc TestTwo(t *testing.T) {}\n", "go"),
+			2,
+		);
 	});
 });
 
@@ -372,8 +375,12 @@ describe("vba god module refactor #2006 — recorded envelope", () => {
 		}
 		const files = deferred.flatMap((d) => d.files ?? []);
 		assert.deepStrictEqual(missingPaths(files), [], "a deferred path does not exist");
-		const rust = deferred.find((d) => (d.files ?? []).length > 0 && d.files!.every((f) => f.endsWith(".rs")));
-		const serverPy = deferred.find((d) => (d.files ?? []).includes("cmd/cheasee-pi/embedded/docker/codeflow/server.py"));
+		const rust = deferred.find(
+			(d) => (d.files ?? []).length > 0 && d.files!.every((f) => f.endsWith(".rs")),
+		);
+		const serverPy = deferred.find((d) =>
+			(d.files ?? []).includes("cmd/cheasee-pi/embedded/docker/codeflow/server.py"),
+		);
 		assert.ok(rust, "the Rust set is recorded as deferred");
 		assert.ok(serverPy, "the embedded server.py is recorded as deferred");
 		assert.equal(rust.files!.length, 16, "the whole measured Rust set is deferred");
@@ -391,7 +398,11 @@ describe("vba god module refactor #2006 — recorded envelope", () => {
 			files.length,
 			"every file still flagged is a deferred one",
 		);
-		assert.equal(VBA_BASELINE.reducedBy.length, Object.keys(TOUCHED).length, "one reduction source per split family");
+		assert.equal(
+			VBA_BASELINE.reducedBy.length,
+			Object.keys(TOUCHED).length,
+			"one reduction source per split family",
+		);
 	});
 
 	it("fails closed on a missing or doubly-cited path", () => {

@@ -12,9 +12,7 @@ import { formatTokens } from "../lib/format-tokens.ts";
  * render `dim` too faint, so use the higher-contrast `muted` there. Anything
  * else — including `undefined` from pre-1.0 themes — keeps `dim`.
  */
-export function resolveSubtleColor(
-	appearance: "dark" | "light" | undefined,
-): SubtleColorToken {
+export function resolveSubtleColor(appearance: "dark" | "light" | undefined): SubtleColorToken {
 	return appearance === "light" ? "muted" : "dim";
 }
 

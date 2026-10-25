@@ -120,6 +120,7 @@ function buildJourneyContext(opts: {
 			postIssueComment: async () => {},
 			closeIssue: async () => {},
 			setItemStatusField: async () => {},
+			listComments: async () => opts.comments,
 		},
 		opts.portCalls,
 	);
@@ -152,7 +153,13 @@ function buildJourneyContext(opts: {
 		port,
 		issueTitle: "Large issue",
 		filteredData: { body: "body", comments: [] },
-		issueData: { number: 1987, title: "Large issue", body: "body", author: { login: "user1" }, comments: [] },
+		issueData: {
+			number: 1987,
+			title: "Large issue",
+			body: "body",
+			author: { login: "user1" },
+			comments: [],
+		},
 		stageState: createStageState("Implementation"),
 		loopStatus: "Implementation",
 		loopItem: { id: "item-1" },
@@ -210,7 +217,11 @@ describe("operator journey — Tier-Large deadline + preservation (issue #1987)"
 	it("docs document agentTimeoutTierScale and the unscaled agentTimeoutSec override", () => {
 		const supervisorDoc = readFileSync(join(REPO_ROOT, "docs/extensions/supervisor.md"), "utf-8");
 		assert.ok(supervisorDoc.includes("agentTimeoutTierScale"), "supervisor.md field row");
-		assert.match(supervisorDoc, /agentTimeoutSec[^\n]*unscaled/i, "agentTimeoutSec documented as unscaled");
+		assert.match(
+			supervisorDoc,
+			/agentTimeoutSec[^\n]*unscaled/i,
+			"agentTimeoutSec documented as unscaled",
+		);
 		const githubDoc = readFileSync(join(REPO_ROOT, "docs/github.md"), "utf-8");
 		assert.ok(githubDoc.includes("agentTimeoutTierScale"), "github.md field row");
 	});
@@ -299,10 +310,7 @@ describe("operator journey — Tier-Large deadline + preservation (issue #1987)"
 
 		await runAgentLoop(runCtx);
 		assert.equal(runCtx.preservationFailed, true, "push failure marks preservation failed");
-		assert.ok(
-			(runCtx.stopReason ?? "").includes("work preservation failed"),
-			runCtx.stopReason,
-		);
+		assert.ok((runCtx.stopReason ?? "").includes("work preservation failed"), runCtx.stopReason);
 
 		await runPostPipelinePhase(runCtx);
 
@@ -353,7 +361,11 @@ describe("operator journey — Tier-Large deadline + preservation (issue #1987)"
 			shouldSkip: () => shouldRetainWorktree(runCtx),
 			exit: () => {},
 		});
-		assert.equal(cleanupCalls.length, 0, "worktree + branch retained during in-flight preservation");
+		assert.equal(
+			cleanupCalls.length,
+			0,
+			"worktree + branch retained during in-flight preservation",
+		);
 
 		releasePush();
 		await loop;

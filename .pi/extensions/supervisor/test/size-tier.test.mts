@@ -44,7 +44,10 @@ describe("parseSizeTier — declared **Tier:** marker", () => {
 	});
 
 	it("prefers the Test Plan comment over an earlier quoting comment", () => {
-		const comments = [c("> **Tier:** Small (quoted from elsewhere)"), c("## Test Plan\n**Tier:** Large")];
+		const comments = [
+			c("> **Tier:** Small (quoted from elsewhere)"),
+			c("## Test Plan\n**Tier:** Large"),
+		];
 		assert.equal(parseSizeTier(comments), "large");
 	});
 

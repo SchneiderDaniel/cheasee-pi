@@ -18,7 +18,16 @@ import { AgentHarness } from "../index.ts";
 import { ALLOWED_CONFIG_KEYS, loadProjectConfig } from "../lib/load-config.ts";
 import { isRegistered } from "../../../../test/lib/test-discovery.mts";
 
-const DOC_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "extensions", "agent-harness.md");
+const DOC_PATH = resolve(
+	import.meta.dirname,
+	"..",
+	"..",
+	"..",
+	"..",
+	"docs",
+	"extensions",
+	"agent-harness.md",
+);
 const README_PATH = resolve(import.meta.dirname, "..", "README.md");
 const SECURITY_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "security.md");
 const ROOT_README_PATH = resolve(import.meta.dirname, "..", "..", "..", "..", "docs", "README.md");
@@ -52,7 +61,10 @@ describe("Phase 1: No xxd/hexdump in Tool Mismatch Detection tables", () => {
 		const tableStart = doc.indexOf("Tool Mismatch Detection");
 		const afterTable = doc.indexOf("### Key Design Decisions", tableStart);
 		const table = doc.slice(tableStart, afterTable !== -1 ? afterTable : undefined);
-		assert.ok(!table.includes("hexdump"), "hexdump should not appear in Tool Mismatch Detection section");
+		assert.ok(
+			!table.includes("hexdump"),
+			"hexdump should not appear in Tool Mismatch Detection section",
+		);
 	});
 
 	it(".pi/extensions/agent-harness/README.md table has no xxd", () => {
@@ -68,7 +80,10 @@ describe("Phase 1: No xxd/hexdump in Tool Mismatch Detection tables", () => {
 		const tableStart = readme.indexOf("Tool Mismatch Detection");
 		const afterTable = readme.indexOf("### Key Design Decisions", tableStart);
 		const table = readme.slice(tableStart, afterTable !== -1 ? afterTable : undefined);
-		assert.ok(!table.includes("hexdump"), "hexdump should not appear in Tool Mismatch Detection section");
+		assert.ok(
+			!table.includes("hexdump"),
+			"hexdump should not appear in Tool Mismatch Detection section",
+		);
 	});
 });
 
@@ -82,22 +97,24 @@ describe("Phase 2: Table structure preserved after row deletion", () => {
 	}
 
 	function tableRows(content: string): string[] {
-		return content.split("\n").filter(l => l.trim().startsWith("|"));
+		return content.split("\n").filter((l) => l.trim().startsWith("|"));
 	}
 
 	it("docs/extensions/agent-harness.md table has 6 pipe rows (1 header + 1 separator + 4 data)", () => {
 		const rows = tableRows(extractTable(readDoc()));
-		assert.strictEqual(rows.length, 6,
-			"Expected 6 pipe rows: 1 header + 1 separator + 4 data rows");
+		assert.strictEqual(
+			rows.length,
+			6,
+			"Expected 6 pipe rows: 1 header + 1 separator + 4 data rows",
+		);
 	});
 
 	it("docs/extensions/agent-harness.md separator row has 3 dash columns", () => {
 		const rows = tableRows(extractTable(readDoc()));
 		// Second row is the separator (|---|...|)
 		const separator = rows[1];
-		const dashBlocks = separator.split("|").filter(c => /^-+$/.test(c.trim()));
-		assert.strictEqual(dashBlocks.length, 3,
-			"Separator row should have exactly 3 column dividers");
+		const dashBlocks = separator.split("|").filter((c) => /^-+$/.test(c.trim()));
+		assert.strictEqual(dashBlocks.length, 3, "Separator row should have exactly 3 column dividers");
 	});
 
 	it("docs/extensions/agent-harness.md each row starts and ends with pipe", () => {
@@ -111,16 +128,18 @@ describe("Phase 2: Table structure preserved after row deletion", () => {
 
 	it(".pi/extensions/agent-harness/README.md table has 6 pipe rows (1 header + 1 separator + 4 data)", () => {
 		const rows = tableRows(extractTable(readReadme()));
-		assert.strictEqual(rows.length, 6,
-			"Expected 6 pipe rows: 1 header + 1 separator + 4 data rows");
+		assert.strictEqual(
+			rows.length,
+			6,
+			"Expected 6 pipe rows: 1 header + 1 separator + 4 data rows",
+		);
 	});
 
 	it(".pi/extensions/agent-harness/README.md separator row has 3 dash columns", () => {
 		const rows = tableRows(extractTable(readReadme()));
 		const separator = rows[1];
-		const dashBlocks = separator.split("|").filter(c => /^-+$/.test(c.trim()));
-		assert.strictEqual(dashBlocks.length, 3,
-			"Separator row should have exactly 3 column dividers");
+		const dashBlocks = separator.split("|").filter((c) => /^-+$/.test(c.trim()));
+		assert.strictEqual(dashBlocks.length, 3, "Separator row should have exactly 3 column dividers");
 	});
 
 	it(".pi/extensions/agent-harness/README.md each row starts and ends with pipe", () => {
@@ -311,7 +330,7 @@ describe("Phase 2 (read cache): accurate contract present in both harness docs",
 	it("docs/security.md read-caching bullet describes a block + 6-turn TTL", () => {
 		const bullet = readSecurity()
 			.split("\n")
-			.find(l => l.trim().startsWith("-") && /read cach/i.test(l));
+			.find((l) => l.trim().startsWith("-") && /read cach/i.test(l));
 		assert.ok(bullet, "read-caching bullet should exist in docs/security.md");
 		assert.match(bullet!, /block/i);
 		assert.match(bullet!, /6[- ]turn/i);
@@ -321,7 +340,7 @@ describe("Phase 2 (read cache): accurate contract present in both harness docs",
 // ── Phase 3: Mermaid diagram nodes corrected ──
 
 function mermaid(content: string): string {
-	return [...content.matchAll(/```mermaid\n([\s\S]*?)```/g)].map(m => m[1]).join("\n");
+	return [...content.matchAll(/```mermaid\n([\s\S]*?)```/g)].map((m) => m[1]).join("\n");
 }
 
 describe("Phase 3 (read cache): mermaid nodes describe a block, not content return", () => {
@@ -355,7 +374,11 @@ describe("Phase 4 (read cache): behavior characterization lock", () => {
 		assert.ok(r, "expected a block result");
 		assert.equal(r!.block, true);
 		assert.match(r!.reason, /Content cached from turn 0/);
-		assert.deepEqual(Object.keys(r!).sort(), ["block", "reason"], "result must not carry file content");
+		assert.deepEqual(
+			Object.keys(r!).sort(),
+			["block", "reason"],
+			"result must not carry file content",
+		);
 	});
 
 	it("non-TUI: same sequence passes through", () => {

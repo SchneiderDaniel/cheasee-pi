@@ -18,8 +18,7 @@ const FETCH_RETRY_DELAYS_MS = [3000, 5000, 10000];
  * "error: The following untracked working tree files would be overwritten by checkout:".
  * A checkout-block, not a merge conflict — `git diff --diff-filter=U` stays empty.
  */
-const UNTRACKED_COLLISION_PATTERN =
-	"untracked working tree files would be overwritten by checkout";
+const UNTRACKED_COLLISION_PATTERN = "untracked working tree files would be overwritten by checkout";
 
 /** Max chars of rebase stderr included in a user-facing message. */
 const MAX_STDERR_IN_MESSAGE = 500;
@@ -34,7 +33,12 @@ function stderrExcerpt(stderr: string): string {
 
 /** Split newline-separated command output, dropping empty/whitespace lines. */
 function splitLines(output: string): string[] {
-	return output ? output.trim().split("\n").filter((s) => s.trim().length > 0) : [];
+	return output
+		? output
+				.trim()
+				.split("\n")
+				.filter((s) => s.trim().length > 0)
+		: [];
 }
 
 /**
@@ -46,16 +50,14 @@ async function findUntrackedCollisions(
 	baseRef: string,
 	pi: ExtensionAPI,
 ): Promise<string[]> {
-	const untrackedResult = await pi.exec(
-		"git",
-		["ls-files", "--others", "--exclude-standard"],
-		{ cwd: worktreePath, timeout: 10_000 },
-	);
-	const baseTreeResult = await pi.exec(
-		"git",
-		["ls-tree", "-r", "--name-only", baseRef],
-		{ cwd: worktreePath, timeout: 10_000 },
-	);
+	const untrackedResult = await pi.exec("git", ["ls-files", "--others", "--exclude-standard"], {
+		cwd: worktreePath,
+		timeout: 10_000,
+	});
+	const baseTreeResult = await pi.exec("git", ["ls-tree", "-r", "--name-only", baseRef], {
+		cwd: worktreePath,
+		timeout: 10_000,
+	});
 	if (untrackedResult.code !== 0 || baseTreeResult.code !== 0) {
 		throw new Error(
 			untrackedResult.stderr || baseTreeResult.stderr || "untracked-collision detection failed",
@@ -180,11 +182,7 @@ export async function tryRebaseOntoBase(
 		log.warn("rebase", "Untracked-file checkout collision detected — attempting scoped cleanup");
 		let collisions: string[];
 		try {
-			collisions = await findUntrackedCollisions(
-				worktreePath,
-				`${remote}/${defaultBranch}`,
-				pi,
-			);
+			collisions = await findUntrackedCollisions(worktreePath, `${remote}/${defaultBranch}`, pi);
 		} catch (detectErr: unknown) {
 			const msg = detectErr instanceof Error ? detectErr.message : String(detectErr);
 			log.error("rebase", `Untracked-collision detection failed: ${msg}`);

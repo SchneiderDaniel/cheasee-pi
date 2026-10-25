@@ -168,5 +168,3 @@ export function isRedundantRead(prevPath: string, currentPath: string, turnDiff:
 	if (prevPath !== currentPath) return false;
 	return turnDiff < CACHE_TTL_TURNS;
 }
-
-

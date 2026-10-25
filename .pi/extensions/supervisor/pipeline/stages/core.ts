@@ -14,7 +14,6 @@ import type {
 } from "../../config/types.ts";
 import { combineErrorCount } from "../../session/nested-stats.ts";
 import { type AuditScore, WORKFLOW } from "../../config/workflow.ts";
-import { isAuditRejectedComment } from "../../lib/audit-headings.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { hasResearchFindings } from "../../config/workflow.ts";
 import type { DuplicateCodeResult } from "../../checks/duplicate-code.ts";
@@ -185,7 +184,6 @@ export function buildDuplicateCodeContext(result: DuplicateCodeResult | null): s
 	return lines.join("\n");
 }
 
-
 // ─── Check Rejection Limit ────────────────────────────────────────
 
 /** Result of the rejection-limit gate: whether the limit is reached and the real count. */
@@ -195,21 +193,19 @@ export interface RejectionLimitResult {
 }
 
 /**
- * Count comments that BEGIN with the `## Audit Rejected` heading (position 0,
- * via the shared lib/audit-headings matcher) and compare against the step's
- * maxRejections threshold. Quoted occurrences inside test plans, contracts or
- * summaries never count (issue #1668). Returns the real count so callers can
- * report it instead of the threshold.
+ * Compare the precomputed rejection count against the step's maxRejections
+ * threshold. The count comes from `countAuditRejections` (labels first, legacy
+ * position-0 rejection comments as fallback) so in-place comment updates do
+ * not reset the loop counter (issue #2044). No count is reported when no limit
+ * is configured.
  */
 export function isRejectionLimitReached(
-	comments: Array<{ body?: string | null }>,
+	count: number,
 	stepMaxRejections?: number,
 ): RejectionLimitResult {
 	if (!stepMaxRejections || stepMaxRejections <= 0) return { reached: false, count: 0 };
-	const rejectionCount = comments.filter((c) => isAuditRejectedComment(c.body)).length;
-	return { reached: rejectionCount >= stepMaxRejections, count: rejectionCount };
+	return { reached: count >= stepMaxRejections, count };
 }
-
 
 // ─── Status Transition ────────────────────────────────────────────
 
@@ -326,11 +322,7 @@ export function validateResearcherFindings(commentBody: string): string {
 // Gate-context and status-resolution live in sibling modules; re-exported
 // here so existing importers (and the stages/index.ts barrel) keep working.
 export { applyGateFailureContext } from "./gate-context.ts";
-export {
-	calculateNextStatus,
-	inferForwardStatus,
-	trackAuditScore,
-} from "./status-resolution.ts";
+export { calculateNextStatus, inferForwardStatus, trackAuditScore } from "./status-resolution.ts";
 export type {
 	AuditGateContext,
 	GateRejected,

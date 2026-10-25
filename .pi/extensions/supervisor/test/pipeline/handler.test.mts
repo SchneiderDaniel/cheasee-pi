@@ -152,8 +152,7 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		// Merge calls (git fetch, merge, push) come before cleanup calls
 		const mergeCalls = calls.filter(
 			(c) =>
-				c.cmd === "git" &&
-				(c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+				c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
 		);
 		const cleanupCalls = calls.filter(
 			(c) => c.cmd === "git" && (c.args[0] === "worktree" || c.args[0] === "branch"),
@@ -206,7 +205,8 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 		// Both merge and cleanup calls present
 		const hasMerge = calls.some(
-			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+			(c) =>
+				c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
 		);
 		const hasCleanup = calls.some((c) => c.cmd === "git" && c.args[0] === "worktree");
 		assert.ok(hasMerge, "merge calls should be present");
@@ -277,7 +277,8 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 		// No merge calls when not Done
 		const gitFetchMergeCalls = calls.filter(
-			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+			(c) =>
+				c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
 		);
 		assert.equal(gitFetchMergeCalls.length, 0, "no merge calls when not Done");
 
@@ -312,7 +313,8 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 		// No merge calls when agentResults empty
 		const gitFetchMergeCalls = calls.filter(
-			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+			(c) =>
+				c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
 		);
 		assert.equal(gitFetchMergeCalls.length, 0, "no merge calls when agentResults empty");
 
@@ -379,7 +381,9 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 		const calls: ExecCall[] = [];
 		// port.listPullRequestsForBranch throws → handlePostPipelineMerge catches it
 		const port = createMockGitHubPort({
-			listPullRequestsForBranch: async () => { throw new Error("network error"); },
+			listPullRequestsForBranch: async () => {
+				throw new Error("network error");
+			},
 		});
 		const pi = createMockPi(
 			[
@@ -503,7 +507,8 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 		// No merge calls
 		const gitFetchMergeCalls = calls.filter(
-			(c) => c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
+			(c) =>
+				c.cmd === "git" && (c.args[0] === "fetch" || c.args[0] === "merge" || c.args[0] === "push"),
 		);
 		assert.equal(gitFetchMergeCalls.length, 0, "no merge attempted when agentResults empty");
 
@@ -748,7 +753,9 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 
 			// handlePostPipelineMerge will fail (port.listPullRequestsForBranch throws)
 			const port = createMockGitHubPort({
-				listPullRequestsForBranch: async () => { throw new Error("network error"); },
+				listPullRequestsForBranch: async () => {
+					throw new Error("network error");
+				},
 			});
 			const calls: ExecCall[] = [];
 			const pi = createMockPi(
@@ -833,7 +840,9 @@ describe("handlePostPipeline() — merge/cleanup ordering (Phase 1)", () => {
 			);
 
 			// The state file should be deleted — verify by reading
-			const readResult = readCheckpointFileFromPath(join(tmpDir, ".pi", "supervisor-state-42.json"));
+			const readResult = readCheckpointFileFromPath(
+				join(tmpDir, ".pi", "supervisor-state-42.json"),
+			);
 			assert.equal(readResult, null, "state file should be deleted");
 
 			rmSync(tmpDir, { recursive: true, force: true });
@@ -892,21 +901,19 @@ function makeHarnessRunnerResult(overrides: Partial<AgentRunResult>): AgentRunRe
 // Shared runner: auditor call → APPROVED; developer call (gate conflict
 // resolution) → devSuccess.
 function createHarnessRunner(devSuccess: boolean) {
-	return mock.fn(
-		async (...args: any[]) => {
-			const agent = args[0]?.agent as { config: { name: string } };
-			if (agent?.config?.name === "developer") {
-				return makeHarnessRunnerResult({
-					agentName: "developer",
-					success: devSuccess,
-					summaryLine: devSuccess ? "Resolved merge conflicts" : "Could not resolve conflicts",
-					textOutput: devSuccess ? "Resolved\nCONFLICTS_RESOLVED" : "Failed to resolve",
-					textOnly: devSuccess ? "Resolved\nCONFLICTS_RESOLVED" : "Failed to resolve",
-				});
-			}
-			return makeHarnessRunnerResult({});
-		},
-	);
+	return mock.fn(async (...args: any[]) => {
+		const agent = args[0]?.agent as { config: { name: string } };
+		if (agent?.config?.name === "developer") {
+			return makeHarnessRunnerResult({
+				agentName: "developer",
+				success: devSuccess,
+				summaryLine: devSuccess ? "Resolved merge conflicts" : "Could not resolve conflicts",
+				textOutput: devSuccess ? "Resolved\nCONFLICTS_RESOLVED" : "Failed to resolve",
+				textOnly: devSuccess ? "Resolved\nCONFLICTS_RESOLVED" : "Failed to resolve",
+			});
+		}
+		return makeHarnessRunnerResult({});
+	});
 }
 
 const GATE_FIELDS: ProjectField[] = [
@@ -1000,7 +1007,13 @@ function buildGateRunContext(opts: {
 		port,
 		issueTitle: "Test issue",
 		filteredData: { body: "body", comments: [] },
-		issueData: { number: 42, title: "Test issue", body: "body", author: { login: "user1" }, comments: [] },
+		issueData: {
+			number: 42,
+			title: "Test issue",
+			body: "body",
+			author: { login: "user1" },
+			comments: [],
+		},
 		stageState: createStageState("Audit"),
 		loopStatus: "Audit",
 		loopItem: GATE_LOOP_ITEM,

@@ -337,7 +337,7 @@ describe("DiagnosticsWatcher (integration smoke)", () => {
 				"utf-8",
 			);
 			mkdirSync(join(dir, "src"), { recursive: true });
-			writeFileSync(join(dir, "src", "index.ts"), 'export const x: number = 1;\n', "utf-8");
+			writeFileSync(join(dir, "src", "index.ts"), "export const x: number = 1;\n", "utf-8");
 
 			const w = new DiagnosticsWatcher(join(dir, "tsconfig.json"));
 			w.start();

@@ -432,10 +432,7 @@ function collectExtensionSources(): { file: string; source: string }[] {
 			const full = join(dir, entry.name);
 			if (entry.isDirectory()) {
 				if (entry.name !== "node_modules" && entry.name !== "fixtures") walk(full);
-			} else if (
-				entry.isFile() &&
-				(entry.name.endsWith(".ts") || entry.name.endsWith(".mts"))
-			) {
+			} else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".mts"))) {
 				out.push({ file: full, source: readFileSync(full, "utf-8") });
 			}
 		}
@@ -452,9 +449,7 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			);
 			assert.strictEqual(imports.length, 1);
 			assert.strictEqual(imports[0]!.specifier, "@earendil-works/pi-ai/providers/all");
-			assert.deepStrictEqual(imports[0]!.bindings, [
-				{ name: "getBuiltinModel", typeOnly: false },
-			]);
+			assert.deepStrictEqual(imports[0]!.bindings, [{ name: "getBuiltinModel", typeOnly: false }]);
 		});
 
 		it("ignores node:, relative and non-SDK specifiers", () => {
@@ -475,9 +470,7 @@ describe("Phase 7: SDK static import resolution guard", () => {
 		});
 
 		it("marks per-binding type imports in mixed clauses", () => {
-			const imports = extractSdkStaticImports(
-				`import { type A, B } from "@earendil-works/pi-ai";`,
-			);
+			const imports = extractSdkStaticImports(`import { type A, B } from "@earendil-works/pi-ai";`);
 			assert.deepStrictEqual(imports[0]!.bindings, [
 				{ name: "A", typeOnly: true },
 				{ name: "B", typeOnly: false },
@@ -579,9 +572,7 @@ describe("Phase 7: SDK static import resolution guard", () => {
 					`} from "@earendil-works/pi-ai/providers/all";`,
 				].join("\n"),
 			);
-			assert.deepStrictEqual(imports[0]!.bindings, [
-				{ name: "getBuiltinModel", typeOnly: false },
-			]);
+			assert.deepStrictEqual(imports[0]!.bindings, [{ name: "getBuiltinModel", typeOnly: false }]);
 		});
 
 		it("reports no violations when the resolver resolves every specifier", async () => {
@@ -761,9 +752,7 @@ describe("Phase 7: SDK static import resolution guard", () => {
 				try {
 					await import(specifier);
 				} catch (error) {
-					failures.push(
-						`${specifier}: ${error instanceof Error ? error.message : String(error)}`,
-					);
+					failures.push(`${specifier}: ${error instanceof Error ? error.message : String(error)}`);
 				}
 			}
 			assert.deepStrictEqual(failures, [], `Unresolvable SDK specifiers:\n${failures.join("\n")}`);
@@ -812,9 +801,7 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			};
 
 			const broken = await findSdkImportViolations(
-				extractSdkStaticImports(
-					`import { getModel } from "@earendil-works/pi-ai/providers/all";`,
-				),
+				extractSdkStaticImports(`import { getModel } from "@earendil-works/pi-ai/providers/all";`),
 				resolver,
 			);
 			assert.strictEqual(broken.length, 1, "the issue's stub must be flagged");
@@ -832,7 +819,11 @@ describe("Phase 7: SDK static import resolution guard", () => {
 
 	describe("Phase 3: regression", () => {
 		const runnerSpecifier = "../.pi/extensions/supervisor/agent/agent-session-runner.ts";
-		const runnerPath = resolve(import.meta.dirname, "..", ".pi/extensions/supervisor/agent/agent-session-runner.ts");
+		const runnerPath = resolve(
+			import.meta.dirname,
+			"..",
+			".pi/extensions/supervisor/agent/agent-session-runner.ts",
+		);
 
 		it("agent-session-runner.ts loads and exports runAgentInProcess", async () => {
 			const mod = (await import(runnerSpecifier)) as Record<string, unknown>;

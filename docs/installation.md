@@ -9,11 +9,17 @@ nav_order: 2
 {: .no_toc }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ## Prerequisites
 
 - **Docker Engine** ≥24.0 with [Compose V2](https://docs.docker.com/compose/)
+- **Free disk space** — at least **10 GiB** free on the Docker data root
+  (`docker info --format '{{.DockerRootDir}}'`, usually `/var/lib/docker`).
+  All image layers, the build cache and the export scratch land there.
+  `cheasee-pi build` and `cheasee-pi start` refuse to build below that
+  threshold; reclaim space with `cheasee-pi clean` and
+  `cheasee-pi prune-images`.
 - **git** with `user.name` and `user.email` configured
 - **Your own git repository** — cheasee-pi runs from any repo you own (it does not clone/fork anything)
 
@@ -33,6 +39,7 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 ```
 
 {:.note-title}
+
 > macOS
 > Gatekeeper may block the unsigned binary. Run `xattr -d com.apple.quarantine ~/.local/bin/cheasee-pi` or Ctrl-click → Open in Finder.
 
@@ -92,6 +99,7 @@ cache state, and pi's own `.pi/settings.json` is self-scaffolded by pi on its
 first run.
 
 {:.note-title}
+
 > Custom skills?
 > `cheasee-pi init --skill-repo owner/repo` records custom skills (git-hosted
 > skill repository specs) without a prompt (repeatable; also accepts
@@ -104,11 +112,13 @@ first run.
 > remove it.
 
 {:.note-title}
+
 > No GitHub?
 > `cheasee-pi init --no-github` skips auth and the clone; you provide API keys
 > separately. `--no-input` needs `--repo-url <url>` since there is no prompt.
 
 {:.note-title}
+
 > Already initialized?
 > `cheasee-pi init --reauth` re-runs the authentications (GitHub OAuth device
 > flow + provider API-key setup) without touching the clone or the settings
@@ -136,8 +146,8 @@ cheasee-pi start
 `cheasee-pi` (alias `start`) gates on the workspace state:
 
 - **Empty folder** → auto-runs `cheasee-pi init` (repo URL prompt, bare clone
-  + main worktree, `cheasee-settings.json`), then stops — init never launches
-  pi; run `cheasee-pi start` again to start
+  - main worktree, `cheasee-settings.json`), then stops — init never launches
+    pi; run `cheasee-pi start` again to start
 - **`cheasee-settings.json` present** → initialized workspace; runs normally
 - **Non-empty folder without `cheasee-settings.json`** → refused with
   “not initialized; run `cheasee-pi init` in an empty folder”
@@ -148,7 +158,11 @@ On an initialized workspace it:
    the CLI cache dir (`~/.cache/cheasee-pi/<version>/`); the image build
    clones cheasee-pi's own repository (github.com/SchneiderDaniel/cheasee-pi,
    Dockerfile `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and
-   symlinks its resources into `~/.pi/agent/` — not your repo
+   symlinks its resources into `~/.pi/agent/` — not your repo. The CLI
+   resolves that ref's upstream commit on every build and supplies it as
+   `CHEASEE_COMMIT`, so the clone layer is re-run whenever upstream moves and
+   stays cached when it has not; the baked commit is recorded at
+   `/opt/cheasee-pi/BUILD_COMMIT`
 2. Starts the container (first build downloads ~1GB of build-time
    dependencies; can take several minutes on slower connections) with the
    workspace
@@ -170,9 +184,40 @@ In cheasee-pi workspaces the entrypoint re-points the global symlink at the
 live mounted repo file, so edits are live; in other repos the baked image
 copy is used (refreshed on image rebuild).
 
-Pi is installed as `@latest` at image build time, and `cheasee-pi start`
-rebuilds the image whenever the container isn't running — pi updates to the
-latest version automatically on every start. No manual update needed.
+#### Baked clone refresh policy
+
+The baked `/opt/cheasee-pi` copy is refreshed **deliberately**, not only when
+Docker happens to evict the build cache. Every `cheasee-pi build` / `start`
+resolves the upstream commit of `CHEASEE_REF` (`git ls-remote`) and passes it
+to the clone layer as the `CHEASEE_COMMIT` build ARG, so the layer re-runs
+exactly when that commit changes and stays cached (keeping the expensive
+clone + `npm ci` off the critical path of a pi-only rebuild) when it does not.
+If upstream is unreachable the probe warns and the CLI reuses the last
+successfully baked commit **of the same `CHEASEE_REF`** (recorded per
+workspace image in `~/.cache/cheasee-pi/<version>/`), so the cache key is
+unchanged and the cached layer is still used — an offline rebuild does not
+force a network clone. A commit recorded for a _different_ ref or a
+_different_ workspace image is never reused: the cache key must describe the
+ref actually being built. A first build with no record for the current ref
+leaves the ARG empty; the build then reads the commit the image itself baked
+(`/opt/cheasee-pi/BUILD_COMMIT`) back into the host record after it succeeds,
+so `cheasee-pi about` still reports the truth. Should `CHEASEE_REF` move
+between the probe and the clone, the clone layer fails the build instead of
+caching the clone under the wrong commit's key; re-run the build.
+
+The commit baked into the running image is recorded at
+`/opt/cheasee-pi/BUILD_COMMIT` and printed by `cheasee-pi about` for the
+workspace you run it in (one record per workspace image, so a build in another
+workspace cannot mask a stale copy here), so a stale copy is visible rather
+than silent: when the clone layer next re-runs, the build is guaranteed to have
+baked exactly the commit `about` reports. To force a refresh regardless of
+upstream movement, run `cheasee-pi rebuild` (no-cache).
+
+Pi is installed at image build time pinned to a released version (currently
+`1.0.2`, matching the Dockerfile and compose defaults). `cheasee-pi start`
+rebuilds the image whenever the container isn't running, re-resolving that
+pinned version. To track the floating npm latest instead, opt in explicitly:
+`PI_VERSION=latest cheasee-pi start`.
 
 Stop the container when done:
 
@@ -195,6 +240,23 @@ through `cheasee-settings.json`.
 - [Zed](https://zed.dev/) — recommend for the workspace: `zed .`
 
 ## Troubleshooting
+
+### Build fails: not enough free space on the Docker data root
+
+A build needs at least **10 GiB** free on the Docker data root
+(`docker info --format '{{.DockerRootDir}}'`, usually `/var/lib/docker`).
+Below that, `cheasee-pi build` / `start` stop before BuildKit writes anything
+and name the reclaim commands:
+
+```bash
+cheasee-pi clean          # remove cheasee-pi containers
+cheasee-pi prune-images   # remove the regenerable cheasee-pi images + build cache
+cheasee-pi build          # retry
+```
+
+Do not let the partition fill up: if a build runs out mid-export, the Docker
+daemon reclaims space on its own and can delete the cheasee-pi images and
+containers, forcing a full cold rebuild (roughly 1 GB of downloads).
 
 ### Container doesn't start
 

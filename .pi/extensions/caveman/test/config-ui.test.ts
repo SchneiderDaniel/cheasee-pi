@@ -397,10 +397,7 @@ describe("openConfigDialog header styling", () => {
 		const sentinel = makeSentinelTheme();
 		const component = await renderConfigDialog(sentinel.theme);
 		assert.ok(component.render(20).join("\n").includes("Caveman"), "header present at width 20");
-		assert.ok(
-			component.render(120).join("\n").includes("Caveman"),
-			"header present at width 120",
-		);
+		assert.ok(component.render(120).join("\n").includes("Caveman"), "header present at width 120");
 	});
 
 	it("renders under the real system theme in both appearances (AC 3)", async () => {
@@ -420,11 +417,7 @@ describe("openConfigDialog header styling", () => {
 				process.env.COLORFGBG = fgbg;
 				initTheme("system");
 				const real = activeThemeSingleton();
-				assert.equal(
-					real.appearance,
-					appearance,
-					`COLORFGBG=${fgbg} should resolve ${appearance}`,
-				);
+				assert.equal(real.appearance, appearance, `COLORFGBG=${fgbg} should resolve ${appearance}`);
 				const component = await renderConfigDialog(real);
 				const lines = component.render(80);
 				assert.ok(

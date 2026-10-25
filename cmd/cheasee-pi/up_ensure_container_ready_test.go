@@ -19,12 +19,21 @@ import (
 func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context, arg []string) runner) *upCapture {
 	t.Helper()
 	c := &upCapture{}
+	// Ample free space: the build inside dockerComposeUp now runs the disk
+	// gate (docker info --format below). Tests that count docker calls would
+	// otherwise see the gate's probe through the dockerFn catch-all.
+	stubStatfsAmple(t)
 	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
 	saved := runCommandContext
 	git := gitRootMock(root, saved)
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		if name == "git" {
 			return git(ctx, name, arg...)
+		}
+		if name == "docker" && slices.Contains(arg, "{{.DockerRootDir}}") {
+			// Disk gate probe — answered here, not routed to dockerFn, so the
+			// per-test docker call counts stay stable.
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
 		}
 		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}

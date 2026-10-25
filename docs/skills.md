@@ -11,10 +11,11 @@ nav_order: 5
 Skills are reusable Markdown instruction sets for specialized tasks. They are loaded on-demand via `/skill:<name>` invocation.
 
 ## Table of contents
+
 {: .no_toc .text-delta }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ---
 
@@ -158,14 +159,14 @@ Apply structured guidance for designing clear, reliable, maintainable skills.
 
 Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automatically via the ponytail extension's `before_agent_start` hook. Ships 6 related skills, of which cheasee-pi registers only the core one by default (the package's `packages` entry in `.pi/settings.json` carries a `skills: ["!ponytail-*"]` filter — see [Ponytail](extensions/ponytail.md)):
 
-| Skill | Trigger | Purpose |
-|-------|---------|--------|
-| ponytail | `/skill:ponytail` | Lazy mode rules (base skill) — installed by default |
+| Skill           | Trigger                  | Purpose                                                                |
+| --------------- | ------------------------ | ---------------------------------------------------------------------- |
+| ponytail        | `/skill:ponytail`        | Lazy mode rules (base skill) — installed by default                    |
 | ponytail-review | `/skill:ponytail-review` | Diff-level over-engineering review: yagni, stdlib, native, shrink tags |
-| ponytail-audit | `/skill:ponytail-audit` | Whole-repo bloat scan (same tags, repo-wide) |
-| ponytail-debt | `/skill:ponytail-debt` | Harvest deliberate shortcuts (`ponytail:` comments) into debt ledger |
-| ponytail-gain | `/skill:ponytail-gain` | Measured-impact scoreboard: less code, less cost, more speed |
-| ponytail-help | `/skill:ponytail-help` | Quick-reference card for all ponytail modes and skills |
+| ponytail-audit  | `/skill:ponytail-audit`  | Whole-repo bloat scan (same tags, repo-wide)                           |
+| ponytail-debt   | `/skill:ponytail-debt`   | Harvest deliberate shortcuts (`ponytail:` comments) into debt ledger   |
+| ponytail-gain   | `/skill:ponytail-gain`   | Measured-impact scoreboard: less code, less cost, more speed           |
+| ponytail-help   | `/skill:ponytail-help`   | Quick-reference card for all ponytail modes and skills                 |
 
 **Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package; only the core `ponytail` skill is linked into `.pi/skills/ponytail/`.
 

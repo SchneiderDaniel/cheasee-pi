@@ -16,10 +16,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 
-import {
-	diagnosticToTscDiagnostic,
-	resolveDiagnosticFilePath,
-} from "../adapter.ts";
+import { diagnosticToTscDiagnostic, resolveDiagnosticFilePath } from "../adapter.ts";
 
 import ts from "typescript";
 

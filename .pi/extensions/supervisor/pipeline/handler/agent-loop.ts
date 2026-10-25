@@ -180,7 +180,12 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 				: undefined;
 
 		// ─── Assemble task ───
-		const task = await assembleAgentTask(runCtx, agentName, loopFilteredData, rebaseConflictContext);
+		const task = await assembleAgentTask(
+			runCtx,
+			agentName,
+			loopFilteredData,
+			rebaseConflictContext,
+		);
 
 		getDebugLogger().info("handler", `Dispatching agent ${agentName}`, {
 			model: agent.config.model,
@@ -280,7 +285,13 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 		// marker-based transition (empty-worktree, PR-approval, budget
 		// degradation), naming the agent + configured duration.
 		if (result.timedOut) {
-			stopReason = await reportTimedOutAgent(runCtx, agent.config.name, result, timeoutPolicy, nextStatus);
+			stopReason = await reportTimedOutAgent(
+				runCtx,
+				agent.config.name,
+				result,
+				timeoutPolicy,
+				nextStatus,
+			);
 			break;
 		}
 

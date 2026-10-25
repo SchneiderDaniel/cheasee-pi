@@ -2317,7 +2317,9 @@ describe("EslintLinter — flat-config fallback (useEslintrc removed)", () => {
 		const { dir, jsFile, cleanup } = createBrokenConfigFixture();
 		try {
 			const l = new EslintLinter(); // default factory — real eslint
-			const result = (await withCwd(dir, () => l.lint(jsFile))) as Awaited<ReturnType<typeof l.lint>>;
+			const result = (await withCwd(dir, () => l.lint(jsFile))) as Awaited<
+				ReturnType<typeof l.lint>
+			>;
 			assert.ok(result.error, "should surface the original config error");
 			assert.ok(
 				result.error!.includes("Unexpected end of input"),
@@ -2337,7 +2339,9 @@ describe("EslintLinter — flat-config fallback (useEslintrc removed)", () => {
 		const { dir, tsFile, cleanup } = createBrokenConfigFixture();
 		try {
 			const l = new EslintLinter();
-			const result = (await withCwd(dir, () => l.lint(tsFile))) as Awaited<ReturnType<typeof l.lint>>;
+			const result = (await withCwd(dir, () => l.lint(tsFile))) as Awaited<
+				ReturnType<typeof l.lint>
+			>;
 			assert.ok(result.error, "config error preserved");
 			assert.ok(result.error!.includes("Unexpected end of input"));
 			assert.ok(
@@ -2418,7 +2422,10 @@ describe("EslintLinter — flat-config fallback (useEslintrc removed)", () => {
 			true,
 		);
 		assert.strictEqual(
-			(l as any).isConfigError({ name: "TypeError", message: "Cannot read properties of undefined" }),
+			(l as any).isConfigError({
+				name: "TypeError",
+				message: "Cannot read properties of undefined",
+			}),
 			false,
 		);
 	});
@@ -2436,10 +2443,7 @@ describe("EslintLinter — flat-config fallback (useEslintrc removed)", () => {
 		const files = config[0]!.files;
 		assert.ok(files && files.length > 0, "first object must carry a files glob");
 		for (const ext of [".ts", ".tsx", ".js", ".jsx"]) {
-			assert.ok(
-				files[0]!.includes(ext.slice(1)),
-				`files glob should cover ${ext}: ${files[0]}`,
-			);
+			assert.ok(files[0]!.includes(ext.slice(1)), `files glob should cover ${ext}: ${files[0]}`);
 		}
 		assert.deepStrictEqual(config[0]!.languageOptions, {
 			ecmaVersion: "latest",
@@ -2907,9 +2911,7 @@ describe("EslintLinter — serialised fix-write (issue #1901)", () => {
 			lintText: async () => [
 				{
 					filePath: "/path/file.ts",
-					messages: [
-						{ line: 1, column: 1, severity: 1, message: "w", ruleId: null },
-					],
+					messages: [{ line: 1, column: 1, severity: 1, message: "w", ruleId: null }],
 				},
 			],
 		});

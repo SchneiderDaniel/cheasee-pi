@@ -167,13 +167,7 @@ export default function askUser(pi: ExtensionAPI): void {
 		],
 		parameters: QuestionParams,
 		outputSchema: AskUserOutputSchema,
-		async execute(
-			_toolCallId,
-			params,
-			signal,
-			_onUpdate,
-			ctx,
-		): Promise<ToolResult> {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolResult> {
 			const projectDir = ctx.sessionManager.getCwd();
 			// Tool signals may arrive as null from some call sites; normalize so the
 			// handler and dialogs see AbortSignal | undefined.
@@ -348,13 +342,7 @@ export default function askUser(pi: ExtensionAPI): void {
 		],
 		parameters: QnaReadParams,
 		outputSchema: QnaReadOutputSchema,
-		async execute(
-			_toolCallId,
-			params,
-			signal,
-			_onUpdate,
-			ctx,
-		): Promise<ToolResult> {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx): Promise<ToolResult> {
 			const projectDir = ctx.sessionManager.getCwd();
 
 			// Gate Q&A history access on project trust

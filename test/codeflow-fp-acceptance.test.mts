@@ -51,7 +51,14 @@ const EXPECTED_LAYER_VIOLATIONS_SUPPRESSED = 357;
 // symbols no analyzed file references.
 const EXPECTED_DEAD_SUPPRESSED = 20;
 // Symbols the issue cites as dead that the snapshot does carry.
-const CITED_DEAD = ["defaultIsWritable", "opened", "is_open", "reconnect_delay", "read_cursor", "write_cursor"];
+const CITED_DEAD = [
+	"defaultIsWritable",
+	"opened",
+	"is_open",
+	"reconnect_delay",
+	"read_cursor",
+	"write_cursor",
+];
 // The filtered report these expectations imply.
 const EXPECTED_HEALTH_SCORE = 93;
 
@@ -75,7 +82,10 @@ const { sanitizeAnalysisData, isFalsePositiveHygiene, readFileFrom } = requireCj
 	sanitizeAnalysisData: (
 		data: unknown,
 		readFile?: (path: unknown) => string | null,
-	) => { data: any; suppressed: { security: any[]; layerViolations: any[]; hygiene: any[]; deadCode: any[] } };
+	) => {
+		data: any;
+		suppressed: { security: any[]; layerViolations: any[]; hygiene: any[]; deadCode: any[] };
+	};
 	isFalsePositiveHygiene: (issue: unknown, readFile?: (path: unknown) => string | null) => boolean;
 	readFileFrom: (data: unknown) => (path: unknown) => string | null;
 };
@@ -91,11 +101,7 @@ after(() => {
 const ext = (p: string) => p.slice(p.lastIndexOf(".")).toLowerCase();
 // A layer label is real only when the endpoint path carries it as a directory.
 const groundsLayer = (layer: string, p: string): boolean =>
-	p
-		.toLowerCase()
-		.split("/")
-		.slice(0, -1)
-		.includes(String(layer).toLowerCase());
+	p.toLowerCase().split("/").slice(0, -1).includes(String(layer).toLowerCase());
 
 const highsOf = (data: { securityIssues: Array<{ severity: string }> }) =>
 	data.securityIssues.filter((s) => String(s.severity).toLowerCase() === "high");
@@ -103,7 +109,9 @@ const deadNames = (data: { deadFunctions?: Array<{ name: string }> }): string[] 
 	(Array.isArray(data.deadFunctions) ? data.deadFunctions : []).map((f) => f.name);
 // The analyzer's architecture summary names the dead list as a bare count.
 const deadTitle = (data: { issues?: Array<{ title?: string }> }): string | undefined =>
-	(Array.isArray(data.issues) ? data.issues : []).map((i) => String(i.title)).find((t) => /^\d+ Unused Functions$/.test(t));
+	(Array.isArray(data.issues) ? data.issues : [])
+		.map((i) => String(i.title))
+		.find((t) => /^\d+ Unused Functions$/.test(t));
 
 // The LOW hygiene heuristics (`Code Comments` / `Debug Statements`).
 const HYGIENE_TITLES = new Set(["Code Comments", "Debug Statements"]);
@@ -128,14 +136,19 @@ const crossLanguageOf = (data: { layerViolations: Array<{ from: string; to: stri
 	data.layerViolations.filter((v) => ext(v.from) !== ext(v.to));
 const sameExtensionOf = (data: { layerViolations: Array<{ from: string; to: string }> }) =>
 	data.layerViolations.filter((v) => ext(v.from) === ext(v.to));
-const inventedLayerOf = (
-	data: { layerViolations: Array<{ from: string; to: string; fromLayer: string; toLayer: string }> },
-) => data.layerViolations.filter((v) => !groundsLayer(v.fromLayer, v.from) || !groundsLayer(v.toLayer, v.to));
+const inventedLayerOf = (data: {
+	layerViolations: Array<{ from: string; to: string; fromLayer: string; toLayer: string }>;
+}) =>
+	data.layerViolations.filter(
+		(v) => !groundsLayer(v.fromLayer, v.from) || !groundsLayer(v.toLayer, v.to),
+	);
 
 /** The cited MEDIUM `Command Execution` hits that must not survive the filter. */
 const commandExecutionOf = (data: { securityIssues: Array<{ title: string; path: string }> }) =>
 	data.securityIssues.filter(
-		(s) => String(s.title).trim() === "Command Execution" && CITED_COMMAND_EXECUTION_PATHS.includes(s.path),
+		(s) =>
+			String(s.title).trim() === "Command Execution" &&
+			CITED_COMMAND_EXECUTION_PATHS.includes(s.path),
 	);
 
 /** Read one analyzed path out of the repo, mirroring the producer's containment. */
@@ -182,7 +195,10 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		);
 		assert.ok(inventedLayerOf(recorded).length > 0, "recording must carry invented-layer edges");
 		for (const name of CITED_DEAD) {
-			assert.ok(deadNames(recorded).includes(name), `recording must carry the cited dead function ${name}`);
+			assert.ok(
+				deadNames(recorded).includes(name),
+				`recording must carry the cited dead function ${name}`,
+			);
 		}
 		assert.strictEqual(
 			deadTitle(recorded),
@@ -211,9 +227,17 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 			[],
 			"no cited MEDIUM Command Execution may survive on the fixed tree",
 		);
-		assert.deepStrictEqual(crossLanguageOf(data), [], "cross-language layer edges must not survive");
+		assert.deepStrictEqual(
+			crossLanguageOf(data),
+			[],
+			"cross-language layer edges must not survive",
+		);
 		assert.deepStrictEqual(inventedLayerOf(data), [], "invented layer labels must not survive");
-		assert.strictEqual(data.stats.violations, 0, "the summary violation count must move with the list");
+		assert.strictEqual(
+			data.stats.violations,
+			0,
+			"the summary violation count must move with the list",
+		);
 
 		// The recorded dead list carries the issue's cited symbols; every one the
 		// snapshot references must be dropped and counted out of the summary.
@@ -280,13 +304,20 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 			);
 			assert.ok(!deadNames(data).includes(name), `${name} must not survive as dead`);
 		}
-		assert.strictEqual(data.stats.dead, data.deadFunctions.length, "the count must agree with the list");
+		assert.strictEqual(
+			data.stats.dead,
+			data.deadFunctions.length,
+			"the count must agree with the list",
+		);
 	});
 
 	it("suppresses every LOW hygiene finding the recording carries", () => {
 		const recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
 		const lows = lowsOf(recorded);
-		assert.ok(lows.length > 0, "the recording must carry the LOW hygiene findings the issue reports");
+		assert.ok(
+			lows.length > 0,
+			"the recording must carry the LOW hygiene findings the issue reports",
+		);
 		// Regenerated after the source rewords, the recording cites only test and
 		// doc artifacts, so the hygiene rule accounts for all of them.
 		const { data, suppressed } = sanitizeAnalysisData(recorded, makeRepoReadFile());
@@ -312,9 +343,15 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 	it("keeps the fixtures and teaching content the tokens belong to", () => {
 		// Blind token stripping would break these: they are fixture data, worked
 		// examples and the `mktemp` template, not deferred work.
-		assert.match(repoFile(".pi/extensions/structural-analyzer/test/index.test.mts"), /console\.log\(/);
+		assert.match(
+			repoFile(".pi/extensions/structural-analyzer/test/index.test.mts"),
+			/console\.log\(/,
+		);
 		assert.match(repoFile(".pi/extensions/ripgrep-search/test/ripgrep-search.test.mts"), MARKERS);
-		assert.match(repoFile(".pi/extensions/supervisor/test/pipeline-worktree-integration.test.mts"), /XXXXXX/);
+		assert.match(
+			repoFile(".pi/extensions/supervisor/test/pipeline-worktree-integration.test.mts"),
+			/XXXXXX/,
+		);
 		for (const skill of [
 			".pi/skills/audit-clean-code/SKILL.md",
 			".pi/skills/audit-code-simplification/SKILL.md",
@@ -345,7 +382,10 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 	/** A usable pinned checkout, or null when none is present and none was fetched. */
 	function resolveCheckout(): string | null {
 		const explicit = process.env.CODEFLOW_UI_DIR || "/opt/codeflow-ui";
-		if (existsSync(join(explicit, "index.html")) && existsSync(join(explicit, "card", "lib", "analysis.js"))) {
+		if (
+			existsSync(join(explicit, "index.html")) &&
+			existsSync(join(explicit, "card", "lib", "analysis.js"))
+		) {
 			return explicit;
 		}
 		// Fetch the pin by default so the authoritative check actually runs; an
@@ -373,132 +413,165 @@ describe("fp-filter — live acceptance against the pinned analyzer", () => {
 	const SKIP =
 		"pinned CodeFlow checkout unavailable (set CODEFLOW_UI_DIR, or CODEFLOW_FP_E2E=0 to skip)";
 
-	it("headless report on the issue snapshot scores an A and drops every false positive", { skip: UI_DIR ? false : SKIP }, () => {
-		const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
-		const outDir = mkdtempSync(join(tmpdir(), "fp-accept-out-"));
-		cleanups.push(snapshotDir, outDir);
+	it(
+		"headless report on the issue snapshot scores an A and drops every false positive",
+		{ skip: UI_DIR ? false : SKIP },
+		() => {
+			const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
+			const outDir = mkdtempSync(join(tmpdir(), "fp-accept-out-"));
+			cleanups.push(snapshotDir, outDir);
 
-		// Deterministic snapshot: the exact revision the issue reports on, fed to
-		// the producer the way the shim feeds it.
-		const archive = execFileSync("git", ["archive", ensureIssueSnapshot()], {
-			cwd: REPO_ROOT,
-			maxBuffer: 1 << 30,
-		});
-		execFileSync("tar", ["-x", "-C", snapshotDir], { input: archive });
+			// Deterministic snapshot: the exact revision the issue reports on, fed to
+			// the producer the way the shim feeds it.
+			const archive = execFileSync("git", ["archive", ensureIssueSnapshot()], {
+				cwd: REPO_ROOT,
+				maxBuffer: 1 << 30,
+			});
+			execFileSync("tar", ["-x", "-C", snapshotDir], { input: archive });
 
-		const run = spawnSync(process.execPath, [RUNNER, snapshotDir, UI_DIR!, outDir], {
-			encoding: "utf-8",
-			timeout: 300_000,
-		});
-		assert.strictEqual(run.status, 0, `producer failed:\n${run.stderr}`);
+			const run = spawnSync(process.execPath, [RUNNER, snapshotDir, UI_DIR!, outDir], {
+				encoding: "utf-8",
+				timeout: 300_000,
+			});
+			assert.strictEqual(run.status, 0, `producer failed:\n${run.stderr}`);
 
-		// The producer reports suppression instead of dropping silently, and the
-		// counts must reproduce the affected report's false positives exactly.
-		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) hygiene finding\(s\), (\d+) unused function\(s\)/.exec(
-			run.stderr,
-		);
-		assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
-		assert.strictEqual(
-			Number(suppressed![1]),
-			EXPECTED_SECURITY_SUPPRESSED,
-			"the snapshot's HIGH hits and the type-only-import MEDIUM hit must be suppressed",
-		);
-		assert.strictEqual(
-			Number(suppressed![2]),
-			EXPECTED_LAYER_VIOLATIONS_SUPPRESSED,
-			"the whole layer-violation category must be suppressed on the issue snapshot",
-		);
-		assert.ok(
-			Number(suppressed![3]) > 0,
-			"the issue snapshot's LOW hygiene findings on artifact paths must be reported",
-		);
-		assert.strictEqual(
-			Number(suppressed![4]),
-			EXPECTED_DEAD_SUPPRESSED,
-			"every cited dead function the snapshot references must be suppressed",
-		);
-
-		const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
-		assert.strictEqual(
-			report.summary.healthScore,
-			EXPECTED_HEALTH_SCORE,
-			`expected the corrected score, got ${report.summary.healthScore} (${report.summary.healthGrade})`,
-		);
-		assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
-		assert.strictEqual(report.summary.healthGrade, "A");
-		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
-		assert.deepStrictEqual(crossLanguageOf(report), [], "cross-language layer edges must not be emitted");
-		assert.deepStrictEqual(inventedLayerOf(report), [], "unsupported layer labels must not survive");
-		// The snapshot predates the source rewords, so a LOW marker in shipping
-		// source legitimately stays; nothing the hygiene rule classifies as a test
-		// or doc artifact may survive it.
-		for (const finding of report.securityIssues) {
+			// The producer reports suppression instead of dropping silently, and the
+			// counts must reproduce the affected report's false positives exactly.
+			const suppressed =
+				/fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) hygiene finding\(s\), (\d+) unused function\(s\)/.exec(
+					run.stderr,
+				);
+			assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
 			assert.strictEqual(
-				isFalsePositiveHygiene(finding),
-				false,
-				`a LOW hygiene artifact survived the filter: ${finding.path}`,
+				Number(suppressed![1]),
+				EXPECTED_SECURITY_SUPPRESSED,
+				"the snapshot's HIGH hits and the type-only-import MEDIUM hit must be suppressed",
 			);
-		}
+			assert.strictEqual(
+				Number(suppressed![2]),
+				EXPECTED_LAYER_VIOLATIONS_SUPPRESSED,
+				"the whole layer-violation category must be suppressed on the issue snapshot",
+			);
+			assert.ok(
+				Number(suppressed![3]) > 0,
+				"the issue snapshot's LOW hygiene findings on artifact paths must be reported",
+			);
+			assert.strictEqual(
+				Number(suppressed![4]),
+				EXPECTED_DEAD_SUPPRESSED,
+				"every cited dead function the snapshot references must be suppressed",
+			);
 
-		// The report must not contradict its own score: the summary counts move
-		// with the filtered arrays, or an A still advertises nine HIGH findings.
-		assert.strictEqual(report.summary.highSecurityIssues, 0, "summary must not still count the dropped highs");
-		assert.strictEqual(report.summary.layerViolations, 0, "summary must not still count the dropped edges");
+			const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
+			assert.strictEqual(
+				report.summary.healthScore,
+				EXPECTED_HEALTH_SCORE,
+				`expected the corrected score, got ${report.summary.healthScore} (${report.summary.healthGrade})`,
+			);
+			assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
+			assert.strictEqual(report.summary.healthGrade, "A");
+			assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
+			assert.deepStrictEqual(
+				crossLanguageOf(report),
+				[],
+				"cross-language layer edges must not be emitted",
+			);
+			assert.deepStrictEqual(
+				inventedLayerOf(report),
+				[],
+				"unsupported layer labels must not survive",
+			);
+			// The snapshot predates the source rewords, so a LOW marker in shipping
+			// source legitimately stays; nothing the hygiene rule classifies as a test
+			// or doc artifact may survive it.
+			for (const finding of report.securityIssues) {
+				assert.strictEqual(
+					isFalsePositiveHygiene(finding),
+					false,
+					`a LOW hygiene artifact survived the filter: ${finding.path}`,
+				);
+			}
 
-		// Same for the dead-code list: none of the cited live symbols may be
-		// reported as unused, and the summary count must match the list.
-		const reportedDead = (report.unusedFunctions ?? []).map((f: { name: string }) => f.name);
-		for (const name of CITED_DEAD) {
-			assert.ok(!reportedDead.includes(name), `${name} is referenced and must not be reported as unused`);
-		}
-		assert.strictEqual(
-			report.summary.unusedFunctions,
-			report.unusedFunctions.length,
-			"the summary dead count must agree with the reported list",
-		);
-	});
+			// The report must not contradict its own score: the summary counts move
+			// with the filtered arrays, or an A still advertises nine HIGH findings.
+			assert.strictEqual(
+				report.summary.highSecurityIssues,
+				0,
+				"summary must not still count the dropped highs",
+			);
+			assert.strictEqual(
+				report.summary.layerViolations,
+				0,
+				"summary must not still count the dropped edges",
+			);
+
+			// Same for the dead-code list: none of the cited live symbols may be
+			// reported as unused, and the summary count must match the list.
+			const reportedDead = (report.unusedFunctions ?? []).map((f: { name: string }) => f.name);
+			for (const name of CITED_DEAD) {
+				assert.ok(
+					!reportedDead.includes(name),
+					`${name} is referenced and must not be reported as unused`,
+				);
+			}
+			assert.strictEqual(
+				report.summary.unusedFunctions,
+				report.unusedFunctions.length,
+				"the summary dead count must agree with the reported list",
+			);
+		},
+	);
 
 	// Issue #2023: the authoritative fixed-tree re-run. The snapshot test above
 	// reproduces the pre-fix report; this one drives the pinned analyzer over
 	// `git archive HEAD` (the fixed tree) and requires the four cited MEDIUM
 	// `Command Execution` findings to be gone. Counts are contract assertions,
 	// not literals — the raw layer count moves with every commit on the branch.
-	it("headless report on the fixed tree resolves the four cited Command Execution hits", { skip: UI_DIR ? false : SKIP }, () => {
-		const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
-		const outDir = mkdtempSync(join(tmpdir(), "fp-accept-out-"));
-		cleanups.push(snapshotDir, outDir);
+	it(
+		"headless report on the fixed tree resolves the four cited Command Execution hits",
+		{ skip: UI_DIR ? false : SKIP },
+		() => {
+			const snapshotDir = mkdtempSync(join(tmpdir(), "fp-accept-snap-"));
+			const outDir = mkdtempSync(join(tmpdir(), "fp-accept-out-"));
+			cleanups.push(snapshotDir, outDir);
 
-		const archive = execFileSync("git", ["archive", "HEAD"], {
-			cwd: REPO_ROOT,
-			maxBuffer: 1 << 30,
-		});
-		execFileSync("tar", ["-x", "-C", snapshotDir], { input: archive });
+			const archive = execFileSync("git", ["archive", "HEAD"], {
+				cwd: REPO_ROOT,
+				maxBuffer: 1 << 30,
+			});
+			execFileSync("tar", ["-x", "-C", snapshotDir], { input: archive });
 
-		const run = spawnSync(process.execPath, [RUNNER, snapshotDir, UI_DIR!, outDir], {
-			encoding: "utf-8",
-			timeout: 300_000,
-		});
-		assert.strictEqual(run.status, 0, `producer failed:\n${run.stderr}`);
+			const run = spawnSync(process.execPath, [RUNNER, snapshotDir, UI_DIR!, outDir], {
+				encoding: "utf-8",
+				timeout: 300_000,
+			});
+			assert.strictEqual(run.status, 0, `producer failed:\n${run.stderr}`);
 
-		const suppressed = /fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) hygiene finding\(s\), (\d+) unused function\(s\)/.exec(
-			run.stderr,
-		);
-		assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
-		assert.ok(
-			Number(suppressed![1]) >= MIN_SECURITY_SUPPRESSED,
-			"HIGH + cited-MEDIUM security false positives must be suppressed on the fixed tree",
-		);
-		assert.ok(Number(suppressed![2]) > 0, "the layer-violation category must be suppressed");
+			const suppressed =
+				/fp-filter: suppressed (\d+) security issue\(s\), (\d+) layer violation\(s\), (\d+) hygiene finding\(s\), (\d+) unused function\(s\)/.exec(
+					run.stderr,
+				);
+			assert.ok(suppressed, `the producer must report what it dropped:\n${run.stderr}`);
+			assert.ok(
+				Number(suppressed![1]) >= MIN_SECURITY_SUPPRESSED,
+				"HIGH + cited-MEDIUM security false positives must be suppressed on the fixed tree",
+			);
+			assert.ok(Number(suppressed![2]) > 0, "the layer-violation category must be suppressed");
 
-		const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
-		assert.deepStrictEqual(
-			commandExecutionOf(report),
-			[],
-			"the four cited MEDIUM Command Execution hits must be resolved on the fixed tree",
-		);
-		assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
-		assert.deepStrictEqual(report.layerViolations, [], "no layer violation may survive the filter");
-		assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
-		assert.strictEqual(report.summary.healthGrade, "A");
-	});
+			const report = JSON.parse(readFileSync(join(outDir, "report.json"), "utf-8"));
+			assert.deepStrictEqual(
+				commandExecutionOf(report),
+				[],
+				"the four cited MEDIUM Command Execution hits must be resolved on the fixed tree",
+			);
+			assert.deepStrictEqual(highsOf(report), [], "no HIGH security finding may remain");
+			assert.deepStrictEqual(
+				report.layerViolations,
+				[],
+				"no layer violation may survive the filter",
+			);
+			assert.ok(report.summary.healthScore >= 90, "the corrected score must be an A");
+			assert.strictEqual(report.summary.healthGrade, "A");
+		},
+	);
 });

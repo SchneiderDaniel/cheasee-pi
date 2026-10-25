@@ -66,10 +66,7 @@ describe("APPEND_SYSTEM.md execution_protocols", () => {
 
 		// All 5 rule numbers must be present in order
 		for (let i = 1; i <= 5; i++) {
-			assert.ok(
-				content.includes(`${i}. `),
-				`APPEND_SYSTEM.md must contain rule number ${i}`,
-			);
+			assert.ok(content.includes(`${i}. `), `APPEND_SYSTEM.md must contain rule number ${i}`);
 		}
 	});
 });

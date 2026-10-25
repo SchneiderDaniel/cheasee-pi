@@ -68,6 +68,7 @@ flowchart TD
 
 ```markdown
 --- https://example.com (via curl_cffi) ---
+
 # Page Title
 
 Content extracted as Markdown...
@@ -111,6 +112,7 @@ is writable:
 ### Testing
 
 Tests cover:
+
 - Mock adapter: returns predefined results without network
 - Venv setup: creation, cache, re-creation on failure
 - Python adapter: subprocess invocation, cancellation via signal

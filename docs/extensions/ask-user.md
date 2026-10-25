@@ -29,6 +29,7 @@ Dual-tool extension with trust-gated persistence:
 ```
 
 Single-file extension. Core concerns:
+
 - **`ask_user` tool** — Choice and freetext modes with mode-adaptive rendering
 - **`ask_user_read` tool** — Retrieve past Q&A entries by id, list, or text query
 - **Persistence manager** — JSONL-based Q&A log with auto-rotation at 100 entries
@@ -45,19 +46,19 @@ flowchart TD
     B -- JSON/print --> E{Question essential?}
     E -- essential --> F[Show as text question]
     E -- non-essential --> G[Gracefully cancel: return default]
-    
+
     C --> H[User selects option or types free text]
     D --> H
     F --> H
-    
+
     H --> I{Project trusted?}
     I -- yes --> J[Write to .pi/context/qna.jsonl]
     I -- no --> K[Skip persistence]
-    
+
     J --> L[Check rotation: >100 entries?]
     L -- yes --> M[Archive: qna_0001.jsonl, reset]
     L -- no --> N[Done]
-    
+
     subgraph ask_user_read
         O[tool_call: ask_user_read]
         O --> P[Read from .pi/context/qna.jsonl]
@@ -70,12 +71,12 @@ flowchart TD
 
 ### Mode-Specific Rendering
 
-| Mode | ask_user UI | ask_user_read UI |
-|------|------------|------------------|
-| **TUI** | Scrollable dialog with option buttons | Inline list with IDs |
-| **RPC** | Flat numbered list (1. Option) | Structured JSON |
-| **JSON** | Graceful cancel for non-essential; text for essential | Structured JSON |
-| **Print** | Same as JSON | Same as JSON |
+| Mode      | ask_user UI                                           | ask_user_read UI     |
+| --------- | ----------------------------------------------------- | -------------------- |
+| **TUI**   | Scrollable dialog with option buttons                 | Inline list with IDs |
+| **RPC**   | Flat numbered list (1. Option)                        | Structured JSON      |
+| **JSON**  | Graceful cancel for non-essential; text for essential | Structured JSON      |
+| **Print** | Same as JSON                                          | Same as JSON         |
 
 ### Choice Mode Mechanics
 
@@ -119,6 +120,7 @@ flowchart TD
 ### Testing
 
 Tests cover:
+
 - Choice mode: option parsing, recommended marker, disableOther
 - Freetext mode: no options, freeform input
 - Mode adaptation: TUI/RPC/JSON/print rendering

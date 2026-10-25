@@ -261,8 +261,4 @@ export async function handlePostPipelineMerge(
 	return unresolvedConflicts;
 }
 
-export {
-	awaitPrMergeability,
-	classifyMergeability,
-	type PrGateVerdict,
-} from "./pr-gate.ts";
+export { awaitPrMergeability, classifyMergeability, type PrGateVerdict } from "./pr-gate.ts";

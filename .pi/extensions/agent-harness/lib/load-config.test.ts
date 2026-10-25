@@ -184,7 +184,13 @@ describe("loadProjectConfig", () => {
 		} catch (e) {
 			const match = /Allowed keys:\s*(.+)$/.exec((e as Error).message);
 			assert.ok(match, `error message must list allowed keys: "${(e as Error).message}"`);
-			assert.deepEqual(match[1].split(",").map((s) => s.trim()).sort(), [...ALLOWED_CONFIG_KEYS].sort());
+			assert.deepEqual(
+				match[1]
+					.split(",")
+					.map((s) => s.trim())
+					.sort(),
+				[...ALLOWED_CONFIG_KEYS].sort(),
+			);
 		}
 	});
 });

@@ -11,7 +11,9 @@ import type { RendererFn } from "./types.ts";
  */
 export const renderToolComplete: RendererFn = (message, _options, theme) => {
 	const raw = (message as any).details;
-	const icon = raw.isError ? theme.style("✗", { fg: "error" }) : theme.style("✓", { fg: "success" });
+	const icon = raw.isError
+		? theme.style("✗", { fg: "error" })
+		: theme.style("✓", { fg: "success" });
 	const paramsPart = raw.params ? ` ${theme.style(raw.params, { fg: "warning" })}` : "";
 	const headerText = `${icon} ${theme.style(raw.toolName, { fg: "toolTitle", bold: true })}: \`${raw.args}\`${paramsPart}`;
 	const bgFn = (l: string) =>
@@ -122,7 +124,10 @@ function highlightResultText(resultText: string, theme: any): string {
 			if (/^\d+\.\s+\S+:\d+:/.test(l)) {
 				const sep = l.indexOf(":");
 				if (sep > 0) {
-					return theme.style(l.slice(0, sep + 1), { fg: "dim" }) + theme.style(l.slice(sep + 1), { fg: "accent" });
+					return (
+						theme.style(l.slice(0, sep + 1), { fg: "dim" }) +
+						theme.style(l.slice(sep + 1), { fg: "accent" })
+					);
 				}
 			}
 			// Omitted long line entries
@@ -133,7 +138,10 @@ function highlightResultText(resultText: string, theme: any): string {
 			if (/^\/[\w/.-]+\.[a-z]+:/.test(l)) {
 				const colonIdx = l.indexOf(":");
 				if (colonIdx > 0) {
-					return theme.style(l.slice(0, colonIdx), { fg: "accent" }) + theme.style(l.slice(colonIdx), { fg: "dim" });
+					return (
+						theme.style(l.slice(0, colonIdx), { fg: "accent" }) +
+						theme.style(l.slice(colonIdx), { fg: "dim" })
+					);
 				}
 			}
 			return l;

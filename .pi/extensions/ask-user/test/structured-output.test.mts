@@ -116,9 +116,7 @@ describe("AskUserOutputSchema", () => {
 	const question = "Pick one:";
 
 	it("accepts a freetext payload", () => {
-		assert.ok(
-			Value.Check(AskUserOutputSchema, { question, mode: "freetext", answer: "x" }),
-		);
+		assert.ok(Value.Check(AskUserOutputSchema, { question, mode: "freetext", answer: "x" }));
 	});
 
 	it("accepts a choice payload", () => {
@@ -337,7 +335,11 @@ describe("ask_user structuredContent", () => {
 		);
 
 		assert.ok(Value.Check(AskUserOutputSchema, result.structuredContent));
-		assert.deepStrictEqual(Object.keys(result.structuredContent).sort(), ["answer", "mode", "question"]);
+		assert.deepStrictEqual(Object.keys(result.structuredContent).sort(), [
+			"answer",
+			"mode",
+			"question",
+		]);
 		assert.strictEqual(result.structuredContent.answer, "spaced answer");
 		assert.ok(!result.content[0].text.startsWith("{"));
 		assert.strictEqual(result.details.format, "qna-result-v1");
@@ -641,14 +643,7 @@ describe("ask_user_read structuredContent conformance (real execute)", () => {
 		await fs.promises.writeFile(path.join(tmpDir, ".pi", "context"), "not a dir", "utf-8");
 		const tools = registerTools();
 		await assert.rejects(
-			() =>
-				tools["ask_user_read"].execute(
-					"c1",
-					{ action: "list" },
-					null,
-					null,
-					readCtx(tmpDir),
-				),
+			() => tools["ask_user_read"].execute("c1", { action: "list" }, null, null, readCtx(tmpDir)),
 			/not a directory|ENOTDIR/,
 		);
 	});

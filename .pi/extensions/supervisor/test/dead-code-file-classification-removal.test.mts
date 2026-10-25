@@ -104,7 +104,10 @@ function namespaceMembers(consumer: Consumer, nsName: string): string[] {
 	const members: string[] = [];
 	const collect = (node: ts.Node): void => {
 		if (ts.isPropertyAccessExpression(node)) {
-			if (ts.isIdentifier(node.expression) && checker.getSymbolAtLocation(node.expression) === alias)
+			if (
+				ts.isIdentifier(node.expression) &&
+				checker.getSymbolAtLocation(node.expression) === alias
+			)
 				members.push(node.name.text);
 		} else if (
 			ts.isElementAccessExpression(node) &&
@@ -322,9 +325,7 @@ describe("file-classification export surface", () => {
 		// From checks/requirements/, "./file-classification.ts" is a different module.
 		const sibling = 'import { phantomThing } from "./file-classification.ts";\n';
 		assert.deepEqual(
-			unreferencedExports(synthetic, [
-				consumer(join(checksDir, "requirements", "x.ts"), sibling),
-			]),
+			unreferencedExports(synthetic, [consumer(join(checksDir, "requirements", "x.ts"), sibling)]),
 			["phantomThing"],
 		);
 	});
@@ -341,10 +342,9 @@ describe("file-classification export surface", () => {
 
 	it("recognizes re-export clauses and default declarations as exports", () => {
 		assert.deepEqual(unreferencedExports("export { phantomThing };\n", []), ["phantomThing"]);
-		assert.deepEqual(
-			unreferencedExports("export default function phantomThing(): void {}\n", []),
-			["default"],
-		);
+		assert.deepEqual(unreferencedExports("export default function phantomThing(): void {}\n", []), [
+			"default",
+		]);
 	});
 
 	it("recognizes a namespace export as an export", () => {

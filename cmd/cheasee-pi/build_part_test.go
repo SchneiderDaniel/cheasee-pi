@@ -99,7 +99,7 @@ func TestRunRebuildE_ArgsContainNoCacheAndPull(t *testing.T) {
 		t.Fatalf("expected exactly one compose build, got %d", len(stub.compose))
 	}
 	argv := stub.composeArgv()
-	if len(argv) < 9 || argv[0] != "docker" || argv[1] != "compose" {
+	if len(argv) < 7 || argv[0] != "docker" || argv[1] != "compose" {
 		t.Fatalf("unexpected compose argv: %v", argv)
 	}
 	wantFile := filepath.Join(xdg, "cheasee-pi", cliVersion(), "docker-compose.yml")
@@ -109,10 +109,12 @@ func TestRunRebuildE_ArgsContainNoCacheAndPull(t *testing.T) {
 	if argv[4] != "build" {
 		t.Fatalf("compose build missing, got %v", argv)
 	}
-	if argv[5] != "--build-arg" || !strings.HasPrefix(argv[6], "PI_BUILD_STAMP=") {
-		t.Fatalf("PI_BUILD_STAMP build arg missing, got %v", argv)
+	for _, a := range argv {
+		if a == "--build-arg" || strings.HasPrefix(a, "PI_BUILD_STAMP=") {
+			t.Fatalf("stamp must ride the compose env, not the argv, got %v", argv)
+		}
 	}
-	if argv[7] != "--no-cache" || argv[8] != "--pull" {
+	if argv[5] != "--no-cache" || argv[6] != "--pull" {
 		t.Fatalf("rebuild must pass --no-cache and --pull, got %v", argv)
 	}
 }

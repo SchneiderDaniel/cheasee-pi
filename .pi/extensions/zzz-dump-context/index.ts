@@ -118,8 +118,7 @@ export function splitSections(prompt: string): Section[] {
 	}
 
 	const baseBody = (appendIdx > 0 ? rest.slice(0, appendIdx) : rest.slice(0, tailEnd)).trim();
-	const appendBody =
-		appendIdx >= 0 ? rest.slice(appendIdx, tailEnd).trim() : "";
+	const appendBody = appendIdx >= 0 ? rest.slice(appendIdx, tailEnd).trim() : "";
 	const injBody = injIdx > 0 ? rest.slice(injIdx).trim() : "";
 
 	const sections: Section[] = [];

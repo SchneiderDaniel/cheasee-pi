@@ -13,11 +13,7 @@ import {
 	resetErrorCollector,
 } from "../pipeline/error-collector.ts";
 import type { ErrorRecord } from "../pipeline/error-collector.ts";
-import {
-	createDebugLogger,
-	setDebugLogger,
-	resetDebugLogger,
-} from "../lib/debug.ts";
+import { createDebugLogger, setDebugLogger, resetDebugLogger } from "../lib/debug.ts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -176,13 +172,12 @@ describe("ErrorCollector — toNotificationBlock", () => {
 			collector.push("src", "error", longMsg);
 			collector.toNotificationBlock();
 
-			const logLines = readFileSync(logger.getLogPath(), "utf8")
-				.trim()
-				.split("\n")
-				.filter(Boolean);
+			const logLines = readFileSync(logger.getLogPath(), "utf8").trim().split("\n").filter(Boolean);
 			const hit = logLines.find((l) => {
 				try {
-					return (JSON.parse(l) as { message: string }).message === "notification message truncated";
+					return (
+						(JSON.parse(l) as { message: string }).message === "notification message truncated"
+					);
 				} catch {
 					return false;
 				}
@@ -199,7 +194,11 @@ describe("ErrorCollector — toNotificationBlock", () => {
 
 	it("short message with remediation: marker is still extracted (marker wins over length)", () => {
 		const collector = new ErrorCollector();
-		collector.push("git", "error", "something failed — remediation: run `cheasee-pi init --reauth`");
+		collector.push(
+			"git",
+			"error",
+			"something failed — remediation: run `cheasee-pi init --reauth`",
+		);
 		const block = collector.toNotificationBlock();
 		assert.ok(block.includes("remediation: run `cheasee-pi init --reauth`"));
 		assert.ok(!block.includes("something failed"));

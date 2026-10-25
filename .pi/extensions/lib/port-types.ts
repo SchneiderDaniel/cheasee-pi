@@ -36,6 +36,7 @@ export type ExecFn = (
 ) => Promise<ExecResult>;
 
 /** Structured progress callback. */
-export type OnUpdateCallback = (
-	u: { content: Array<{ type: "text"; text: string }>; details: unknown },
-) => void;
+export type OnUpdateCallback = (u: {
+	content: Array<{ type: "text"; text: string }>;
+	details: unknown;
+}) => void;

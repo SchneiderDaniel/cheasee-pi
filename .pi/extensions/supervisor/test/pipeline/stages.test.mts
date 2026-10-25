@@ -164,100 +164,36 @@ describe("isDoneStatus()", () => {
 });
 
 // ─── Tests: isRejectionLimitReached() ─────────────────────────────
+// Issue #2044: the input is now a precomputed count (labels + legacy
+// comments, see lib/audit-rejections.ts), not a comment list.
 
 describe("isRejectionLimitReached()", () => {
-	it("returns { reached: true, count } when rejection marker count >= maxRejections", () => {
-		const comments = [
-			{ body: "## Audit Rejected\nSome issue" },
-			{ body: "## Audit Rejected\nAnother issue" },
-			{ body: "## Audit Rejected\nThird issue" },
-			{ body: "## Audit Approved\nLooks good" },
-		];
-		assert.deepEqual(isRejectionLimitReached(comments, 3), { reached: true, count: 3 });
+	it("returns { reached: true, count } when count >= maxRejections", () => {
+		assert.deepEqual(isRejectionLimitReached(3, 3), { reached: true, count: 3 });
 	});
 
 	it("returns { reached: false, count } when below maxRejections", () => {
-		const comments = [
-			{ body: "## Audit Rejected\nSome issue" },
-			{ body: "## Audit Approved\nLooks good" },
-		];
-		assert.deepEqual(isRejectionLimitReached(comments, 3), { reached: false, count: 1 });
+		assert.deepEqual(isRejectionLimitReached(1, 3), { reached: false, count: 1 });
+	});
+
+	it("count == max is the boundary → reached", () => {
+		assert.deepEqual(isRejectionLimitReached(5, 5), { reached: true, count: 5 });
 	});
 
 	it("returns { reached: false, count: 0 } when maxRejections is 0", () => {
-		const comments = [{ body: "## Audit Rejected\nSome issue" }];
-		assert.deepEqual(isRejectionLimitReached(comments, 0), { reached: false, count: 0 });
+		assert.deepEqual(isRejectionLimitReached(2, 0), { reached: false, count: 0 });
 	});
 
 	it("returns { reached: false, count: 0 } when maxRejections is undefined", () => {
-		const comments = [{ body: "## Audit Rejected\nSome issue" }];
-		assert.deepEqual(isRejectionLimitReached(comments, undefined), {
-			reached: false,
-			count: 0,
-		});
-	});
-
-	it("matches case-insensitive '## Audit Rejected'", () => {
-		const comments = [
-			{ body: "## audit rejected\nsome issue" },
-			{ body: "## AUDIT REJECTED\nanother" },
-			{ body: "## Audit Rejected\nthird" },
-		];
-		assert.deepEqual(isRejectionLimitReached(comments, 3), { reached: true, count: 3 });
-	});
-
-	it("does not match unrelated headers", () => {
-		const comments = [
-			{ body: "## Audit Approved\nLooks good" },
-			{ body: "## Some other header\ncontent" },
-		];
-		assert.deepEqual(isRejectionLimitReached(comments, 1), { reached: false, count: 0 });
-	});
-
-	// Issue #1668 regression: a quoted heading in a Test Plan body must not count.
-	it("exact #1618 scenario: 4 genuine + quoted Test Plan, max 5 → { reached: false, count: 4 }", () => {
-		const comments = [
-			{ body: "## Audit Rejected\nFirst" },
-			{ body: "## Audit Rejected\nSecond" },
-			{ body: "## Audit Rejected\nThird" },
-			{
-				body: '## Test Plan\n\nno "## Audit Rejected"/"## Audit Approved" verdict comment',
-			},
-			{ body: "## Audit Rejected\nFourth" },
-		];
-		assert.deepEqual(isRejectionLimitReached(comments, 5), { reached: false, count: 4 });
-	});
-
-	it("mid-body quote only → count 0", () => {
-		const comments = [{ body: "intro\n\n## Audit Rejected\n..." }];
-		assert.deepEqual(isRejectionLimitReached(comments, 1), { reached: false, count: 0 });
-	});
-
-	it("fenced-code line-start quote only → count 0", () => {
-		const comments = [{ body: "```\n## Audit Rejected\n```" }];
-		assert.deepEqual(isRejectionLimitReached(comments, 1), { reached: false, count: 0 });
-	});
-
-	it("5 genuine rejections, max 5 → { reached: true, count: 5 } (count == max boundary)", () => {
-		const comments = Array.from({ length: 5 }, (_, i) => ({
-			body: `## Audit Rejected\nIssue ${i + 1}`,
-		}));
-		assert.deepEqual(isRejectionLimitReached(comments, 5), { reached: true, count: 5 });
+		assert.deepEqual(isRejectionLimitReached(2, undefined), { reached: false, count: 0 });
 	});
 
 	it("maxRejections negative → { reached: false, count: 0 } (falsy guard preserved)", () => {
-		const comments = [{ body: "## Audit Rejected\nSome issue" }];
-		assert.deepEqual(isRejectionLimitReached(comments, -1), { reached: false, count: 0 });
+		assert.deepEqual(isRejectionLimitReached(2, -1), { reached: false, count: 0 });
 	});
 
-	it("comment entries with null/empty body are not counted", () => {
-		const comments = [{ body: "## Audit Rejected\nReal" }, { body: "" }, { body: null }];
-		assert.deepEqual(isRejectionLimitReached(comments, 2), { reached: false, count: 1 });
-	});
-
-	it("## Audit Approved body only → not counted", () => {
-		const comments = [{ body: "## Audit Approved\nLooks good" }];
-		assert.deepEqual(isRejectionLimitReached(comments, 1), { reached: false, count: 0 });
+	it("count 0 → not reached even with a limit configured", () => {
+		assert.deepEqual(isRejectionLimitReached(0, 3), { reached: false, count: 0 });
 	});
 });
 
@@ -861,6 +797,17 @@ describe("calculateNextStatus()", () => {
 
 	// ─── targetStatus tests ─────────────────────────────────────────────────
 
+	it("researcher targetStatus Implementation cannot skip Architecture", () => {
+		const agentOutput = JSON.stringify({
+			action: "COMPLETE",
+			agentName: "researcher",
+			summary: "Research complete",
+			targetStatus: "Implementation",
+		});
+		const result = calculateNextStatus("researcher", agentOutput, "");
+		assert.equal(result.status, "Architecture");
+	});
+
 	it("architect with targetStatus Research → Research (hadExplicitMarker=true)", () => {
 		// Structured JSON with targetStatus must bypass the FEEDBACK filter
 		const agentOutput = JSON.stringify({
@@ -1080,7 +1027,10 @@ describe("buildAgentResultEntry()", () => {
 	});
 
 	it("folds nestedErrors into failedToolCount via the shared combine", () => {
-		const entry = buildAgentResultEntry({ ...baseResult, failedToolCount: 1, nestedErrors: 2 }, false);
+		const entry = buildAgentResultEntry(
+			{ ...baseResult, failedToolCount: 1, nestedErrors: 2 },
+			false,
+		);
 		assert.equal(entry.failedToolCount, 3);
 	});
 

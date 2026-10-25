@@ -31,6 +31,7 @@ const REPO_ROOT = resolve(import.meta.dirname, "..");
 const WORKFLOW_PATH = resolve(REPO_ROOT, ".github", "workflows", "tests.yml");
 const PACKAGE_JSON_PATH = resolve(REPO_ROOT, "package.json");
 const PRETTIER_BIN = resolve(REPO_ROOT, "node_modules", ".bin", "prettier");
+const PRETTIERIGNORE_PATH = resolve(REPO_ROOT, ".prettierignore");
 
 interface Step {
 	uses?: string;
@@ -380,6 +381,55 @@ describe("Prettier format gate", () => {
 			const jobPermissions = (workflow.jobs ?? {})["format-check"]?.permissions;
 			if (jobPermissions?.contents !== undefined) {
 				assert.strictEqual(jobPermissions.contents, "read");
+			}
+		});
+	});
+
+	describe("Prettier sweep scope (.prettierignore)", () => {
+		const GOLDENS = ".pi/extensions/session-logger/test/fixtures/session-logger-renderer-goldens/";
+		function entries(): string[] {
+			return readFileSync(PRETTIERIGNORE_PATH, "utf-8")
+				.split("\n")
+				.map((l) => l.trim())
+				.filter((l) => l.length > 0 && !l.startsWith("#"));
+		}
+
+		it("carves out the generated renderer byte-goldens", () => {
+			assert.ok(
+				entries().includes(GOLDENS),
+				"the generated goldens dir must be quarantined from the sweep",
+			);
+		});
+
+		it("never quarantines hand-written source", () => {
+			for (const entry of entries()) {
+				assert.ok(
+					!entry.startsWith(".pi/extensions/scrapling/"),
+					`prettierignore must not hide hand-written source: ${entry}`,
+				);
+				assert.ok(
+					!entry.includes("renderer.ts"),
+					`the exclusion must stay in config, never source: ${entry}`,
+				);
+			}
+		});
+
+		it("holds only build/vendor ignores plus the golden carve-out", () => {
+			const allowed = new Set([
+				"node_modules/",
+				"dist/",
+				"build/",
+				"coverage/",
+				".git/",
+				"tmp/",
+				"*.min.js",
+				"*.min.css",
+				"package-lock.json",
+				GOLDENS,
+				"cmd/cheasee-pi/embedded/docker/ui/provider_env_map.json",
+			]);
+			for (const entry of entries()) {
+				assert.ok(allowed.has(entry), `unexpected .prettierignore entry: ${entry}`);
 			}
 		});
 	});

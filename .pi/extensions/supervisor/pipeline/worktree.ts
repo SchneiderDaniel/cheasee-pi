@@ -4,12 +4,7 @@
 // All functions return Result<T> for explicit failure handling.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import {
-	accessSync,
-	constants as fsConstants,
-	existsSync,
-	mkdirSync,
-} from "node:fs";
+import { accessSync, constants as fsConstants, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";

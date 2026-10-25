@@ -15,36 +15,36 @@ This page lists the 17 Cheasee-Pi extensions. Extension guides describe user-vis
 
 ## File manifest
 
-| File/Path | Extension |
-|-----------|-----------|
-| `.pi/extensions/structural-analyzer/` | [Structural Analyzer](extensions/structural-analyzer) |
-| `.pi/extensions/ripgrep-search/` | [Ripgrep Search](extensions/ripgrep-search) |
-| `.pi/extensions/scrapling/` | [Web Crawl (scrapling)](extensions/scrapling) |
-| `.pi/extensions/web-search/` | [Web Search](extensions/web-search) |
-| `.pi/extensions/supervisor/` | [Supervisor](extensions/supervisor) |
-| `.pi/extensions/context-info/` | [Context Info](extensions/context-info) |
-| `.pi/extensions/session-logger/` | [Session Logger](extensions/session-logger) |
-| `.pi/extensions/agent-harness/` | [Agent Harness](extensions/agent-harness) |
-| `.pi/extensions/ask-user/` | [Ask User](extensions/ask-user) |
-| `.pi/extensions/zzz-dump-context/` | [Dump Context](extensions/dump-context) |
-| `.pi/extensions/caveman/` | [Caveman Protocol](extensions/caveman) |
-| `.pi/extensions/format-on-save/` | [Format on Save](extensions/format-on-save) |
-| `.pi/extensions/lsp-auditor/` | [LSP Auditor](extensions/lsp-auditor) |
-| `.pi/extensions/ponytail/` | [Ponytail](extensions/ponytail) |
-| `.pi/extensions/tsc-checkpoint/` | [TSC Checkpoint](extensions/tsc-checkpoint) |
-| `.pi/extensions/worktree-sandbox/` | [Worktree Sandbox](extensions/worktree-sandbox) |
-| `.pi/extensions/rtk/` | [RTK](extensions/rtk) |
-| `.pi/extensions/lib/` | Shared library (not an extension) — `extension-state.ts`, `bash-query.ts`, `ensureVenv.ts` |
+| File/Path                             | Extension                                                                                  |
+| ------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `.pi/extensions/structural-analyzer/` | [Structural Analyzer](extensions/structural-analyzer)                                      |
+| `.pi/extensions/ripgrep-search/`      | [Ripgrep Search](extensions/ripgrep-search)                                                |
+| `.pi/extensions/scrapling/`           | [Web Crawl (scrapling)](extensions/scrapling)                                              |
+| `.pi/extensions/web-search/`          | [Web Search](extensions/web-search)                                                        |
+| `.pi/extensions/supervisor/`          | [Supervisor](extensions/supervisor)                                                        |
+| `.pi/extensions/context-info/`        | [Context Info](extensions/context-info)                                                    |
+| `.pi/extensions/session-logger/`      | [Session Logger](extensions/session-logger)                                                |
+| `.pi/extensions/agent-harness/`       | [Agent Harness](extensions/agent-harness)                                                  |
+| `.pi/extensions/ask-user/`            | [Ask User](extensions/ask-user)                                                            |
+| `.pi/extensions/zzz-dump-context/`    | [Dump Context](extensions/dump-context)                                                    |
+| `.pi/extensions/caveman/`             | [Caveman Protocol](extensions/caveman)                                                     |
+| `.pi/extensions/format-on-save/`      | [Format on Save](extensions/format-on-save)                                                |
+| `.pi/extensions/lsp-auditor/`         | [LSP Auditor](extensions/lsp-auditor)                                                      |
+| `.pi/extensions/ponytail/`            | [Ponytail](extensions/ponytail)                                                            |
+| `.pi/extensions/tsc-checkpoint/`      | [TSC Checkpoint](extensions/tsc-checkpoint)                                                |
+| `.pi/extensions/worktree-sandbox/`    | [Worktree Sandbox](extensions/worktree-sandbox)                                            |
+| `.pi/extensions/rtk/`                 | [RTK](extensions/rtk)                                                                      |
+| `.pi/extensions/lib/`                 | Shared library (not an extension) — `extension-state.ts`, `bash-query.ts`, `ensureVenv.ts` |
 
 ## Published packages
 
 Selected extensions are published as npm packages under the `@cheasee-pi` scope.
 
-| Package | Extension | Install |
-|---------|-----------|--------|
-| `@cheasee-pi/ask-user` | [Ask User](extensions/ask-user) | `pi install npm:@cheasee-pi/ask-user` |
-| `@cheasee-pi/ripgrep-search` | [Ripgrep Search](extensions/ripgrep-search) | `pi install npm:@cheasee-pi/ripgrep-search` |
-| `@cheasee-pi/lsp-auditor` | [LSP Auditor](extensions/lsp-auditor) | `pi install npm:@cheasee-pi/lsp-auditor` |
+| Package                           | Extension                                             | Install                                          |
+| --------------------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| `@cheasee-pi/ask-user`            | [Ask User](extensions/ask-user)                       | `pi install npm:@cheasee-pi/ask-user`            |
+| `@cheasee-pi/ripgrep-search`      | [Ripgrep Search](extensions/ripgrep-search)           | `pi install npm:@cheasee-pi/ripgrep-search`      |
+| `@cheasee-pi/lsp-auditor`         | [LSP Auditor](extensions/lsp-auditor)                 | `pi install npm:@cheasee-pi/lsp-auditor`         |
 | `@cheasee-pi/structural-analyzer` | [Structural Analyzer](extensions/structural-analyzer) | `pi install npm:@cheasee-pi/structural-analyzer` |
 
 **Why publish separately?** Not all extensions belong on pi.dev — some are Cheasee-Pi-specific (supervisor, session-logger, context-info). Published packages are self-contained, useful in any Pi setup.

@@ -29,11 +29,7 @@ const execFileP = promisify(execFile);
 /** Minimal ExtensionAPI whose exec shells out to real git. */
 function realGitPi(defaultCwd: string): ExtensionAPI {
 	return {
-		exec: (async (
-			cmd: string,
-			args: string[],
-			opts?: { cwd?: string; timeout?: number },
-		) => {
+		exec: (async (cmd: string, args: string[], opts?: { cwd?: string; timeout?: number }) => {
 			try {
 				const { stdout } = await execFileP(cmd, args, {
 					cwd: opts?.cwd ?? defaultCwd,

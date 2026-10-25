@@ -9,10 +9,11 @@ nav_order: 3
 {: .no_toc }
 
 ## Table of contents
+
 {: .no_toc .text-delta }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ---
 
@@ -42,6 +43,7 @@ automatically inside the container.
 > **Note about UID/GID:** The entrypoint auto-detects `HOST_UID` and `HOST_GID` from the
 > `/workspaces/main` mount ownership. On macOS (OrbStack) and Windows (WSL2), bind-mount
 > permissions may differ — if you encounter permission errors, pass them explicitly:
+>
 > ```bash
 > WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
 >   HOST_UID=$(id -u) HOST_GID=$(id -g) \
@@ -62,6 +64,7 @@ minutes on slower connections) and starts the container in detached mode. The co
 `sleep infinity` and stays alive until you stop it.
 
 **What happens:**
+
 - Compose/Dockerfile are extracted to the CLI cache dir; the image clones
   cheasee-pi's own repository (github.com/SchneiderDaniel/cheasee-pi,
   `ARG CHEASEE_REF`, default `main`) into `/opt/cheasee-pi` and symlinks its
@@ -84,8 +87,10 @@ cheasee-pi start
 ```
 
 Without `--build`, a running container is reused — start execs pi directly
-(~2s). A stopped container is rebuilt first (the pi layer re-resolves
-`@latest` via the build stamp), so the first start after `down` is slower.
+(~2s). A stopped container is rebuilt first (the pi layer re-resolves its
+pinned `PI_VERSION` via the build stamp), so the first start after `down` is
+slower. `PI_VERSION=latest` is the explicit opt-in for the floating npm
+latest.
 
 ### Raw docker compose (power users)
 
@@ -118,7 +123,7 @@ URL after starting:
 ℹ Optional browser sidecar — see docs/daily-usage.md §CodeFlow
 ```
 
-Each session start *also* posts the same URL as a clickable hyperlink inside
+Each session start _also_ posts the same URL as a clickable hyperlink inside
 pi, right below the existing startup hint (terminals without OSC 8 hyperlink
 support see the plain URL text):
 
@@ -159,11 +164,11 @@ http://localhost:<port>`) when sharing with specific peers.
 Settings live in `codeflow/config.json` inside the CLI cache dir (bind-mounted
 read-only, editable without rebuilding the image):
 
-| Key | Default | Purpose |
-| --- | --- | --- |
-| `port` | `8470` | Container-side listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed |
-| `host` | `0.0.0.0` | **Container-side** bind address — must stay `0.0.0.0` (docker-proxy/DNAT delivers published traffic to it); host-side reachability is the compose mapping's `CODEFLOW_HOST_IP` job, below |
-| `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names excluded from the served committed tree |
+| Key            | Default                              | Purpose                                                                                                                                                                                   |
+| -------------- | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `port`         | `8470`                               | Container-side listen port; keep the compose mapping (`CODEFLOW_PORT:8470`) in sync when changed                                                                                          |
+| `host`         | `0.0.0.0`                            | **Container-side** bind address — must stay `0.0.0.0` (docker-proxy/DNAT delivers published traffic to it); host-side reachability is the compose mapping's `CODEFLOW_HOST_IP` job, below |
+| `exclude_dirs` | `[".git", "node_modules", "ignore"]` | Directory names excluded from the served committed tree                                                                                                                                   |
 
 Configuration changes take effect on the next container start (no rebuild
 required). The compose port mapping uses `CODEFLOW_PORT` for the host side
@@ -253,13 +258,13 @@ workspace mount, so a running pi session reappears without a restart. Stopping
 the stack with `cheasee-pi down` stops the sidecar too.
 
 The sidecar binds **all container interfaces** at `0.0.0.0:3000` (required for
-docker-proxy/DNAT to deliver the published port); the *host* side is bound to
+docker-proxy/DNAT to deliver the published port); the _host_ side is bound to
 `127.0.0.1:<port>` by the compose mapping.
 
 ### Terminal + UI coexistence (in-use guard)
 
 A terminal session and the UI can drive the same workspace at once, but only one
-process may *attach* to a given session. `cheasee-pi start` publishes a
+process may _attach_ to a given session. `cheasee-pi start` publishes a
 live-session claim at `.pi/sessions/.cheasee-inuse/<sessionId>` on the shared
 workspace mount; the UI relay reads that claim and refuses a second attach with:
 
@@ -443,6 +448,7 @@ WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
 ```
 
 rebuild = no-cache full rebuild + prune. Use `rebuild` when:
+
 - Base image (`debian:12-slim`) has security updates — `rebuild`'s `--pull`
   refreshes it; `--no-cache` alone would keep the locally cached base image
 - `apt` or `pip` packages need fresh versions
@@ -524,11 +530,11 @@ interfere with new sessions.
 
 1. **Port conflict:** The CodeFlow host port is derived per repo (8470 +
    deterministic hash, next-free fallback) — two parallel workspaces normally
-get distinct ports. A custom `docker.codeflowPort` / `CODEFLOW_PORT` that
-collides with another service still fails "port is already allocated"; check
-with `docker ps` and pick a free port. The UI host port is derived the same
-way (9500 + hash, band 9500–10523); pin it with `docker.uiPort` / `PI_UI_PORT`
-if it collides.
+   get distinct ports. A custom `docker.codeflowPort` / `CODEFLOW_PORT` that
+   collides with another service still fails "port is already allocated"; check
+   with `docker ps` and pick a free port. The UI host port is derived the same
+   way (9500 + hash, band 9500–10523); pin it with `docker.uiPort` / `PI_UI_PORT`
+   if it collides.
 2. **Corrupt image:** Rebuild without cache:
    ```bash
    cheasee-pi rebuild

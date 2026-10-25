@@ -51,45 +51,27 @@ describe("validateUrl helper — protocol allowlist", () => {
 	});
 
 	it("(entity) validateUrl rejects file:// scheme", () => {
-		assert.throws(
-			() => validateUrl("file:///etc/passwd"),
-			/file:/,
-		);
+		assert.throws(() => validateUrl("file:///etc/passwd"), /file:/);
 	});
 
 	it("(entity) validateUrl rejects data:// scheme", () => {
-		assert.throws(
-			() => validateUrl("data://text/html,Hello"),
-			/data:/,
-		);
+		assert.throws(() => validateUrl("data://text/html,Hello"), /data:/);
 	});
 
 	it("(entity) validateUrl rejects ftp:// scheme", () => {
-		assert.throws(
-			() => validateUrl("ftp://ftp.example.com"),
-			/ftp:/,
-		);
+		assert.throws(() => validateUrl("ftp://ftp.example.com"), /ftp:/);
 	});
 
 	it("(entity) validateUrl rejects javascript: scheme", () => {
-		assert.throws(
-			() => validateUrl("javascript:alert(1)"),
-			/javascript:/,
-		);
+		assert.throws(() => validateUrl("javascript:alert(1)"), /javascript:/);
 	});
 
 	it("(entity) validateUrl('') throws Invalid URL (parse failure, not scheme reject)", () => {
-		assert.throws(
-			() => validateUrl(""),
-			/Invalid URL$/,
-		);
+		assert.throws(() => validateUrl(""), /Invalid URL$/);
 	});
 
 	it("(entity) validateUrl('not-a-url') throws Invalid URL (parse failure, not scheme reject)", () => {
-		assert.throws(
-			() => validateUrl("not-a-url"),
-			/Invalid URL$/,
-		);
+		assert.throws(() => validateUrl("not-a-url"), /Invalid URL$/);
 	});
 
 	it("(entity) error message for scheme reject includes 'only http and https protocols are allowed'", () => {

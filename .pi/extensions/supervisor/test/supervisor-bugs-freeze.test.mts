@@ -215,10 +215,7 @@ describe("Phase 3: Bug 3 — Timeout handling (deadline watchdog + abort)", () =
 			source.includes("Promise.race([body, deadlineFired])"),
 			"the cancellable body must be raced against deadlineFired",
 		);
-		assert.ok(
-			!source.includes("timeoutPromise"),
-			"the rejecting timeoutPromise race must be gone",
-		);
+		assert.ok(!source.includes("timeoutPromise"), "the rejecting timeoutPromise race must be gone");
 	});
 
 	it("3.2: timeout uses clearTimeout in finally block", () => {

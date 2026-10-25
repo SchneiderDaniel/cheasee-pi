@@ -5,44 +5,140 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
+// cheaseePiRepoURL is the upstream cloned into /opt/cheasee-pi by Dockerfile
+// Layer 6b and probed for the baked-copy cache-bust commit (issue #2054).
+const cheaseePiRepoURL = "https://github.com/SchneiderDaniel/cheasee-pi"
+
+// cheaseeCommitProbeTimeout bounds the upstream commit probe so an unreachable
+// remote cannot stall a build behind git's default connect timeout.
+const cheaseeCommitProbeTimeout = 10 * time.Second
+
+// cheaseeCommitCacheFile (in the version-keyed compose dir) records the commit
+// and ref of the last SUCCESSFUL build of ONE image, so (a) an offline build
+// keeps the clone layer's cache key unchanged instead of forcing a network
+// clone and (b) `cheasee-pi about` can report the baked /opt/cheasee-pi
+// revision. One record per image ref (cheaseeCommitCachePath): the compose dir
+// is shared by every workspace on this CLI version, so a single record would
+// let a build in workspace B overwrite what `about` reports for workspace A
+// (issue #2054 audit).
+const cheaseeCommitCacheFile = "cheasee-commit"
+
+// cheaseeCommitCachePath is one image's baked-commit record. imageRef is a
+// compose image name (sanitizeSlug charset only), so it is filename-safe.
+func cheaseeCommitCachePath(composeDir, imageRef string) string {
+	return filepath.Join(composeDir, cheaseeCommitCacheFile+"-"+imageRef)
+}
+
+// cheaseeCommitRecord is the last successful build's baked revision: the ref
+// it was resolved from and the commit it baked. Storing the ref alongside the
+// commit stops the offline fallback from reusing a commit produced by a
+// DIFFERENT ref (issue #2054 audit) — a cross-ref fallback would hand the
+// clone layer a cache key and HEAD guard for the wrong revision.
+type cheaseeCommitRecord struct {
+	ref    string
+	commit string
+}
+
+// cheaseeRef is the ref the baked copy tracks: a user-supplied CHEASEE_REF or
+// the compose/Dockerfile default main.
+func cheaseeRef() string {
+	if ref := os.Getenv("CHEASEE_REF"); ref != "" {
+		return ref
+	}
+	return "main"
+}
+
+// resolveCheaseeCommit is the upstream-commit probe feeding CHEASEE_COMMIT —
+// the clone layer's content-addressed cache-bust input. Injectable so unit
+// tests never reach the network (helpers_stub_test.go stubs it).
+var resolveCheaseeCommit = resolveCheaseeCommitFn
+
+// resolveCheaseeCommitFn is the real probe: the SHA/refs pairs from
+// `git ls-remote <repo> <ref>`, preferring an exact refs/heads/<ref> match and
+// then an annotated tag's peeled commit (refs/tags/<ref>^{}).
+func resolveCheaseeCommitFn(ctx context.Context, ref string) (string, error) {
+	out, err := runCommandContext(ctx, "git", "ls-remote", cheaseePiRepoURL, ref).Output()
+	if err != nil {
+		return "", err
+	}
+	// An annotated tag is listed twice: the tag object and its peeled commit
+	// (refs/tags/<ref>^{}). Only the peeled hash is a commit — `git clone
+	// --branch <tag>` checks that out, and the clone layer compares HEAD
+	// against it — so a peeled match must win over the first line.
+	heads := "refs/heads/" + ref
+	peeled := "refs/tags/" + ref + "^{}"
+	var first, peeledCommit string
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		if first == "" {
+			first = f[0]
+		}
+		if f[1] == heads {
+			return f[0], nil
+		}
+		if f[1] == peeled {
+			peeledCommit = f[0]
+		}
+	}
+	if peeledCommit != "" {
+		return peeledCommit, nil
+	}
+	if first != "" {
+		return first, nil
+	}
+	return "", fmt.Errorf("git ls-remote returned no commit for %q", ref)
+}
+
 // composeBuildSpec parameterizes composeBuild: the caller owns the extra
 // args, the label text, the optional pre-build notice, and the error wrap;
-// composeBuild owns the stamp, argv assembly, env, redirect and ordering.
+// composeBuild owns argv assembly, env, redirect and ordering.
 type composeBuildSpec struct {
-	extraArgs []string          // appended after the stamp build-arg, e.g. --no-cache --pull
+	extraArgs []string          // appended after `build`, e.g. --no-cache --pull
 	label     string            // build label printed as "  ℹ <label>..."
 	notice    string            // optional pre-build notice line (blank-line separated); "" → none
 	wrapErr   func(error) error // nil → return the raw Run() error
 }
 
 // composeBuild runs `docker compose -f <composeDir>/docker-compose.yml build`
-// with a per-build cache-busting PI_BUILD_STAMP, the caller's extra args, the
-// compose env, and the notice-before-label ordering shared by start and build.
+// with the caller's extra args, the compose env, and the notice-before-label
+// ordering shared by start and build.
 func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerName string, spec composeBuildSpec) error {
+	// Fail fast before BuildKit starts writing: a data root without room for
+	// the layers/export makes the daemon reclaim images and containers itself.
+	// Undeterminable space fails open (see checkBuildDiskSpace).
+	if err := checkBuildDiskSpace(ctx); err != nil {
+		return err
+	}
+
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
 
-	// Per-build cache-busting stamp so the pi-coding-agent layer always
-	// re-resolves @latest: Docker caches RUN layers on the command text +
-	// ARG values, and an unchanging ARG would serve a stale pi from the
-	// layer cache — the "Update Available" nag pointing at a version the
-	// image never carries. Never a constant. The pi layer sits after the
-	// clone/npm-ci layers, so this bust re-runs only the pi install —
-	// clone + npm ci stay cached across builds.
-	stamp := fmt.Sprintf("%d", time.Now().Unix())
-	args := []string{"compose", "-f", composeFile, "build", "--build-arg", "PI_BUILD_STAMP=" + stamp}
+	// The per-build cache-busting stamp rides the compose env (see
+	// applyComposeEnv) and is declared on the agent service's build.args in
+	// docker-compose.yml — never a global CLI --build-arg, which would reach
+	// every service whose Dockerfile declares the ARG.
+	args := []string{"compose", "-f", composeFile, "build"}
 	args = append(args, spec.extraArgs...)
 
 	build := runCommandContext(ctx, "docker", args...)
 	build.SetDir(composeDir)
 	build.SetStdout(os.Stderr)
 	build.SetStderr(os.Stderr)
+	// The record this build writes and the image it reads back are keyed by the
+	// workspace's image ref, never by the shared compose dir alone.
+	imageRef := cheaseeImageRef(workspaceHostPath)
+	// Resolved AFTER the disk gate so a refused build never probes the network.
+	commit := bakedCommitForBuild(ctx, composeDir, imageRef)
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
 	// cpus/git identity from settings.json ride along).
-	applyComposeEnv(build, workspaceHostPath, containerName, composeDir)
+	applyComposeEnv(build, workspaceHostPath, containerName, composeDir, "CHEASEE_COMMIT="+commit)
 	if spec.notice != "" {
 		// The notice precedes the build label with blank-line separation so
 		// buildx tty inline rendering (compose build paints over preceding
@@ -57,7 +153,96 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 		}
 		return err
 	}
+	// Dockerfile Layer 6b writes the clone's HEAD to /opt/cheasee-pi/BUILD_COMMIT
+	// and fails unless it equals CHEASEE_COMMIT, so a successful build bakes
+	// exactly `commit` — except when the probe left it empty (offline build
+	// with no record for this image yet), where the image's own BUILD_COMMIT is the
+	// source of truth. Persisting the ACTUAL baked commit keeps `cheasee-pi
+	// about` truthful even then (issue #2054 audit).
+	baked := commit
+	if baked == "" {
+		captured, err := captureBakedCommit(ctx, imageRef)
+		if err != nil {
+			// Never silent: an unreadable baked commit after a successful build
+			// leaves `about` reporting nothing, and the user must know why
+			// (issue #2054 audit). The image itself is built, so the build stands.
+			fmt.Fprintf(os.Stderr, "  \u26a0 baked cheasee-pi commit: %v — `cheasee-pi about` will not report one\n", err)
+		}
+		baked = captured
+	}
+	recordBakedCommit(composeDir, imageRef, cheaseeRef(), baked)
 	return nil
+}
+
+// captureBakedCommit reads the commit the built image actually baked at
+// /opt/cheasee-pi/BUILD_COMMIT. Only needed when the upstream probe left the
+// cache-bust ARG empty: the image is then the source of truth, so `about`
+// still reports the baked revision instead of nothing. The error is returned
+// rather than swallowed — a failed read of an already-built image is abnormal,
+// and an empty result is a missing commit, not a revision.
+func captureBakedCommit(ctx context.Context, imageRef string) (string, error) {
+	out, err := runCommandContext(ctx, "docker", "run", "--rm", "--entrypoint", "cat", imageRef, "/opt/cheasee-pi/BUILD_COMMIT").Output()
+	if err != nil {
+		return "", err
+	}
+	commit := strings.TrimSpace(string(out))
+	if commit == "" {
+		return "", fmt.Errorf("%s:/opt/cheasee-pi/BUILD_COMMIT is empty", imageRef)
+	}
+	return commit, nil
+}
+
+// recordBakedCommit persists the ref+commit a successful build of imageRef
+// baked into /opt/cheasee-pi. An empty commit is not a known revision and is
+// never recorded.
+func recordBakedCommit(composeDir, imageRef, ref, commit string) {
+	if commit == "" {
+		return
+	}
+	if err := atomicWrite(cheaseeCommitCachePath(composeDir, imageRef), []byte(ref+" "+commit+"\n"), 0644, false); err != nil {
+		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit cache: %v\n", err)
+	}
+}
+
+// readBakedCommit returns the last recorded ref+commit of imageRef, or a zero
+// record when none exists. Git refs contain no whitespace, so "<ref> <commit>"
+// round-trips unambiguously; a record without the separator yields a zero
+// record (conservative — no fallback, never a misattributed commit).
+func readBakedCommit(composeDir, imageRef string) cheaseeCommitRecord {
+	b, err := os.ReadFile(cheaseeCommitCachePath(composeDir, imageRef))
+	if err != nil {
+		return cheaseeCommitRecord{}
+	}
+	ref, commit, ok := strings.Cut(strings.TrimSpace(string(b)), " ")
+	if !ok {
+		return cheaseeCommitRecord{}
+	}
+	return cheaseeCommitRecord{ref: ref, commit: strings.TrimSpace(commit)}
+}
+
+// bakedCommitForBuild returns the clone layer's cache-bust input for one build
+// of imageRef: the upstream commit of CHEASEE_REF, or — when the probe fails —
+// the last commit that image baked from the SAME ref, so the layer's cache key
+// (and thus the cached layer) stays unchanged instead of forcing a network
+// clone. A commit recorded for a different ref is never reused: the cache key
+// and HEAD guard must describe the ref actually being built (issue #2054
+// audit).
+func bakedCommitForBuild(ctx context.Context, composeDir, imageRef string) string {
+	ref := cheaseeRef()
+	probeCtx, cancel := context.WithTimeout(ctx, cheaseeCommitProbeTimeout)
+	commit, err := resolveCheaseeCommit(probeCtx, ref)
+	cancel()
+	if err == nil && commit != "" {
+		return commit
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "  \u26a0 cheasee-pi commit probe: %v\n", err)
+	}
+	if prior := readBakedCommit(composeDir, imageRef); prior.commit != "" && prior.ref == ref {
+		fmt.Fprintf(os.Stderr, "  \u2139 reusing last baked cheasee-pi commit %s\n", prior.commit)
+		return prior.commit
+	}
+	return ""
 }
 
 // dockerComposeUp builds and starts the container from the cache dir. The
@@ -116,7 +301,10 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 // (the caller already holds it). SELinux-enforcing hosts opt in to
 // bind-mount relabeling via CHEASEEPI_SELINUX_RELABEL=1 (appends :Z to every
 // bind mount — documented, not default: relabel cost).
-func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir string) {
+// extraEnv carries per-invocation entries the caller owns (e.g. the build
+// path's resolved CHEASEE_COMMIT); they are appended after the derived env so
+// a single entry always wins.
+func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir string, extraEnv ...string) {
 	// Derived identity env is authoritative — strip inherited keys so
 	// duplicate KEY= entries (nondeterministic resolution across libc/exec)
 	// can never leak in. A user-set CODEFLOW_PORT / PI_UI_PORT is not
@@ -126,11 +314,21 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		"COMPOSE_PROJECT_NAME", "CODEFLOW_PORT",
 		"CHEASEEPI_CONTAINER", "CODEFLOW_CONTAINER",
 		"PI_UI_PORT", "PI_UI_CONTAINER",
+		"PI_BUILD_STAMP", "CHEASEE_COMMIT",
 		codeflowSpecEnv,
 	)
 	env = append(env,
 		"WORKSPACE_HOST_PATH="+workspaceHostPath,
 		"WORKSPACE_BARE_PATH="+filepath.Join(filepath.Dir(workspaceHostPath), ".bare"),
+		// Per-build cache-busting stamp so the agent image's pi-coding-agent
+		// layer always re-resolves the requested version: Docker caches RUN
+		// layers on the command text + ARG values, and an unchanging ARG would
+		// serve a stale pi from the layer cache. Never a constant. Scoped to
+		// the agent service via docker-compose.yml build.args — a global
+		// --build-arg would also bust the ui sidecar's pi layer. The pi layer
+		// sits after the clone/npm-ci layers, so this bust re-runs only the pi
+		// install; clone + npm ci stay cached across builds.
+		"PI_BUILD_STAMP="+fmt.Sprintf("%d", time.Now().Unix()),
 		// Container names carry the repo slug so distinct workspaces get
 		// distinct containers (compose interpolates them into container_name).
 		"CHEASEEPI_CONTAINER="+containerName,
@@ -191,5 +389,6 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 			env = append(env, "HOST_GIT_EMAIL="+s.GitIdentity.Email)
 		}
 	}
+	env = append(env, extraEnv...)
 	cmd.SetEnv(env)
 }

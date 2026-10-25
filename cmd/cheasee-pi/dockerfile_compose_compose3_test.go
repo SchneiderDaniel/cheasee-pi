@@ -47,16 +47,12 @@ func TestCompose_UIUserAlignsWithHost(t *testing.T) {
 // UI-spawned RPC child is the same pi build the terminal client uses (AC5).
 
 func TestCompose_UIBuildPassesPiVersion(t *testing.T) {
-	build, ok := composeService(t, readCompose(t), "ui")["build"].(map[string]any)
-	if !ok {
-		t.Fatal("ui build section missing")
+	args := composeBuildArgs(t, readCompose(t), "ui")
+	if args == nil {
+		t.Fatal("ui build args missing")
 	}
-	args, ok := build["args"].(map[string]any)
-	if !ok {
-		t.Fatalf("ui build args missing, got %v", build["args"])
-	}
-	if got := args["PI_VERSION"]; got != "${PI_VERSION:-latest}" {
-		t.Errorf("ui build arg PI_VERSION = %v, want ${PI_VERSION:-latest}", got)
+	if got := args["PI_VERSION"]; got != "${PI_VERSION:-1.0.2}" {
+		t.Errorf("ui build arg PI_VERSION = %v, want ${PI_VERSION:-1.0.2}", got)
 	}
 }
 

@@ -109,7 +109,10 @@ describe("seedStats — branch-scoped aggregation", () => {
 	it("modelChanges taken from branch only, root→leaf order preserved", () => {
 		const stats = createSessionStats();
 		const sm = {
-			getBranch: () => [modelChange("t1", "openai", "gpt-4"), modelChange("t2", "anthropic", "claude-3")],
+			getBranch: () => [
+				modelChange("t1", "openai", "gpt-4"),
+				modelChange("t2", "anthropic", "claude-3"),
+			],
 			getEntries: () => [
 				modelChange("t0", "meta", "llama"),
 				modelChange("t1", "openai", "gpt-4"),

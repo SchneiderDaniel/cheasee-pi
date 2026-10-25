@@ -138,11 +138,7 @@ describe("QuestionHandler — freetext mode", () => {
 		let capturedPlaceholder = "";
 		let capturedSignal: AbortSignal | undefined;
 		const ctx = makeMockCtx({
-			input: async (
-				title: string,
-				placeholder?: string,
-				opts?: { signal?: AbortSignal },
-			) => {
+			input: async (title: string, placeholder?: string, opts?: { signal?: AbortSignal }) => {
 				capturedTitle = title;
 				capturedPlaceholder = placeholder ?? "";
 				capturedSignal = opts?.signal;

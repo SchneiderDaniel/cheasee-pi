@@ -53,10 +53,10 @@ flowchart TD
     L -- no --> M[Notify: ✓ No type errors]
     L -- yes --> N[formatDiagnostics: markdown with relative file paths]
     N --> O[Notify: N errors + trend direction]
-    
+
     J -.-> P[On file change: ts updater diagnostics]
     P --> J
-    
+
     Q[session_shutdown] --> R[watcher.stop: closeProgram]
 ```
 
@@ -74,32 +74,35 @@ flowchart TD
 
 ```typescript
 class DiagnosticsWatcher {
-  private program: ts.WatchOfConfigFile<ts.SemanticDiagnosticsBuilderProgram> | null = null;
-  private diagnostics: TscDiagnostic[] = [];
-  private previousCount: number = 0;
+	private program: ts.WatchOfConfigFile<ts.SemanticDiagnosticsBuilderProgram> | null = null;
+	private diagnostics: TscDiagnostic[] = [];
+	private previousCount: number = 0;
 
-  start(): void {
-    this.program = ts.createWatchProgram(this.host);
-  }
+	start(): void {
+		this.program = ts.createWatchProgram(this.host);
+	}
 
-  getDiagnostics(): TscDiagnostic[] {
-    // Returns cached diagnostics from last compilation
-    return this.diagnostics;
-  }
+	getDiagnostics(): TscDiagnostic[] {
+		// Returns cached diagnostics from last compilation
+		return this.diagnostics;
+	}
 
-  getTrend(): DiagnosticTrend {
-    const current = this.diagnostics.length;
-    const direction = current > this.previousCount ? 'regressed'
-      : current < this.previousCount ? 'improved'
-      : 'stable';
-    this.previousCount = current;
-    return { current, previous: this.previousCount, direction };
-  }
+	getTrend(): DiagnosticTrend {
+		const current = this.diagnostics.length;
+		const direction =
+			current > this.previousCount
+				? "regressed"
+				: current < this.previousCount
+					? "improved"
+					: "stable";
+		this.previousCount = current;
+		return { current, previous: this.previousCount, direction };
+	}
 
-  stop(): void {
-    this.program?.close();
-    this.program = null;
-  }
+	stop(): void {
+		this.program?.close();
+		this.program = null;
+	}
 }
 ```
 
@@ -110,6 +113,7 @@ class DiagnosticsWatcher {
 ### Testing
 
 Tests cover:
+
 - Watcher: start, getDiagnostics, getTrend (all 3 directions), stop
 - Adapter: diagnosticToTscDiagnostic mapping, file path resolution
 - Formatter: markdown output, JSON output, trend formatting

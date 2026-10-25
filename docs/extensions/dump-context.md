@@ -23,8 +23,8 @@ The system prompt is assembled from many sources — pi's default prompt, the gl
 
 ## Commands
 
-| Command | Effect |
-|---------|--------|
+| Command         | Effect                                                                                 |
+| --------------- | -------------------------------------------------------------------------------------- |
 | `/dump-context` | Writes `ignore/dump-context.txt` + `ignore/dump-context-options.json` and prints stats |
 
 ## Stats
@@ -40,30 +40,30 @@ Injections: caveman, ponytail, lessons
 → ignore/dump-context-options.json
 ```
 
-| Stat | Source |
-|------|--------|
-| `B` | `event.systemPrompt.length` (UTF-8 bytes) |
-| `tok (est)` | `chars / 4` — rough heuristic (undercounts code/XML content) |
+| Stat              | Source                                                            |
+| ----------------- | ----------------------------------------------------------------- |
+| `B`               | `event.systemPrompt.length` (UTF-8 bytes)                         |
+| `tok (est)`       | `chars / 4` — rough heuristic (undercounts code/XML content)      |
 | `context` / `API` | `ctx.getContextUsage().tokens` — actual token count from provider |
-| `tools (ext)` | `selectedTools` length, filtered by built-in set |
-| `skills` | Counted from XML `<skill>` tags in prompt |
-| `ctx files` | `contextFiles.length` — AGENTS.md files found |
-| `guidelines` | `promptGuidelines.length` |
-| `sections` | Markdown heading count (`##` / `###`) |
-| Injections | Detected by substring match in prompt text |
+| `tools (ext)`     | `selectedTools` length, filtered by built-in set                  |
+| `skills`          | Counted from XML `<skill>` tags in prompt                         |
+| `ctx files`       | `contextFiles.length` — AGENTS.md files found                     |
+| `guidelines`      | `promptGuidelines.length`                                         |
+| `sections`        | Markdown heading count (`##` / `###`)                             |
+| Injections        | Detected by substring match in prompt text                        |
 
 ## Section attribution
 
 `dump-context.txt` labels each part of the assembled prompt with its source:
 
-| Section | Source |
-|---------|--------|
-| `[1] Base system prompt` | pi built-in (no custom `system.md`) |
+| Section                                       | Source                                                                                                                                         |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `[1] Base system prompt`                      | pi built-in (no custom `system.md`)                                                                                                            |
 | `[2] System prompt append (APPEND_SYSTEM.md)` | `~/.pi/agent/APPEND_SYSTEM.md` — the global cheasee-pi operating instructions, appended by pi in every repo (split seam: the file's H1 anchor) |
-| `[3] Project context` | `contextFiles` — AGENTS.md/CLAUDE.md files |
-| `[4] Skills` | model-invocation-enabled skills |
-| `[5] Working directory` | cwd line |
-| `[6] Extension injections` | appended via `before_agent_start` (caveman, ponytail, lessons) |
+| `[3] Project context`                         | `contextFiles` — AGENTS.md/CLAUDE.md files                                                                                                     |
+| `[4] Skills`                                  | model-invocation-enabled skills                                                                                                                |
+| `[5] Working directory`                       | cwd line                                                                                                                                       |
+| `[6] Extension injections`                    | appended via `before_agent_start` (caveman, ponytail, lessons)                                                                                 |
 
 ## Details
 
@@ -96,9 +96,9 @@ Without the `zzz-` prefix, the capture would miss later injections. The prefix e
 
 ### Files written
 
-| File | Content |
-|------|---------|
-| `ignore/dump-context.txt` | The exact system prompt text sent to the LLM |
+| File                               | Content                                                                                |
+| ---------------------------------- | -------------------------------------------------------------------------------------- |
+| `ignore/dump-context.txt`          | The exact system prompt text sent to the LLM                                           |
 | `ignore/dump-context-options.json` | `BuildSystemPromptOptions` — structured data: tools, skills, guidelines, context files |
 
 Both files are overwritten each call. Saved to `ignore/` per project conventions (temp files go in `ignore/`).

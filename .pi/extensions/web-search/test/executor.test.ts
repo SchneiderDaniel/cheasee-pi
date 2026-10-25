@@ -13,12 +13,7 @@ import path from "node:path";
 import type { ExecResult, ExecFn } from "../types.ts";
 import { SEARCH_SCRIPT } from "../python-script.ts";
 import { FRAME } from "../protocol.ts";
-import {
-	shSingleQuote,
-	runSearchScript,
-	cleanupStaleTempDirs,
-} from "../executor.ts";
-
+import { shSingleQuote, runSearchScript, cleanupStaleTempDirs } from "../executor.ts";
 
 type ExecHandler = ExecFn;
 

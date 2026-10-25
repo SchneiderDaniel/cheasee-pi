@@ -49,21 +49,21 @@ tool_call(event)
 
 ### Bypass prevention
 
-| Bypass vector | How it's caught |
-|--------------|-----------------|
-| `cd $HOME` | Variable expansion → `""` → blocked as `<HOME>` |
-| `cd ~/escape` | Tilde expansion → `hasShellExpansion()` |
-| `cd $(echo /escape)` | Command substitution → `hasShellExpansion()` |
-| `echo \| cd /escape` | Pipe prefix → `isCommandStart()` passes cd |
-| `cd; cd /etc` | Bare cd → blocked as `<HOME>` | 
-| `cat > /outside/file` | Redirect target → `findUnsafeWriteInBash()` |
-| `cp file /outside/dest` | Last arg → `findUnsafeWriteInBash()` |
-| `echo x \| tee /outside/f safe.txt` | **Every** `tee` operand checked (multi-destination), not just the last |
-| `touch /outside/f safe.txt` | **Every** `touch` operand checked (multi-destination) |
-| `cp -t /outside src` | `-t`/`--target-directory` value → `findUnsafeWriteInBash()` |
-| `> /dev/nullable` / `<sb>/dev/null` | Not a device: exact-match on resolved path, not prefix |
-| `mv x /dev/null` / `ln -sf x /dev/null` | Directory-entry ops: `/dev/null` exemption is content-sink only |
-| `cp --remove-destination x /dev/null` | `cp` excluded from content sinks: unlink/backup modes mutate the dir entry |
+| Bypass vector                           | How it's caught                                                            |
+| --------------------------------------- | -------------------------------------------------------------------------- |
+| `cd $HOME`                              | Variable expansion → `""` → blocked as `<HOME>`                            |
+| `cd ~/escape`                           | Tilde expansion → `hasShellExpansion()`                                    |
+| `cd $(echo /escape)`                    | Command substitution → `hasShellExpansion()`                               |
+| `echo \| cd /escape`                    | Pipe prefix → `isCommandStart()` passes cd                                 |
+| `cd; cd /etc`                           | Bare cd → blocked as `<HOME>`                                              |
+| `cat > /outside/file`                   | Redirect target → `findUnsafeWriteInBash()`                                |
+| `cp file /outside/dest`                 | Last arg → `findUnsafeWriteInBash()`                                       |
+| `echo x \| tee /outside/f safe.txt`     | **Every** `tee` operand checked (multi-destination), not just the last     |
+| `touch /outside/f safe.txt`             | **Every** `touch` operand checked (multi-destination)                      |
+| `cp -t /outside src`                    | `-t`/`--target-directory` value → `findUnsafeWriteInBash()`                |
+| `> /dev/nullable` / `<sb>/dev/null`     | Not a device: exact-match on resolved path, not prefix                     |
+| `mv x /dev/null` / `ln -sf x /dev/null` | Directory-entry ops: `/dev/null` exemption is content-sink only            |
+| `cp --remove-destination x /dev/null`   | `cp` excluded from content sinks: unlink/backup modes mutate the dir entry |
 
 ## Install
 
@@ -113,25 +113,25 @@ flowchart TD
 
 ### Bypass Vectors Blocked
 
-| Vector | Example | Detection |
-|--------|---------|-----------|
-| Variable expansion | `cd $HOME/escape` | `hasShellExpansion()` |
-| Command substitution | `cd \`escape\`` | `hasShellExpansion()` |
-| Tilde expansion | `cd ~/../escape` | `hasShellExpansion()` |
-| Pipe prefix | `echo \| cd /escape` | `isCommandStart()` |
-| Bare cd | `cd && ./escape` | `findMeaningfulToken()` exhausted |
-| Redirect escape | `cmd > /escape` | Redirect detection |
-| cp/mv destination | `cp x /outside/file` | Command detection |
-| tee/touch operands | `echo x \| tee /outside/f ok.txt` | Write-grammar table (`operands: "all"`) |
-| target-directory option | `cp -t /outside src` | `targetDirectoryOptions` in grammar table |
-| bundled target-directory | `cp -at /outside src` | Short-option bundles walked letter-by-letter (`-at` = `-a` + `-t`) |
-| glob write operand | `echo x \| tee /outside/* ok.txt` | Glob token pattern is a target, not a skipped operator → `hasShellExpansion()` |
-| glob target-directory | `cp -t /outside/* src` | Glob value extracted and checked, not dropped |
-| glob value option | `touch -r /outside/* ok.txt` | Glob/expansion option values checked — extra expanded words become operands (arity guard) |
-| Attached expansion on a flag | `cp -t$OUT src`, `touch -r$REF ok.txt` | Expansion-preserving tokenization keeps the `$` on the token instead of letting shell-quote drop it |
-| Command word built by expansion | `c$X -t /outside src` | Expansion in command position fails closed — no grammar can be matched |
-| Empty variable | `$UNSET_VAR` | Resolves to empty string, blocked |
-| `cd -` | `cd -` | Previous dir always potentially unsafe |
+| Vector                          | Example                                | Detection                                                                                           |
+| ------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| Variable expansion              | `cd $HOME/escape`                      | `hasShellExpansion()`                                                                               |
+| Command substitution            | `cd \`escape\``                        | `hasShellExpansion()`                                                                               |
+| Tilde expansion                 | `cd ~/../escape`                       | `hasShellExpansion()`                                                                               |
+| Pipe prefix                     | `echo \| cd /escape`                   | `isCommandStart()`                                                                                  |
+| Bare cd                         | `cd && ./escape`                       | `findMeaningfulToken()` exhausted                                                                   |
+| Redirect escape                 | `cmd > /escape`                        | Redirect detection                                                                                  |
+| cp/mv destination               | `cp x /outside/file`                   | Command detection                                                                                   |
+| tee/touch operands              | `echo x \| tee /outside/f ok.txt`      | Write-grammar table (`operands: "all"`)                                                             |
+| target-directory option         | `cp -t /outside src`                   | `targetDirectoryOptions` in grammar table                                                           |
+| bundled target-directory        | `cp -at /outside src`                  | Short-option bundles walked letter-by-letter (`-at` = `-a` + `-t`)                                  |
+| glob write operand              | `echo x \| tee /outside/* ok.txt`      | Glob token pattern is a target, not a skipped operator → `hasShellExpansion()`                      |
+| glob target-directory           | `cp -t /outside/* src`                 | Glob value extracted and checked, not dropped                                                       |
+| glob value option               | `touch -r /outside/* ok.txt`           | Glob/expansion option values checked — extra expanded words become operands (arity guard)           |
+| Attached expansion on a flag    | `cp -t$OUT src`, `touch -r$REF ok.txt` | Expansion-preserving tokenization keeps the `$` on the token instead of letting shell-quote drop it |
+| Command word built by expansion | `c$X -t /outside src`                  | Expansion in command position fails closed — no grammar can be matched                              |
+| Empty variable                  | `$UNSET_VAR`                           | Resolves to empty string, blocked                                                                   |
+| `cd -`                          | `cd -`                                 | Previous dir always potentially unsafe                                                              |
 
 ### Key Design Decisions
 
@@ -144,15 +144,15 @@ flowchart TD
 
 ### Path Rewriting Rules
 
-| Input | Type | Result |
-|-------|------|--------|
-| `relative/path.ts` | relative | Rewritten to `<sandbox>/relative/path.ts` |
-| `/absolute/within/sandbox` | absolute (within) | Pass through, normalized |
-| `/absolute/outside` | absolute (outside) | Blocked |
-| `../../outside` | traversal | Blocked |
-| `<sandbox>/../../../../etc/passwd` | absolute traversal | Blocked (resolved before check) |
-| `/dev/null` | side-effect-free device | Blocked for tool paths; bash content-sink redirects exempt |
-| Directory for `read` | any | Blocked, suggest `bash ls` |
+| Input                              | Type                    | Result                                                     |
+| ---------------------------------- | ----------------------- | ---------------------------------------------------------- |
+| `relative/path.ts`                 | relative                | Rewritten to `<sandbox>/relative/path.ts`                  |
+| `/absolute/within/sandbox`         | absolute (within)       | Pass through, normalized                                   |
+| `/absolute/outside`                | absolute (outside)      | Blocked                                                    |
+| `../../outside`                    | traversal               | Blocked                                                    |
+| `<sandbox>/../../../../etc/passwd` | absolute traversal      | Blocked (resolved before check)                            |
+| `/dev/null`                        | side-effect-free device | Blocked for tool paths; bash content-sink redirects exempt |
+| Directory for `read`               | any                     | Blocked, suggest `bash ls`                                 |
 
 ### Threat Model
 
@@ -160,10 +160,10 @@ The sandbox is a **best-effort interceptor**, not a process-level boundary. Abso
 defense requires OS-level isolation (container, seccomp, mount namespaces).
 
 - **Lexical containment** — All paths are normalized with `node:path.resolve`
-  (collapsing `..`, `//`, trailing slashes) *before* the containment check, and
-the normalized path is what reaches the tool. This defeats `..` traversal
-deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
-(containment check must run on normalized input).
+  (collapsing `..`, `//`, trailing slashes) _before_ the containment check, and
+  the normalized path is what reaches the tool. This defeats `..` traversal
+  deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
+  (containment check must run on normalized input).
 - **Symlink-escape residual** — `path.resolve` is lexical: it never resolves
   symlinks. A symlink inside the worktree pointing outside defeats the check
   (node-tar CVE-2021-32803 class). Realpath-based physical containment is
@@ -172,12 +172,12 @@ deterministically (CWE-22), matching the same fix shape as Vite CVE-2023-34092
   practical exposure. If physical containment is ever required, apply
   `fs.realpathSync` to the deepest existing ancestor and re-check containment.
 - **Device exemption** — `isSideEffectFreeDevice` allow-lists exactly
-  `/dev/null` on the *resolved* target (`/dev/null/` and `/dev/../dev/null`
+  `/dev/null` on the _resolved_ target (`/dev/null/` and `/dev/../dev/null`
   collapse to it; `/dev/nullable` and `/dev/null/../etc/passwd` do not), and it
   is composed only into pure **content sinks**: shell redirects (`>`, `>>`),
   `dd of=`, and `tee`. Writing bytes there is discarded and opening the device
   for output neither creates, renames, nor re-links a directory entry. `tee`
-  takes one destination per operand, so *every* non-flag operand is validated —
+  takes one destination per operand, so _every_ non-flag operand is validated —
   a trailing `/dev/null` cannot launder an earlier real write such as
   `tee /etc/evil /dev/null`.
   Operations that can mutate the `/dev/null` directory entry or its metadata

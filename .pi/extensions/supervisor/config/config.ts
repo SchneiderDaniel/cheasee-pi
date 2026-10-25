@@ -34,11 +34,9 @@ export const SupervisorConfigSchema = z.object({
 		.int({ message: "supervisor.projectNumber must be an integer" })
 		.positive({ message: "supervisor.projectNumber must be a positive integer" }),
 	statusField: z.string().default("Status"),
-	statusMapping: z
-		.record(z.string(), z.string())
-		.refine((val) => Object.keys(val).length > 0, {
-			message: "supervisor.statusMapping is required",
-		}),
+	statusMapping: z.record(z.string(), z.string()).refine((val) => Object.keys(val).length > 0, {
+		message: "supervisor.statusMapping is required",
+	}),
 	maxRejections: z.number().int().nonnegative().default(3),
 	codeowners: z
 		.array(z.string())
@@ -55,9 +53,13 @@ export const SupervisorConfigSchema = z.object({
 	agentTimeoutSec: z
 		.record(
 			z.string(),
-			z.number().int().nonnegative().max(MAX_AGENT_TIMEOUT_SEC, {
-				message: `supervisor.agentTimeoutSec values must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit)`,
-			}),
+			z
+				.number()
+				.int()
+				.nonnegative()
+				.max(MAX_AGENT_TIMEOUT_SEC, {
+					message: `supervisor.agentTimeoutSec values must be ≤ ${MAX_AGENT_TIMEOUT_SEC}s (Node timer limit)`,
+				}),
 		)
 		.optional(),
 	// Per-tier multiplier for the DEFAULT timeout (issue #1987). Bare schema
@@ -222,7 +224,10 @@ function validateTimeoutRecord(
  * Validate the raw agentTimeoutsMin config value (minutes, positive).
  * Returns a sanitized Record<string, number>.
  */
-export const validateAgentTimeouts = (raw: unknown, knownAgents: string[]): Record<string, number> =>
+export const validateAgentTimeouts = (
+	raw: unknown,
+	knownAgents: string[],
+): Record<string, number> =>
 	validateTimeoutRecord(raw, knownAgents, TIMEOUT_FIELD_SPECS.agentTimeoutsMin);
 
 /**
@@ -234,7 +239,8 @@ export const validateAgentTimeouts = (raw: unknown, knownAgents: string[]): Reco
 export const validateAgentTimeoutSec = (
 	raw: unknown,
 	knownAgents: string[],
-): Record<string, number> => validateTimeoutRecord(raw, knownAgents, TIMEOUT_FIELD_SPECS.agentTimeoutSec);
+): Record<string, number> =>
+	validateTimeoutRecord(raw, knownAgents, TIMEOUT_FIELD_SPECS.agentTimeoutSec);
 
 /** Source of a resolved per-agent timeout policy. */
 type TimeoutSource = "agentTimeoutSec" | "agentTimeoutsMin" | "default";

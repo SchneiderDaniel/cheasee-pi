@@ -26,7 +26,10 @@ describe("makeWorkspace", () => {
 	it("writes the given content verbatim and defaults to '{}'", () => {
 		const content = `{"docker":{"uiPort":"9600"}}`;
 		const withContent = makeWorkspace("helpers-b-", content);
-		assert.strictEqual(readFileSync(join(withContent.root, "cheasee-settings.json"), "utf-8"), content);
+		assert.strictEqual(
+			readFileSync(join(withContent.root, "cheasee-settings.json"), "utf-8"),
+			content,
+		);
 		const defaulted = makeWorkspace("helpers-c-");
 		assert.strictEqual(readFileSync(join(defaulted.root, "cheasee-settings.json"), "utf-8"), "{}");
 	});
@@ -42,9 +45,12 @@ describe("makeBareWithRemote", () => {
 	it("creates <parent>/.bare with remote.origin.url set", () => {
 		const { parent } = makeWorkspace("helpers-e-");
 		makeBareWithRemote(parent, "git@github.com:alice/foo.git");
-		const url = execSync(`git --git-dir "${join(parent, ".bare")}" config --get remote.origin.url`, {
-			encoding: "utf-8",
-		}).trim();
+		const url = execSync(
+			`git --git-dir "${join(parent, ".bare")}" config --get remote.origin.url`,
+			{
+				encoding: "utf-8",
+			},
+		).trim();
 		assert.strictEqual(url, "git@github.com:alice/foo.git");
 	});
 });

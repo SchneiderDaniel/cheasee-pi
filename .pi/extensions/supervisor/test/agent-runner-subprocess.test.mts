@@ -1105,10 +1105,7 @@ if (hasMockModule) {
 			assert.ok(toolStartMsgs.length >= 1, "should have tool-start messages");
 			// tool-start already has agentName before this change — verify it's still there
 			for (const msg of toolStartMsgs) {
-				assert.ok(
-					msg.details.agentName !== undefined,
-					"tool-start should still have agentName",
-				);
+				assert.ok(msg.details.agentName !== undefined, "tool-start should still have agentName");
 			}
 		});
 	});
@@ -1146,10 +1143,7 @@ if (hasMockModule) {
 			const { buildSubprocessArgs } = await import("../agent/runner.ts");
 			const largeTask = "x".repeat(1_200_001);
 			const result = buildSubprocessArgs(mockAgent as any, largeTask, "/tmp");
-			assert.ok(
-				result.toolSpillDir !== undefined,
-				"toolSpillDir should be present for large task",
-			);
+			assert.ok(result.toolSpillDir !== undefined, "toolSpillDir should be present for large task");
 			assert.ok(
 				typeof result.toolSpillDir === "string" && result.toolSpillDir.length > 0,
 				"toolSpillDir should be a non-empty string",

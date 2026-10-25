@@ -203,7 +203,7 @@ describe("installFooter — mode guard", () => {
 				showTimer: true,
 				showTps: true,
 				showCache: true,
-			welcomeTimeoutMs: 0,
+				welcomeTimeoutMs: 0,
 			};
 
 			const footerConfig = createDefaultFooterConfig();
@@ -237,7 +237,7 @@ describe("installFooter — mode guard", () => {
 			showTimer: true,
 			showTps: true,
 			showCache: true,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -269,7 +269,7 @@ describe("installFooter — mode guard", () => {
 			showTimer: true,
 			showTps: true,
 			showCache: true,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -307,7 +307,7 @@ describe("installFooter with FooterConfig", () => {
 			showTimer: true,
 			showTps: true,
 			showCache: true,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -336,7 +336,7 @@ describe("installFooter with FooterConfig", () => {
 			showTimer: true,
 			showTps: true,
 			showCache: true,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -389,7 +389,7 @@ describe("installFooter with FooterConfig", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig: FooterConfig = {
@@ -463,7 +463,7 @@ describe("installFooter with FooterConfig", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -566,7 +566,7 @@ describe("footer — CH display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: true,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -612,7 +612,7 @@ describe("footer — CH display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -658,7 +658,7 @@ describe("footer — CH display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: true,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -710,7 +710,7 @@ describe("footer — session name display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -759,7 +759,7 @@ describe("footer — session name display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -806,7 +806,7 @@ describe("footer — session name display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -857,7 +857,7 @@ describe("footer — trust status display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -901,7 +901,7 @@ describe("footer — trust status display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -945,7 +945,7 @@ describe("footer — trust status display", () => {
 			showTimer: false,
 			showTps: false,
 			showCache: false,
-		welcomeTimeoutMs: 0,
+			welcomeTimeoutMs: 0,
 		};
 
 		const footerConfig = createDefaultFooterConfig();
@@ -1065,8 +1065,10 @@ function createHarness(options: FooterHarnessOptions = {}) {
 }
 
 describe("footer — usage color tokens", () => {
-	it("low tokens emit theme.fg(\"success\", \"64.0K/128.0K\")", () => {
-		const { component, captured } = createHarness({ usage: { tokens: 64_000, contextWindow: 128_000 } });
+	it('low tokens emit theme.fg("success", "64.0K/128.0K")', () => {
+		const { component, captured } = createHarness({
+			usage: { tokens: 64_000, contextWindow: 128_000 },
+		});
 		component.render(120);
 		assert.ok(
 			captured.some((c) => c.color === "success" && c.text === "64.0K/128.0K"),
@@ -1075,7 +1077,9 @@ describe("footer — usage color tokens", () => {
 	});
 
 	it("mid tokens emit warning", () => {
-		const { component, captured } = createHarness({ usage: { tokens: 120_000, contextWindow: 128_000 } });
+		const { component, captured } = createHarness({
+			usage: { tokens: 120_000, contextWindow: 128_000 },
+		});
 		component.render(120);
 		assert.ok(
 			captured.some((c) => c.color === "warning" && c.text === "120.0K/128.0K"),
@@ -1084,7 +1088,9 @@ describe("footer — usage color tokens", () => {
 	});
 
 	it("overflow/null-tier tokens emit error", () => {
-		const { component, captured } = createHarness({ usage: { tokens: 200_000, contextWindow: 128_000 } });
+		const { component, captured } = createHarness({
+			usage: { tokens: 200_000, contextWindow: 128_000 },
+		});
 		component.render(120);
 		assert.ok(
 			captured.some((c) => c.color === "error" && c.text === "200.0K/128.0K"),

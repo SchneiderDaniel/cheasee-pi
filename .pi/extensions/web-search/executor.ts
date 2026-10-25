@@ -165,9 +165,7 @@ export function parseSearchResults(
 		}
 		const raw = parsed.results;
 		const results = Array.isArray(raw)
-			? raw
-					.map(toSearchResult)
-					.filter((r): r is SearchResult => r !== null)
+			? raw.map(toSearchResult).filter((r): r is SearchResult => r !== null)
 			: [];
 		return { ok: true, results };
 	} catch (e) {

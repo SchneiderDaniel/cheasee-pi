@@ -108,7 +108,17 @@ describe("auditor.md — Code Quality duplicate detection (Phase 2)", () => {
 describe("resolveSkillPaths regression (Phase 3)", () => {
 	it("resolveSkillPaths('extension-duplicate-code-hunter') returns array with correct path", () => {
 		const result = resolveSkillPaths("extension-duplicate-code-hunter");
-		if (existsSync(resolve(process.cwd(), "private-pi", "skills", "extension-duplicate-code-hunter", "SKILL.md"))) {
+		if (
+			existsSync(
+				resolve(
+					process.cwd(),
+					"private-pi",
+					"skills",
+					"extension-duplicate-code-hunter",
+					"SKILL.md",
+				),
+			)
+		) {
 			assert.equal(result.length, 1);
 			assert.ok(
 				result[0]!.endsWith("extension-duplicate-code-hunter/SKILL.md"),
@@ -152,8 +162,6 @@ describe("resolveSkillPaths regression (Phase 3)", () => {
 			warnSpy.mock.restore();
 		}
 		assert.ok(warnSpy.mock.calls.length >= 1, "should warn for missing skill");
-		assert.ok(
-			String(warnSpy.mock.calls[0]?.arguments[0] ?? "").includes("nonexistent-skill-xyz"),
-		);
+		assert.ok(String(warnSpy.mock.calls[0]?.arguments[0] ?? "").includes("nonexistent-skill-xyz"));
 	});
 });

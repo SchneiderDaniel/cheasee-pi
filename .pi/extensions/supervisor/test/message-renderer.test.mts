@@ -308,12 +308,27 @@ describe("expanded view (expanded=true) — _subagentResult path", () => {
 		const result = makeSubagentResult(details, { outputText: "output" });
 		const c = renderMessage(result, undefined, true) as Container;
 		const lines = renderStripped(c);
-		const hasThinkingLevelIcon = lines.some((l) => l.includes("◒") || l.includes("◓") || l.includes("○") || l.includes("◐") || l.includes("◑") || l.includes("●"));
+		const hasThinkingLevelIcon = lines.some(
+			(l) =>
+				l.includes("◒") ||
+				l.includes("◓") ||
+				l.includes("○") ||
+				l.includes("◐") ||
+				l.includes("◑") ||
+				l.includes("●"),
+		);
 		assert.equal(hasThinkingLevelIcon, false, "should not show thinking icons when not set");
 	});
 
 	it("all thinking levels render expected icon in collapsed view", () => {
-		const iconMap: Record<string, string> = { off: "○", minimal: "◐", low: "◑", medium: "◒", high: "◓", xhigh: "●" };
+		const iconMap: Record<string, string> = {
+			off: "○",
+			minimal: "◐",
+			low: "◑",
+			medium: "◒",
+			high: "◓",
+			xhigh: "●",
+		};
 		for (const [level, icon] of Object.entries(iconMap)) {
 			const details = makeSubagentDetails({ thinkingLevel: level });
 			const result = makeSubagentResult(details, { outputText: "output" });
@@ -503,8 +518,6 @@ describe("edge cases and error handling", () => {
 			"should NOT render Tools section when arrays empty",
 		);
 	});
-
-
 });
 
 // ═══════════════════════════════════════════════════════════════════
@@ -784,14 +797,6 @@ describe("expanded view — thinking styling via renderSubagentResult", () => {
 	before(() => {
 		initTheme();
 	});
-
-
-
-
-
-
-
-
 
 	it("thinkingOutput is empty string → no thinking section, output section renders, no crash", () => {
 		const details = makeSubagentDetails({
@@ -1263,7 +1268,10 @@ describe('eventType: "subagent-result" path (new discriminator)', () => {
 			compacted: false,
 		});
 		const c = renderer(message, {}, mockTheme);
-		assert.ok(c instanceof Container || c instanceof Box, "tool-complete should return Container or Box");
+		assert.ok(
+			c instanceof Container || c instanceof Box,
+			"tool-complete should return Container or Box",
+		);
 		const lines = renderAndStrip(c);
 		assert.ok(
 			lines.some((l) => l.includes("bash")),

@@ -10,11 +10,11 @@ metrics, and what was deliberately left alone. The register and the layout follo
 ## The metric
 
 `index.html` `detectPatterns` (pinned analyzer ref below) emits the pattern as
-the *same* predicate behind the architecture issue titled `N Large Files`:
+the _same_ predicate behind the architecture issue titled `N Large Files`:
 
 ```js
 var godFiles = files.filter(function (f) {
-  return f.isCode !== false && f.functions.length > 15;
+	return f.isCode !== false && f.functions.length > 15;
 });
 ```
 
@@ -22,11 +22,11 @@ Three consequences drive this change:
 
 1. **The count is the parser's, not the compiler's.** `functions` comes from
    `Parser.extractOtherLanguages`, one regex per language family, deduplicated
-   by `name@line`. For `.go` the shared `RULES` pass runs *in addition* to the
+   by `name@line`. For `.go` the shared `RULES` pass runs _in addition_ to the
    `func` rule, which is why `codeflow_shim_test.go` counted 32 functions while
    declaring 21 `func Test...`.
 2. **The ceiling is strict.** A file with exactly 15 functions is not flagged;
-   16 is. A split only moves the metric when *every* sibling lands `<= 15`.
+   16 is. A split only moves the metric when _every_ sibling lands `<= 15`.
 3. **Only code extensions are scored.** `isCode` gates files absent from
    `codeExts` (`index.html:1093`), so `.mts`, `.md` and `.json` are never
    counted. The `.mts` oracle for this change is consequently never itself a
@@ -64,10 +64,10 @@ snapshots.
 
 ## Before / after (pinned analyzer, same snapshot method)
 
-| Ref                  | commit     | files | God Object | Large Files | VBA God Module | coupled | complexity |
-| -------------------- | ---------- | ----- | ---------- | ----------- | -------------- | ------- | ---------- |
-| `origin/main`        | `279bea56` | 837   | 38         | 38          | 29             | 116     | 178        |
-| this branch          | `d4fb2000` | 876   | 22         | 22          | 18             | 120     | 183        |
+| Ref           | commit     | files | God Object | Large Files | VBA God Module | coupled | complexity |
+| ------------- | ---------- | ----- | ---------- | ----------- | -------------- | ------- | ---------- |
+| `origin/main` | `279bea56` | 837   | 38         | 38          | 29             | 116     | 178        |
+| this branch   | `d4fb2000` | 876   | 22         | 22          | 18             | 120     | 183        |
 
 The issue was filed with **63** files at `analyzedAt` 1791738325602 against the
 then-main; the immutable base already reports **38** because #2001/#2003 split
@@ -91,24 +91,24 @@ The families are pinned in `test/fixtures/god-object-baseline.json`
 counts `<= 15`, and the per-family declaration total is preserved
 (`Σ originals+siblings == base count`).
 
-| Family                                | before | siblings landed                     |
-| ------------------------------------- | ------ | ----------------------------------- |
-| `cmd/cheasee-pi/up_env_test.go`       | 34     | flags / auth / redact               |
-| `cmd/cheasee-pi/codeflow_shim_test.go`| 32     | harness / entrypoint / ext          |
-| `cmd/cheasee-pi/init_split_test.go`   | 30     | layout / decls / size               |
-| `cmd/cheasee-pi/helpers_test.go`      | 28     | models / catalog / runner-mocks     |
-| `cmd/cheasee-pi/catalog_test.go`      | 27     | remote / authadd / initkeys         |
-| `cmd/cheasee-pi/init_auth_test.go`    | 25     | flow / reauth                       |
-| `cmd/cheasee-pi/init_clone_test.go`   | 25     | flow / realgit                      |
-| `cmd/cheasee-pi/identity.go`          | 23     | naming / gitremote / ports          |
-| `cmd/cheasee-pi/ui_e2e_test.go`       | 21     | harness                             |
-| `cmd/cheasee-pi/up_flow_test.go`      | 21     | journey                             |
-| `cmd/cheasee-pi/up_orphans_test.go`   | 20     | scan / claim                        |
-| `cmd/cheasee-pi/helpers_run_test.go`  | 19     | fixture                             |
-| `cmd/cheasee-pi/init_skillrepos_test.go` | 16  | loop / terms                        |
-| `scripts/.../registries.py`           | 42     | base / json / meta / simple / other |
-| `scripts/.../transport.py`            | 19     | cache                               |
-| `test/dependency-existence-check-refactor.test.py` | 17 | 4 scenario modules + shared harness |
+| Family                                             | before | siblings landed                     |
+| -------------------------------------------------- | ------ | ----------------------------------- |
+| `cmd/cheasee-pi/up_env_test.go`                    | 34     | flags / auth / redact               |
+| `cmd/cheasee-pi/codeflow_shim_test.go`             | 32     | harness / entrypoint / ext          |
+| `cmd/cheasee-pi/init_split_test.go`                | 30     | layout / decls / size               |
+| `cmd/cheasee-pi/helpers_test.go`                   | 28     | models / catalog / runner-mocks     |
+| `cmd/cheasee-pi/catalog_test.go`                   | 27     | remote / authadd / initkeys         |
+| `cmd/cheasee-pi/init_auth_test.go`                 | 25     | flow / reauth                       |
+| `cmd/cheasee-pi/init_clone_test.go`                | 25     | flow / realgit                      |
+| `cmd/cheasee-pi/identity.go`                       | 23     | naming / gitremote / ports          |
+| `cmd/cheasee-pi/ui_e2e_test.go`                    | 21     | harness                             |
+| `cmd/cheasee-pi/up_flow_test.go`                   | 21     | journey                             |
+| `cmd/cheasee-pi/up_orphans_test.go`                | 20     | scan / claim                        |
+| `cmd/cheasee-pi/helpers_run_test.go`               | 19     | fixture                             |
+| `cmd/cheasee-pi/init_skillrepos_test.go`           | 16     | loop / terms                        |
+| `scripts/.../registries.py`                        | 42     | base / json / meta / simple / other |
+| `scripts/.../transport.py`                         | 19     | cache                               |
+| `test/dependency-existence-check-refactor.test.py` | 17     | 4 scenario modules + shared harness |
 
 The Go test files are `package main` members with no import surface of their
 own, so moving a declaration between them cannot change behaviour and cannot
@@ -123,7 +123,7 @@ package of one module per scenario.
 
 - **`N Highly Coupled`** (#2002) rises **116 → 120**. The mechanism is the
   detector's, not a real dependency: `coupling[conn.target] > 8` counts the
-  defining *files* a file references, and the heuristic scanner counts an
+  defining _files_ a file references, and the heuristic scanner counts an
   identifier occurrence of any known function name without consulting imports.
   A newly minted `package main` test file references the same package-level
   helpers and constants as its siblings, so each new sibling can cross the
@@ -157,7 +157,7 @@ package of one module per scenario.
   declaration total can no longer be pinned by a verbatim-move invariant. The
   architecture trade-off explicitly sanctions splitting the Go files first and
   deferring this queue to its own recorded change; the suite stays green and is
-  the regression guard for the two Python modules that *are* split here.
+  the regression guard for the two Python modules that _are_ split here.
 - **The remaining TS/Python flags.** `server.py` (386), `osv-scanner.ts` (140)
   and `last-json-scanner.ts` (131) need a multi-module decomposition rather than
   the plan's single seam: the severity half of `osv-scanner.ts` carries 72 of

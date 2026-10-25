@@ -226,7 +226,7 @@ describe("resolveNextStatusFromAgentOutput", () => {
 		assert.strictEqual(result, "Implementation");
 	});
 
-	it("developer with targetStatus Done + action COMPLETE → Done", () => {
+	it("developer targetStatus Done is rejected; action COMPLETE follows markerMap", () => {
 		const json = JSON.stringify({
 			action: "COMPLETE",
 			agentName: "developer",
@@ -234,7 +234,7 @@ describe("resolveNextStatusFromAgentOutput", () => {
 			targetStatus: "Done",
 		});
 		const result = resolveNextStatusFromAgentOutput(developerStep, json);
-		assert.strictEqual(result, "Done");
+		assert.strictEqual(result, "Audit");
 	});
 
 	it("no targetStatus → uses markerMap (unchanged default)", () => {
@@ -413,11 +413,7 @@ describe("auditMarker precedence — long form wins over short form", () => {
 	for (const [name, text] of approvalTriggers) {
 		it(`approval site — ${name} → long Done / short ShortApprove`, () => {
 			assert.strictEqual(resolveNextStatusFromAgentOutput(bothMarkers, text), "Done", name);
-			assert.strictEqual(
-				resolveNextStatusFromAgentOutput(shortOnly, text),
-				"ShortApprove",
-				name,
-			);
+			assert.strictEqual(resolveNextStatusFromAgentOutput(shortOnly, text), "ShortApprove", name);
 		});
 	}
 
@@ -427,10 +423,7 @@ describe("auditMarker precedence — long form wins over short form", () => {
 			"COMPLETE + critical finding",
 			output({ action: "COMPLETE", findings: [finding("critical")] }),
 		],
-		[
-			"COMPLETE + warning finding",
-			output({ action: "COMPLETE", findings: [finding("warning")] }),
-		],
+		["COMPLETE + warning finding", output({ action: "COMPLETE", findings: [finding("warning")] })],
 		[
 			"COMPLETE + rejected commentBody",
 			output({ action: "COMPLETE", commentBody: "## Audit Rejected\nbad" }),
@@ -444,11 +437,7 @@ describe("auditMarker precedence — long form wins over short form", () => {
 				"Implementation",
 				name,
 			);
-			assert.strictEqual(
-				resolveNextStatusFromAgentOutput(shortOnly, text),
-				"ShortReject",
-				name,
-			);
+			assert.strictEqual(resolveNextStatusFromAgentOutput(shortOnly, text), "ShortReject", name);
 		});
 	}
 });

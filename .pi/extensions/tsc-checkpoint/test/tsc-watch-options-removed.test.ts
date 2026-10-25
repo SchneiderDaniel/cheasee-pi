@@ -36,9 +36,18 @@ describe("Issue #1392 — TscWatchOptions removed from types.ts", () => {
 
 	it("types.ts still declares the sibling exports (no over-removal)", () => {
 		const content = readFileSync(typesPath, "utf-8");
-		assert.ok(content.includes("export interface DiagnosticTrend"), "DiagnosticTrend export removed");
-		assert.ok(content.includes("export interface TscCheckpointResult"), "TscCheckpointResult export removed");
-		assert.ok(content.includes("export type { TscDiagnostic };"), "TscDiagnostic re-export removed");
+		assert.ok(
+			content.includes("export interface DiagnosticTrend"),
+			"DiagnosticTrend export removed",
+		);
+		assert.ok(
+			content.includes("export interface TscCheckpointResult"),
+			"TscCheckpointResult export removed",
+		);
+		assert.ok(
+			content.includes("export type { TscDiagnostic };"),
+			"TscDiagnostic re-export removed",
+		);
 	});
 
 	it("types.ts still imports cleanly at runtime (type-only module)", async () => {
@@ -52,8 +61,14 @@ describe("Issue #1392 — index.ts re-export hub unchanged", () => {
 		const content = readFileSync(indexPath, "utf-8");
 		const exportBlock = content.slice(content.indexOf("// Type re-exports"));
 		assert.ok(exportBlock.includes("TscDiagnostic"), "TscDiagnostic missing from type re-exports");
-		assert.ok(exportBlock.includes("DiagnosticTrend"), "DiagnosticTrend missing from type re-exports");
-		assert.ok(!exportBlock.includes("TscWatchOptions"), "TscWatchOptions leaked into re-export block");
+		assert.ok(
+			exportBlock.includes("DiagnosticTrend"),
+			"DiagnosticTrend missing from type re-exports",
+		);
+		assert.ok(
+			!exportBlock.includes("TscWatchOptions"),
+			"TscWatchOptions leaked into re-export block",
+		);
 	});
 
 	it("index.ts still exposes every value export at runtime", async () => {
@@ -66,11 +81,7 @@ describe("Issue #1392 — index.ts re-export hub unchanged", () => {
 			"formatDiagnosticsJson",
 			"runTscCheckpoint",
 		]) {
-			assert.strictEqual(
-				typeof mod[name],
-				"function",
-				`index.ts should still export ${name}`,
-			);
+			assert.strictEqual(typeof mod[name], "function", `index.ts should still export ${name}`);
 		}
 	});
 });
@@ -82,7 +93,10 @@ describe("Issue #1392 — doc file-tree diagrams updated", () => {
 	] as const) {
 		it(`${label} no longer lists TscWatchOptions in the types.ts annotation`, () => {
 			const content = readFileSync(path, "utf-8");
-			assert.ok(!content.includes("TscWatchOptions"), `${label} should not mention TscWatchOptions`);
+			assert.ok(
+				!content.includes("TscWatchOptions"),
+				`${label} should not mention TscWatchOptions`,
+			);
 		});
 
 		it(`${label} still lists the used types in the types.ts annotation (doc-drift guard)`, () => {

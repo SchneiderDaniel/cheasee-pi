@@ -17,8 +17,6 @@ import fs from "node:fs";
 import { describe, it } from "node:test";
 import { resolve, join } from "node:path";
 
-
-
 import {
 	DiagnosticsWatcher,
 	resolveDiagnosticFilePath,
@@ -28,10 +26,7 @@ import {
 
 import type { TscDiagnostic, DiagnosticTrend } from "../index.ts";
 
-import {
-	createMinimalFixture,
-	createCheckHandler,
-} from "./fixtures.ts";
+import { createMinimalFixture, createCheckHandler } from "./fixtures.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Phase 9: Pipeline contract — runTscCheckpoint signature & shape
@@ -63,7 +58,6 @@ describe("runTscCheckpoint (pipeline contract)", () => {
 		assert.ok("hasErrors" in result);
 	});
 });
-
 
 describe("Extension entry point (/check command)", () => {
 	it("/check without tsconfig.json returns skip message", async () => {
@@ -124,9 +118,7 @@ describe("Extension entry point (/check command)", () => {
 		const { handleCheck, cleanup: cleanupHandler } = createCheckHandler();
 		try {
 			const result = await handleCheck(dir);
-			const cleanMsg = result.messages.find((m) =>
-				m.content.includes("No type errors detected"),
-			);
+			const cleanMsg = result.messages.find((m) => m.content.includes("No type errors detected"));
 			assert.ok(cleanMsg);
 		} finally {
 			cleanupHandler();

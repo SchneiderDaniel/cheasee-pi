@@ -10,6 +10,15 @@ import (
 	"testing"
 )
 
+func init() {
+	// The upstream-commit probe (CHEASEE_COMMIT cache-bust, issue #2054) must
+	// never touch the network in unit tests: default it to a stable, resolvable
+	// commit so a build behaves like the normal (online) path and never fires
+	// the extra post-build capture. Probe failures are exercised explicitly by
+	// the TestComposeBuild_* / TestResolveCheaseeCommit_* tests.
+	resolveCheaseeCommit = func(context.Context, string) (string, error) { return "test-commit", nil }
+}
+
 func stubGitClone(t *testing.T, cloneErr, worktreeErr error) *gitCloneCapture {
 	t.Helper()
 	c := &gitCloneCapture{symRefOut: "refs/heads/main\n"}

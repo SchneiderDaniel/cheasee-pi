@@ -75,9 +75,7 @@ export class DiagnosticsWatcher {
 					this.cachedDiagnostics = [];
 				} else {
 					// Compilation complete — update trend
-					const errCount = this.cachedDiagnostics.filter(
-						(d) => d.severity === "Error",
-					).length;
+					const errCount = this.cachedDiagnostics.filter((d) => d.severity === "Error").length;
 					this.trendTracker.push(errCount);
 				}
 			},

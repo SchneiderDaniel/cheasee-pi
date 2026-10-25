@@ -98,7 +98,8 @@ export function parseRunStatus(data: unknown): RunStatus | null {
 	const p = produced as Record<string, unknown>;
 	if (typeof o.state !== "string") return null;
 	if (typeof p.markdown !== "boolean") return null;
-	const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+	const num = (v: unknown): number | null =>
+		typeof v === "number" && Number.isFinite(v) ? v : null;
 	const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
 	return {
 		runId: str(o.runId),

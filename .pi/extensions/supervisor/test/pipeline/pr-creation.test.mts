@@ -423,7 +423,9 @@ describe("createPrOnApproval()", () => {
 		const ctx = createMockCtx(notifyCalls);
 		const port = createMockGitHubPort({
 			compareBranches: async () => 3,
-			listPullRequestsForBranch: async () => { throw new Error("network error"); },
+			listPullRequestsForBranch: async () => {
+				throw new Error("network error");
+			},
 			createPullRequest: async () => ({ number: 456 }),
 		});
 
@@ -869,16 +871,23 @@ describe("createPrOnApproval()", () => {
 
 		// 3 real push attempts, each preceded on retry by a lease-refresh fetch
 		const pushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
-		const pruneCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "--prune");
+		const pruneCalls = execCalls.filter(
+			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "--prune",
+		);
 		assert.equal(pushCalls.length, 3, "should make exactly 3 push attempts");
 		assert.equal(pruneCalls.length, 2, "lease refresh before each retry");
 
 		// Failure contract: {success:false}, stderr excerpt in error + notify
 		assert.equal(result!.success, false, "failed push must not report success");
-		assert.ok(result!.error!.includes("error: failed to push some refs"), "error embeds stderr excerpt");
+		assert.ok(
+			result!.error!.includes("error: failed to push some refs"),
+			"error embeds stderr excerpt",
+		);
 		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
 		assert.ok(
-			errorNotifies.some((n) => n.message.includes("push failed") && n.message.includes("failed to push some refs")),
+			errorNotifies.some(
+				(n) => n.message.includes("push failed") && n.message.includes("failed to push some refs"),
+			),
 			"error notification delivered with stderr excerpt",
 		);
 
@@ -935,7 +944,10 @@ describe("createPrOnApproval()", () => {
 
 		assert.equal(result!.success, false, "timeout-killed push (code 0) must still fail");
 		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
-		assert.ok(errorNotifies.some((n) => n.message.includes("push failed")), "error notification delivered");
+		assert.ok(
+			errorNotifies.some((n) => n.message.includes("push failed")),
+			"error notification delivered",
+		);
 	});
 
 	it("boundary: attempt 3 {code:0, killed:true} → still {success:false} (killed gate independent of attempt count)", async () => {
@@ -1034,7 +1046,10 @@ describe("createPrOnApproval()", () => {
 		assert.equal(result!.success, false, "transport failure must not report success");
 		assert.ok(result!.error!.includes("fatal: unable to access"), "error embeds fatal excerpt");
 		const errorNotifies = notifyCalls.filter((n) => n.level === "error");
-		assert.ok(errorNotifies.some((n) => n.message.includes("fatal: unable to access")), "notify carries fatal excerpt");
+		assert.ok(
+			errorNotifies.some((n) => n.message.includes("fatal: unable to access")),
+			"notify carries fatal excerpt",
+		);
 	});
 
 	it("retry wiring: push {code:1} stale-info → git fetch --prune → push {code:0} → retry succeeds, PR created once", async () => {
@@ -1154,7 +1169,9 @@ describe("createPrOnApproval()", () => {
 		// Each retry fails at the lease refresh (prune precedes push), so only
 		// attempt 1 reaches the push; 2 prune retries prove the loop iterated.
 		const pushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
-		const pruneCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "--prune");
+		const pruneCalls = execCalls.filter(
+			(c) => c.cmd === "git" && c.args[0] === "fetch" && c.args[1] === "--prune",
+		);
 		assert.equal(pushCalls.length, 1, "only attempt 1 reaches the push");
 		assert.equal(pruneCalls.length, 2, "lease refresh attempted on both retries");
 	});
@@ -1227,7 +1244,9 @@ describe("createPrOnApproval()", () => {
 		const ctx = createMockCtx(notifyCalls);
 		const port = createMockGitHubPort({
 			compareBranches: async () => 3,
-			listPullRequestsForBranch: async () => { throw new Error("network error"); },
+			listPullRequestsForBranch: async () => {
+				throw new Error("network error");
+			},
 			createPullRequest: async () => ({ number: 456 }),
 		});
 
@@ -1453,11 +1472,19 @@ describe("createPrOnApproval()", () => {
 			assert.equal(result.success, true, "should succeed");
 			assert.equal(result.prNumber, 123, "should return existing PR number");
 			assert.equal(result.wasUpdate, true, "should be marked as update");
-			assert.equal(result.pushSkipped, undefined, "pushSkipped should be undefined when push proceeds");
+			assert.equal(
+				result.pushSkipped,
+				undefined,
+				"pushSkipped should be undefined when push proceeds",
+			);
 
 			const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
 			assert.equal(gitPushCalls.length, 1, "push should be called once");
-			assert.equal(gitPushCalls[0].args[1], "--force-with-lease", "push should use --force-with-lease");
+			assert.equal(
+				gitPushCalls[0].args[1],
+				"--force-with-lease",
+				"push should use --force-with-lease",
+			);
 
 			// Verify exec call order: fetch → rebase → push
 			assert.equal(execCalls.length, 3, "should have 3 exec calls");
@@ -1472,19 +1499,21 @@ describe("createPrOnApproval()", () => {
 			const pi = createMockPi(
 				[
 					// Phase 2 fallback: fetch + merge-base
-					{ code: 0, stdout: "", stderr: "" },  // git fetch origin <branch>
-					{ code: 0, stdout: "", stderr: "" },  // git merge-base --is-ancestor exits 0
+					{ code: 0, stdout: "", stderr: "" }, // git fetch origin <branch>
+					{ code: 0, stdout: "", stderr: "" }, // git merge-base --is-ancestor exits 0
 					// Phase 2.5: rebase
-					{ code: 0, stdout: "fetch ok", stderr: "" },  // git fetch origin main
-					{ code: 0, stdout: "rebase ok", stderr: "" },  // git rebase --autostash
+					{ code: 0, stdout: "fetch ok", stderr: "" }, // git fetch origin main
+					{ code: 0, stdout: "rebase ok", stderr: "" }, // git rebase --autostash
 					// Phase 3: push
-					{ code: 0, stdout: "push ok", stderr: "" },  // git push --force-with-lease
+					{ code: 0, stdout: "push ok", stderr: "" }, // git push --force-with-lease
 				],
 				execCalls,
 			);
 			const ctx = createMockCtx(notifyCalls);
 			const port = createMockGitHubPort({
-				compareBranches: async () => { throw new Error("API rate limit"); },
+				compareBranches: async () => {
+					throw new Error("API rate limit");
+				},
 				listPullRequestsForBranch: async () => null,
 				createPullRequest: async () => ({ number: 456 }),
 			});
@@ -1505,16 +1534,28 @@ describe("createPrOnApproval()", () => {
 			);
 
 			assert.equal(result.success, true, "should succeed after fallback check passes");
-			assert.equal(result.pushSkipped, undefined, "pushSkipped should be undefined when push proceeds");
+			assert.equal(
+				result.pushSkipped,
+				undefined,
+				"pushSkipped should be undefined when push proceeds",
+			);
 
 			// Verify exec call order: fetch (phase 2) → merge-base → fetch (phase 2.5) → rebase → push
-			assert.equal(execCalls.length, 5, "should have 5 exec calls (fetch, merge-base, fetch, rebase, push)");
+			assert.equal(
+				execCalls.length,
+				5,
+				"should have 5 exec calls (fetch, merge-base, fetch, rebase, push)",
+			);
 			assert.ok(execCalls[0].args.includes("fetch"), "first should be git fetch (phase 2)");
 			assert.ok(execCalls[1].args.includes("merge-base"), "second should be git merge-base");
 			assert.ok(execCalls[2].args.includes("fetch"), "third should be git fetch (phase 2.5)");
 			assert.ok(execCalls[3].args.includes("rebase"), "fourth should be git rebase");
 			assert.ok(execCalls[4].args.includes("push"), "fifth should be git push");
-			assert.equal(execCalls[4].args[1], "--force-with-lease", "push should use --force-with-lease");
+			assert.equal(
+				execCalls[4].args[1],
+				"--force-with-lease",
+				"push should use --force-with-lease",
+			);
 		});
 
 		it("compareBranches throws → local fallback: merge-base says NOT ahead → push skipped", async () => {
@@ -1522,14 +1563,16 @@ describe("createPrOnApproval()", () => {
 			const notifyCalls: NotifyCall[] = [];
 			const pi = createMockPi(
 				[
-					{ code: 0, stdout: "", stderr: "" },  // git fetch succeeds
-					{ code: 1, stdout: "", stderr: "" },  // git merge-base exits 1 (NOT ancestor)
+					{ code: 0, stdout: "", stderr: "" }, // git fetch succeeds
+					{ code: 1, stdout: "", stderr: "" }, // git merge-base exits 1 (NOT ancestor)
 				],
 				execCalls,
 			);
 			const ctx = createMockCtx(notifyCalls);
 			const port = createMockGitHubPort({
-				compareBranches: async () => { throw new Error("API rate limit"); },
+				compareBranches: async () => {
+					throw new Error("API rate limit");
+				},
 			});
 
 			const result = await createPrOnApproval(
@@ -1559,13 +1602,15 @@ describe("createPrOnApproval()", () => {
 			const notifyCalls: NotifyCall[] = [];
 			const pi = createMockPi(
 				[
-					{ code: 1, stdout: "", stderr: "fetch failed" },  // git fetch fails
+					{ code: 1, stdout: "", stderr: "fetch failed" }, // git fetch fails
 				],
 				execCalls,
 			);
 			const ctx = createMockCtx(notifyCalls);
 			const port = createMockGitHubPort({
-				compareBranches: async () => { throw new Error("API rate limit"); },
+				compareBranches: async () => {
+					throw new Error("API rate limit");
+				},
 			});
 
 			const result = await createPrOnApproval(
@@ -1615,7 +1660,9 @@ describe("createPrOnApproval()", () => {
 			const gitPushCalls = execCalls.filter((c) => c.cmd === "git" && c.args[0] === "push");
 			assert.equal(gitPushCalls.length, 0, "no git push when worktreePath is undefined");
 
-			const infoNotifies = notifyCalls.filter((n) => n.level === "info" && n.message.includes("PR #"));
+			const infoNotifies = notifyCalls.filter(
+				(n) => n.level === "info" && n.message.includes("PR #"),
+			);
 			assert.ok(infoNotifies.length > 0, "should have PR notification");
 		});
 
@@ -1730,17 +1777,25 @@ describe("createPrOnApproval()", () => {
 
 			assert.ok(!result.success, "should fail");
 			assert.equal(result.pushSkipped, true, "pushSkipped should be true");
-			assert.deepEqual(result.rebaseConflicts, ["src/a.ts", "src/b.ts"], "should report rebase conflict files");
+			assert.deepEqual(
+				result.rebaseConflicts,
+				["src/a.ts", "src/b.ts"],
+				"should report rebase conflict files",
+			);
 			assert.equal(result.prNumber, undefined, "no PR number");
 
 			// Verify warning notification with conflict file names
 			const warningNotifies = notifyCalls.filter((n) => n.level === "warning");
-			const rebaseWarning = warningNotifies.find((n) =>
-				n.message.includes("Rebase conflicts")
-			);
+			const rebaseWarning = warningNotifies.find((n) => n.message.includes("Rebase conflicts"));
 			assert.ok(rebaseWarning, "should have warning notification for rebase conflicts");
-			assert.ok(rebaseWarning!.message.includes("src/a.ts"), "warning should mention conflicted files");
-			assert.ok(rebaseWarning!.message.includes("src/b.ts"), "warning should mention all conflicted files");
+			assert.ok(
+				rebaseWarning!.message.includes("src/a.ts"),
+				"warning should mention conflicted files",
+			);
+			assert.ok(
+				rebaseWarning!.message.includes("src/b.ts"),
+				"warning should mention all conflicted files",
+			);
 
 			// Verify no push or PR exec calls
 			const pushCalls = execCalls.filter((c) => c.args[0] === "push");
@@ -1852,7 +1907,9 @@ describe("createPrOnApproval()", () => {
 			const gitCalls = execCalls.filter((c) => c.cmd === "git");
 			assert.equal(gitCalls.length, 0, "no git calls when worktreePath is undefined");
 
-			const infoNotifies = notifyCalls.filter((n) => n.level === "info" && n.message.includes("PR #"));
+			const infoNotifies = notifyCalls.filter(
+				(n) => n.level === "info" && n.message.includes("PR #"),
+			);
 			assert.ok(infoNotifies.length > 0, "should have PR notification");
 		});
 
@@ -1880,7 +1937,11 @@ describe("createPrOnApproval()", () => {
 
 			assert.equal(result.success, false);
 			assert.equal(result.pushSkipped, true);
-			assert.equal(result.rebaseConflicts, undefined, "rebaseConflicts should not be set when rebase not attempted");
+			assert.equal(
+				result.rebaseConflicts,
+				undefined,
+				"rebaseConflicts should not be set when rebase not attempted",
+			);
 
 			// No exec calls at all
 			assert.equal(execCalls.length, 0, "no exec calls when ahead-by=0");
@@ -2023,10 +2084,7 @@ describe("createPrOnApproval — structural: verifyAhead helper extraction", () 
 	});
 
 	it("AheadVerdict type includes 'ahead', 'not-ahead', 'fail-closed' states with reason on fail-closed", () => {
-		assert.ok(
-			source.includes('{ state: "ahead" }'),
-			"AheadVerdict must include 'ahead' state",
-		);
+		assert.ok(source.includes('{ state: "ahead" }'), "AheadVerdict must include 'ahead' state");
 		assert.ok(
 			source.includes('{ state: "not-ahead" }'),
 			"AheadVerdict must include 'not-ahead' state",
@@ -2054,7 +2112,7 @@ describe("createPrOnApproval — structural: verifyAhead helper extraction", () 
 
 		// Verify ahead is handled as a comment (meaning proceed without return)
 		assert.ok(
-			lines.some((l) => l.includes("verdict.state === \"ahead\" — proceed")),
+			lines.some((l) => l.includes('verdict.state === "ahead" — proceed')),
 			"call site must handle 'ahead' as proceed (no early return)",
 		);
 	});
@@ -2065,22 +2123,13 @@ describe("createPrOnApproval — structural: verifyAhead helper extraction", () 
 		assert.notEqual(fnStart, -1, "must find verifyAhead function");
 		const fnDecl = source.slice(fnStart, fnStart + 300); // Read enough to cover params
 
-		assert.ok(
-			fnDecl.includes("pi: ExtensionAPI"),
-			"verifyAhead must accept pi: ExtensionAPI",
-		);
-		assert.ok(
-			fnDecl.includes("port: GitHubPort"),
-			"verifyAhead must accept port: GitHubPort",
-		);
+		assert.ok(fnDecl.includes("pi: ExtensionAPI"), "verifyAhead must accept pi: ExtensionAPI");
+		assert.ok(fnDecl.includes("port: GitHubPort"), "verifyAhead must accept port: GitHubPort");
 		assert.ok(
 			fnDecl.includes("config: SupervisorConfig"),
 			"verifyAhead must accept config: SupervisorConfig",
 		);
-		assert.ok(
-			fnDecl.includes("headBranch: string"),
-			"verifyAhead must accept headBranch: string",
-		);
+		assert.ok(fnDecl.includes("headBranch: string"), "verifyAhead must accept headBranch: string");
 		assert.ok(
 			fnDecl.includes("worktreePath: string"),
 			"verifyAhead must accept worktreePath: string",

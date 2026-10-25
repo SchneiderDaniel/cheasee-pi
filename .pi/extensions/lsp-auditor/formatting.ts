@@ -59,4 +59,3 @@ export function filterBySeverity(diagnostics: LspDiagnostic[], threshold: string
 	const maxVal = thresholdValue(threshold || "warning");
 	return diagnostics.filter((d) => severityValue(d.severity) <= maxVal);
 }
-

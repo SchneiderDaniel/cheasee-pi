@@ -9,10 +9,11 @@ nav_order: 9
 {: .no_toc }
 
 ## Table of contents
+
 {: .no_toc .text-delta }
 
 1. TOC
-{:toc}
+   {:toc}
 
 ---
 
@@ -50,18 +51,18 @@ The [Worktree Sandbox](extensions/worktree-sandbox) extension enforces that pipe
 
 Multiple extensions use pi's `ctx.isProjectTrusted()` mechanism to gate sensitive operations:
 
-| Extension | What's gated | Behavior when untrusted |
-|-----------|-------------|------------------------|
-| Worktree Sandbox | Sandbox enforcement | Skipped entirely |
-| LSP Auditor | LSP diagnostics | Returns `{ proceed: true }` with warning |
-| Format on Save | Prettier + ESLint | No formatting or linting |
-| TSC Checkpoint | TypeScript compiler | Skipped with message |
-| Session Logger | Report generation | No reports written |
-| Check Extensions | Extension audit | Disabled (internal) |
-| Ask User | Q&A history persistence | History not written to disk |
-| Supervisor CI gating | GitHub check run polling | CI gate skipped (branch may not exist) |
-| Supervisor dead-code gate | knip execution | Dead code check skipped |
-| Supervisor duplicate-code gate | jscpd execution | Duplicate code check skipped |
+| Extension                      | What's gated             | Behavior when untrusted                  |
+| ------------------------------ | ------------------------ | ---------------------------------------- |
+| Worktree Sandbox               | Sandbox enforcement      | Skipped entirely                         |
+| LSP Auditor                    | LSP diagnostics          | Returns `{ proceed: true }` with warning |
+| Format on Save                 | Prettier + ESLint        | No formatting or linting                 |
+| TSC Checkpoint                 | TypeScript compiler      | Skipped with message                     |
+| Session Logger                 | Report generation        | No reports written                       |
+| Check Extensions               | Extension audit          | Disabled (internal)                      |
+| Ask User                       | Q&A history persistence  | History not written to disk              |
+| Supervisor CI gating           | GitHub check run polling | CI gate skipped (branch may not exist)   |
+| Supervisor dead-code gate      | knip execution           | Dead code check skipped                  |
+| Supervisor duplicate-code gate | jscpd execution          | Duplicate code check skipped             |
 
 The trust mechanism prevents untrusted (e.g., freshly cloned) repositories from running attacker-controlled configurations that could weaponize LSP servers, formatter configs, or tsconfig paths.
 
@@ -103,7 +104,7 @@ its surface, which includes:
   could open a two-way channel to the loopback server (cross-site WebSocket
   hijacking);
 - an unauthenticated `GET /debug/child` endpoint returning the child PID,
-  session id, auth source, and provider env-var *names*;
+  session id, auth source, and provider env-var _names_;
 - the absence of `Host`-header allow-listing, which leaves DNS-rebinding attacks
   (a page resolving its own origin to `127.0.0.1`) viable against the HTTP
   surface.

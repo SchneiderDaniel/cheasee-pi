@@ -723,9 +723,7 @@ describe("buildPipelineSummary — retry rows (issue #1495)", () => {
 			makeAgent("developer", "SUCCESS (after retry)", 60_000, 1_068_861, 80),
 		];
 		const output = buildPipelineSummary(results, "success", 1494, "Test", defaultConfig);
-		const devRows = output
-			.split("\n")
-			.filter((l) => l.startsWith("| developer |"));
+		const devRows = output.split("\n").filter((l) => l.startsWith("| developer |"));
 		assert.equal(devRows.length, 2, "both runs appear as rows");
 		assert.ok(
 			devRows[0].includes("✗ FAILED | 30m 0s | 80.0K | 100 |"),

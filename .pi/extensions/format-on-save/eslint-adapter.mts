@@ -19,12 +19,7 @@ import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 
 import { matchesAnyExtension } from "./file-match.mts";
 
-import type {
-	Diagnostic,
-	FileMutationQueue,
-	LintResult,
-	Linter,
-} from "./ports.mts";
+import type { Diagnostic, FileMutationQueue, LintResult, Linter } from "./ports.mts";
 
 // ─── Supported File Extensions ────────────────────────────────────────
 
@@ -110,7 +105,10 @@ export class EslintLinter implements Linter {
 	 *   Default: dynamic import of `eslint` package.
 	 * @param fileMutationQueue Serialises the fix-write RMW; defaults to pi's.
 	 */
-	constructor(createESLint: ESLintFactory = defaultCreateESLint, fileMutationQueue?: FileMutationQueue) {
+	constructor(
+		createESLint: ESLintFactory = defaultCreateESLint,
+		fileMutationQueue?: FileMutationQueue,
+	) {
 		this.createESLint = createESLint;
 		this.queue = fileMutationQueue ?? defaultQueue;
 	}
