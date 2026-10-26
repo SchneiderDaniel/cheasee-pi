@@ -14,13 +14,14 @@ import { formatTokens } from "../../lib/format-tokens.ts";
 
 // ─── Status display mapping ──────────────────────────────────────────
 
-type EffectiveStatus = "success" | "pr-failed" | "failed" | "stopped";
+type EffectiveStatus = "success" | "pr-failed" | "failed" | "stopped" | "in-progress";
 
 const STATUS_MAP: Record<EffectiveStatus, { emoji: string; text: string }> = {
 	success: { emoji: "✅", text: "Pipeline Complete" },
 	"pr-failed": { emoji: "⚠️", text: "Pipeline Complete (PR creation failed)" },
 	failed: { emoji: "❌", text: "Pipeline Failed" },
 	stopped: { emoji: "⏹", text: "Pipeline Stopped" },
+	"in-progress": { emoji: "🚧", text: "Pipeline In Progress" },
 };
 
 // ─── validateAgentResult ────────────────────────────────────────────
@@ -47,7 +48,7 @@ export function validateAgentResult(result: AgentRunResult): void {
  */
 export function buildPipelineSummary(
 	agentResults: PipelineAgentResult[],
-	overallStatus: "success" | "failed" | "stopped",
+	overallStatus: "success" | "failed" | "stopped" | "in-progress",
 	issueNum: number,
 	issueTitle: string,
 	// undefined when supervisor config failed to load (top-level catch) —

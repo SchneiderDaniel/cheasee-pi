@@ -38,6 +38,7 @@ export {
 	preserveTimedOutWork,
 	detectPreservedWork,
 	parseWipCommit,
+	upsertDeveloperPr,
 } from "./git-ops.ts";
-export type { PreservedWork, WipCommit } from "./git-ops.ts";
+export type { PreservedWork, WipCommit, UpsertDeveloperPrDeps } from "./git-ops.ts";
 export { handlePostAgentSuccess } from "./post-agent-success.ts";
