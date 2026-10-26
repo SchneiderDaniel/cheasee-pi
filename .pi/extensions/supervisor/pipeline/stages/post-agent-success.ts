@@ -16,8 +16,7 @@ import type { NotifyFn } from "../helpers.ts";
 import type { GateRejected } from "./core.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { handleAgentComment } from "./agent-comment.ts";
-import { handleDeveloperCommit } from "./git-ops.ts";
-import { upsertDeveloperPr } from "./developer-pr.ts";
+import { handleDeveloperCommit, upsertDeveloperPr } from "./git-ops.ts";
 import { handleAuditorOutput } from "./auditor-output.ts";
 
 /**
