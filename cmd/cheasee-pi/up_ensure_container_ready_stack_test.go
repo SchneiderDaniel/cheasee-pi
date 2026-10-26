@@ -165,10 +165,13 @@ func TestEnsureStackUp_missingContainerImagePresentCreatesOnly(t *testing.T) {
 	if slices.Contains(got, "build") {
 		t.Errorf("present image must not be rebuilt, got %v", got)
 	}
-	for _, want := range []string{"up", "-d", "--remove-orphans", "--no-build", "--pull", "never"} {
+	for _, want := range []string{"up", "-d", "--no-build", "--pull", "never"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("create argv must carry %q, got %v", want, got)
 		}
+	}
+	if slices.Contains(got, "--remove-orphans") {
+		t.Errorf("create argv must not remove orphans (existing containers stay), got %v", got)
 	}
 	if got[len(got)-1] != "ui" || slices.Contains(got, "cheasee-pi") || slices.Contains(got, "codeflow") {
 		t.Errorf("create argv must target only the missing service, got %v", got)

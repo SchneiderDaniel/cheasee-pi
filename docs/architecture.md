@@ -116,7 +116,9 @@ whole Compose project:
 3. For missing containers only: `docker image inspect` decides whether the
    image is absent; absent images are built with a service-scoped
    `docker compose build <svc>`, and the missing containers are created with
-   `docker compose up -d --no-build --pull never --remove-orphans <svc>`.
+   `docker compose up -d --no-build --pull never <svc>`. `--remove-orphans` is
+   deliberately omitted, so creating one missing service can never delete an
+   existing container (orphan reaping stays `cheasee-pi clean`'s job).
 
 `--build` is the explicit rebuild opt-in and keeps the coarse
 `compose build` (all services) + `compose up -d --remove-orphans` path. Any

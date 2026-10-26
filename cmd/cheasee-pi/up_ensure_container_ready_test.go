@@ -122,8 +122,11 @@ func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
 	if !slices.Contains(c.composeArgs[0], "build") {
 		t.Errorf("first compose call must build, got %v", c.composeArgs[0])
 	}
-	if !slices.Contains(c.composeArgs[1], "up") || !slices.Contains(c.composeArgs[1], "--remove-orphans") {
-		t.Errorf("second compose call must up -d --remove-orphans, got %v", c.composeArgs[1])
+	if !slices.Contains(c.composeArgs[1], "up") || !slices.Contains(c.composeArgs[1], "--no-build") || !slices.Contains(c.composeArgs[1], "--pull") {
+		t.Errorf("second compose call must create only missing containers (up -d --no-build --pull never), got %v", c.composeArgs[1])
+	}
+	if slices.Contains(c.composeArgs[1], "--remove-orphans") {
+		t.Errorf("create path must not remove orphans, got %v", c.composeArgs[1])
 	}
 	upEnv := c.composeCmds[1].env
 	if !slices.Contains(upEnv, "WORKSPACE_HOST_PATH="+root) {

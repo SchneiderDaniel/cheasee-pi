@@ -298,10 +298,13 @@ func TestRunUpE_partialSetupCreatesMissingOnly(t *testing.T) {
 		t.Fatalf("exactly one create call expected, got %v", c.composeArgs)
 	}
 	got := c.composeArgs[0]
-	for _, want := range []string{"up", "-d", "--remove-orphans", "--no-build", "--pull", "never", "ui"} {
+	for _, want := range []string{"up", "-d", "--no-build", "--pull", "never", "ui"} {
 		if !slices.Contains(got, want) {
 			t.Errorf("create argv must carry %q, got %v", want, got)
 		}
+	}
+	if slices.Contains(got, "--remove-orphans") {
+		t.Errorf("create argv must not remove orphans (existing containers stay), got %v", got)
 	}
 	if exec.name != containerName(root) || exec.target != "/workspaces/main" {
 		t.Errorf("expected exactly one exec at -w /workspaces/main, got name=%q target=%q", exec.name, exec.target)

@@ -324,13 +324,15 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 // registry for a missing image, and the explicit service list keeps it from
 // touching any existing container — Compose only creates what does not exist,
 // so no existing container is recreated and no config drift is reconciled.
+// `--remove-orphans` is deliberately absent: repairing one missing service must
+// never delete a container that already exists (orphan reaping is `clean`'s job).
 func composeCreateServices(ctx context.Context, composeDir, workspaceHostPath, containerName string, create []stackService) error {
 	if err := requireWorkspaceBare(workspaceHostPath); err != nil {
 		return err
 	}
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
 	args := []string{"compose", "-f", composeFile,
-		"up", "-d", "--remove-orphans", "--no-build", "--pull", "never"}
+		"up", "-d", "--no-build", "--pull", "never"}
 	for _, s := range create {
 		args = append(args, s.service)
 	}
