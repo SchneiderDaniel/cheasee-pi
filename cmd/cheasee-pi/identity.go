@@ -52,6 +52,18 @@ func cheaseeImageRef(workspaceRoot string) string {
 	return composeProjectName(workspaceRoot) + "-cheasee-pi"
 }
 
+// codeflowImageRef / uiImageRef follow cheaseeImageRef for the two sidecar
+// services (compose auto-names <project>-<service>): the normal-start path
+// probes them to build only absent images. Same 43-char project cap — never
+// the 54-char container-name cap.
+func codeflowImageRef(workspaceRoot string) string {
+	return composeProjectName(workspaceRoot) + "-codeflow"
+}
+
+func uiImageRef(workspaceRoot string) string {
+	return composeProjectName(workspaceRoot) + "-ui"
+}
+
 // truncateSlug caps a repo slug to max chars, appending a deterministic
 // 6-hex-char sha256 suffix when truncation happens so distinct over-long
 // slugs stay distinct (plain truncation would silently collide two repos

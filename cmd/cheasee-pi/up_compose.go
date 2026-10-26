@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -100,6 +101,9 @@ func resolveCheaseeCommitFn(ctx context.Context, ref string) (string, error) {
 // args, the label text, the optional pre-build notice, and the error wrap;
 // composeBuild owns argv assembly, env, redirect and ordering.
 type composeBuildSpec struct {
+	// services scopes the build to the named compose services; nil/empty
+	// builds every service (the --build/rebuild contract).
+	services  []string
 	extraArgs []string          // appended after `build`, e.g. --no-cache --pull
 	label     string            // build label printed as "  ℹ <label>..."
 	notice    string            // optional pre-build notice line (blank-line separated); "" → none
@@ -125,6 +129,7 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 	// every service whose Dockerfile declares the ARG.
 	args := []string{"compose", "-f", composeFile, "build"}
 	args = append(args, spec.extraArgs...)
+	args = append(args, spec.services...)
 
 	build := runCommandContext(ctx, "docker", args...)
 	build.SetDir(composeDir)
@@ -133,12 +138,20 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 	// The record this build writes and the image it reads back are keyed by the
 	// workspace's image ref, never by the shared compose dir alone.
 	imageRef := cheaseeImageRef(workspaceHostPath)
+	// Only the agent image bakes the /opt/cheasee-pi clone, so a sidecar-scoped
+	// build neither resolves an upstream commit nor records one.
+	buildsAgent := len(spec.services) == 0 || slices.Contains(spec.services, "cheasee-pi")
 	// Resolved AFTER the disk gate so a refused build never probes the network.
-	commit := bakedCommitForBuild(ctx, composeDir, imageRef)
+	var extraEnv []string
+	commit := ""
+	if buildsAgent {
+		commit = bakedCommitForBuild(ctx, composeDir, imageRef)
+		extraEnv = append(extraEnv, "CHEASEE_COMMIT="+commit)
+	}
 	// compose validates every volume spec even for `build`, so
 	// WORKSPACE_HOST_PATH/WORKSPACE_BARE_PATH must be set here too (memory/
 	// cpus/git identity from settings.json ride along).
-	applyComposeEnv(build, workspaceHostPath, containerName, composeDir, "CHEASEE_COMMIT="+commit)
+	applyComposeEnv(build, workspaceHostPath, containerName, composeDir, extraEnv...)
 	if spec.notice != "" {
 		// The notice precedes the build label with blank-line separation so
 		// buildx tty inline rendering (compose build paints over preceding
@@ -152,6 +165,9 @@ func composeBuild(ctx context.Context, composeDir, workspaceHostPath, containerN
 			return spec.wrapErr(err)
 		}
 		return err
+	}
+	if !buildsAgent {
+		return nil
 	}
 	// Dockerfile Layer 6b writes the clone's HEAD to /opt/cheasee-pi/BUILD_COMMIT
 	// and fails unless it equals CHEASEE_COMMIT, so a successful build bakes
@@ -245,6 +261,24 @@ func bakedCommitForBuild(ctx context.Context, composeDir, imageRef string) strin
 	return ""
 }
 
+// firstBuildNotice is the one-time download warning shown ahead of the first
+// agent image build (both the --build path and a plain start that must build
+// absent images).
+const firstBuildNotice = "First start downloads ~1GB of build-time dependencies (Chromium, Node.js, Python toolchain); this can take several minutes on slower connections."
+
+// requireWorkspaceBare fails closed when the sibling bare repo is missing: the
+// worktree's gitdir points into <parent>/.bare, and a compose up would
+// otherwise let Docker's create_host_path auto-create a stray empty host dir
+// that breaks the mount/worktree-fix contract. Recovery hint instead of a
+// silent stray dir.
+func requireWorkspaceBare(workspaceHostPath string) error {
+	bareDir := filepath.Join(filepath.Dir(workspaceHostPath), ".bare")
+	if _, err := os.Stat(bareDir); err != nil {
+		return fmt.Errorf("workspace is corrupt: bare repository %s is missing (cheasee-settings.json present, no .bare sibling) — re-run `cheasee-pi init` in an empty folder and clone again", bareDir)
+	}
+	return nil
+}
+
 // dockerComposeUp builds and starts the container from the cache dir. The
 // compose file lives at composeDir/docker-compose.yml; the workspace root
 // (workspaceHostPath) is injected as WORKSPACE_HOST_PATH and its sibling bare
@@ -253,20 +287,15 @@ func bakedCommitForBuild(ctx context.Context, composeDir, imageRef string) strin
 func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, containerName string, firstBuild bool) error {
 	composeFile := filepath.Join(composeDir, "docker-compose.yml")
 
-	// Fail closed when the sibling bare repo is missing: the worktree's gitdir
-	// points into <parent>/.bare, and a compose up would otherwise let Docker's
-	// create_host_path auto-create a stray empty host dir that breaks the
-	// mount/worktree-fix contract. Recovery hint instead of a silent stray dir.
-	bareDir := filepath.Join(filepath.Dir(workspaceHostPath), ".bare")
-	if _, err := os.Stat(bareDir); err != nil {
-		return fmt.Errorf("workspace is corrupt: bare repository %s is missing (cheasee-settings.json present, no .bare sibling) — re-run `cheasee-pi init` in an empty folder and clone again", bareDir)
+	if err := requireWorkspaceBare(workspaceHostPath); err != nil {
+		return err
 	}
 
 	// First-build expectations: the notice rides ahead of the build label (see
 	// composeBuild). Static text — no measured size.
 	notice := ""
 	if firstBuild {
-		notice = "First start downloads ~1GB of build-time dependencies (Chromium, Node.js, Python toolchain); this can take several minutes on slower connections."
+		notice = firstBuildNotice
 	}
 	if err := composeBuild(ctx, composeDir, workspaceHostPath, containerName, composeBuildSpec{
 		label:  "Building container image",
@@ -279,6 +308,33 @@ func dockerComposeUp(ctx context.Context, composeDir, workspaceHostPath, contain
 		"-f", composeFile,
 		"up", "-d", "--remove-orphans",
 	)
+	cmd.SetStdout(os.Stderr)
+	cmd.SetStderr(os.Stderr)
+	applyComposeEnv(cmd, workspaceHostPath, containerName, composeDir)
+	fmt.Fprintf(os.Stderr, "  ℹ Starting container...\n")
+	if err := cmd.Run(); err != nil {
+		return err
+	}
+	fmt.Fprintf(os.Stderr, "  ✓ Container started\n")
+	return nil
+}
+
+// composeCreateServices creates ONLY the given missing containers. `--no-build`
+// keeps Compose from rebuilding, `--pull never` keeps it from reaching a
+// registry for a missing image, and the explicit service list keeps it from
+// touching any existing container — Compose only creates what does not exist,
+// so no existing container is recreated and no config drift is reconciled.
+func composeCreateServices(ctx context.Context, composeDir, workspaceHostPath, containerName string, create []stackService) error {
+	if err := requireWorkspaceBare(workspaceHostPath); err != nil {
+		return err
+	}
+	composeFile := filepath.Join(composeDir, "docker-compose.yml")
+	args := []string{"compose", "-f", composeFile,
+		"up", "-d", "--remove-orphans", "--no-build", "--pull", "never"}
+	for _, s := range create {
+		args = append(args, s.service)
+	}
+	cmd := runCommandContext(ctx, "docker", args...)
 	cmd.SetStdout(os.Stderr)
 	cmd.SetStderr(os.Stderr)
 	applyComposeEnv(cmd, workspaceHostPath, containerName, composeDir)

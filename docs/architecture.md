@@ -102,6 +102,27 @@ The container is built from `cmd/cheasee-pi/embedded/docker/Dockerfile` (Debian 
 - unzip (archive extraction)
 - GitHub CLI (gh)
 
+### Startup flow
+
+A plain `cheasee-pi` / `cheasee-pi start` is a per-service reconcile over the
+three stack services (`cheasee-pi`, `codeflow`, `ui`), not a reshape of the
+whole Compose project:
+
+1. One `docker ps -a` probe classifies each service container as *up*,
+   *start*, or *missing* (`containerStates`).
+2. Existing stopped containers are started with `docker start <container>` —
+   Compose never sees them, so no recreate happens and stale Compose config is
+   left untouched.
+3. For missing containers only: `docker image inspect` decides whether the
+   image is absent; absent images are built with a service-scoped
+   `docker compose build <svc>`, and the missing containers are created with
+   `docker compose up -d --no-build --pull never --remove-orphans <svc>`.
+
+`--build` is the explicit rebuild opt-in and keeps the coarse
+`compose build` (all services) + `compose up -d --remove-orphans` path. Any
+docker failure on the normal path is reported as-is — there is no
+build/recreate fallback.
+
 ## UI service (web control center)
 
 The compose stack runs a third managed service alongside `cheasee-pi` and
@@ -156,7 +177,8 @@ The repo root is bind-mounted at `/workspaces/main`. Host UID/GID are mapped to 
   to `<parent>/.bare` → worktree attach on the repo's default branch (bare
   HEAD via `symbolic-ref`) → `cheasee-settings.json`),
   then stops — init never launches pi; a second `cheasee-pi start` runs the
-  normal start phases (docker check → compose up → exec pi).
+  normal start phases (docker check → start existing containers, create only
+  missing ones → exec pi).
 - **`cheasee-settings.json` present** → initialized; runs normally.
 - **Non-empty folder without settings** → refused (“not initialized; run
   `cheasee-pi init` in an empty folder”).

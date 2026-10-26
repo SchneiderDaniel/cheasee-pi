@@ -44,11 +44,20 @@ func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context,
 			c.composeCmds = append(c.composeCmds, m)
 			return m
 		}
+		if name == "docker" && slices.Contains(arg, "ps") && c.states != nil {
+			// Explicit per-container states (ensureStackUp tests): answered here
+			// so the caller's dockerFn stays the write-path stub.
+			return &mockCmd{outputFn: func() ([]byte, error) { return c.psOutput(root, false, arg), nil }}
+		}
+		if name == "docker" && len(arg) > 1 && arg[0] == "start" {
+			c.starts = append(c.starts, arg[1])
+			return dockerFn(ctx, arg)
+		}
 		if name == "docker" && slices.Contains(arg, "image") && slices.Contains(arg, "inspect") {
-			// First-build gate — intercepted before dockerFn so the per-test
-			// health-wait inspect catch-all can't swallow it (default missing,
-			// flip c.imageState for anti-nag / fail-closed tests).
-			return c.stubImageGate()
+			// First-build / create probe — intercepted before dockerFn so the
+			// per-test health-wait inspect catch-all can't swallow it (default
+			// missing, flip c.imageState for anti-nag / fail-closed tests).
+			return c.stubImageGate(arg[len(arg)-1])
 		}
 		return dockerFn(ctx, arg)
 	})
@@ -123,7 +132,7 @@ func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
 	if inspectCalls != 1 {
 		t.Errorf("expected exactly 1 health poll, got %d", inspectCalls)
 	}
-	if dockerCalls != 4 { // ps + compose build + compose up + inspect
-		t.Errorf("unexpected docker call count %d (want ps+2×compose+inspect)", dockerCalls)
+	if dockerCalls != 5 { // containerRunning ps + state probe + compose build + compose up + inspect
+		t.Errorf("unexpected docker call count %d (want 2×ps+2×compose+inspect)", dockerCalls)
 	}
 }

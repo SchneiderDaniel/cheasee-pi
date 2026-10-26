@@ -128,8 +128,9 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("reconcile package filters: %w", err)
 	}
 
-	// Phases 5-6: extract the version-keyed compose cache, start the container
-	// when missing or --build, and wait for the entrypoint ready marker before
+	// Phases 5-6: extract the version-keyed compose cache, start the stack
+	// (existing containers as they are, missing ones created, absent images
+	// built only with --build) and wait for the entrypoint ready marker before
 	// execing pi (see ensureContainerReady).
 	if _, err := ensureContainerReady(ctx, root, upName, upBuild); err != nil {
 		return err
@@ -232,7 +233,8 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 }
 
 // ensureContainerReady extracts the version-keyed compose cache, starts the
-// container when missing or --build, and waits for the entrypoint ready marker.
+// stack (reusing existing containers unless --build asks for a rebuild) and
+// waits for the entrypoint ready marker.
 func ensureContainerReady(ctx context.Context, root, name string, build bool) (cacheDir string, err error) {
 	cacheDir, err = ensureCacheDir(ctx)
 	if err != nil {
@@ -245,13 +247,15 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 	if err != nil {
 		return "", fmt.Errorf("check container: %w", err)
 	}
-	if build || !running {
-		// True first-build gate: compose builds whenever the container is
-		// missing, but the ~1GB download notice belongs only to an actual
-		// first build — keyed on image absence (docker image inspect exit
-		// code), never on !running alone, or every cached cold start nags.
-		// Fail-closed: inspect before compose — a daemon error here is real
-		// (the Phase-2 docker check already passed), never "missing".
+	if build {
+		// Explicit rebuild: build every service, then up every service — the
+		// one path allowed to recreate containers and refresh images.
+		//
+		// True first-build gate: the ~1GB download notice belongs only to an
+		// actual first build — keyed on image absence (docker image inspect
+		// exit code), never on !running alone, or every cached cold start
+		// nags. Fail-closed: inspect before compose — a daemon error here is
+		// real (the Phase-2 docker check already passed), never "missing".
 		exists, err := imageExists(ctx, cheaseeImageRef(root))
 		if err != nil {
 			return "", fmt.Errorf("check image: %w", err)
@@ -260,12 +264,21 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 			return "", fmt.Errorf("docker compose up: %w", err)
 		}
 	} else {
-		// Running + no --build: compose stays skipped (deliberate — start must
-		// not surprise-rebuild). The sidecar can still be stale relative to
-		// this CLI's compose/config/port, so compare the live container
-		// against the freshly extracted expected state and warn with the
-		// exact recovery command (best-effort, never a start failure).
-		warnIfCodeflowDrift(ctx, root, cacheDir)
+		// Normal start reuses what exists: existing containers are started
+		// as-is (never rebuilt, pulled or recreated), and only missing
+		// containers/images are created/built (see ensureStackUp).
+		if err := ensureStackUp(ctx, cacheDir, root, name); err != nil {
+			return "", err
+		}
+		// A sidecar container that already existed is only started, never
+		// recreated, so it can still be stale relative to this CLI's compose/
+		// config/port: compare the live container against the freshly
+		// extracted expected state and warn with the exact recovery command
+		// (best-effort, never a start failure). Runs after the reconcile so a
+		// sidecar it just created is already matching.
+		if running {
+			warnIfCodeflowDrift(ctx, root, cacheDir)
+		}
 	}
 	// Gate the exec behind first-run setup: compose up -d returns as soon as
 	// the container starts, long before the entrypoint finishes (worktree

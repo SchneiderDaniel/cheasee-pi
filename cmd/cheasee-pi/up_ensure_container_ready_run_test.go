@@ -73,16 +73,24 @@ func TestRunUpE_waitHealthyTimeoutSurfaces(t *testing.T) {
 // First-build gate + notice (ensureContainerReady use cases)
 // ──────────────────────────────────────────────
 
-// readyFlowDockerFn is the dockerFn used by the gate use-case tests: ps
-// reports the named container as (not) running, the health-wait inspect
-// answers healthy, and the drift `{{json .}}` inspect (running && !build
-// only) answers a label-less sidecar whose config.json mount matches the
-// current cache dir — old-container form, silent when fields match.
+// readyFlowDockerFn is the dockerFn used by the container-ready use-case
+// tests: the whole stack is present (running) or absent, the health-wait
+// inspect answers healthy, and the drift `{{json .}}` inspect (running &&
+// !build only) answers a label-less sidecar whose config.json mount matches
+// the current cache dir — old-container form, silent when fields match.
 
-func readyFlowDockerFn(name string) func(context.Context, []string) runner {
+func readyFlowDockerFn(root string, running bool) func(context.Context, []string) runner {
 	return func(_ context.Context, arg []string) runner {
 		if slices.Contains(arg, "ps") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(name), nil }}
+			return &mockCmd{outputFn: func() ([]byte, error) {
+				out := ""
+				if running {
+					for _, s := range stackServices(root) {
+						out += s.container + "|running\n"
+					}
+				}
+				return []byte(out), nil
+			}}
 		}
 		if slices.Contains(arg, "inspect") {
 			if slices.Contains(arg, "{{json .}}") {
@@ -100,7 +108,7 @@ func TestEnsureContainerReady_imageMissingPrintsFirstBuildNotice(t *testing.T) {
 	setUpReady(t)
 	name := containerName(root)
 
-	c := stubReadyFlow(t, root, readyFlowDockerFn("")) // not running, image missing (stub default)
+	c := stubReadyFlow(t, root, readyFlowDockerFn(root, false)) // nothing exists, image missing (stub default)
 	stderr := testutil.CaptureStderr(t, func() {
 		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
 			t.Fatalf("ensureContainerReady: %v", err)
@@ -126,16 +134,15 @@ func TestEnsureContainerReady_imageMissingPrintsFirstBuildNotice(t *testing.T) {
 	}
 }
 
-func TestEnsureContainerReady_imagePresentColdStartNoNotice(t *testing.T) {
-	// Cached image + container not running: compose still builds (the
-	// container must exist) but the ~1GB first-build notice must NOT nag —
-	// the anti-nag regression the issue calls out (keying on !running alone
-	// would nag on every cached cold start).
+func TestEnsureContainerReady_imagePresentColdStartReusesImage(t *testing.T) {
+	// Cached images, no containers: the containers are created without a build
+	// and without the ~1GB first-build notice — keying a build on !running
+	// alone would rebuild on every cached cold start.
 	_, root := mkWorkspace(t, `{}`)
 	setUpReady(t)
 	name := containerName(root)
 
-	c := stubReadyFlow(t, root, readyFlowDockerFn(""))
+	c := stubReadyFlow(t, root, readyFlowDockerFn(root, false))
 	c.imageState = upImagePresent
 	stderr := testutil.CaptureStderr(t, func() {
 		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
@@ -145,7 +152,10 @@ func TestEnsureContainerReady_imagePresentColdStartNoNotice(t *testing.T) {
 	if strings.Contains(stderr, "First start downloads") {
 		t.Errorf("cached image must not print the first-build notice, got: %q", stderr)
 	}
-	if len(c.composeArgs) != 2 {
-		t.Errorf("image present + container missing must still build + up, got %d calls", len(c.composeArgs))
+	if len(c.composeArgs) != 1 {
+		t.Fatalf("present images + missing containers must only create, got %v", c.composeArgs)
+	}
+	if !slices.Contains(c.composeArgs[0], "up") || slices.Contains(c.composeArgs[0], "build") {
+		t.Errorf("create-only path must not build, got %v", c.composeArgs[0])
 	}
 }
