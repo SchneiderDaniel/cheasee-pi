@@ -41,3 +41,5 @@ export {
 } from "./git-ops.ts";
 export type { PreservedWork, WipCommit } from "./git-ops.ts";
 export { handlePostAgentSuccess } from "./post-agent-success.ts";
+export { upsertDeveloperPr } from "./developer-pr.ts";
+export type { UpsertDeveloperPrDeps } from "./developer-pr.ts";

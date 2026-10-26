@@ -5,13 +5,19 @@
 // returns false ONLY on commitAndPush failure.
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { SupervisorConfig, AgentRunResult, FilteredIssueData } from "../../config/types.ts";
+import type {
+	SupervisorConfig,
+	AgentRunResult,
+	FilteredIssueData,
+	PipelineAgentResult,
+} from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import type { NotifyFn } from "../helpers.ts";
 import type { GateRejected } from "./core.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import { handleAgentComment } from "./agent-comment.ts";
 import { handleDeveloperCommit } from "./git-ops.ts";
+import { upsertDeveloperPr } from "./developer-pr.ts";
 import { handleAuditorOutput } from "./auditor-output.ts";
 
 /**
@@ -33,15 +39,17 @@ export async function handlePostAgentSuccess(
 	gateRejected?: GateRejected,
 	notify?: NotifyFn,
 	port?: GitHubPort,
+	agentResults?: PipelineAgentResult[],
 ): Promise<boolean> {
 	// Agent comments: architect, test-designer, researcher
 	if (agentName === "architect" || agentName === "test-designer" || agentName === "researcher") {
 		await handleAgentComment(pi, ctx, result, agentName, issueNum, config, collector, port);
 	}
 
-	// Commit and push for developer
+	// Commit and push for developer, then upsert the PR so pre-audit CI gates
+	// have a pull request to evaluate (the developer agent never touches git/PRs).
 	if (agentName === "developer" && worktreePath && worktreeBranch) {
-		return await handleDeveloperCommit(
+		const committed = await handleDeveloperCommit(
 			pi,
 			ctx,
 			config,
@@ -52,6 +60,21 @@ export async function handlePostAgentSuccess(
 			collector,
 			notify,
 		);
+		if (committed) {
+			await upsertDeveloperPr({
+				pi,
+				issueNum,
+				issueTitle,
+				config,
+				worktreePath,
+				worktreeBranch,
+				agentResults,
+				port,
+				notify,
+				collector,
+			});
+		}
+		return committed;
 	}
 
 	// Audit output processing
