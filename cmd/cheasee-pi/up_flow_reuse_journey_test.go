@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,48 +8,6 @@ import (
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 	"github.com/spf13/cobra"
 )
-
-func TestRunUpE_stateProbeErrorNeverExecs(t *testing.T) {
-	root, _ := reusedStack(t)
-	setUpRunMode(t, root, false)
-	exec := stubExecPIContainer(t)
-	stubLookPath(t, func(string) (string, error) { return "/usr/bin/docker", nil })
-
-	var composeCalls int
-	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
-		if name == "git" {
-			return &mockCmd{}
-		}
-		if slices.Contains(arg, "compose") {
-			composeCalls++
-			return &mockCmd{}
-		}
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
-		}
-		if argHas(arg, "{{json .}}") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("{}"), nil }}
-		}
-		if argHas(arg, "{{.State}}") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return nil, exitStatusError(2) }}
-		}
-		return &mockCmd{}
-	})
-
-	err := runUpE(&cobra.Command{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "check container:") {
-		t.Fatalf("state-probe failure must surface through runUpE, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "docker ps:") {
-		t.Errorf("error must carry the docker ps failure, got %v", err)
-	}
-	if composeCalls != 0 {
-		t.Errorf("no compose around a failed probe, got %d", composeCalls)
-	}
-	if exec.name != "" {
-		t.Errorf("exec must never run after a failed probe, got %q", exec.name)
-	}
-}
 
 func TestRunUpE_returningUserStoppedStackStartsInPlace(t *testing.T) {
 	root, services := reusedStack(t)
@@ -156,30 +111,5 @@ func TestRunUpE_startBuildStillRebuilds(t *testing.T) {
 	}
 	if !slices.Contains(c.composeArgs[0], "build") || !slices.Contains(c.composeArgs[1], "up") {
 		t.Errorf("argv order must stay build then up, got %v", c.composeArgs)
-	}
-}
-
-func TestCLIDoc_StartReuse(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
-	if err != nil {
-		t.Fatalf("reading docs/cli.md: %v", err)
-	}
-	section, ok := markdownSection(string(data), "## `cheasee-pi` (no args) / `start`")
-	if !ok {
-		t.Fatal("docs/cli.md must keep the start section heading")
-	}
-	for _, want := range []string{"without rebuilding", "creates only missing", "builds only missing"} {
-		if !strings.Contains(section, want) {
-			t.Errorf("start docs must state %q, got:\n%s", want, section)
-		}
-	}
-	if strings.Contains(section, "`docker compose up` if not running") {
-		t.Errorf("start docs still describe the old compose-up-if-not-running flow:\n%s", section)
-	}
-	if strings.Contains(upCmd.Long, "starts it with docker compose up first") {
-		t.Errorf("start --help still claims compose up if not running:\n%s", upCmd.Long)
-	}
-	if !strings.Contains(upCmd.Long, "--build") {
-		t.Errorf("start --help must keep documenting --build:\n%s", upCmd.Long)
 	}
 }

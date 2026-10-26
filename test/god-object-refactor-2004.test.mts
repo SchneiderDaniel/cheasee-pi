@@ -126,7 +126,7 @@ const BASE_COUNT: Record<string, number> = {
 	"cmd/cheasee-pi/init_clone_test.go": 25,
 	"cmd/cheasee-pi/identity.go": 23,
 	"cmd/cheasee-pi/ui_e2e_test.go": 21,
-	"cmd/cheasee-pi/up_flow_test.go": 21,
+	"cmd/cheasee-pi/up_flow_test.go": 25,
 	"cmd/cheasee-pi/up_orphans_test.go": 20,
 	"cmd/cheasee-pi/helpers_run_test.go": 19,
 	"cmd/cheasee-pi/init_skillrepos_test.go": 16,
