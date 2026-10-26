@@ -80,10 +80,9 @@ func runInitScaffold(
 		ClientID:      deps.ClientID,
 		RepositoryURL: repoURL,
 		GitHubUser:    githubUser,
-		// Every init records the default pi repos (ponytail) so the container
-		// entrypoint installs them uniformly; user-added custom repos are
-		// merged additively afterwards via recordSkillRepos.
-		SkillRepos: defaultSkillRepos,
+		// SkillRepos stays nil: init records no repository by default. Custom
+		// repos are recorded afterwards via recordSkillRepos, and an empty list
+		// renders no skillRepos key at all.
 	}
 
 	if err := NewCheaseeSettingsScaffold().Scaffold(ctx, deps.Workdir, vals); err != nil {

@@ -34,7 +34,7 @@ func TestCommittedSettings_TrackedPathsRepoLocal(t *testing.T) {
 		"\"rtk\"",        // extensions: tracked local extension kept
 		"\".pi/skills\"", // skills: tracked local dir kept
 		"\"cheasee-pi\"", // theme unchanged
-		"ponytail",       // packages unchanged
+		"private-pi",     // the remaining package unchanged
 	} {
 		if !strings.Contains(content, want) {
 			t.Errorf("committed settings must keep %q", want)

@@ -36,8 +36,9 @@ func TestDockerfile_FetchesCheaseePi(t *testing.T) {
 	if strings.Contains(content, "COPY pi-resources/") {
 		t.Error("Dockerfile must not COPY a staged pi-resources tree (repo is cloned instead)")
 	}
-	if !strings.Contains(content, "/opt/cheasee-pi/.pi/extensions/ponytail") {
-		t.Error("Dockerfile must remove the ponytail extension (loads from gitignored .pi/git)")
+	if strings.Contains(content, "/opt/cheasee-pi/.pi/extensions/caveman") ||
+		strings.Contains(content, "/opt/cheasee-pi/.pi/extensions/ponytail") {
+		t.Error("Dockerfile must not special-case a removed mode extension directory")
 	}
 }
 

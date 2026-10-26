@@ -39,7 +39,6 @@ import {
 	resetDebugLogger,
 } from "../.pi/extensions/supervisor/lib/debug.ts";
 import { formatTimestamp } from "../.pi/extensions/supervisor/lib/debug-format.ts";
-import { makeSentinelTheme } from "../.pi/extensions/caveman/test/config-ui-test-theme.ts";
 import {
 	createMockPi,
 	createMockTheme,
@@ -158,6 +157,8 @@ const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as
 	baseAdvance: { issue: number; reason: string; scoredFilesAdded: number; resolvedFiles: string[] };
 	reducedBy: string[];
 	filedFiles: string[];
+	/** Ledger paths the tree no longer carries (overlay: `filedFiles` keeps the count). */
+	removed: { path: string; issue: number; reason: string }[];
 	alreadyUnder: { reason: string; files: string[] };
 	splitFamilies: Record<string, string[]>;
 	deferred: { reason: string; files?: string[]; examples?: string[] }[];
@@ -186,14 +187,25 @@ describe("vba god module refactor #2036 — manifest", () => {
 		assert.equal(B.godObjectThreshold, 15, "the God Object ceiling");
 	});
 
-	it("cites the 23 reduced modules and their 58 siblings", () => {
+	it("cites the 22 live reduced modules and their 56 siblings", () => {
 		assert.deepStrictEqual(Object.keys(B.splitFamilies).sort(), [...B.reducedBy].sort());
-		assert.equal(SIBLINGS.length, 58, "fifty-eight new siblings for the twenty-three families");
+		assert.equal(SIBLINGS.length, 56, "fifty-six live siblings for the twenty-two families");
 		assert.equal(new Set(SIBLINGS).size, SIBLINGS.length, "a sibling is listed twice");
 	});
 
-	it("accounts for every filed file: reduced, already under, or uncited-deferred", () => {
-		assert.equal(B.filedFiles.length, B.provenance.filedCount, "the issue filed 25 files");
+	it("accounts for every filed file: reduced, already under, removed, or uncited-deferred", () => {
+		const removed = B.removed.map((r) => r.path);
+		assert.equal(
+			B.filedFiles.length + removed.length,
+			B.provenance.filedCount,
+			"the issue filed 25 files",
+		);
+		for (const entry of B.removed) {
+			assert.equal(entry.issue, 2072, `${entry.path} records its removing issue`);
+			assert.ok(entry.reason.trim().length > 0, `${entry.path} records a reason`);
+			assert.equal(existsSync(resolve(ROOT, entry.path)), false, `${entry.path} is removed`);
+			assert.equal(B.filedFiles.includes(entry.path), false, "a removed path is not live");
+		}
 		assert.deepStrictEqual(
 			overlap(B.reducedBy, ALREADY_UNDER),
 			[],
@@ -276,19 +288,6 @@ describe("vba god module refactor #2036 — moved declarations live in the sibli
 		assert.match(
 			read(".pi/extensions/supervisor/lib/debug-sanitize.ts"),
 			/export function sanitizeData\(/,
-		);
-	});
-
-	it("config-ui hands the dialog suite to its sibling with a shared theme mock", () => {
-		const barrel = read(".pi/extensions/caveman/test/config-ui.test.ts");
-		assert.ok(!barrel.includes("openConfigDialog header styling"), "the dialog suite moved out");
-		assert.match(
-			read(".pi/extensions/caveman/test/config-ui-dialog.test.ts"),
-			/openConfigDialog header styling/,
-		);
-		assert.match(
-			read(".pi/extensions/caveman/test/config-ui-test-theme.ts"),
-			/export function makeSentinelTheme\(/,
 		);
 	});
 
@@ -409,16 +408,6 @@ describe("vba god module refactor #2036 — public surface preserved", () => {
 		assert.equal(typeof formatTimestamp(new Date()), "string");
 	});
 
-	it("the sentinel theme mock still reports style/fg/bold calls", () => {
-		const { theme, styleCalls, fgCalls, boldCalls } = makeSentinelTheme();
-		theme.style("h", { fg: "accent", bold: true });
-		theme.fg("accent", "t");
-		theme.bold("b");
-		assert.equal(styleCalls.length, 1);
-		assert.deepEqual(fgCalls, ["t"]);
-		assert.deepEqual(boldCalls, ["b"]);
-	});
-
 	it("mock-pi still composes a working ExtensionAPI from the stub groups", () => {
 		const captured = new CapturedOutput();
 		const pi = createMockPi(captured);
@@ -448,7 +437,6 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 		if (!dir) return t.skip(`base commit ${B.before.commit} is not present in this checkout`);
 		const recorded: Record<string, number> = {
 			".pi/extensions/agent-harness/test/harness-fixtures.ts": 37,
-			".pi/extensions/caveman/test/config-ui.test.ts": 36,
 			".pi/extensions/supervisor/event/adapter/normalize.ts": 22,
 			".pi/extensions/supervisor/lib/debug.ts": 32,
 			".pi/extensions/supervisor/test/helpers/mock-pi.ts": 93,
@@ -536,8 +524,8 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 		assert.equal(before.vbaGodModule.length, B.before.vbaGodModuleCount);
 		assert.deepStrictEqual(
 			before.vbaGodModule,
-			[...B.reducedBy, ...BASE_UNCITED].sort(),
-			"the base's flagged set must include the reductions and both uncited paths",
+			[...B.reducedBy, ...BASE_UNCITED, ...B.removed.map((r) => r.path)].sort(),
+			"the base's flagged set must include the live reductions, both uncited paths, and the paths since removed",
 		);
 		assert.equal(before.godObject.length, B.before.godObjectCount);
 		const after = measureTree(ROOT, deliveredFiles());
@@ -550,8 +538,8 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 	it("accounts for every leftover flag (no silent omission)", () => {
 		assert.strictEqual(
 			B.before.vbaGodModuleCount,
-			B.reducedBy.length + BASE_UNCITED.length,
-			"base count must equal reduced + uncited flags",
+			B.reducedBy.length + BASE_UNCITED.length + B.removed.length,
+			"base count must equal reduced + uncited + since-removed flags",
 		);
 		assert.strictEqual(
 			B.after.vbaGodModuleCount,
@@ -560,7 +548,7 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 		);
 		assert.strictEqual(
 			B.after.codeFiles,
-			B.before.codeFiles + SIBLINGS.length + B.baseAdvance.scoredFilesAdded,
+			B.before.codeFiles + SIBLINGS.length + B.baseAdvance.scoredFilesAdded - B.removed.length,
 			"the drop is from splitting, not deleting: account for this split and the main advance",
 		);
 	});

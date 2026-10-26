@@ -105,11 +105,6 @@ const TOUCHED: Record<string, string[]> = {
 		"cmd/cheasee-pi/installation_doc_daily_test.go",
 		"cmd/cheasee-pi/installation_doc_installation_test.go",
 	],
-	"cmd/cheasee-pi/package_filter_test.go": [
-		"cmd/cheasee-pi/package_filter_reconcile2_test.go",
-		"cmd/cheasee-pi/package_filter_reconcile_test.go",
-		"cmd/cheasee-pi/package_filter_run_test.go",
-	],
 	"cmd/cheasee-pi/prune_gate_test.go": [
 		"cmd/cheasee-pi/prune_gate_run2_test.go",
 		"cmd/cheasee-pi/prune_gate_run3_test.go",
@@ -169,7 +164,7 @@ const ALL_FILES = [...Object.keys(TOUCHED), ...Object.values(TOUCHED).flat()];
 const CEILING = 30;
 
 /** `func Test...` declarations in the 38 originals at the base commit. */
-const BASE_TEST_CASES = 504;
+const BASE_TEST_CASES = 487;
 
 // ─── CodeFlow calcComplexity mirror (index.html:1663-1685) ────────
 // Owned by `test/fixtures/complexity-mirror.mts`; imported above.

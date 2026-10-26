@@ -87,12 +87,10 @@ Run init in an **empty folder** — cheasee-pi sets the workspace up itself:
    into the container — entered skill repository specs are recorded in
    `cheasee-settings.json` (`skillRepos`) and installed on first
    `cheasee-pi start` via pi (`pi install -l`, cloned to `.pi/git/`,
-   reconcilable with `pi update`). One skill repo,
-   [`DietrichGebert/ponytail`](https://github.com/DietrichGebert/ponytail), is
-   installed by default and declared at the prompt. To remove it, delete it
-   from `skillRepos` in `cheasee-settings.json` **and** run
-   `pi uninstall ponytail` inside the container — the clone stays in
-   `.pi/git/` otherwise.
+   reconcilable with `pi update`). No skill repository is installed by
+   default: the list starts empty. To remove a recorded repo, delete it from
+   `skillRepos` in `cheasee-settings.json` **and** run `pi uninstall <name>`
+   inside the container — the clone stays in `.pi/git/` otherwise.
 
 No docker files in your repo — the compose file and Dockerfile are CLI-managed
 cache state, and pi's own `.pi/settings.json` is self-scaffolded by pi on its
@@ -105,11 +103,19 @@ first run.
 > skill repository specs) without a prompt (repeatable; also accepts
 > `https://…` or `git:host/user/repo[@ref]`). Recorded skill repos are
 > installed into the container on `cheasee-pi start` via pi (`pi install -l`,
-> project-local clones in `.pi/git/`, kept reconcilable with `pi update`). The
-> [`DietrichGebert/ponytail`](https://github.com/DietrichGebert/ponytail) skill
-> repo is preinstalled by default — drop it from `skillRepos` in
-> `cheasee-settings.json` and run `pi uninstall ponytail` in the container to
-> remove it.
+> project-local clones in `.pi/git/`, kept reconcilable with `pi update`). No
+> skill repository is preinstalled — only what you record is installed.
+
+{:.note-title}
+
+> Upgrading from a release that shipped the Ponytail mode?
+> A workspace set up by an earlier release may still record the
+> `ponytail` package in its own `.pi/settings.json` (or `skillRepos` in
+> `cheasee-settings.json`), and pi installs whatever an entry records. Nothing
+> in the harness loads or refreshes that entry any more, so delete it once —
+> and run `pi uninstall ponytail` inside the container to drop the clone —
+> if you want it gone from an existing workspace. New workspaces start clean,
+> and no user-level file is touched by the upgrade itself.
 
 {:.note-title}
 

@@ -178,25 +178,25 @@ else
 fi
 assert_append_marker "fixed run (cheasee-pi repo)"
 
-# The repo links only the core ponytail skill (#1936): after re_point, the
-# global skills dir must carry `ponytail` (→ live repo) and no auxiliary link.
+# After re_point, the global skills dir must carry a repo skill (→ live repo)
+# and must not carry the stale auxiliary links a pre-existing homepage may hold.
 core_skill="$(docker run --rm \
     -v "$ROOT:/workspaces/main" \
     -v "$ROOT:/opt/cheasee-pi" \
-    "$IMAGE" readlink /home/agentuser/.pi/agent/skills/ponytail 2>/dev/null || true)"
-if [ "$core_skill" = "/workspaces/main/.pi/skills/ponytail" ]; then
-    pass "global ponytail skill link re-pointed at live repo ($core_skill)"
+    "$IMAGE" readlink /home/agentuser/.pi/agent/skills/voice-for-writing 2>/dev/null || true)"
+if [ "$core_skill" = "/workspaces/main/.pi/skills/voice-for-writing" ]; then
+    pass "global skill link re-pointed at live repo ($core_skill)"
 else
-    fail "global ponytail skill link not re-pointed (got '$core_skill')"
+    fail "global skill link not re-pointed (got '$core_skill')"
 fi
 global_aux="$(docker run --rm \
     -v "$ROOT:/workspaces/main" \
     -v "$ROOT:/opt/cheasee-pi" \
-    "$IMAGE" bash -c 'for n in ponytail-audit ponytail-review ponytail-debt ponytail-gain ponytail-help; do p="/home/agentuser/.pi/agent/skills/$n"; { [ -e "$p" ] || [ -L "$p" ]; } && echo "$n"; done' 2>/dev/null || true)"
+    "$IMAGE" bash -c 'for n in stale-skill-a stale-skill-b stale-skill-c stale-skill-d stale-skill-e; do p="/home/agentuser/.pi/agent/skills/$n"; { [ -e "$p" ] || [ -L "$p" ]; } && echo "$n"; done' 2>/dev/null || true)"
 if [ -z "$global_aux" ]; then
-    pass "no auxiliary ponytail skills linked in the global skills dir"
+    pass "no stale auxiliary links in the global skills dir"
 else
-    fail "auxiliary ponytail skills still linked globally: $(echo "$global_aux" | tr '\n' ' ')"
+    fail "stale auxiliary links still linked globally: $(echo "$global_aux" | tr '\n' ' ')"
 fi
 
 # ------------------------------------------------------------------
@@ -221,12 +221,12 @@ inject_marker ".pi/extensions/marker-dedup"
 # from the same global symlinks and the second run must be a no-op re-point.
 mkdir -p "$AGENT_STATE"
 docker run --rm --entrypoint /bin/bash "$IMAGE" -c 'tar -C /home/agentuser -cf - .' | tar -C "$AGENT_STATE" -xf -
-# Seed stale auxiliary ponytail links exactly as a pre-#1936 run would have
-# left them in a persisted home (re_point'd at the live repo, sources since
-# deleted). The prune must drop them on the first restart while the core link
-# survives and is re-pointed.
+# Seed stale auxiliary links exactly as an earlier run would have left them in a
+# persisted home (re_point'd at the live repo, sources since deleted). The prune
+# must drop them on the first restart while the repo link survives and is
+# re-pointed.
 mkdir -p "$AGENT_STATE/.pi/agent/skills"
-for n in ponytail-audit ponytail-review ponytail-debt ponytail-gain ponytail-help; do
+for n in stale-skill-a stale-skill-b stale-skill-c stale-skill-d stale-skill-e; do
     ln -sfn "/workspaces/main/.pi/skills/$n" "$AGENT_STATE/.pi/agent/skills/$n"
 done
 run_pi "$OUT_DIR/pi-idem1.log" -v "$AGENT_STATE:/home/agentuser"
@@ -243,21 +243,21 @@ persisted_aux="$(docker run --rm \
     -v "$ROOT:/workspaces/main" \
     -v "$ROOT:/opt/cheasee-pi" \
     -v "$AGENT_STATE:/home/agentuser" \
-    "$IMAGE" bash -c 'for n in ponytail-audit ponytail-review ponytail-debt ponytail-gain ponytail-help; do p="/home/agentuser/.pi/agent/skills/$n"; { [ -e "$p" ] || [ -L "$p" ]; } && echo "$n"; done' 2>/dev/null || true)"
+    "$IMAGE" bash -c 'for n in stale-skill-a stale-skill-b stale-skill-c stale-skill-d stale-skill-e; do p="/home/agentuser/.pi/agent/skills/$n"; { [ -e "$p" ] || [ -L "$p" ]; } && echo "$n"; done' 2>/dev/null || true)"
 if [ -z "$persisted_aux" ]; then
-    pass "stale auxiliary ponytail links pruned from persisted agent home"
+    pass "stale auxiliary links pruned from persisted agent home"
 else
-    fail "stale auxiliary ponytail links survived prune in persisted home: $(echo "$persisted_aux" | tr '\n' ' ')"
+    fail "stale auxiliary links survived prune in persisted home: $(echo "$persisted_aux" | tr '\n' ' ')"
 fi
 persisted_core="$(docker run --rm \
     -v "$ROOT:/workspaces/main" \
     -v "$ROOT:/opt/cheasee-pi" \
     -v "$AGENT_STATE:/home/agentuser" \
-    "$IMAGE" readlink /home/agentuser/.pi/agent/skills/ponytail 2>/dev/null || true)"
-if [ "$persisted_core" = "/workspaces/main/.pi/skills/ponytail" ]; then
-    pass "core ponytail skill re-pointed in persisted agent home ($persisted_core)"
+    "$IMAGE" readlink /home/agentuser/.pi/agent/skills/voice-for-writing 2>/dev/null || true)"
+if [ "$persisted_core" = "/workspaces/main/.pi/skills/voice-for-writing" ]; then
+    pass "repo skill re-pointed in persisted agent home ($persisted_core)"
 else
-    fail "core ponytail skill not re-pointed in persisted home (got '$persisted_core')"
+    fail "repo skill not re-pointed in persisted home (got '$persisted_core')"
 fi
 l1="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
 l2="$(docker run --rm -v "$ROOT:/workspaces/main" -v "$ROOT:/opt/cheasee-pi" -v "$AGENT_STATE:/home/agentuser" "$IMAGE" readlink /home/agentuser/.pi/agent/extensions/marker-dedup 2>/dev/null || true)"
@@ -349,7 +349,7 @@ rc=$?
 set -e
 echo "    (pi exit=$rc)"
 # Global symlinks must be untouched (still → /opt/cheasee-pi)
-baked_target="$(docker run --rm --entrypoint /bin/bash "$IMAGE" -c 'readlink /home/agentuser/.pi/agent/skills/ponytail' 2>/dev/null || true)"
+baked_target="$(docker run --rm --entrypoint /bin/bash "$IMAGE" -c 'readlink /home/agentuser/.pi/agent/skills/voice-for-writing' 2>/dev/null || true)"
 case "$baked_target" in
     /opt/cheasee-pi/*)
         pass "global symlinks unchanged (→ /opt/cheasee-pi) for non-cheasee-pi repo ($baked_target)"

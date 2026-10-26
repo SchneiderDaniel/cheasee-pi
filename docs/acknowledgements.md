@@ -30,9 +30,6 @@ Cheasee-Pi stands on the shoulders of the [Pi coding agent](https://pi.dev) — 
 
 ## Communication & workflow
 
-- **[Caveman](https://github.com/JuliusBrussee/caveman)** — Origin of the caveman communication style ("why use many token when few word do trick"). Cheasee-Pi ships an in-house multi-level caveman mode extension built on the same idea.
-- **[Ponytail](https://github.com/DietrichGebert/ponytail)** — Origin of the lazy senior dev mode (YAGNI, stdlib-first, minimal code). Installed as a package and extended with in-house audit, review, and debt skills.
-
 ## The cheasee-pi CLI
 
 - **[Go](https://go.dev)** — Build language for the `cheasee-pi` binary

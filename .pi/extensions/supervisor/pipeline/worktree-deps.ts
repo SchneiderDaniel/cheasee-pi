@@ -12,9 +12,9 @@ import { execChecked, withNotify, type Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
 
 // ponytail: copy git-ignored host dirs into worktree so extensions that depend
-// on git-managed packages (ponytail hooks, etc.) can load, and the maintainer's
-// host-side private-pi clone is available to agents. `.pi/git/` and `private-pi/`
-// are in .gitignore — git worktree add doesn't copy them.
+// on git-managed packages (pi package clones under .pi/git/, etc.) can load, and
+// the maintainer's host-side private-pi clone is available to agents. `.pi/git/`
+// and `private-pi/` are in .gitignore — git worktree add doesn't copy them.
 async function copyHostDirs(
 	pi: ExtensionAPI,
 	cwd: string,

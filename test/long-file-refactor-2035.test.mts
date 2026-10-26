@@ -137,6 +137,18 @@ const DEFERRED: Record<string, string> = {
 		"#2023 added a broad, source-fixture-heavy argv safety regression suite after this split. Keep its full coverage intact; re-splitting this suite is tracked separately.",
 };
 
+/**
+ * Files the 87-path ledger still cites but the tree no longer carries. Removal is
+ * an overlay, not a recomputed count: `AFFECTED` stays the issue's filed set so
+ * provenance survives, and only the live-tree checks learn about the deletion.
+ */
+const REMOVED: Record<string, { issue: number; reason: string }> = {
+	".pi/extensions/caveman/test/caveman-index.test.mts": {
+		issue: 2072,
+		reason: "the Caveman mode extension was removed with its whole tree (#2072)",
+	},
+};
+
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf8");
 const segments = (s: string): number => s.split("\n").length;
 const isFlagged = (rel: string): boolean => segments(read(rel)) > CEILING;
@@ -196,6 +208,17 @@ describe("long-file refactor #2035 — the complete affected set", () => {
 		assert.equal(new Set(AFFECTED).size, AFFECTED.length, "a file is listed twice");
 	});
 
+	it("every removed path is absent and every survivor still exists", () => {
+		for (const rel of Object.keys(REMOVED)) {
+			assert.ok(AFFECTED.includes(rel), `${rel} is removed but not in the filed set`);
+			assert.equal(existsSync(resolve(ROOT, rel)), false, `${rel} is recorded as removed`);
+			assert.equal(REMOVED[rel]!.issue, 2072, `${rel} records its removing issue`);
+		}
+		for (const rel of AFFECTED.filter((rel) => !REMOVED[rel])) {
+			assert.ok(existsSync(resolve(ROOT, rel)), `missing: ${rel}`);
+		}
+	});
+
 	it("every pinned deferred file exists and is still over the ceiling", () => {
 		for (const rel of Object.keys(DEFERRED)) {
 			assert.ok(existsSync(resolve(ROOT, rel)), `missing deferred file: ${rel}`);
@@ -204,14 +227,14 @@ describe("long-file refactor #2035 — the complete affected set", () => {
 	});
 
 	it("the deferred set is exactly the flagged remainder of the 87", () => {
-		const stillFlagged = AFFECTED.filter(isFlagged).sort();
+		const stillFlagged = AFFECTED.filter((rel) => !REMOVED[rel] && isFlagged(rel)).sort();
 		assert.deepEqual(stillFlagged, Object.keys(DEFERRED).sort());
 	});
 });
 
 describe("long-file refactor #2035 — every original and sibling is under the ceiling", () => {
 	for (const rel of AFFECTED) {
-		if (DEFERRED[rel]) continue;
+		if (DEFERRED[rel] || REMOVED[rel]) continue;
 		it(`${rel} (and its siblings) count <= 500 segments`, () => {
 			assert.ok(existsSync(resolve(ROOT, rel)), `missing: ${rel}`);
 			const n = segments(read(rel));

@@ -203,7 +203,8 @@ link_owned() {
 
 # prune_stale_repo_links <agent_dir> <repo_dir> — drop agent-dir symlinks
 # that an earlier re_point pointed at the live repo whose source entry was
-# since deleted (e.g. the auxiliary ponytail skills removed with #1936).
+# since deleted (e.g. auxiliary skills removed from a package in an earlier
+# release).
 # Candidate only when readlink is under <repo_dir>, so baked /opt links
 # and any user-created link survive. A source entry that
 # still exists is never touched, even when it is a dangling symlink: the repo

@@ -1,16 +1,19 @@
 package main
 
 import (
-	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
-func TestRunInitSkillRepos_NoInputNoFlagsSeedsDefault(t *testing.T) {
-	// --no-input without --skill-repo: no custom repos, but the fixed default
-	// (ponytail) is still ensured — a pre-existing cheasee-settings.json that
-	// predates skillRepos must gain it.
+func TestRunInitSkillRepos_NoInputNoFlagsRecordsNothing(t *testing.T) {
+	// --no-input without --skill-repo: no default repository exists any more, so
+	// the phase records nothing and performs no Save — the settings file stays
+	// byte-identical.
 	workdir := t.TempDir()
 	testutil.WriteCheaseeSettingsFile(t, workdir, `{}`)
 	deps := initDeps(t, func(d *InitDeps) { d.Workdir = workdir }) // NoInput defaults true
@@ -21,8 +24,15 @@ func TestRunInitSkillRepos_NoInputNoFlagsSeedsDefault(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != defaultSkillRepos[0] {
-		t.Errorf("no-input without flags must seed the default repo, got %v", s.SkillRepos)
+	if len(s.SkillRepos) != 0 {
+		t.Errorf("no-input without flags must record no repo, got %v", s.SkillRepos)
+	}
+	data, err := os.ReadFile(filepath.Join(workdir, "cheasee-settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != `{}` {
+		t.Errorf("no-op must not rewrite the settings file, got %s", data)
 	}
 }
 
@@ -41,8 +51,8 @@ func TestRunInitSkillRepos_NoInputFlagsRecorded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{defaultSkillRepos[0], "https://github.com/owner/repo", "git:github.com/x/y"}
-	if len(s.SkillRepos) != 3 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] || s.SkillRepos[2] != want[2] {
+	want := []string{"https://github.com/owner/repo", "git:github.com/x/y"}
+	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
 }
@@ -67,9 +77,9 @@ func TestRunInitSkillRepos_FlagsPreseedDeduped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{defaultSkillRepos[0], "https://github.com/owner/repo"}
-	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
-		t.Errorf("skillRepos = %v, want %v (default + flag/prompt dupes collapsed)", s.SkillRepos, want)
+	want := []string{"https://github.com/owner/repo"}
+	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != want[0] {
+		t.Errorf("skillRepos = %v, want %v (flag/prompt dupes collapsed)", s.SkillRepos, want)
 	}
 }
 
@@ -195,9 +205,17 @@ func TestRunInitSkillRepos_TerminologyContract(t *testing.T) {
 		"https://…",
 		"git:host/user/repo[@ref]",
 		"answer no (or leave the input empty) to stop",
+		"`pi uninstall`", // the generic removal path stays documented
+		"skills can include code the agent may run",
 	} {
 		if !strings.Contains(output, keep) {
 			t.Errorf("body must still name %q, got: %q", keep, output)
+		}
+	}
+	// No installed default and no package slug may be advertised.
+	for _, gone := range []string{"Installed by default", "DietrichGebert"} {
+		if strings.Contains(output, gone) {
+			t.Errorf("body must not contain %q, got: %q", gone, output)
 		}
 	}
 

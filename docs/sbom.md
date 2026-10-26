@@ -135,24 +135,23 @@ silently inherited.
 
 ## Pi extensions
 
-| Extension             | Type          | Purpose                                                         |
-| --------------------- | ------------- | --------------------------------------------------------------- |
-| `structural-analyzer` | Core tool     | AST-aware code search via ast-grep                              |
-| `ripgrep-search`      | Core tool     | Fast text/regex search via ripgrep                              |
-| `scrapling`           | Core tool     | Web crawling with Cloudflare bypass                             |
-| `web-search`          | Core tool     | DuckDuckGo search                                               |
-| `supervisor`          | Pipeline      | Kanban multi-agent orchestration                                |
-| `context-info`        | UX            | Rich TUI status bar                                             |
-| `session-logger`      | UX            | Session logging to JSONL                                        |
-| `agent-harness`       | Safety        | Runtime tool call validation                                    |
-| `caveman`             | Communication | Token-efficient protocol                                        |
-| `ask-user`            | Interaction   | Interactive MC/freetext questions + JSONL logging               |
-| `format-on-save`      | DX            | Auto Prettier + ESLint after write/edit                         |
-| `tsc-checkpoint`      | DX            | TypeScript type checking                                        |
-| `worktree-sandbox`    | Safety        | Worktree path enforcement                                       |
-| `rtk`                 | Core tool     | Token-saving bash rewrite via `rtk` binary (60-90% less output) |
-| `lsp-auditor`         | Pipeline      | LSP diagnostics pre-audit                                       |
-| `zzz-dump-context`    | Debug         | System prompt capture + dump                                    |
+| Extension             | Type        | Purpose                                                         |
+| --------------------- | ----------- | --------------------------------------------------------------- |
+| `structural-analyzer` | Core tool   | AST-aware code search via ast-grep                              |
+| `ripgrep-search`      | Core tool   | Fast text/regex search via ripgrep                              |
+| `scrapling`           | Core tool   | Web crawling with Cloudflare bypass                             |
+| `web-search`          | Core tool   | DuckDuckGo search                                               |
+| `supervisor`          | Pipeline    | Kanban multi-agent orchestration                                |
+| `context-info`        | UX          | Rich TUI status bar                                             |
+| `session-logger`      | UX          | Session logging to JSONL                                        |
+| `agent-harness`       | Safety      | Runtime tool call validation                                    |
+| `ask-user`            | Interaction | Interactive MC/freetext questions + JSONL logging               |
+| `format-on-save`      | DX          | Auto Prettier + ESLint after write/edit                         |
+| `tsc-checkpoint`      | DX          | TypeScript type checking                                        |
+| `worktree-sandbox`    | Safety      | Worktree path enforcement                                       |
+| `rtk`                 | Core tool   | Token-saving bash rewrite via `rtk` binary (60-90% less output) |
+| `lsp-auditor`         | Pipeline    | LSP diagnostics pre-audit                                       |
+| `zzz-dump-context`    | Debug       | System prompt capture + dump                                    |
 
 ## Docker image base
 

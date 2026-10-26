@@ -40,7 +40,7 @@ const MODIFIED_MD_FILES = [
 
 // Live scan of .pi/skills/<name>/SKILL.md so future prompt→skill migrations
 // do not break this guard again (broke twice: ced0750, #1433). Depth-1 only:
-// ponytail-* aliases may chain outside the repo on a clean checkout, so skip
+// a skill symlink may chain outside the repo on a clean checkout, so skip
 // unresolvable paths rather than fail on them.
 function listSkillFiles(): string[] {
 	const skillsDir = join(ROOT, ".pi/skills");

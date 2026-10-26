@@ -145,7 +145,7 @@ describe("test-discovery adapters (#1859)", () => {
 	});
 
 	it("registration depends on the globs (a dropped .test.ts glob uncovers .ts tests)", () => {
-		const guard = ".pi/extensions/caveman/test/config-ui.test.ts";
+		const guard = ".pi/extensions/rtk/test/version-gate.test.ts";
 		const withoutTs = parseTokens(testScript()).filter((g) => !g.endsWith(".test.ts"));
 		assert.strictEqual(
 			withoutTs.some((g) => matchesGlob(guard, g)),

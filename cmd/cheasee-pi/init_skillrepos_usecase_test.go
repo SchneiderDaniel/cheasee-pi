@@ -16,12 +16,12 @@ import (
 
 func TestInitUseCase_SkillReposInteractiveFlow(t *testing.T) {
 	// User journey: repo URL prompt → clone → "Add a custom skill
-	// repository?" → enter DietrichGebert/ponytail → done → init complete;
+	// repository?" → enter some-org/skill-pack → done → init complete;
 	// cheasee-settings.json carries the canonical skillRepos entry.
 	stubInitFlow(t)
 
 	_, workdir := newWorkspace(t)
-	deps := skillRepoFlowDeps(t, workdir, []bool{true, false}, []string{"owner/repo", "main", "DietrichGebert/ponytail"})
+	deps := skillRepoFlowDeps(t, workdir, []bool{true, false}, []string{"owner/repo", "main", "some-org/skill-pack"})
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("full interactive flow: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestInitUseCase_SkillReposInteractiveFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://github.com/DietrichGebert/ponytail"}
+	want := []string{"https://github.com/some-org/skill-pack"}
 	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != want[0] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
@@ -42,7 +42,7 @@ func TestInitUseCase_SkillReposInteractiveMultiAdd(t *testing.T) {
 	stubInitFlow(t)
 
 	_, workdir := newWorkspace(t)
-	deps := skillRepoFlowDeps(t, workdir, []bool{true, true, false}, []string{"owner/repo", "main", "DietrichGebert/ponytail", "some-org/another-skill"})
+	deps := skillRepoFlowDeps(t, workdir, []bool{true, true, false}, []string{"owner/repo", "main", "some-org/skill-pack", "some-org/another-skill"})
 	if err := runInit(context.Background(), deps); err != nil {
 		t.Fatalf("full interactive flow: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestInitUseCase_SkillReposInteractiveMultiAdd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"https://github.com/DietrichGebert/ponytail", "https://github.com/some-org/another-skill"}
+	want := []string{"https://github.com/some-org/skill-pack", "https://github.com/some-org/another-skill"}
 	if len(s.SkillRepos) != len(want) {
 		t.Fatalf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
@@ -64,7 +64,7 @@ func TestInitUseCase_SkillReposInteractiveMultiAdd(t *testing.T) {
 func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 	// Full flow without user skill repos: the skill-repo phase records nothing
 	// and performs no Save — cheasee-settings.json stays byte-identical to the
-	// scaffold template output, which now carries the default repos (ponytail).
+	// scaffold template output, which carries no skillRepos key at all.
 	stubInitFlow(t)
 
 	_, workdir := newWorkspace(t)
@@ -76,13 +76,13 @@ func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(got), "DietrichGebert/ponytail") {
-		t.Errorf("scaffold must carry the default ponytail repo, got: %s", got)
+	if strings.Contains(string(got), "skillRepos") {
+		t.Errorf("scaffold must carry no skillRepos key, got: %s", got)
 	}
 
 	// Baseline: the embedded template rendered with the exact values
 	// runInitScaffold used (identity from SetGitConfig, defaults, canonical
-	// repo URL, resolved GitHub user, default skill repos).
+	// repo URL, resolved GitHub user, no skill repos).
 	baseline := t.TempDir()
 	if err := NewCheaseeSettingsScaffold().Scaffold(context.Background(), baseline, TemplateSettingsValues{
 		Provider:      deps.Provider,
@@ -94,7 +94,6 @@ func TestInitUseCase_NoSkillReposScaffoldByteIdentical(t *testing.T) {
 		ClientID:      deps.ClientID,
 		RepositoryURL: "https://github.com/owner/repo.git",
 		GitHubUser:    MockGitHubUser,
-		SkillRepos:    defaultSkillRepos,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +134,8 @@ func TestInitUseCase_NoInputSkillRepoFlagsNoPrompts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		defaultSkillRepos[0],
-		"https://github.com/owner/repo",
-	}
-	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
+	want := []string{"https://github.com/owner/repo"}
+	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != want[0] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
 }
@@ -165,11 +161,8 @@ func TestInitUseCase_NoGitHubRecordsSkillRepos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{
-		defaultSkillRepos[0],
-		"https://github.com/owner/repo",
-	}
-	if len(s.SkillRepos) != 2 || s.SkillRepos[0] != want[0] || s.SkillRepos[1] != want[1] {
+	want := []string{"https://github.com/owner/repo"}
+	if len(s.SkillRepos) != 1 || s.SkillRepos[0] != want[0] {
 		t.Errorf("skillRepos = %v, want %v", s.SkillRepos, want)
 	}
 }
@@ -252,13 +245,12 @@ func TestInitUseCase_SkillRepoAnnouncementBetweenScaffoldAndAuthSave(t *testing.
 	}
 }
 
-func TestInitUseCase_SkillRepoPromptDeclaresDefault(t *testing.T) {
-	// The prompt block explains what a skill is, declares the preinstalled
-	// ponytail default (from defaultSkillRepos, not hardcoded), states the
-	// record-then-install effect and the removal path (edit skillRepos AND pi
-	// uninstall — the entrypoint only installs), and carries the trust caveat
-	// — all before the user chooses. The copy stays progressive-disclosure
-	// consistent (no "loads into every session").
+func TestInitUseCase_SkillRepoPromptDeclaresNoDefault(t *testing.T) {
+	// The prompt block explains what a skill is, claims no preinstalled default
+	// (init seeds no repository), states the record-then-install effect, the
+	// generic removal path (edit skillRepos AND pi uninstall — the entrypoint
+	// only installs), and carries the trust caveat — all before the user
+	// chooses. The copy stays progressive-disclosure consistent.
 	stubInitFlow(t)
 
 	_, workdir := newWorkspace(t)
@@ -269,19 +261,19 @@ func TestInitUseCase_SkillRepoPromptDeclaresDefault(t *testing.T) {
 		}
 	})
 	// Header contract preserved (one consistent term: Custom Skills) and the
-	// definition follows #1701's wording; the remaining assertions guard the
-	// #1700 additions (default declaration, removal path, trust caveat).
+	// definition wording; the remaining assertions guard the removal path and
+	// the trust caveat, and that no default repo is advertised any more.
 	if !strings.Contains(output, "Custom Skills") {
 		t.Error("header 'Custom Skills' must be printed")
 	}
 	if !strings.Contains(output, "Skills (reusable instruction sets for pi)") {
 		t.Error("prompt must explain what a skill is before the choice")
 	}
-	if want := "Installed by default: " + defaultSkillRepos[0]; !strings.Contains(output, want) {
-		t.Errorf("prompt must declare the default from defaultSkillRepos, want %q, got: %q", want, output)
+	if strings.Contains(output, "Installed by default") {
+		t.Errorf("prompt must not claim an installed default, got: %q", output)
 	}
-	if !strings.Contains(output, "editing skillRepos") || !strings.Contains(output, "pi uninstall ponytail") {
-		t.Error("removal path must mention editing skillRepos AND `pi uninstall ponytail` (entrypoint only installs)")
+	if !strings.Contains(output, "deleting it from skillRepos") || !strings.Contains(output, "pi uninstall") {
+		t.Errorf("removal path must mention deleting from skillRepos AND `pi uninstall`, got: %q", output)
 	}
 	if !strings.Contains(output, "cheasee-settings.json skillRepos") || !strings.Contains(output, "cheasee-pi start") {
 		t.Error("prompt must state the effect: recorded in skillRepos, installed on next cheasee-pi start")

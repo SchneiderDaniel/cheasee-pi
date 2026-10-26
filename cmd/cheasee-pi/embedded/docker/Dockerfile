@@ -383,9 +383,6 @@ RUN groupadd --gid 1001 agentuser && \
 # marker is structural, not content-based, and covers the upstream module
 # only — renamed-module forks don't match and keep this baked copy.
 #
-# ponytail is removed: it loads hooks from the gitignored .pi/git vendored
-# clone (absent on fresh clones), and a failed extension load kills pi boot.
-#
 # INTENTIONAL DEVIATION FROM PI'S PACKAGE MECHANISM: the baked /opt/cheasee-pi
 # copy is PRODUCT DATA — image-scoped, CHEASEE_REF-pinned, and covered by the
 # re_point marker contract above. It is deliberately NOT a pi package: no pi
@@ -415,7 +412,7 @@ RUN --mount=type=cache,target=/root/.npm \
     && BAKED_COMMIT="$(git -C /opt/cheasee-pi rev-parse HEAD)" \
     && if [ -n "${CHEASEE_COMMIT}" ] && [ "${CHEASEE_COMMIT}" != "${BAKED_COMMIT}" ]; then echo "error: fetched cheasee-pi commit differs from CHEASEE_COMMIT (resolved ${CHEASEE_COMMIT}, fetched ${BAKED_COMMIT})" >&2; exit 1; fi \
     && echo "${BAKED_COMMIT}" > /opt/cheasee-pi/BUILD_COMMIT \
-    && rm -rf /opt/cheasee-pi/.git /opt/cheasee-pi/.pi/extensions/ponytail \
+    && rm -rf /opt/cheasee-pi/.git \
     && cd /opt/cheasee-pi && npm ci --no-audit --no-fund \
     && rm -rf /opt/cheasee-pi/node_modules/@earendil-works \
               /opt/cheasee-pi/node_modules/typebox \
