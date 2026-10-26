@@ -6,7 +6,7 @@
  * (test-file imports never count — that is exactly how the dead file hid)
  * and no extension may re-invent its own thinking-level switch table.
  *
- * This replaces the manual ponytail `rg` audit; ESLint/noUnusedLocals cannot
+ * This replaces the manual `rg` audit; ESLint/noUnusedLocals cannot
  * see cross-file dead code, so the invariant is asserted structurally here.
  *
  * Run with:

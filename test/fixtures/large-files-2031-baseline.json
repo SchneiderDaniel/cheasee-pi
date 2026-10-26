@@ -40,6 +40,13 @@
 		"note": "20 - 1: `server.py` fell from 16 to 13 functions when its `/api/repos/*` routes moved to `handler_api.py`. The 19 survivors are the same files, so `after.count` is `deferred` + `unfiledFlagged`."
 	},
 	"reducedBy": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"],
+	"removed": [
+		{
+			"path": ".pi/extensions/caveman/test/config-ui.test.ts",
+			"issue": 2072,
+			"reason": "the Caveman mode extension was removed with its whole tree (#2072)"
+		}
+	],
 	"modules": {
 		"cmd/cheasee-pi/embedded/docker/codeflow/server.py": 13,
 		"cmd/cheasee-pi/embedded/docker/codeflow/handler_api.py": 6
@@ -98,7 +105,6 @@
 			"reason": "scored by the analyzer and below the `> 15` ceiling at delivery — reduced by an earlier issue in this chain or never over it; each count is asserted `<= 15` by the oracle",
 			"files": [
 				".pi/extensions/agent-harness/test/harness-fixtures.ts",
-				".pi/extensions/caveman/test/config-ui.test.ts",
 				".pi/extensions/rtk/test/version-gate-lifecycle.test.ts",
 				".pi/extensions/scrapling/test/browser-setup.test.ts",
 				".pi/extensions/supervisor/event/adapter/normalize.ts",

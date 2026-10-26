@@ -47,12 +47,7 @@ function fixture(opts: { cwd: string; injections?: boolean }): string {
 		"<skill><name>voice-for-writing</name></skill>",
 		"</available_skills>",
 	].join("\n");
-	const injections = [
-		"## Caveman Mode",
-		"LEVEL: full",
-		"## Past Session Lessons",
-		"- lesson one",
-	].join("\n");
+	const injections = ["## Past Session Lessons", "- lesson one"].join("\n");
 
 	const parts = [base, append, ctx, skills, opts.cwd];
 	if (opts.injections !== false) parts.push(injections);

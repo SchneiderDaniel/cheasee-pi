@@ -155,23 +155,6 @@ Apply structured guidance for designing clear, reliable, maintainable skills.
 
 - **Mode:** Auto — agent may invoke when skill design or revision is requested
 
-### ponytail (lazy senior dev mode)
-
-Lazy senior developer mode — YAGNI, stdlib-first, minimal code. Active automatically via the ponytail extension's `before_agent_start` hook. Ships 6 related skills, of which cheasee-pi registers only the core one by default (the package's `packages` entry in `.pi/settings.json` carries a `skills: ["!ponytail-*"]` filter — see [Ponytail](extensions/ponytail.md)):
-
-| Skill           | Trigger                  | Purpose                                                                |
-| --------------- | ------------------------ | ---------------------------------------------------------------------- |
-| ponytail        | `/skill:ponytail`        | Lazy mode rules (base skill) — installed by default                    |
-| ponytail-review | `/skill:ponytail-review` | Diff-level over-engineering review: yagni, stdlib, native, shrink tags |
-| ponytail-audit  | `/skill:ponytail-audit`  | Whole-repo bloat scan (same tags, repo-wide)                           |
-| ponytail-debt   | `/skill:ponytail-debt`   | Harvest deliberate shortcuts (`ponytail:` comments) into debt ledger   |
-| ponytail-gain   | `/skill:ponytail-gain`   | Measured-impact scoreboard: less code, less cost, more speed           |
-| ponytail-help   | `/skill:ponytail-help`   | Quick-reference card for all ponytail modes and skills                 |
-
-**Source:** [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail) — external package; only the core `ponytail` skill is linked into `.pi/skills/ponytail/`.
-
-**Mode:** Auto — `ponytail` is agent-invocable (description injected every turn); the five auxiliary skills need `pi config --local` to register.
-
 ### voice-for-writing
 
 Apply the repository's stored writing voice before drafting user-facing prose. The skill reads language-specific rules and does not modify them.
@@ -186,13 +169,7 @@ Apply the repository's stored writing voice before drafting user-facing prose. T
 Invoke a skill during a session:
 
 ```
-/skill:ponytail-review "Review this diff for over-engineering"
-```
-
-Or use the dedicated command if available:
-
-```
-/ponytail-review
+/skill:voice-for-writing
 ```
 
 ## Creating skills

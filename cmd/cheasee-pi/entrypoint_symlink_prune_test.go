@@ -44,7 +44,7 @@ func TestEntrypoint_PruneStaleRepoLinksBehavior(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
 	agent := filepath.Join(root, "agent")
-	baked := filepath.Join(root, "opt", "ponytail")
+	baked := filepath.Join(root, "opt", "pruned-aux")
 	for _, d := range []string{repo, agent} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)

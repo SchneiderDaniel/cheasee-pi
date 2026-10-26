@@ -47,12 +47,7 @@ function fixture(): string {
 		"</available_skills>",
 	].join("\n");
 	const cwd = "Current working directory: /workspaces/main";
-	const injections = [
-		"## Caveman Mode",
-		"LEVEL: full",
-		"## Past Session Lessons",
-		"- lesson one",
-	].join("\n");
+	const injections = ["## Past Session Lessons", "- lesson one"].join("\n");
 
 	return [base, append, ctx, skills, cwd, injections].join("\n");
 }

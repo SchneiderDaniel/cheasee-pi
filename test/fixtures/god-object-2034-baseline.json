@@ -52,6 +52,13 @@
 		"test/dependency_existence_check_tests/_common.py",
 		"test/dependency_existence_check_tests/test_pipeline_age_guard.py"
 	],
+	"removed": [
+		{
+			"path": ".pi/extensions/caveman/test/config-ui.test.ts",
+			"issue": 2072,
+			"reason": "the Caveman mode extension was removed with its whole tree (#2072)"
+		}
+	],
 	"reducedByLater": {
 		"issue": 2031,
 		"reason": "#2031 moved server.py's `/api/repos/*` routes into `handler_api.py` (16 -> 13 functions), so the 1274-line → 8-module split that #2034 deferred did land. server.py stops flagging without a #2034 follow-up, so it moves here instead of leaving the ledger.",
@@ -109,7 +116,6 @@
 			"reason": "scored but already under the ceiling — the pinned analyzer counts 4-14 functions, so these were never flagged",
 			"files": [
 				".pi/extensions/agent-harness/test/harness-fixtures.ts",
-				".pi/extensions/caveman/test/config-ui.test.ts",
 				".pi/extensions/rtk/test/version-gate-lifecycle.test.ts",
 				".pi/extensions/scrapling/test/browser-setup.test.ts",
 				".pi/extensions/supervisor/event/adapter/normalize.ts",

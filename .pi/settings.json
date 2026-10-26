@@ -10,13 +10,7 @@
 		"name": "",
 		"email": ""
 	},
-	"packages": [
-		{
-			"source": "https://github.com/DietrichGebert/ponytail",
-			"skills": ["!ponytail-*"]
-		},
-		"https://github.com/SchneiderDaniel/private-pi"
-	],
+	"packages": ["https://github.com/SchneiderDaniel/private-pi"],
 	"prompts": [],
 	"sessionDir": ".pi/sessions",
 	"skills": [".pi/skills"],

@@ -236,7 +236,7 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 		}
 		assert.strictEqual(
 			deadTitle(recorded),
-			"44 Unused Functions",
+			"43 Unused Functions",
 			"recording must carry the analyzer's count-only architecture summary",
 		);
 
