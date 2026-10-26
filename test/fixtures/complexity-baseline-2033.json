@@ -28,14 +28,14 @@
 		"criticalCount": 204
 	},
 	"after": {
-		"criticalCount": 189,
-		"expectedDrop": 15,
-		"files": 1620,
-		"codeFiles": 859
+		"criticalCount": 190,
+		"expectedDrop": 14,
+		"files": 1624,
+		"codeFiles": 860
 	},
 	"partition": {
-		"scored": 859,
-		"critical": 189,
+		"scored": 860,
+		"critical": 190,
 		"notScored": 93,
 		"belowCeiling": 670
 	},
@@ -838,6 +838,10 @@
 			"requires": "its own issue for the Go test families"
 		},
 		"cmd/cheasee-pi/init_usecase_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
+		},
+		"cmd/cheasee-pi/mode_extensions_removed_test.go": {
 			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
 			"requires": "its own issue for the Go test families"
 		},
