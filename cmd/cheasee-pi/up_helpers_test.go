@@ -112,6 +112,64 @@ func (c *upCapture) psOutput(root string, running bool, arg []string) []byte {
 	return []byte(b.String())
 }
 
+// stubReadyFlow stubs the docker+git seams for the container-ready tests.
+func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context, arg []string) runner) *upCapture {
+	t.Helper()
+	c := &upCapture{}
+	stubStatfsAmple(t)
+	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
+	saved := runCommandContext
+	git := gitRootMock(root, saved)
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" {
+			return git(ctx, name, arg...)
+		}
+		if name == "docker" && slices.Contains(arg, "{{.DockerRootDir}}") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
+		}
+		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
+		}
+		if name == "docker" && slices.Contains(arg, "compose") {
+			m := dockerFn(ctx, arg).(*mockCmd)
+			c.composeArgs = append(c.composeArgs, arg)
+			c.composeCmds = append(c.composeCmds, m)
+			return m
+		}
+		if name == "docker" && slices.Contains(arg, "ps") && c.states != nil {
+			return &mockCmd{outputFn: func() ([]byte, error) { return c.psOutput(root, false, arg), nil }}
+		}
+		if name == "docker" && len(arg) > 1 && arg[0] == "start" {
+			c.starts = append(c.starts, arg[1])
+			return dockerFn(ctx, arg)
+		}
+		if name == "docker" && slices.Contains(arg, "image") && slices.Contains(arg, "inspect") {
+			return c.stubImageGate(arg[len(arg)-1])
+		}
+		return dockerFn(ctx, arg)
+	})
+	return c
+}
+
+// readyFlowDockerFn stubs container states and health/drift inspect responses.
+func readyFlowDockerFn(root string, running bool) func(context.Context, []string) runner {
+	return func(_ context.Context, arg []string) runner {
+		if slices.Contains(arg, "ps") {
+			return &mockCmd{outputFn: func() ([]byte, error) {
+				return (&upCapture{}).psOutput(root, running, arg), nil
+			}}
+		}
+		if slices.Contains(arg, "inspect") {
+			if slices.Contains(arg, "{{json .}}") {
+				cacheDir, _ := CacheDir()
+				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+			}
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
+		}
+		return &mockCmd{}
+	}
+}
+
 // stubUpFlow stubs the docker+git seams for runUpE use-case tests: git
 // resolves to root (relCwd derived from the physical workdir), docker ps
 // reports the container running state, compose invocations are captured.

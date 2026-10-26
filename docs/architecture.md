@@ -108,8 +108,8 @@ A plain `cheasee-pi` / `cheasee-pi start` is a per-service reconcile over the
 three stack services (`cheasee-pi`, `codeflow`, `ui`), not a reshape of the
 whole Compose project:
 
-1. One `docker ps -a` probe classifies each service container as *up*,
-   *start*, or *missing* (`containerStates`).
+1. One `docker ps -a` probe classifies each service container as _up_,
+   _start_, or _missing_ (`containerStates`).
 2. Existing stopped containers are started with `docker start <container>` —
    Compose never sees them, so no recreate happens and stale Compose config is
    left untouched.

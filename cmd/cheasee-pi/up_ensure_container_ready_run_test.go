@@ -73,36 +73,6 @@ func TestRunUpE_waitHealthyTimeoutSurfaces(t *testing.T) {
 // First-build gate + notice (ensureContainerReady use cases)
 // ──────────────────────────────────────────────
 
-// readyFlowDockerFn is the dockerFn used by the container-ready use-case
-// tests: the whole stack is present (running) or absent, the health-wait
-// inspect answers healthy, and the drift `{{json .}}` inspect (running &&
-// !build only) answers a label-less sidecar whose config.json mount matches
-// the current cache dir — old-container form, silent when fields match.
-
-func readyFlowDockerFn(root string, running bool) func(context.Context, []string) runner {
-	return func(_ context.Context, arg []string) runner {
-		if slices.Contains(arg, "ps") {
-			return &mockCmd{outputFn: func() ([]byte, error) {
-				out := ""
-				if running {
-					for _, s := range stackServices(root) {
-						out += s.container + "|running\n"
-					}
-				}
-				return []byte(out), nil
-			}}
-		}
-		if slices.Contains(arg, "inspect") {
-			if slices.Contains(arg, "{{json .}}") {
-				cacheDir, _ := CacheDir()
-				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
-			}
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
-		}
-		return &mockCmd{}
-	}
-}
-
 func TestEnsureContainerReady_imageMissingPrintsFirstBuildNotice(t *testing.T) {
 	_, root := mkWorkspace(t, `{}`)
 	setUpReady(t)

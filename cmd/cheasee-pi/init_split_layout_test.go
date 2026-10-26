@@ -279,6 +279,8 @@ var upSplitFiles = []string{
 // test groups are inventoried explicitly.
 var wantUpDecls = map[string]string{
 	"func:stubUpFlow":          "up_helpers_test.go",
+	"func:stubReadyFlow":       "up_helpers_test.go",
+	"func:readyFlowDockerFn":   "up_helpers_test.go",
 	"func:setUpRun":            "up_helpers_test.go",
 	"func:setUpRunMode":        "up_helpers_test.go",
 	"func:stubExecPIContainer": "up_helpers_test.go",

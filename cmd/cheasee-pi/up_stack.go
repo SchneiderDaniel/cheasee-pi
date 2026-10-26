@@ -18,6 +18,14 @@ type stackService struct {
 // manages: agent → codeflow → ui. Extending the stack is a row here, not a new
 // call site. Container names carry the 52/54-char slug cap while image refs
 // carry the 43-char compose-project cap, so the two are never interchangeable.
+func codeflowImageRef(workspaceRoot string) string {
+	return composeProjectName(workspaceRoot) + "-codeflow"
+}
+
+func uiImageRef(workspaceRoot string) string {
+	return composeProjectName(workspaceRoot) + "-ui"
+}
+
 func stackServices(root string) []stackService {
 	return []stackService{
 		{"cheasee-pi", containerName(root), cheaseeImageRef(root)},
