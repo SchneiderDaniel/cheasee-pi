@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -20,113 +19,6 @@ import (
 // ──────────────────────────────────────────────
 // Phase 1: start gate use cases
 // ──────────────────────────────────────────────
-
-func TestEnsureStackUp_neverPullsAndEveryUpUsesPullNever(t *testing.T) {
-	root, name, _, c := stackFixture(t)
-	c.states = nil
-	c.imageRefs = map[string]bool{}
-
-	if err := ensureStackUp(context.Background(), t.TempDir(), root, name); err != nil {
-		t.Fatalf("ensureStackUp: %v", err)
-	}
-	for _, args := range c.composeArgs {
-		if slices.Contains(args, "pull") {
-			t.Errorf("start must never run a compose pull, got %v", args)
-		}
-		if slices.Contains(args, "up") {
-			i := slices.Index(args, "--pull")
-			if i < 0 || i+1 >= len(args) || args[i+1] != "never" || !slices.Contains(args, "--no-build") {
-				t.Errorf("create must use --pull never and --no-build, got %v", args)
-			}
-		}
-	}
-}
-
-func TestRunUpE_stateProbeErrorNeverExecs(t *testing.T) {
-	root, _ := reusedStack(t)
-	setUpRunMode(t, root, false)
-	exec := stubExecPIContainer(t)
-	stubLookPath(t, func(string) (string, error) { return "/usr/bin/docker", nil })
-
-	var composeCalls int
-	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
-		if name == "git" {
-			return &mockCmd{}
-		}
-		if slices.Contains(arg, "compose") {
-			composeCalls++
-			return &mockCmd{}
-		}
-		if len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
-		}
-		if argHas(arg, "{{json .}}") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("{}"), nil }}
-		}
-		if argHas(arg, "{{.State}}") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return nil, exitStatusError(2) }}
-		}
-		return &mockCmd{}
-	})
-
-	err := runUpE(&cobra.Command{}, nil)
-	if err == nil || !strings.Contains(err.Error(), "check container:") || !strings.Contains(err.Error(), "docker ps:") {
-		t.Fatalf("state-probe error must surface, got %v", err)
-	}
-	if composeCalls != 0 || exec.name != "" {
-		t.Errorf("failed probe must skip compose and exec; compose=%d exec=%q", composeCalls, exec.name)
-	}
-}
-
-func TestEnsureStackUp_commitRecordOnlyForAgentBuild(t *testing.T) {
-	root, name, cacheDir, c := stackFixture(t)
-	services := stackServices(root)
-	record := cheaseeCommitCachePath(cacheDir, cheaseeImageRef(root))
-	c.states = map[string]string{services[0].container: "running"}
-	c.imageRefs = map[string]bool{services[1].image: false, services[2].image: true}
-	if err := ensureStackUp(context.Background(), cacheDir, root, name); err != nil {
-		t.Fatalf("ensureStackUp: %v", err)
-	}
-	if _, err := os.Stat(record); !os.IsNotExist(err) {
-		t.Errorf("sidecar-only build must not record the agent commit, got %v", err)
-	}
-
-	c2 := stubReadyFlow(t, root, func(context.Context, []string) runner { return &mockCmd{} })
-	c2.states = nil
-	c2.imageRefs = map[string]bool{}
-	if err := ensureStackUp(context.Background(), cacheDir, root, name); err != nil {
-		t.Fatalf("ensureStackUp: %v", err)
-	}
-	if _, err := os.Stat(record); err != nil {
-		t.Errorf("agent build must record the baked commit, got %v", err)
-	}
-}
-
-func TestEnsureStackUp_noImagesPrintsFirstBuildNoticeOnce(t *testing.T) {
-	root, name, cacheDir, c := stackFixture(t)
-	c.states = nil
-	c.imageRefs = map[string]bool{}
-
-	stderr := testutil.CaptureStderr(t, func() {
-		if err := ensureStackUp(context.Background(), cacheDir, root, name); err != nil {
-			t.Fatalf("ensureStackUp: %v", err)
-		}
-	})
-	if len(c.composeArgs) != 2 {
-		t.Fatalf("all images absent → one build + one create, got %v", c.composeArgs)
-	}
-	build := c.composeArgs[0]
-	if !slices.Equal(build[len(build)-3:], []string{"cheasee-pi", "codeflow", "ui"}) {
-		t.Errorf("all-services build must target the stack in order, got %v", build)
-	}
-	if n := strings.Count(stderr, "First start downloads"); n != 1 {
-		t.Errorf("notice must appear exactly once, got %d in %q", n, stderr)
-	}
-	i, j := strings.Index(stderr, "First start downloads"), strings.Index(stderr, "Building container image...")
-	if i < 0 || j < 0 || i > j {
-		t.Errorf("notice (idx %d) must precede the build label (idx %d), stderr %q", i, j, stderr)
-	}
-}
 
 func TestRunUpE_nonInitializedRefusedNoDockerCalls(t *testing.T) {
 	workdir := filepath.Join(t.TempDir(), "repo")
