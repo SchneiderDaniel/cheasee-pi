@@ -208,9 +208,10 @@ func runReauth(ctx context.Context, deps InitDeps) error {
 
 // runInitLegacyAuth runs the API-key-only auth path and returns the legacy
 // (provider, apiKey) scalar pair. It is the shared tail of the two Phase-4
-// legacy fallback branches in runInit (--no-github and the ErrUnsupported
-// fallback); it does not print or stamp the workdir — the orchestrator owns
-// the stderr contract, the usingLegacyAuth flag, and the phase-7 patch.
+// legacy fallback branches of the init orchestrator (--no-github and the
+// ErrUnsupported fallback); it does not print or stamp the workdir — the
+// orchestrator owns the stderr contract, the usingLegacyAuth flag, and the
+// phase-7 patch.
 // Errors propagate bare (no %w re-wrap) so identity and messages stay
 // byte-identical.
 func runInitLegacyAuth(ctx context.Context, deps InitDeps) (string, string, error) {

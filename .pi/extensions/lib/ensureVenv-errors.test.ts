@@ -1,6 +1,6 @@
 /**
  * ensureVenv — onCompromised handler, fs-error injection and the static
- * proper-lockfile import-audit guard.
+ * proper-lockfile import-audit assertion.
  *
  * Split from ensureVenv.test.ts (issue #2005 Long File refactor).
  */
@@ -260,7 +260,7 @@ describe("ensureVenv — fs error injection", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-//  Phase 3: Import-audit regression guard (#1136)
+//  Phase 3: Import-audit regression check (#1136)
 // ══════════════════════════════════════════════════════════════════════
 
 describe("ensureVenv — import audit", () => {
@@ -298,7 +298,7 @@ describe("ensureVenv — import audit", () => {
 			0,
 			`Unexpected proper-lockfile imports in: ${unexpected.join(", ")}`,
 		);
-		// Also verify ensureVenv.ts IS in the list (the fix exists)
+		// Also verify ensureVenv.ts IS among them (the fix exists)
 		assert.ok(
 			offenders.some((f) => f.endsWith("ensureVenv.ts")),
 			"ensureVenv.ts should import proper-lockfile",

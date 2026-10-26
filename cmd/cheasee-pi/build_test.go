@@ -28,8 +28,9 @@ func resetBuildState(t *testing.T) {
 }
 
 // buildWorkspaceFixture creates a real git worktree (bare clone + worktree
-// add via the real git binary) with cheasee-settings.json, so repoRoot and
-// bareRepoURL resolve against genuine git state. Returns the worktree root.
+// add via the real git binary) with cheasee-settings.json, so the repository
+// root and bareRepoURL resolve against genuine git state. Returns the worktree
+// root.
 
 func buildWorkspaceFixture(t *testing.T) string {
 	t.Helper()
@@ -44,8 +45,8 @@ func buildWorkspaceFixture(t *testing.T) string {
 // buildTestStub installs the docker seams for the build/rebuild core and
 // records every docker invocation into one serial call log (order matters:
 // pre- vs post-build prune is a pinned behavior). git commands fall through
-// to the real binary — repoRoot and bareRepoURL need genuine git state from
-// the workspace fixture.
+// to the real binary — the repository root and bareRepoURL need genuine git
+// state from the workspace fixture.
 
 type buildTestStub struct {
 	log        []string   // serial log of every docker invocation ("run:"/ "exec:" prefixed)
@@ -64,7 +65,7 @@ func (s *buildTestStub) install(t *testing.T) {
 	saved := runCommandContext
 	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
 		if name != "docker" {
-			return saved(ctx, name, arg...) // git (repoRoot, gitCommand, bareRepoURL)
+			return saved(ctx, name, arg...) // git (repository root, git runner, bareRepoURL)
 		}
 		switch {
 		case slices.Contains(arg, "{{.DockerRootDir}}"): // disk gate: docker info --format

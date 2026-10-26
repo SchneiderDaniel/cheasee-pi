@@ -1,0 +1,102 @@
+{
+	"provenance": {
+		"issue": 2032,
+		"title": "[Refactor] Reduce coupling in the 199 highly coupled files flagged by CodeFlow",
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
+		"method": "git archive <commit> | tar -x -C /tmp/src && node run-analysis.mjs /tmp/src <codeflow-ui> /tmp/out; the delivered tree is snapshotted the same way from `git ls-files --cached --others --exclude-standard` because a branch has no commit id until the pipeline commits it",
+		"metric": "architectureIssues[\"N Highly Coupled\"] — analyzed files whose incoming connections exceed 8 (`coupling[conn.target] > 8` over `data.connections`, heuristic-regex mode). NOT an import count, and not a per-file import list.",
+		"filedAnalyzedAt": 1791804971015,
+		"filedCoupled": 199,
+		"premiseNote": "The filing reads the metric as 'files that import 8+ other files' and prescribes splitting them. Splitting moves edges to the new file instead of deleting them, and the measured history says so: #2003 moved 101 → 116 and #2004 116 → 120. `data.connections` entries are `{source, target, fn}` — `source` defines `fn`, `target` references it — and a name with a single definition repo-wide is resolved without consulting imports, so prose and quoted examples create edges too.",
+		"filedVsMeasured": "163 files are flagged on the measured base commit, not 199: main advanced past analyzedAt and #2002/#2003/#2005 already removed phantoms. Acceptance is the measured drop on the delivered tree, as in #2002 and #2033."
+	},
+	"before": {
+		"ref": "origin/main",
+		"commit": "31634233732a4721ab8db85f6c1a737582f1c5e1",
+		"files": 1124,
+		"functions": 3898,
+		"connections": 4368,
+		"coupled": 163,
+		"couplingTerm": 1.772
+	},
+	"after": {
+		"ref": "worktree-git-issue-2032-refactor-reduce-coupling-in-the-199-highly-coupled",
+		"commit": null,
+		"commitNote": "The pipeline commits after this record is written, so the delivered tree is stamped by `reducedFilesDigest` instead: sha1 over the sorted `reducedBy` paths, each followed by the sha1 of its content. Recomputing it from the branch reproduces the measurement.",
+		"reducedFilesDigest": "071d3b309a5f1b39a70ef0efa9fbba8688fea8f0",
+		"files": 1126,
+		"functions": 3898,
+		"connections": 4360,
+		"coupled": 157,
+		"couplingTerm": 1.744,
+		"unflagged": [
+			".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			".pi/extensions/lib/ensureVenv-errors.test.ts",
+			".pi/extensions/supervisor/pipeline/merge-gate.ts",
+			".pi/extensions/supervisor/pipeline/stages/status-resolution.ts",
+			"cmd/cheasee-pi/build_test.go",
+			"cmd/cheasee-pi/init_auth.go"
+		],
+		"newlyFlagged": []
+	},
+	"reducedBy": [
+		{
+			"path": "cmd/cheasee-pi/build_test.go",
+			"tokens": ["repoRoot", "gitCommand"],
+			"edit": "two comment blocks and one inline comment describe the repository-root and git-runner seams instead of naming the two declarations; both names are single definitions repo-wide, so every comment that spelled them was an edge"
+		},
+		{
+			"path": ".pi/extensions/lib/ensureVenv-errors.test.ts",
+			"tokens": ["guard", "list"],
+			"edit": "the file header and the import-audit phase note say `assertion` / `check` and `among them`; `guard` resolves to the Rust `sessions_store.rs` declaration and `list` to `sessions_store.rs`"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/status-resolution.ts",
+			"tokens": ["stage"],
+			"edit": "the Bug #643 note says `next phase` instead of `next stage`; `stage` resolves to the Go test helper in `dockerfile_stage_split_test.go`"
+		},
+		{
+			"path": ".pi/skills/audit-codeflow-analysis/lib/report.ts",
+			"tokens": ["parse", "none"],
+			"edit": "the `IssueFact` doc comments say `one report` and `carries no description`; `parse` resolves to `controls.rs` and `none` to `auth.rs`"
+		},
+		{
+			"path": "cmd/cheasee-pi/init_auth.go",
+			"tokens": ["runInit"],
+			"edit": "the `runInitLegacyAuth` doc comment names the init orchestrator instead of the function; `runInit` is the only way the two live in one sentence"
+		},
+		{
+			"path": ".pi/extensions/supervisor/pipeline/merge-gate.ts",
+			"tokens": ["open"],
+			"edit": "two log messages and one comment say `without blocking` / `Non-blocking` instead of `fail-open`; `open` is a single declaration in `ws.rs`"
+		}
+	],
+	"deferred": [
+		{
+			"reason": "`ErrorCollector`'s `all` accessor keeps its name: renaming it to `allRecords` was tried and reverted because `collector.all` is the exported surface, and the two getters were the only `all` declaration in the tree — the rename would have unflagged two Rust readers of the word for free. The name is preserved and the coupling it attracts is accepted, exactly as #2002 reverted the same rename for `flush`/`size`/`all`",
+			"requires": "a deprecation window: ship `allRecords` beside a deprecated `all` alias, then drop the alias in a major — the tree has no notion of an exported-surface break it can enforce today"
+		},
+		{
+			"reason": "the bulk of the remaining edges into a target that never executes the name come from declarations in Rust sources (`sessions_store.rs` `dir`/`list`/`guard`, `ws.rs` `open`/`keep`, `controls/tests.rs` `failed`, `extension_ui.rs` `timeout`, `main.rs` `root`)",
+			"requires": "a lane with cargo (cargo build + cargo test) — none is installed in this image, so a rename there would be an unverified guess"
+		},
+		{
+			"reason": "port contracts stay flagged: `config.go Path()`, `rpc/framing.rs fn clone`, `proper-lockfile-ambient.ts` `lock`/`check`, `helpers_run_test.go Run()`/`CombinedOutput()` are the interface, not a naming accident",
+			"requires": "a detector that understands interface methods, or an accepted API break"
+		},
+		{
+			"reason": "80 remaining `.ts` edges name real domain words in exported APIs (`timeout`, `check`, `cleanup`, `install`, `supervisor`, `runAgentLoop`) — removing them means renaming exported surface and every caller, for one unflagged file each",
+			"requires": "a dedicated rename batch accepted as an API change"
+		},
+		{
+			"reason": "test-only `.mts` files are never scored (`Parser.codeExts` has no `.mts`), so phantoms there move nothing and none is claimed as a reduction",
+			"requires": "nothing; recorded so a later re-measure does not chase them"
+		},
+		{
+			"reason": "the seam that pruned non-dependency edges upstream of the report is gone, not dormant: the pinned analyzer derives `N Highly Coupled` inline inside `Parser.analyze` (index.html:5382) and exposes no deriver to re-title it, so a prune could not be reflected in the exported card. Pruning it anyway would also have under-counted real dependencies — the stripper read a template interpolation as text, a Rust `'a` lifetime or `char` literal as a string, and a Go raw string or Python triple-quoted docstring as one blob",
+			"requires": "an analyzer ref that exposes an architecture deriver, or a language-aware (tree-sitter) edge predicate upstream"
+		}
+	]
+}

@@ -75,10 +75,14 @@ export async function ensurePrReadyForDone(
 				info = await port.listPullRequestsForBranch(branch, config.repo);
 			} catch (err: unknown) {
 				const msg = err instanceof Error ? err.message : String(err);
-				log.warn("pipeline-merge", `PR readiness check failed: ${msg} — proceeding fail-open`, {
-					branch,
-				});
-				// Fail-open: the post-Done backstop still catches stragglers.
+				log.warn(
+					"pipeline-merge",
+					`PR readiness check failed: ${msg} — proceeding without blocking`,
+					{
+						branch,
+					},
+				);
+				// Non-blocking: the post-Done backstop still catches stragglers.
 				return { ok: true, prCreationResult: state.current };
 			}
 
@@ -95,7 +99,7 @@ export async function ensurePrReadyForDone(
 			if (!settled) {
 				log.warn(
 					"pipeline-merge",
-					"Mergeability poll exhausted — proceeding fail-open (post-Done backstop covers)",
+					"Mergeability poll exhausted — proceeding without blocking (post-Done backstop covers)",
 					{ prNumber: info!.number },
 				);
 				return { ok: true, prCreationResult: state.current };
