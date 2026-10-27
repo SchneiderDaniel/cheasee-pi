@@ -51,6 +51,8 @@ jobs:
           DOCKER_TLS_CERTDIR: ""
         ports:
           - 2375:2375
+        volumes:
+          - /tmp:/tmp
 
     steps:
       - uses: actions/checkout@v5
@@ -126,9 +128,9 @@ jobs:
       # #1098). Its build tag keeps it out of the default `go test` run; here it
       # gets the DinD daemon via DOCKER_HOST. requireDockerDaemon t.Skips when no
       # daemon/compose plugin is reachable, so the step never fails for an
-      # environmental reason. On DinD the codeflow bind cannot resolve, so the
-      # harness falls back to the agent+ui subset (as checkpoint 5 does). It runs
-      # AFTER the smoke test so it reuses that run's warm image build cache (a
+      # environmental reason. The DinD service shares /tmp with the runner so
+      # the extracted CodeFlow config bind resolves during sidecar creation. It
+      # runs AFTER the smoke test to reuse that run's warm image build cache (a
       # cold Leptos build can exceed the harness timeout).
       - name: Run compose integration harness
         run: |

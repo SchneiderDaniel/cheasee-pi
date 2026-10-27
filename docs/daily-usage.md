@@ -287,8 +287,10 @@ cheasee-pi
 folder → auto-runs `cheasee-pi init` and stops (init never launches pi —
 run `cheasee-pi start` again to start); `cheasee-settings.json` present →
 runs; non-empty folder without settings → refused with a hint to run init in
-an empty folder. On an initialized workspace it starts the container if
-needed, reads `~/.config/cheasee-pi/auth.json`,
+an empty folder. On an initialized workspace it starts the existing stack
+containers (creating only missing containers and building only missing
+images — never rebuilding or recreating what is already there), reads
+`~/.config/cheasee-pi/auth.json`,
 injects API keys as env vars, and launches pi with your repo mounted at
 `/workspaces/main`.
 
@@ -397,7 +399,8 @@ WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
 ```
 
 This stops the container but keeps it intact. Next `cheasee-pi start` (without
-`--build`) restarts the existing container instantly. Use `docker compose stop` for
+`--build`) starts those same containers again — no image build, no pull, no
+container recreate, same container and image IDs. Use `docker compose stop` for
 short breaks and `down` when you're done for the day.
 
 > **Note:** `docker compose down` maps to `down` (not `stop`) to avoid name collision
@@ -421,9 +424,12 @@ Or rebuild and restart in one step with `--build`:
 cheasee-pi start --build
 ```
 
-**Why explicit build?** `docker compose up` without `--build` reuses the cached
-image even if the Dockerfile changed. You must either run `docker compose build`
-or pass `--build` to pick up changes.
+**Why explicit build?** A plain `cheasee-pi start` deliberately reuses what
+already exists: existing containers are started as they are (`docker start`,
+never `compose up`) and only missing containers/images are created/built, so a
+changed Dockerfile, a changed compose file or a new CLI version never rebuilds
+or recreates anything on the normal path. You must either run
+`cheasee-pi build` or pass `--build` to pick up changes.
 
 **Build timing:** The first build downloads ~1GB of build-time dependencies
 (Debian 12-slim + Node.js 22 + Python 3 + pi + dependencies) and can take

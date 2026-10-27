@@ -18,7 +18,7 @@ func TestEnsureContainerReady_runningNoBuildNoGateNoCompose(t *testing.T) {
 	setUpReady(t)
 	name := containerName(root)
 
-	c := stubReadyFlow(t, root, readyFlowDockerFn(name))
+	c := stubReadyFlow(t, root, readyFlowDockerFn(root, true))
 	stderr := testutil.CaptureStderr(t, func() {
 		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
 			t.Fatalf("ensureContainerReady: %v", err)
@@ -41,7 +41,7 @@ func TestEnsureContainerReady_buildForcedRespectsImagePresence(t *testing.T) {
 	name := containerName(root)
 
 	// --build + image present → build forced, NO notice (cached layers).
-	c := stubReadyFlow(t, root, readyFlowDockerFn(name))
+	c := stubReadyFlow(t, root, readyFlowDockerFn(root, true))
 	c.imageState = upImagePresent
 	stderr := testutil.CaptureStderr(t, func() {
 		if _, err := ensureContainerReady(context.Background(), root, name, true); err != nil {
@@ -57,7 +57,7 @@ func TestEnsureContainerReady_buildForcedRespectsImagePresence(t *testing.T) {
 
 	// --build + image missing → notice printed (the build genuinely
 	// re-downloads what clean/prune removed).
-	c2 := stubReadyFlow(t, root, readyFlowDockerFn(name))
+	c2 := stubReadyFlow(t, root, readyFlowDockerFn(root, true))
 	stderr2 := testutil.CaptureStderr(t, func() {
 		if _, err := ensureContainerReady(context.Background(), root, name, true); err != nil {
 			t.Fatalf("ensureContainerReady: %v", err)
@@ -72,20 +72,17 @@ func TestEnsureContainerReady_buildForcedRespectsImagePresence(t *testing.T) {
 }
 
 func TestEnsureContainerReady_imageDaemonErrorFailsClosed(t *testing.T) {
-	// Inspect non-1 exit → wrapped 'check image:' error, compose never
-	// invoked (inspect precedes build — fail-closed ordering).
+	// Inspect non-1 exit → the probe error surfaces, compose never invoked
+	// (inspect precedes any build — fail-closed ordering).
 	_, root := mkWorkspace(t, `{}`)
 	setUpReady(t)
 	name := containerName(root)
 
-	c := stubReadyFlow(t, root, readyFlowDockerFn(""))
+	c := stubReadyFlow(t, root, readyFlowDockerFn(root, false))
 	c.imageState = upImageDaemonError
 	_, err := ensureContainerReady(context.Background(), root, name, false)
-	if err == nil || !strings.Contains(err.Error(), "check image:") {
-		t.Fatalf("inspect failure must wrap as 'check image: ...', got %v", err)
-	}
-	if !strings.Contains(err.Error(), "docker image inspect") {
-		t.Errorf("error must carry the inspect command, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "docker image inspect") {
+		t.Fatalf("inspect failure must surface the inspect command, got %v", err)
 	}
 	if len(c.composeArgs) != 0 {
 		t.Errorf("fail-closed: compose must never run when the gate errors, got %d calls", len(c.composeArgs))
@@ -105,9 +102,6 @@ func TestEnsureContainerReady_runningStaleSidecarWarns(t *testing.T) {
 	staleCache := filepath.Join(t.TempDir(), "cheasee-pi", "0.54.0")
 	staleJSON := mustJSON(codeflowInspectDoc(staleCache, strings.Repeat("0", 64), "9000"))
 	c := stubReadyFlow(t, root, func(_ context.Context, arg []string) runner {
-		if slices.Contains(arg, "ps") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(name), nil }}
-		}
 		if slices.Contains(arg, "inspect") {
 			inspectCalls++
 			if slices.Contains(arg, "{{json .}}") {
@@ -117,6 +111,7 @@ func TestEnsureContainerReady_runningStaleSidecarWarns(t *testing.T) {
 		}
 		return &mockCmd{}
 	})
+	c.states = allStackStates(root, "running")
 
 	stderr := testutil.CaptureStderr(t, func() {
 		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {

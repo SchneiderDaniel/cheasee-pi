@@ -269,10 +269,8 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 	// ── Checkpoint 5: docker compose up -d ─────────────────────────
 
 	it("checkpoint 5 — docker compose up -d exits 0, container running", () => {
-		// Start only the cheasee-pi service. The codeflow service bind-mounts
-		// ./codeflow/config.json, whose source path cannot resolve inside the
-		// DinD daemon (auto-created as a directory -> ENOTDIR on mount).
-		// codeflow is a sidecar not exercised by this smoke test.
+		// Start only the cheasee-pi service; CodeFlow is not exercised by this
+		// smoke checkpoint. The later CLI start still reconciles all services.
 		const result = exec(`docker compose -f "${composeFile()}" up -d cheasee-pi`, {
 			timeout: 120_000,
 			cwd: workdir,

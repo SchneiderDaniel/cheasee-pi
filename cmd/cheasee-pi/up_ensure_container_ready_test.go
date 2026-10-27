@@ -11,50 +11,6 @@ import (
 // ensureContainerReady direct unit tests
 // ──────────────────────────────────────────────
 
-// stubReadyFlow stubs the docker+git seams for the ensureContainerReady /
-// runUpE container-ready tests: git worktree resolution and the docker
-// version check succeed; compose invocations are captured (run/env observed
-// via c.composeCmds); every other docker call (ps, inspect, info) dispatches
-// to dockerFn with the caller's ctx.
-func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context, arg []string) runner) *upCapture {
-	t.Helper()
-	c := &upCapture{}
-	// Ample free space: the build inside dockerComposeUp now runs the disk
-	// gate (docker info --format below). Tests that count docker calls would
-	// otherwise see the gate's probe through the dockerFn catch-all.
-	stubStatfsAmple(t)
-	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
-	saved := runCommandContext
-	git := gitRootMock(root, saved)
-	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
-		if name == "git" {
-			return git(ctx, name, arg...)
-		}
-		if name == "docker" && slices.Contains(arg, "{{.DockerRootDir}}") {
-			// Disk gate probe — answered here, not routed to dockerFn, so the
-			// per-test docker call counts stay stable.
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
-		}
-		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
-		}
-		if name == "docker" && slices.Contains(arg, "compose") {
-			m := dockerFn(ctx, arg).(*mockCmd)
-			c.composeArgs = append(c.composeArgs, arg)
-			c.composeCmds = append(c.composeCmds, m)
-			return m
-		}
-		if name == "docker" && slices.Contains(arg, "image") && slices.Contains(arg, "inspect") {
-			// First-build gate — intercepted before dockerFn so the per-test
-			// health-wait inspect catch-all can't swallow it (default missing,
-			// flip c.imageState for anti-nag / fail-closed tests).
-			return c.stubImageGate()
-		}
-		return dockerFn(ctx, arg)
-	})
-	return c
-}
-
 // setUpReady pins the hermetic homes a direct ensureContainerReady test needs:
 // fresh XDG_CACHE_HOME (the version-keyed cache dir resolves under it) and a
 // cleared CODEFLOW_PORT so a host value can't leak into the compose env.
@@ -113,8 +69,11 @@ func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
 	if !slices.Contains(c.composeArgs[0], "build") {
 		t.Errorf("first compose call must build, got %v", c.composeArgs[0])
 	}
-	if !slices.Contains(c.composeArgs[1], "up") || !slices.Contains(c.composeArgs[1], "--remove-orphans") {
-		t.Errorf("second compose call must up -d --remove-orphans, got %v", c.composeArgs[1])
+	if !slices.Contains(c.composeArgs[1], "up") || !slices.Contains(c.composeArgs[1], "--no-build") || !slices.Contains(c.composeArgs[1], "--pull") {
+		t.Errorf("second compose call must create only missing containers (up -d --no-build --pull never), got %v", c.composeArgs[1])
+	}
+	if slices.Contains(c.composeArgs[1], "--remove-orphans") {
+		t.Errorf("create path must not remove orphans, got %v", c.composeArgs[1])
 	}
 	upEnv := c.composeCmds[1].env
 	if !slices.Contains(upEnv, "WORKSPACE_HOST_PATH="+root) {
@@ -123,7 +82,7 @@ func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
 	if inspectCalls != 1 {
 		t.Errorf("expected exactly 1 health poll, got %d", inspectCalls)
 	}
-	if dockerCalls != 4 { // ps + compose build + compose up + inspect
-		t.Errorf("unexpected docker call count %d (want ps+2×compose+inspect)", dockerCalls)
+	if dockerCalls != 5 { // containerRunning ps + state probe + compose build + compose up + inspect
+		t.Errorf("unexpected docker call count %d (want 2×ps+2×compose+inspect)", dockerCalls)
 	}
 }

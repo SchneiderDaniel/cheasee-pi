@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
@@ -32,22 +33,140 @@ const (
 type upCapture struct {
 	composeArgs [][]string
 	composeCmds []*mockCmd
-	imageGates  int // docker image inspect gate calls (first-build check)
-	imageState  upFlowImageState
+	imageGates  int               // docker image inspect gate calls (first-build/create probe)
+	imageProbes []string          // image refs inspected
+	imageRefs   map[string]bool   // image ref → present; absent key falls back to imageState
+	imageState  upFlowImageState  // fallback for imageRefs
+	states      map[string]string // container name → state; nil → derived from the stub's running flag
+	starts      []string          // docker start <container> targets
 }
 
-// stubImageGate returns the runner for the first-build `docker image inspect`
-// gate per the capture's imageState, counting the call so tests can assert
-// the gate only runs when a build will run.
-func (c *upCapture) stubImageGate() runner {
+// stubImageGate returns the runner for a `docker image inspect` probe of ref,
+// answering from imageRefs when it names the ref and from imageState otherwise.
+// Counting the calls is how tests assert the probe only runs when it must.
+func (c *upCapture) stubImageGate(ref string) runner {
 	c.imageGates++
-	switch c.imageState {
+	c.imageProbes = append(c.imageProbes, ref)
+	state := c.imageState
+	if present, ok := c.imageRefs[ref]; ok {
+		if present {
+			state = upImagePresent
+		} else {
+			state = upImageMissing
+		}
+	}
+	switch state {
 	case upImagePresent:
 		return &mockCmd{outputFn: func() ([]byte, error) { return []byte("[]"), nil }}
 	case upImageDaemonError:
 		return &mockCmd{outputFn: func() ([]byte, error) { return nil, exitStatusError(2) }}
 	default: // upImageMissing
 		return &mockCmd{outputFn: func() ([]byte, error) { return nil, exitStatusError(1) }}
+	}
+}
+
+// allStackStates is the whole stack in one state, for tests that only care
+// whether the stack exists.
+func allStackStates(root, state string) map[string]string {
+	states := map[string]string{}
+	for _, s := range stackServices(root) {
+		states[s.container] = state
+	}
+	return states
+}
+
+// stackStates is the capture's answer for a container-state probe: the explicit
+// states map, else every stack service running when running is true, else an
+// empty (nothing exists) map.
+func (c *upCapture) stackStates(root string, running bool) map[string]string {
+	if c.states != nil {
+		return c.states
+	}
+	states := map[string]string{}
+	if running {
+		for _, s := range stackServices(root) {
+			states[s.container] = "running"
+		}
+	}
+	return states
+}
+
+// psOutput renders a `docker ps` answer: the `{{.Names}}|{{.State}}` probe
+// format when the argv asks for the state, plain names otherwise, so the
+// substring-name consumers (containerRunning, orphan scan) keep their shape.
+func (c *upCapture) psOutput(root string, running bool, arg []string) []byte {
+	states := c.stackStates(root, running)
+	wantState := slices.Contains(arg, "{{.Names}}|{{.State}}")
+	var b strings.Builder
+	for _, s := range stackServices(root) {
+		state, ok := states[s.container]
+		if !ok {
+			continue
+		}
+		if wantState {
+			b.WriteString(s.container + "|" + state + "\n")
+		} else if state == "running" {
+			b.WriteString(s.container + "\n")
+		}
+	}
+	return []byte(b.String())
+}
+
+// stubReadyFlow stubs the docker+git seams for the container-ready tests.
+func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context, arg []string) runner) *upCapture {
+	t.Helper()
+	c := &upCapture{}
+	stubStatfsAmple(t)
+	stubLookPath(t, func(_ string) (string, error) { return "/usr/bin/docker", nil })
+	saved := runCommandContext
+	git := gitRootMock(root, saved)
+	stubRunCommandContext(t, func(ctx context.Context, name string, arg ...string) runner {
+		if name == "git" {
+			return git(ctx, name, arg...)
+		}
+		if name == "docker" && slices.Contains(arg, "{{.DockerRootDir}}") {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("/var/lib/docker\n"), nil }}
+		}
+		if name == "docker" && len(arg) > 0 && arg[0] == "version" {
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
+		}
+		if name == "docker" && slices.Contains(arg, "compose") {
+			m := dockerFn(ctx, arg).(*mockCmd)
+			c.composeArgs = append(c.composeArgs, arg)
+			c.composeCmds = append(c.composeCmds, m)
+			return m
+		}
+		if name == "docker" && slices.Contains(arg, "ps") && c.states != nil {
+			return &mockCmd{outputFn: func() ([]byte, error) { return c.psOutput(root, false, arg), nil }}
+		}
+		if name == "docker" && len(arg) > 1 && arg[0] == "start" {
+			c.starts = append(c.starts, arg[1])
+			return dockerFn(ctx, arg)
+		}
+		if name == "docker" && slices.Contains(arg, "image") && slices.Contains(arg, "inspect") {
+			return c.stubImageGate(arg[len(arg)-1])
+		}
+		return dockerFn(ctx, arg)
+	})
+	return c
+}
+
+// readyFlowDockerFn stubs container states and health/drift inspect responses.
+func readyFlowDockerFn(root string, running bool) func(context.Context, []string) runner {
+	return func(_ context.Context, arg []string) runner {
+		if slices.Contains(arg, "ps") {
+			return &mockCmd{outputFn: func() ([]byte, error) {
+				return (&upCapture{}).psOutput(root, running, arg), nil
+			}}
+		}
+		if slices.Contains(arg, "inspect") {
+			if slices.Contains(arg, "{{json .}}") {
+				cacheDir, _ := CacheDir()
+				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+			}
+			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
+		}
+		return &mockCmd{}
 	}
 }
 
@@ -74,15 +193,16 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("24.0.9"), nil }}
 		}
 		if name == "docker" && slices.Contains(arg, "ps") {
-			names := ""
-			if running {
-				names = containerName(root)
-			}
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(names), nil }}
+			return &mockCmd{outputFn: func() ([]byte, error) { return c.psOutput(root, running, arg), nil }}
+		}
+		if name == "docker" && len(arg) > 1 && arg[0] == "start" {
+			c.starts = append(c.starts, arg[1])
+			return &mockCmd{}
 		}
 		if name == "docker" && slices.Contains(arg, "image") && slices.Contains(arg, "inspect") {
-			// First-build gate — distinct from the health-wait inspect below.
-			return c.stubImageGate()
+			// First-build / create probe — distinct from the health-wait inspect
+			// below.
+			return c.stubImageGate(arg[len(arg)-1])
 		}
 		if name == "docker" && slices.Contains(arg, "inspect") {
 			// Ready-marker healthcheck: entrypoint setup assumed complete. On

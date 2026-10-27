@@ -31,6 +31,30 @@ func containerRunning(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
+// containerStates reports the docker state (running, exited, created, …) of
+// each requested container. A name absent from the map does not exist on the
+// host; a docker failure is an error, never an all-missing map. One `docker ps
+// -a` answers every name and the exact-name post-filter keeps the listing
+// honest (same discipline as listManagedContainers).
+func containerStates(ctx context.Context, names []string) (map[string]string, error) {
+	out, err := runCommandContext(ctx, "docker", "ps", "-a", "--format", "{{.Names}}|{{.State}}").Output()
+	if err != nil {
+		return nil, fmt.Errorf("docker ps: %w", err)
+	}
+	wanted := make(map[string]bool, len(names))
+	for _, n := range names {
+		wanted[n] = true
+	}
+	states := make(map[string]string, len(names))
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name, state, ok := strings.Cut(strings.TrimSpace(line), "|")
+		if ok && wanted[name] {
+			states[name] = state
+		}
+	}
+	return states, nil
+}
+
 // listManagedContainers enumerates every cheasee-pi container on the host
 // (all repos, running or stopped): the managed-label pass (compose-started
 // containers) union a legacy name pass covering pre-label containers
