@@ -108,8 +108,8 @@ Each agent's capabilities are defined in `.pi/extensions/supervisor/agents/<agen
 ```yaml
 ---
 tools: [read, bash, structural_search, ripgrep_search]
-extensions: [agent-harness, caveman, ripgrep-search, scrapling, structural-analyzer, web-search]
-skills: [ponytail]
+extensions: [agent-harness, ripgrep-search, scrapling, structural-analyzer, web-search]
+skills: [extension-spec]
 model: opencode-go/deepseek-v4-flash
 thinking: high
 entryMarker: Architecture

@@ -41,7 +41,6 @@ Plus `/explain-extensions`, `/explain-prompts`, `/explain-skills` commands listi
 | `contextUsage`           | Token usage with color thresholds | On every message_end                       |
 | `contextCache`           | Cache read/write + hit rate       | On message_end (when cache data available) |
 | `contextFooter`          | Full footer bar                   | On any relevant event                      |
-| `caveman`                | Caveman level indicator           | On level change                            |
 | Themed working indicator | Animated dot pulse                | During agent execution                     |
 
 ### Configuration (optional)

@@ -4,7 +4,7 @@ description: Researches the public web for new-feature issues only (new capabili
 tools: read, bash, structural_search, ripgrep_search, web_search
 model: opencode-go/muse-spark-1.3-contributor
 thinking: high
-extensions: "agent-harness,caveman,ripgrep-search,scrapling,structural-analyzer,web-search,rtk"
+extensions: "agent-harness,ripgrep-search,scrapling,structural-analyzer,web-search,rtk"
 ---
 
 You are the **Researcher** agent in a Kanban-driven software pipeline.

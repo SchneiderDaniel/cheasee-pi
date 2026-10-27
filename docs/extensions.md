@@ -27,10 +27,8 @@ This page lists the 17 Cheasee-Pi extensions. Extension guides describe user-vis
 | `.pi/extensions/agent-harness/`       | [Agent Harness](extensions/agent-harness)                                                  |
 | `.pi/extensions/ask-user/`            | [Ask User](extensions/ask-user)                                                            |
 | `.pi/extensions/zzz-dump-context/`    | [Dump Context](extensions/dump-context)                                                    |
-| `.pi/extensions/caveman/`             | [Caveman Protocol](extensions/caveman)                                                     |
 | `.pi/extensions/format-on-save/`      | [Format on Save](extensions/format-on-save)                                                |
 | `.pi/extensions/lsp-auditor/`         | [LSP Auditor](extensions/lsp-auditor)                                                      |
-| `.pi/extensions/ponytail/`            | [Ponytail](extensions/ponytail)                                                            |
 | `.pi/extensions/tsc-checkpoint/`      | [TSC Checkpoint](extensions/tsc-checkpoint)                                                |
 | `.pi/extensions/worktree-sandbox/`    | [Worktree Sandbox](extensions/worktree-sandbox)                                            |
 | `.pi/extensions/rtk/`                 | [RTK](extensions/rtk)                                                                      |

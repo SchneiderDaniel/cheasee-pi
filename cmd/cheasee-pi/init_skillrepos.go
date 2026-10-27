@@ -8,32 +8,6 @@ import (
 	"strings"
 )
 
-// defaultSkillRepos are canonical git-hosted skill repository specs
-// cheasee-pi installs into every container by default, seeded into
-// cheasee-settings.json skillRepos at init and installed by the entrypoint
-// through the same `pi install -l -a` mechanism as user-added custom repos —
-// one uniform install path for all skill repositories (ponytail among them).
-// Canonical form, stored verbatim.
-var defaultSkillRepos = []string{"https://github.com/DietrichGebert/ponytail"}
-
-// defaultPackageFilter narrows the resources cheasee-pi's default package
-// contributes. pi's applyPatterns treats a plain "!glob" entry as an
-// exclusion from the full manifest set, and matchesAnyPattern compares it
-// against a skill's parent directory name, so a bare glob is the whole
-// pattern.
-type defaultPackageFilter struct {
-	Source string
-	Skills []string
-}
-
-// defaultPackageFilters keeps the default package from loading skills nothing
-// uses: ponytail ships five auxiliary skills beside the core ladder skill, and
-// only the core one is wanted. The core keeps working regardless — ponytail's
-// extension hook injects its SKILL.md by absolute path, not via registration.
-var defaultPackageFilters = []defaultPackageFilter{
-	{Source: defaultSkillRepos[0], Skills: []string{"!ponytail-*"}},
-}
-
 // canonicalSkillRepo validates and normalizes a custom skill repository spec
 // to the canonical form the entrypoint passes to `pi install -l -a` verbatim
 // (clones land in the bind-mounted .pi/git/ and pi owns the settings
@@ -132,6 +106,7 @@ func recordSkillRepos(workdir string, specs []string) error {
 // packages array and clone management. --skill-repo flag specs pre-seed the
 // loop; --no-input records flag specs only (no prompt). An empty/whitespace
 // input answers "done"; an invalid spec fails fast naming the accepted forms.
+// No repository is ever recorded implicitly: init owns no default repo policy.
 func runInitSkillRepos(deps InitDeps) error {
 	custom := make([]string, 0, len(deps.SkillRepos))
 	for _, spec := range deps.SkillRepos {
@@ -149,11 +124,8 @@ func runInitSkillRepos(deps InitDeps) error {
 		fmt.Fprintf(os.Stderr, "   recorded in cheasee-settings.json skillRepos and installed on the\n")
 		fmt.Fprintf(os.Stderr, "   next cheasee-pi start. Review a repo's content before adding it —\n")
 		fmt.Fprintf(os.Stderr, "   skills can include code the agent may run.\n\n")
-		fmt.Fprintf(os.Stderr, "   Installed by default: %s\n", defaultSkillRepos[0])
-		fmt.Fprintf(os.Stderr, "   (\"lazy senior dev mode\" — YAGNI, stdlib-first, minimal code; active\n")
-		fmt.Fprintf(os.Stderr, "   automatically via its extension's before_agent_start hook). Remove it by\n")
-		fmt.Fprintf(os.Stderr, "   editing skillRepos AND running `pi uninstall ponytail` inside the\n")
-		fmt.Fprintf(os.Stderr, "   container — the clone stays in .pi/git/ otherwise.\n\n")
+		fmt.Fprintf(os.Stderr, "   Remove one by deleting it from skillRepos AND running `pi uninstall`\n")
+		fmt.Fprintf(os.Stderr, "   inside the container — the clone stays in .pi/git/ otherwise.\n\n")
 		fmt.Fprintf(os.Stderr, "   Enter owner/repo, https://…, or git:host/user/repo[@ref]. You can add\n")
 		fmt.Fprintf(os.Stderr, "   several — answer no (or leave the input empty) to stop.\n\n")
 		for {
@@ -180,10 +152,5 @@ func runInitSkillRepos(deps InitDeps) error {
 			fmt.Fprintf(os.Stderr, "   ✓ Added %s — the prompt repeats; add another or answer no to finish.\n\n", c)
 		}
 	}
-	// Always seed the default repos (ponytail) on top of what's already
-	// recorded: the scaffold skips an existing cheasee-settings.json, so a
-	// file predating skillRepos would otherwise never get the fixed default.
-	// Custom repos merge additively after; both dedupe in recordSkillRepos.
-	specs := append(append([]string{}, defaultSkillRepos...), custom...)
-	return recordSkillRepos(deps.Workdir, specs)
+	return recordSkillRepos(deps.Workdir, custom)
 }

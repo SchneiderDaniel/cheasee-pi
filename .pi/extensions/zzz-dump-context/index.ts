@@ -3,7 +3,8 @@
  *
  * The zzz- prefix ensures this extension's before_agent_start handler runs LAST
  * (alphabetical order), so it captures the final system prompt after ALL other
- * extensions (caveman, ponytail, session-advice) have applied their modifications.
+ * extensions (session-advice and any user-installed one) have applied their
+ * modifications.
  *
  * The model receives ONE assembled system message (verified in pi's
  * dist/core/system-prompt.js): context files are inlined into <project_context>,
@@ -17,7 +18,7 @@
  *   [3] Project context = AGENTS.md (inlined from contextFiles)
  *   [4] Skills (only model-invocation-enabled ones)
  *   [5] Trailing (cwd)
- *   [6] Extension injections (caveman, ponytail, session-advice)
+ *   [6] Extension injections (session-advice)
  *
  * The cwd line ("Current working directory: <path>") is emitted by pi at
  * column 0 as a standalone LF-terminated line with the path at end-of-line.
@@ -59,7 +60,7 @@ interface Section {
 }
 
 /** Headers that extension injections start with (earliest match splits base vs injections). */
-const INJECTION_MARKERS = ["## Caveman Mode", "PONYTAIL MODE ACTIVE", "## Past Session Lessons"];
+const INJECTION_MARKERS = ["## Past Session Lessons"];
 
 /** Anchors marking the start of the global append (APPEND_SYSTEM.md) text.
  *  pi concatenates the append as bare text immediately after the base prompt,
@@ -70,7 +71,7 @@ const APPEND_ANCHORS = ["# Global Cheasee-Pi Operating Instructions", "<system_r
 /** Split the assembled prompt into attributed sections.
  *  Order follows pi's buildSystemPrompt: base → append (APPEND_SYSTEM.md) →
  *  <project_context> → skills → cwd, with extension injections appended at
- *  the END via before_agent_start (caveman/ponytail modify systemPrompt after
+ *  the END via before_agent_start (extensions modify systemPrompt after
  *  the initial build).
  *
  *  cwd extraction contract: pi emits the label at column 0 as a standalone
@@ -154,7 +155,7 @@ export function splitSections(prompt: string): Section[] {
 	if (injBody) {
 		sections.push({
 			label: "Extension injections",
-			source: "appended via before_agent_start (caveman, ponytail, session-advice)",
+			source: "appended via before_agent_start (session-advice and user extensions)",
 			body: injBody,
 		});
 	}

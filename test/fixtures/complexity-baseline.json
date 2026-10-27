@@ -55,7 +55,6 @@
 		"cmd/cheasee-pi/helpers_test.go",
 		"cmd/cheasee-pi/identity_test.go",
 		"cmd/cheasee-pi/installation_doc_test.go",
-		"cmd/cheasee-pi/package_filter_test.go",
 		"cmd/cheasee-pi/prune_gate_test.go",
 		"cmd/cheasee-pi/prune_images_test.go",
 		"cmd/cheasee-pi/release_config_test.go",
@@ -97,7 +96,6 @@
 		{
 			"reason": "the embedded .sh/.js/.mjs splits need the Dockerfile COPY set and the codeflow bridge/shim copy-set updated in the same change; deferred to the change that owns those boundary guards so they stay in one commit",
 			"files": [
-				".pi/extensions/ponytail/index.js",
 				"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
 				"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
 				"cmd/cheasee-pi/embedded/docker/entrypoint.sh",

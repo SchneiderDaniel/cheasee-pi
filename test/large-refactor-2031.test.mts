@@ -66,6 +66,8 @@ type Baseline = {
 	after: { ref: string; count: number; note: string };
 	reducedBy: string[];
 	modules: Record<string, number>;
+	/** Ledger paths the tree no longer carries (overlay: the filed set keeps them). */
+	removed: { path: string; issue: number; reason: string }[];
 	deferred: Group[];
 	unfiledFlagged: Group[];
 	notScored: Group[];
@@ -203,10 +205,21 @@ describe("large-files refactor #2031 — the partition is explicit", () => {
 
 	it("covers the filed list exactly: no path dropped, invented or duplicated", () => {
 		const b = baseline();
-		const partition = [...b.reducedBy, ...flat(b.deferred), ...flat(b.notScored)];
+		const removed = b.removed.map((r) => r.path);
+		const partition = [...b.reducedBy, ...flat(b.deferred), ...flat(b.notScored), ...removed];
 		assert.equal(new Set(partition).size, partition.length, "a path is listed twice");
 		assert.deepEqual([...partition].sort(), [...FILED].sort(), "partition != filed list");
-		for (const rel of FILED) assert.ok(exists(rel), `filed path is missing: ${rel}`);
+		for (const rel of FILED) {
+			assert.ok(exists(rel) || removed.includes(rel), `filed path is missing: ${rel}`);
+		}
+	});
+
+	it("every removed path is absent from the tree and non-removed paths still exist", () => {
+		for (const entry of baseline().removed) {
+			assert.equal(entry.issue, 2072, `${entry.path} records its removing issue`);
+			assert.ok(entry.reason.trim().length > 0, `${entry.path} records a reason`);
+			assert.equal(exists(entry.path), false, `${entry.path} is recorded as removed`);
+		}
 	});
 
 	it("keeps the buckets disjoint and the sizes recorded", () => {
@@ -221,7 +234,8 @@ describe("large-files refactor #2031 — the partition is explicit", () => {
 		for (const rel of deferred) assert.equal(notScored.has(rel), false, `${rel} is listed twice`);
 		assert.deepEqual(b.reducedBy, [SERVER], "this change splits exactly server.py");
 		assert.equal(deferred.size, 9, "the filed residue is 8 Rust sources + fp-filter.js");
-		assert.equal(notScored.size, 33, "43 - 1 reduced - 9 deferred");
+		assert.equal(notScored.size, 32, "43 - 1 reduced - 9 deferred - 1 removed");
+		assert.equal(b.removed.length, 1, "the caveman suite is the one removed ledger path");
 	});
 
 	it("justifies every notScored path with the ceiling it clears", () => {

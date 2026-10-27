@@ -116,7 +116,7 @@ var testSplitRules = []prefixRule{
 	{"TestRunInitSkillRepos_EmptyInputStopsLoop", "init_skillrepos_loop_test.go"},
 	{"TestRunInitSkillRepos_InvalidSpecFailsFast", "init_skillrepos_loop_test.go"},
 	{"TestRunInitSkillRepos_PromptErrorWrapped", "init_skillrepos_loop_test.go"},
-	{"TestRunInitSkillRepos_SeedsDefaultAlongsideExistingCustom", "init_skillrepos_loop_test.go"},
+	{"TestRunInitSkillRepos_LeavesExistingCustomUntouched", "init_skillrepos_loop_test.go"},
 	{"TestRunInitSkillRepos", "init_skillrepos_terms_test.go"},
 	{"TestRemoteModelCatalog", "catalog_test.go"},
 	{"TestRunAuthAddE", "catalog_authadd_test.go"},

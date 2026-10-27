@@ -25,7 +25,7 @@
 	},
 	"after": {
 		"ref": "worktree-git-issue-2036-refactor-break-up-the-25-vba-god-module-files-flag",
-		"codeFiles": 804,
+		"codeFiles": 801,
 		"vbaGodModuleCount": 1,
 		"godObjectCount": 26
 	},
@@ -45,7 +45,6 @@
 	},
 	"reducedBy": [
 		".pi/extensions/agent-harness/test/harness-fixtures.ts",
-		".pi/extensions/caveman/test/config-ui.test.ts",
 		".pi/extensions/supervisor/event/adapter/normalize.ts",
 		".pi/extensions/supervisor/lib/debug.ts",
 		".pi/extensions/supervisor/test/helpers/mock-pi.ts",
@@ -68,9 +67,15 @@
 		"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
 		"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
 	],
+	"removed": [
+		{
+			"path": ".pi/extensions/caveman/test/config-ui.test.ts",
+			"issue": 2072,
+			"reason": "the Caveman mode extension was removed with its whole tree (#2072); its two split siblings went with it"
+		}
+	],
 	"filedFiles": [
 		".pi/extensions/agent-harness/test/harness-fixtures.ts",
-		".pi/extensions/caveman/test/config-ui.test.ts",
 		".pi/extensions/supervisor/event/adapter/normalize.ts",
 		".pi/extensions/supervisor/lib/debug.ts",
 		".pi/extensions/supervisor/test/helpers/mock-pi.ts",
@@ -106,10 +111,6 @@
 		".pi/extensions/agent-harness/test/harness-fixtures.ts": [
 			".pi/extensions/agent-harness/test/harness-api-stubs.ts",
 			".pi/extensions/agent-harness/test/harness-api-stubs-session.ts"
-		],
-		".pi/extensions/caveman/test/config-ui.test.ts": [
-			".pi/extensions/caveman/test/config-ui-dialog.test.ts",
-			".pi/extensions/caveman/test/config-ui-test-theme.ts"
 		],
 		".pi/extensions/supervisor/event/adapter/normalize.ts": [
 			".pi/extensions/supervisor/event/adapter/normalize-types.ts",

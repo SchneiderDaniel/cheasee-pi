@@ -234,6 +234,7 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 				gateRejected,
 				notify,
 				port,
+				agentResults,
 			);
 			if (!continuePipeline) {
 				stopReason = `commitAndPush failed for ${agentName}`;

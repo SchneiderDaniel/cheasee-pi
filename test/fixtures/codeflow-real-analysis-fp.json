@@ -5,14 +5,14 @@
 		"snapshot": "git archive HEAD"
 	},
 	"stats": {
-		"files": 931,
+		"files": 905,
 		"functions": 3576,
 		"connections": 3607,
-		"dead": 44,
+		"dead": 43,
 		"patterns": 10,
 		"security": 9,
 		"duplicates": 9,
-		"violations": 363,
+		"violations": 357,
 		"skipped": 0,
 		"loc": 156654,
 		"languages": [
@@ -154,7 +154,7 @@
 	},
 	"issues": [
 		{
-			"title": "44 Unused Functions"
+			"title": "43 Unused Functions"
 		},
 		{
 			"title": "23 Large Files"
@@ -169,7 +169,7 @@
 			"title": "6 Similar Code Blocks"
 		},
 		{
-			"title": "363 Architecture Violations"
+			"title": "357 Architecture Violations"
 		},
 		{
 			"title": "193 High Complexity Files"
@@ -407,36 +407,6 @@
 			"from": ".pi/extensions/ask-user/types.ts",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
 			"fromLayer": "utils",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/caveman/command.ts",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/stream.rs",
-			"fromLayer": "utils",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/caveman/command.ts",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/main.rs",
-			"fromLayer": "utils",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/caveman/config.ts",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/rpc/client.rs",
-			"fromLayer": "config",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/caveman/config.ts",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
-			"fromLayer": "config",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/caveman/config.ts",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
-			"fromLayer": "config",
 			"toLayer": "ui"
 		},
 		{
@@ -707,12 +677,6 @@
 			"from": ".pi/extensions/lsp-auditor/settings.ts",
 			"to": "cmd/cheasee-pi/embedded/docker/ui/src/controls.rs",
 			"fromLayer": "config",
-			"toLayer": "ui"
-		},
-		{
-			"from": ".pi/extensions/ponytail/index.js",
-			"to": "cmd/cheasee-pi/embedded/docker/ui/src/sessions_store.rs",
-			"fromLayer": "utils",
 			"toLayer": "ui"
 		},
 		{
@@ -2538,10 +2502,6 @@
 			"file": ".pi/extensions/lsp-auditor/index.ts"
 		},
 		{
-			"name": "ponytailExtension",
-			"file": ".pi/extensions/ponytail/index.js"
-		},
-		{
 			"name": "ripgrepSearch",
 			"file": ".pi/extensions/ripgrep-search/index.ts"
 		},
@@ -2821,78 +2781,6 @@
 			"layer": "utils"
 		},
 		{
-			"path": ".pi/extensions/caveman/command.ts",
-			"layer": "utils"
-		},
-		{
-			"path": ".pi/extensions/caveman/compression.ts",
-			"layer": "utils"
-		},
-		{
-			"path": ".pi/extensions/caveman/config-ui.ts",
-			"layer": "config"
-		},
-		{
-			"path": ".pi/extensions/caveman/config.ts",
-			"layer": "config"
-		},
-		{
-			"path": ".pi/extensions/caveman/index.ts",
-			"layer": "utils"
-		},
-		{
-			"path": ".pi/extensions/caveman/package.json",
-			"layer": "utils"
-		},
-		{
-			"path": ".pi/extensions/caveman/prompts.ts",
-			"layer": "utils"
-		},
-		{
-			"path": ".pi/extensions/caveman/README.md",
-			"layer": "note"
-		},
-		{
-			"path": ".pi/extensions/caveman/session-level.ts",
-			"layer": "utils"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/config-ui.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/config.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/dead-code-removal.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/lifecycle.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/mode-compression.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/prompt-options.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/session-level.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/test/status-clear.test.ts",
-			"layer": "test"
-		},
-		{
-			"path": ".pi/extensions/caveman/types.ts",
-			"layer": "utils"
-		},
-		{
 			"path": ".pi/extensions/context-info/codeflow.ts",
 			"layer": "utils"
 		},
@@ -3142,10 +3030,6 @@
 		},
 		{
 			"path": ".pi/extensions/lsp-auditor/types.ts",
-			"layer": "utils"
-		},
-		{
-			"path": ".pi/extensions/ponytail/index.js",
 			"layer": "utils"
 		},
 		{
@@ -5561,26 +5445,6 @@
 			"layer": "utils"
 		},
 		{
-			"path": "cmd/cheasee-pi/package_filter_reconcile_test.go",
-			"layer": "utils"
-		},
-		{
-			"path": "cmd/cheasee-pi/package_filter_reconcile2_test.go",
-			"layer": "utils"
-		},
-		{
-			"path": "cmd/cheasee-pi/package_filter_run_test.go",
-			"layer": "utils"
-		},
-		{
-			"path": "cmd/cheasee-pi/package_filter_test.go",
-			"layer": "utils"
-		},
-		{
-			"path": "cmd/cheasee-pi/package_filter.go",
-			"layer": "utils"
-		},
-		{
 			"path": "cmd/cheasee-pi/parallel_flow_test.go",
 			"layer": "utils"
 		},
@@ -5997,10 +5861,6 @@
 			"layer": "note"
 		},
 		{
-			"path": "docs/extensions/caveman.md",
-			"layer": "note"
-		},
-		{
 			"path": "docs/extensions/context-info.md",
 			"layer": "note"
 		},
@@ -6014,10 +5874,6 @@
 		},
 		{
 			"path": "docs/extensions/lsp-auditor.md",
-			"layer": "note"
-		},
-		{
-			"path": "docs/extensions/ponytail.md",
 			"layer": "note"
 		},
 		{

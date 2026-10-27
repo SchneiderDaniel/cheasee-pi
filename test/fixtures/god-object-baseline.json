@@ -86,7 +86,6 @@
 		{
 			"reason": "the embedded .sh/.js/.mjs splits need the Dockerfile COPY set and the codeflow bridge/shim copy-set updated in the same change; deferred to the change that owns those boundary guards",
 			"files": [
-				".pi/extensions/ponytail/index.js",
 				"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
 				"cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs",
 				"cmd/cheasee-pi/embedded/docker/entrypoint.sh",

@@ -57,6 +57,8 @@ type Baseline = {
 	before: { ref: string; commit: string; godObjectCount: number; flagged: string[] };
 	after: { ref: string; godObjectCount: number };
 	reducedBy: string[];
+	/** Ledger paths the tree no longer carries (overlay: the filed set keeps them). */
+	removed: { path: string; issue: number; reason: string }[];
 	/** Files a later issue split below the ceiling, cited under that issue. */
 	reducedByLater?: { issue: number; reason: string; files: string[] };
 	deferred: { reason: string; requires: string; files: string[] }[];
@@ -212,15 +214,27 @@ describe("god-object refactor #2034 — the partition is explicit", () => {
 
 	it("covers the filed list exactly: no path dropped, invented or duplicated", () => {
 		const b = baseline();
+		const removed = b.removed.map((r) => r.path);
 		const partition = [
 			...b.reducedBy,
 			...(b.reducedByLater?.files ?? []),
 			...b.deferred.flatMap((d) => d.files),
 			...b.notScored.flatMap((n) => n.files),
+			...removed,
 		];
 		assert.equal(new Set(partition).size, partition.length, "a path is listed twice");
 		assert.deepEqual([...partition].sort(), [...FILED].sort(), "partition != filed list");
-		for (const rel of FILED) assert.ok(exists(rel), `filed path is missing: ${rel}`);
+		for (const rel of FILED) {
+			assert.ok(exists(rel) || removed.includes(rel), `filed path is missing: ${rel}`);
+		}
+	});
+
+	it("every removed path is absent from the tree and records why", () => {
+		for (const entry of baseline().removed) {
+			assert.equal(entry.issue, 2072, `${entry.path} records its removing issue`);
+			assert.ok(entry.reason.trim().length > 0, `${entry.path} records a reason`);
+			assert.equal(exists(entry.path), false, `${entry.path} is recorded as removed`);
+		}
 	});
 
 	it("keeps the buckets disjoint with the recorded sizes", () => {
@@ -235,7 +249,8 @@ describe("god-object refactor #2034 — the partition is explicit", () => {
 		for (const rel of deferred) assert.equal(notScored.has(rel), false, `${rel} twice`);
 		assert.equal(b.reducedBy.length, 2);
 		assert.equal(deferred.size, 20);
-		assert.equal(notScored.size, 20);
+		assert.equal(notScored.size, 19);
+		assert.equal(b.removed.length, 1, "the caveman suite is the one removed ledger path");
 		// #2031 split `server.py` below the ceiling; it is cited under that issue.
 		assert.deepEqual(b.reducedByLater?.files, [
 			"cmd/cheasee-pi/embedded/docker/codeflow/server.py",

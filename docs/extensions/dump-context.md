@@ -11,15 +11,15 @@ nav_order: 20
 
 [📄 Extension source](../../.pi/extensions/zzz-dump-context/index.ts)
 
-**Why.** Captures the exact system prompt text sent to the LLM each turn and writes it to `ignore/` on demand. Console shows stats: bytes, estimated vs actual token count, tools, skills, context files, and active injections (caveman, ponytail, lessons).
+**Why.** Captures the exact system prompt text sent to the LLM each turn and writes it to `ignore/` on demand. Console shows stats: bytes, estimated vs actual token count, tools, skills, context files, and active injections (lessons).
 
-**How it works.** Hooks `before_agent_start` and stores `event.systemPrompt` (the fully assembled string after all extensions have patched it). The `zzz-` prefix ensures alphabetical load order places this last, so the capture includes modifications from caveman and ponytail. On `/dump-context` command, writes the stored prompt and JSON-structured options to `ignore/`, then prints summary stats to terminal.
+**How it works.** Hooks `before_agent_start` and stores `event.systemPrompt` (the fully assembled string after all extensions have patched it). The `zzz-` prefix ensures alphabetical load order places this last, so the capture includes every other extension's modifications. On `/dump-context` command, writes the stored prompt and JSON-structured options to `ignore/`, then prints summary stats to terminal.
 
 **Location:** `.pi/extensions/zzz-dump-context/`
 
 ## Why use it
 
-The system prompt is assembled from many sources — pi's default prompt, the global `APPEND_SYSTEM.md` append (cheasee-pi operating instructions), AGENTS.md, skills XML, plus injections from caveman and ponytail. There's no built-in way to see the final string. This extension makes the full text inspectable and debuggable: verify what the model actually receives, audit token budget allocation, debug prompt injection conflicts.
+The system prompt is assembled from many sources — pi's default prompt, the global `APPEND_SYSTEM.md` append (cheasee-pi operating instructions), AGENTS.md, skills XML, plus injections from other extensions (session lessons). There's no built-in way to see the final string. This extension makes the full text inspectable and debuggable: verify what the model actually receives, audit token budget allocation, debug prompt injection conflicts.
 
 ## Commands
 
@@ -35,7 +35,7 @@ The terminal output shows:
 System prompt: 22,762 B  ·  context: 8,103 tok  ·  0.8%
 ~5,691 tok (est)  ·  API: 8,103 tok (+2,412)
 11 tools (7 ext)  ·  14 skills  ·  1 ctx files  ·  27 guidelines  ·  13 sections
-Injections: caveman, ponytail, lessons
+Injections: lessons
 → ignore/dump-context.txt
 → ignore/dump-context-options.json
 ```
@@ -63,7 +63,7 @@ Injections: caveman, ponytail, lessons
 | `[3] Project context`                         | `contextFiles` — AGENTS.md/CLAUDE.md files                                                                                                     |
 | `[4] Skills`                                  | model-invocation-enabled skills                                                                                                                |
 | `[5] Working directory`                       | cwd line                                                                                                                                       |
-| `[6] Extension injections`                    | appended via `before_agent_start` (caveman, ponytail, lessons)                                                                                 |
+| `[6] Extension injections`                    | appended via `before_agent_start` (lessons)                                                                                                    |
 
 ## Details
 
@@ -87,9 +87,9 @@ before_agent_start (fires every turn)
 Extensions modify the system prompt in a chain — each `before_agent_start` handler receives the prompt as modified by all previous handlers:
 
 ```
-caveman → ponytail → zzz-dump-context (captures final)
-                                       ^
-                                  runs last alphabetically
+any extension → zzz-dump-context (captures final)
+                                  ^
+                             runs last alphabetically
 ```
 
 Without the `zzz-` prefix, the capture would miss later injections. The prefix ensures this handler sees the final string.

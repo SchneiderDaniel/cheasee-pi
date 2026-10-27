@@ -96,6 +96,162 @@ async function verifyAhead(
 	}
 }
 
+/** Level-carrying notify hook handed to upsertPullRequest by its callers. */
+export type PrNotify = (message: string, level: "info" | "warning" | "error") => void;
+
+/**
+ * Build the PR title + body for an issue.
+ * Single owner of the buildPipelineSummary argument mapping so the early
+ * upsert (in-progress) and the approval refresh cannot drift apart.
+ */
+export function buildPrBody(
+	issueNum: number,
+	issueTitle: string,
+	agentResults: PipelineAgentResult[],
+	config: SupervisorConfig | undefined,
+	opts?: {
+		gateFailureHistory?: string[];
+		packageSafetyResult?: PackageSafetyAuditResult | null;
+		overallStatus?: "success" | "in-progress";
+	},
+): { title: string; body: string } {
+	return {
+		title: `feat(#${issueNum}): ${issueTitle}`,
+		body: buildPipelineSummary(
+			agentResults,
+			opts?.overallStatus ?? "in-progress",
+			issueNum,
+			issueTitle,
+			config,
+			undefined,
+			undefined,
+			opts?.gateFailureHistory,
+			opts?.packageSafetyResult,
+		),
+	};
+}
+
+/** Update an existing PR, mapping failures to a PrCreationResult. */
+async function updateExistingPr(
+	port: GitHubPort,
+	repo: string,
+	prNumber: number,
+	title: string,
+	body: string,
+	notify?: PrNotify,
+): Promise<PrCreationResult> {
+	const log = getDebugLogger();
+	try {
+		notify?.(`Updating PR #${prNumber} with latest changes`, "info");
+		await port.updatePullRequest(prNumber, repo, body, title);
+		notify?.(`PR #${prNumber} updated`, "info");
+		return { success: true, prNumber, wasUpdate: true, source: "pr-creation" };
+	} catch (editErr: unknown) {
+		const editMsg = editErr instanceof Error ? editErr.message : String(editErr);
+		log.error("pr-creation", `Failed to update PR #${prNumber}: ${editMsg}`);
+		notify?.(`Failed to update PR #${prNumber}: ${editMsg}`, "error");
+		return { success: false, error: `Failed to update PR: ${editMsg}`, source: "pr-creation" };
+	}
+}
+
+/**
+ * Idempotent create-or-update of the PR for one branch: list → update, else
+ * create with retries. Callable both right after the developer's push (early
+ * upsert, so pre-audit CI has a PR to evaluate) and at approval.
+ */
+export async function upsertPullRequest(input: {
+	repo: string;
+	base: string;
+	head: string;
+	title: string;
+	body: string;
+	port?: GitHubPort;
+	notify?: PrNotify;
+}): Promise<PrCreationResult> {
+	const log = getDebugLogger();
+	const { repo, base, head, title, body, port, notify } = input;
+
+	if (!port) {
+		log.warn("pr-creation", "Port not available — cannot create or update PR");
+		notify?.("GitHubPort not available for PR creation", "error");
+		return {
+			success: false,
+			error: "GitHubPort not available for PR creation",
+			source: "pr-creation",
+		};
+	}
+
+	// ─── Phase 4: Check for existing PR ────────────────────────────
+	let existingPr: PrConflictInfo | null = null;
+	try {
+		existingPr = await port.listPullRequestsForBranch(head, repo);
+	} catch (checkErr: unknown) {
+		const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
+		log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
+		notify?.(`PR conflict check failed: ${checkMsg} — attempting PR creation anyway`, "warning");
+	}
+
+	// ─── Phase 5: Update existing PR ───────────────────────────────
+	if (existingPr) {
+		log.info("pr-creation", `PR #${existingPr.number} already exists — updating body`);
+		return await updateExistingPr(port, repo, existingPr.number, title, body, notify);
+	}
+
+	// ─── Phase 5b: Create PR (with retry) ──────────────────────────
+	let lastError: string | undefined;
+	for (let attempt = 0; attempt < MAX_PR_CREATE_RETRIES; attempt++) {
+		try {
+			if (attempt > 0) {
+				const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
+				log.info(
+					"pr-creation",
+					`Retry attempt ${attempt + 1}/${MAX_PR_CREATE_RETRIES} after ${delayMs}ms`,
+				);
+				await new Promise((resolve) => setTimeout(resolve, delayMs));
+			}
+
+			const prResult = await port.createPullRequest({ repo, base, head, title, body });
+			log.info("pr-creation", `PR #${prResult.number} created`);
+			notify?.(`PR #${prResult.number} created`, "info");
+			return { success: true, prNumber: prResult.number, source: "pr-creation" };
+		} catch (prErr: unknown) {
+			lastError = prErr instanceof Error ? prErr.message : String(prErr);
+			log.warn(
+				"pr-creation",
+				`Attempt ${attempt + 1}/${MAX_PR_CREATE_RETRIES} failed: ${lastError}`,
+			);
+
+			// Race: a PR for this head appeared after our list call. Re-list once
+			// and update instead of burning the retry budget on a create that can
+			// never succeed. No PR found → fail fast with the original message.
+			if (/already exists/i.test(lastError)) {
+				let raced: PrConflictInfo | null = null;
+				try {
+					raced = await port.listPullRequestsForBranch(head, repo);
+				} catch (relErr: unknown) {
+					log.warn(
+						"pr-creation",
+						`Re-list after "already exists" failed: ${relErr instanceof Error ? relErr.message : String(relErr)}`,
+					);
+				}
+				if (!raced) {
+					log.error("pr-creation", `PR exists per create error but not on re-list: ${lastError}`);
+					notify?.(`Failed to create PR: ${lastError}`, "error");
+					return { success: false, error: lastError, source: "pr-creation" };
+				}
+				log.info("pr-creation", `PR #${raced.number} appeared — updating instead of creating`);
+				return await updateExistingPr(port, repo, raced.number, title, body, notify);
+			}
+		}
+	}
+
+	// All retries exhausted
+	const errorMsg = lastError || "Unknown error during PR creation";
+	log.error("pr-creation", `All ${MAX_PR_CREATE_RETRIES} attempts failed: ${errorMsg}`);
+	notify?.(`Failed to create PR after ${MAX_PR_CREATE_RETRIES} attempts: ${errorMsg}`, "error");
+	return { success: false, error: errorMsg, source: "pr-creation" };
+}
+
 /**
  * Create a pull request after auditor approves and transitions to Done.
  * Pushes branch, builds body, creates PR. Returns structured result so
@@ -126,21 +282,13 @@ export async function createPrOnApproval(
 	const headBranch =
 		worktreeBranch ?? generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
-	const prBody = buildPipelineSummary(
-		agentResults,
-		"success",
-		issueNum,
-		issueTitle,
-		config,
-		undefined,
-		undefined,
+	const { title: prTitle, body: prBody } = buildPrBody(issueNum, issueTitle, agentResults, config, {
 		gateFailureHistory,
 		packageSafetyResult,
-	);
+		overallStatus: "success",
+	});
 
 	log.info("pr-creation", `PR body built (${prBody.length} chars)`);
-
-	const prTitle = `feat(#${issueNum}): ${issueTitle}`;
 	log.info("pr-creation", `PR title: ${prTitle}`);
 
 	// ─── Phase 2: Pre-check — verify head has commits beyond base ──
@@ -311,80 +459,16 @@ export async function createPrOnApproval(
 		log.info("pr-creation", "No worktree path — skipping push");
 	}
 
-	// ─── Phase 4: Check for existing PR ────────────────────────────
-	let existingPr: PrConflictInfo | null = null;
-	if (port) {
-		try {
-			existingPr = await port.listPullRequestsForBranch(headBranch, config.repo);
-		} catch (checkErr: unknown) {
-			const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
-			log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
-			ctx.ui.notify(
-				`PR conflict check failed: ${checkMsg} — attempting PR creation anyway`,
-				"warning",
-			);
-		}
-	} else {
-		log.warn("pr-creation", "Port not available — skipping PR check");
-	}
-
-	// ─── Phase 5: Create or update PR (with retry) ─────────────────
-	if (existingPr) {
-		log.info("pr-creation", `PR #${existingPr.number} already exists — updating body`);
-		try {
-			ctx.ui.notify(`Updating PR #${existingPr.number} with latest changes`, "info");
-			if (port) {
-				await port.updatePullRequest(existingPr.number, config.repo, prBody, prTitle);
-			}
-			ctx.ui.notify(`PR #${existingPr.number} updated`, "info");
-			return { success: true, prNumber: existingPr.number, wasUpdate: true, source: "pr-creation" };
-		} catch (editErr: unknown) {
-			const editMsg = editErr instanceof Error ? editErr.message : String(editErr);
-			log.error("pr-creation", `Failed to update PR #${existingPr.number}: ${editMsg}`);
-			ctx.ui.notify(`Failed to update PR #${existingPr.number}: ${editMsg}`, "error");
-			return { success: false, error: `Failed to update PR: ${editMsg}`, source: "pr-creation" };
-		}
-	}
-
-	// Create PR with retry (Bug 5 fix)
-	let lastError: string | undefined;
-	for (let attempt = 0; attempt < MAX_PR_CREATE_RETRIES; attempt++) {
-		try {
-			if (attempt > 0) {
-				const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-				log.info(
-					"pr-creation",
-					`Retry attempt ${attempt + 1}/${MAX_PR_CREATE_RETRIES} after ${delayMs}ms`,
-				);
-				await new Promise((resolve) => setTimeout(resolve, delayMs));
-			}
-
-			if (!port) throw new Error("GitHubPort not available for PR creation");
-			const prResult = await port.createPullRequest({
-				repo: config.repo,
-				base: config.defaultBranch!,
-				head: headBranch,
-				title: prTitle,
-				body: prBody,
-			});
-			log.info("pr-creation", `PR #${prResult.number} created`);
-			ctx.ui.notify(`PR #${prResult.number} created`, "info");
-			return { success: true, prNumber: prResult.number, source: "pr-creation" };
-		} catch (prErr: unknown) {
-			lastError = prErr instanceof Error ? prErr.message : String(prErr);
-			log.warn(
-				"pr-creation",
-				`Attempt ${attempt + 1}/${MAX_PR_CREATE_RETRIES} failed: ${lastError}`,
-			);
-		}
-	}
-
-	// All retries exhausted
-	const errorMsg = lastError || "Unknown error during PR creation";
-	log.error("pr-creation", `All ${MAX_PR_CREATE_RETRIES} attempts failed: ${errorMsg}`);
-	ctx.ui.notify(
-		`Failed to create PR after ${MAX_PR_CREATE_RETRIES} attempts: ${errorMsg}`,
-		"error",
-	);
-	return { success: false, error: errorMsg, source: "pr-creation" };
+	// ─── Phase 4+5: Create or update PR (idempotent) ───────────────
+	// Ahead-check, rebase and push above stay here — the approval path owns
+	// publishing. Only the PR lifecycle is shared with the early upsert.
+	return await upsertPullRequest({
+		repo: config.repo,
+		base: config.defaultBranch!,
+		head: headBranch,
+		title: prTitle,
+		body: prBody,
+		port,
+		notify: (message, level) => ctx.ui.notify(message, level),
+	});
 }

@@ -28,16 +28,16 @@
 		"criticalCount": 204
 	},
 	"after": {
-		"criticalCount": 192,
-		"expectedDrop": 12,
-		"files": 1666,
-		"codeFiles": 894
+		"criticalCount": 190,
+		"expectedDrop": 14,
+		"files": 1635,
+		"codeFiles": 871
 	},
 	"partition": {
-		"scored": 894,
-		"critical": 192,
+		"scored": 871,
+		"critical": 190,
 		"notScored": 93,
-		"belowCeiling": 691
+		"belowCeiling": 670
 	},
 	"reducedBy": [
 		{
@@ -253,10 +253,6 @@
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},
-		".pi/extensions/caveman/config-ui.ts": {
-			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
-			"requires": "a later refactor issue with a seam analysis for this file"
-		},
 		".pi/extensions/context-info/codeflow.ts": {
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
@@ -314,10 +310,6 @@
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},
 		".pi/extensions/lsp-auditor/run-pre-audit.ts": {
-			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
-			"requires": "a later refactor issue with a seam analysis for this file"
-		},
-		".pi/extensions/ponytail/index.js": {
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},
@@ -849,11 +841,11 @@
 			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
 			"requires": "its own issue for the Go test families"
 		},
-		"cmd/cheasee-pi/orphan.go": {
-			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
-			"requires": "a later refactor issue with a seam analysis for this file"
+		"cmd/cheasee-pi/mode_extensions_removed_test.go": {
+			"reason": "Go test family — the #2003 method (verbatim decl moves) works but 84 new package main files is a standalone change",
+			"requires": "its own issue for the Go test families"
 		},
-		"cmd/cheasee-pi/package_filter.go": {
+		"cmd/cheasee-pi/orphan.go": {
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},

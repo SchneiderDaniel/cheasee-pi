@@ -34,8 +34,6 @@ Customize ruthlessly. Make it yours.
 | **Context Info**             | Rich TUI status bar (branch, model, tokens, TPS, cache)     |
 | **Session Logger**           | Session logging to JSONL with Markdown reports              |
 | **Agent Harness**            | Runtime tool call validation (blocks dangerous patterns)    |
-| **Caveman Protocol**         | Token-efficient communication                               |
-| **Ponytail**                 | Lazy senior dev mode — YAGNI, stdlib-first, minimal code    |
 | **Ask User**                 | Interactive MC dialogs + CSV logging                        |
 | **Format on Save**           | Auto Prettier + ESLint after write/edit                     |
 | **TSC Checkpoint**           | `/check` command: `tsc --noEmit`                            |
