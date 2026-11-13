@@ -36,8 +36,11 @@ At build time the image clones cheasee-pi's own repository
 API keys from ~/.config/cheasee-pi/auth.json and passes them as environment
 variables to the container, so pi finds models without manual /login.
 
-If the container is not running, starts it with docker compose up first.
-Use --build to force rebuild.
+Normal start reuses what already exists: the cheasee-pi, codeflow and ui
+containers that exist are started as they are — no image build, no pull and no
+container recreate — while startup creates only missing containers and builds
+only missing images. Use --build to rebuild every service image and recreate
+the containers.
 
 Examples:
   cheasee-pi start               # start pi with keys from auth.json

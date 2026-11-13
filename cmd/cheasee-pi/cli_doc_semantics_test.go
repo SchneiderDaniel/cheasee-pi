@@ -7,6 +7,31 @@ import (
 	"testing"
 )
 
+func TestCLIDoc_StartReuse(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "docs", "cli.md"))
+	if err != nil {
+		t.Fatalf("reading docs/cli.md: %v", err)
+	}
+	section, ok := markdownSection(string(data), "## `cheasee-pi` (no args) / `start`")
+	if !ok {
+		t.Fatal("docs/cli.md must keep the start section heading")
+	}
+	for _, want := range []string{"without rebuilding", "creates only missing", "builds only missing"} {
+		if !strings.Contains(section, want) {
+			t.Errorf("start docs must state %q, got:\n%s", want, section)
+		}
+	}
+	if strings.Contains(section, "`docker compose up` if not running") {
+		t.Errorf("start docs still describe the old compose-up-if-not-running flow:\n%s", section)
+	}
+	if strings.Contains(upCmd.Long, "starts it with docker compose up first") {
+		t.Errorf("start --help still claims compose up if not running:\n%s", upCmd.Long)
+	}
+	if !strings.Contains(upCmd.Long, "--build") {
+		t.Errorf("start --help must keep documenting --build:\n%s", upCmd.Long)
+	}
+}
+
 // TestCLIDoc_DockerGate verifies the Docker gate (binary + docker info +
 // Engine ≥ 24.0.0, 5 s timeout) and the --no-docker-check skip are stated.
 func TestCLIDoc_DockerGate(t *testing.T) {

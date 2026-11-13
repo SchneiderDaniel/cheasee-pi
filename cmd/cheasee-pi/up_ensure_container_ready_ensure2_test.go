@@ -133,8 +133,8 @@ func TestEnsureContainerReady_ctxForwardedToSeams(t *testing.T) {
 	if _, err := ensureContainerReady(ctx, root, name, false); err != nil {
 		t.Fatalf("ensureContainerReady: %v", err)
 	}
-	if len(seen) != 2 {
-		t.Fatalf("expected ps + inspect seam calls, got %d", len(seen))
+	if len(seen) != 3 { // containerRunning ps + state probe ps + health inspect
+		t.Fatalf("expected 2 ps + inspect seam calls, got %d", len(seen))
 	}
 	for i, got := range seen {
 		if got.Value(ctxKey("marker")) != "v" {

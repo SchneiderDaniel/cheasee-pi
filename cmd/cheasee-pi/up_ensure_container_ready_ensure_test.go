@@ -19,9 +19,6 @@ func TestEnsureContainerReady_alreadyRunningSkipsCompose(t *testing.T) {
 
 	var inspectCalls int
 	c := stubReadyFlow(t, root, func(_ context.Context, arg []string) runner {
-		if slices.Contains(arg, "ps") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(name), nil }}
-		}
 		if slices.Contains(arg, "inspect") {
 			inspectCalls++
 			if slices.Contains(arg, "{{json .}}") {
@@ -36,6 +33,7 @@ func TestEnsureContainerReady_alreadyRunningSkipsCompose(t *testing.T) {
 		}
 		return &mockCmd{}
 	})
+	c.states = allStackStates(root, "running")
 
 	cacheDir, err := ensureContainerReady(context.Background(), root, name, false)
 	if err != nil {
@@ -101,7 +99,7 @@ func TestEnsureContainerReady_psFailsWrapsCheckContainer(t *testing.T) {
 }
 
 func TestEnsureContainerReady_composeFailsWraps(t *testing.T) {
-	// Compose build fails → 'docker compose up:' wrap; waitHealthy unreached.
+	// Compose build fails → 'docker compose build:' wrap; waitHealthy unreached.
 	_, root := mkWorkspace(t, `{}`)
 	setUpReady(t)
 
@@ -121,8 +119,8 @@ func TestEnsureContainerReady_composeFailsWraps(t *testing.T) {
 	})
 
 	_, err := ensureContainerReady(context.Background(), root, containerName(root), false)
-	if err == nil || !strings.Contains(err.Error(), "docker compose up:") {
-		t.Fatalf("compose failure must wrap as 'docker compose up: ...', got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "docker compose build:") {
+		t.Fatalf("compose failure must wrap as 'docker compose build: ...', got %v", err)
 	}
 	if len(c.composeArgs) != 1 {
 		t.Errorf("compose build failure must stop before the up call, got %d calls: %v", len(c.composeArgs), c.composeArgs)
