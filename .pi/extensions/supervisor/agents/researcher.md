@@ -2,7 +2,7 @@
 name: researcher
 description: Researches the public web for new-feature issues only (new capability or new external surface); skips bug fixes, refactors, duplicate/dead code, where source code is the source of truth. Posts a structured findings or skip comment
 tools: read, bash, structural_search, ripgrep_search, web_search
-model: opencode-go/muse-spark-1.3-contributor
+model: opencode-go/deepseek-v4.1-flash
 thinking: high
 extensions: "agent-harness,ripgrep-search,scrapling,structural-analyzer,web-search,rtk"
 ---
