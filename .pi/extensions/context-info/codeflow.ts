@@ -27,7 +27,7 @@ import { execFile } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { argvCommand, assertNoShell } from "../lib/safe-argv.ts";
+import { argvCommand, assertNoShell, sanitizeSpawnEnv } from "../lib/safe-argv.ts";
 
 const execFileAsync = promisify(execFile);
 
@@ -183,7 +183,14 @@ async function bareRepoURL(root: string): Promise<string> {
 			"--get",
 			"remote.origin.url",
 		]);
-		const { stdout } = await execFileAsync(program, args, assertNoShell({ timeout: 5000 }));
+		const { stdout } = await execFileAsync(
+			program,
+			args,
+			// The child inherits this process's environment, so it must inherit the
+			// sanitized one: an execution channel (NODE_OPTIONS, GIT_*_COMMAND, …)
+			// would name code the git argv never shows.
+			assertNoShell({ timeout: 5000, env: sanitizeSpawnEnv(process.env) }),
+		);
 		return stdout.trim();
 	} catch {
 		return "";

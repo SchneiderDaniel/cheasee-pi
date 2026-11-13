@@ -7,7 +7,10 @@
  */
 
 import assert from "node:assert";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import {
 	argvCommand,
 	assertNoShell,
@@ -184,6 +187,124 @@ describe("spawnArgv", () => {
 	});
 });
 
+// ─── spawnArgv owns the env policy ────────────────────────────────
+// `safe-argv.ts` already declares env an execution channel (NODE_OPTIONS,
+// LD_PRELOAD, GIT_CONFIG_*, …). A spawn seam that forwards a caller's env
+// without dropping those is not argv-safe, so the policy lives in the one
+// seam every caller already passes through — not in each adapter.
+
+describe("spawnArgv — env policy", () => {
+	type Received = { options: Record<string, unknown> };
+
+	const capture = (): { spawnFn: (...a: any[]) => unknown; received: Received[] } => {
+		const received: Received[] = [];
+		const spawnFn = (_program: string, _args: readonly string[], options: object = {}) => {
+			received.push({ options: options as Record<string, unknown> });
+			return "child";
+		};
+		return { spawnFn: spawnFn as (...a: any[]) => unknown, received };
+	};
+
+	it("drops every env execution channel, keeps the harmless variables", () => {
+		const { spawnFn, received } = capture();
+		spawnArgv(spawnFn, "/usr/bin/git", ["status"], {
+			env: {
+				NODE_OPTIONS: "--require /tmp/hook.cjs",
+				LD_PRELOAD: "/tmp/lib.so",
+				BASH_ENV: "/tmp/hook.sh",
+				GIT_SSH_COMMAND: "sh -c id",
+				GIT_CONFIG_COUNT: "1",
+				GIT_CONFIG_KEY_0: "core.sshCommand",
+				PATH: "/usr/bin",
+				HOME: "/home/a",
+			},
+		});
+
+		assert.strictEqual(received.length, 1);
+		assert.deepStrictEqual(received[0]!.options.env, { PATH: "/usr/bin", HOME: "/home/a" });
+		assert.strictEqual(received[0]!.options.shell, false);
+	});
+
+	it("synthesizes no env for a caller that passes none", () => {
+		const { spawnFn, received } = capture();
+		spawnArgv(spawnFn, "/usr/bin/git", ["status"], { cwd: "/tmp" });
+
+		assert.strictEqual(received.length, 1);
+		assert.strictEqual("env" in received[0]!.options, false, "no env key may be invented");
+		assert.strictEqual(received[0]!.options.cwd, "/tmp");
+	});
+
+	it("keeps an empty env an empty object (not undefined)", () => {
+		const { spawnFn, received } = capture();
+		spawnArgv(spawnFn, "/usr/bin/git", ["status"], { env: {} });
+
+		assert.deepStrictEqual(received[0]!.options.env, {});
+		assert.strictEqual("env" in received[0]!.options, true);
+	});
+
+	it("mutates no caller object — options stay untouched, env stays unrewritten", () => {
+		const env = { PATH: "/usr/bin", NODE_OPTIONS: "--require /tmp/hook.cjs" };
+		const options = { cwd: "/tmp", env };
+		const { spawnFn } = capture();
+
+		spawnArgv(spawnFn, "/usr/bin/git", ["status"], options);
+
+		assert.deepStrictEqual(env, {
+			PATH: "/usr/bin",
+			NODE_OPTIONS: "--require /tmp/hook.cjs",
+		});
+		assert.strictEqual(options.env, env, "the caller's env object must not be swapped out");
+		assert.deepStrictEqual(Object.keys(options), ["cwd", "env"], "no keys rewritten");
+	});
+
+	it("drops undefined env values so no non-string entry reaches spawn", () => {
+		const { spawnFn, received } = capture();
+		spawnArgv(spawnFn, "/usr/bin/git", ["status"], { env: { A: undefined, B: "b" } });
+
+		assert.deepStrictEqual(received[0]!.options.env, { B: "b" });
+	});
+
+	it("throws for a NUL in an env value, spawn never runs", () => {
+		const { spawnFn, received } = capture();
+		assert.throws(
+			() => spawnArgv(spawnFn, "/usr/bin/git", ["status"], { env: { A: "x\0y" } }),
+			UnsafeArgvError,
+		);
+		assert.strictEqual(received.length, 0, "the spawn fn must never run on a malformed env");
+	});
+
+	it("throws for env plus a requested shell, spawn never runs", () => {
+		const { spawnFn, received } = capture();
+		assert.throws(
+			() => spawnArgv(spawnFn, "/usr/bin/git", ["status"], { env: { A: "1" }, shell: true }),
+			UnsafeArgvError,
+		);
+		assert.strictEqual(received.length, 0);
+	});
+
+	it("validates the argv first — a NUL arg throws, spawn never runs", () => {
+		const { spawnFn, received } = capture();
+		assert.throws(
+			() => spawnArgv(spawnFn, "/usr/bin/git", ["bad\0arg"], { env: { A: "1" } }),
+			UnsafeArgvError,
+		);
+		assert.strictEqual(received.length, 0);
+	});
+
+	it("passes the spawn fn's return value through unchanged", () => {
+		const child = { pid: 4242 };
+		const result = spawnArgv(() => child, "/usr/bin/git", ["status"], { env: { A: "1" } });
+		assert.strictEqual(result, child);
+	});
+
+	it("keeps env policy out of assertNoShell (that primitive owns the shell)", () => {
+		const env = { NODE_OPTIONS: "--require /tmp/h.cjs" };
+		const result = assertNoShell({ env });
+		assert.deepStrictEqual(result.env, env, "assertNoShell must not sanitize");
+		assert.strictEqual(result.shell, false);
+	});
+});
+
 describe("assertSafeEnv", () => {
 	it("passes a valid env through", () => {
 		const env = { PATH: "/usr/bin", PI_NO_COLOR: "1" };
@@ -243,5 +364,68 @@ describe("sanitizeSpawnEnv", () => {
 	it("throws for a NUL in an env key or value (fail closed)", () => {
 		assert.throws(() => sanitizeSpawnEnv({ A: "x\0y" }), UnsafeArgvError);
 		assert.throws(() => sanitizeSpawnEnv({ "A\0": "x" }), UnsafeArgvError);
+	});
+});
+
+// ─── No-drift invariants (source shape) ───────────────────────────
+// A raw spawn in an adapter would bypass the env policy. Each case reads one
+// module as text, so a later caller cannot quietly reintroduce it.
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const EXT_DIR = join(HERE, "..", "..");
+const readSource = (rel: string) => readFileSync(join(EXT_DIR, rel), "utf8");
+
+describe("spawn seam — no policy drift", () => {
+	it("exec-env.ts delegates to spawnArgv, never a raw spawn", () => {
+		const src = readSource("lib/exec-env.ts");
+		assert.match(
+			src,
+			/import\s*\{[^}]*\bspawnArgv\b[^}]*\}\s*from\s*"\.\/safe-argv\.ts"/,
+			"exec-env.ts must import spawnArgv from the policy module",
+		);
+		assert.doesNotMatch(
+			src,
+			/\bspawn\s*\(/,
+			"exec-env.ts must delegate its spawn to the policy seam",
+		);
+	});
+
+	it("exec-env.ts owns no env rule of its own", () => {
+		assert.doesNotMatch(
+			readSource("lib/exec-env.ts"),
+			/sanitizeSpawnEnv/,
+			"env policy lives in exactly one module (safe-argv.ts)",
+		);
+	});
+
+	it("safe-argv.ts exports the policy primitives, never opts into a shell", () => {
+		const src = readSource("lib/safe-argv.ts");
+		assert.match(src, /export\s+function\s+spawnArgv\b/, "spawnArgv export");
+		assert.match(src, /export\s+function\s+sanitizeSpawnEnv\b/, "sanitizeSpawnEnv export");
+		assert.match(src, /export\s+function\s+assertNoShell\b/, "assertNoShell export");
+		assert.match(src, /export\s+function\s+argvCommand\b/, "argvCommand export");
+		assert.doesNotMatch(src, /shell:\s*true/, "no spawn may opt back into a shell");
+	});
+
+	it("the supervisor agent child routes argv/env through the policy", () => {
+		// The single-child_process-importer guard under runner/ lives in
+		// supervisor/test/runner-split.test.mts; this pins the policy import.
+		const src = readSource("supervisor/agent/runner/spawn.ts");
+		const fromPolicy = '\\s*from\\s*"[^"]*lib\\/safe-argv\\.ts"';
+		assert.match(
+			src,
+			new RegExp(`import\\s*\\{[^}]*\\bargvCommand\\b[^}]*\\}${fromPolicy}`),
+			"argvCommand import",
+		);
+		assert.match(
+			src,
+			new RegExp(`import\\s*\\{[^}]*\\bassertNoShell\\b[^}]*\\}${fromPolicy}`),
+			"assertNoShell import",
+		);
+		assert.match(
+			src,
+			new RegExp(`import\\s*\\{[^}]*\\bsanitizeSpawnEnv\\b[^}]*\\}${fromPolicy}`),
+			"sanitizeSpawnEnv import",
+		);
 	});
 });

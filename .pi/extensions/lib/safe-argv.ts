@@ -4,8 +4,10 @@
  * The CodeFlow-flagged sites all spawn with an argv array (no shell), so the
  * real defect is unvalidated arguments, not shell injection. This module is
  * that validation plus a forced `shell:false`, so a caller can never opt a
- * spawn back into a shell. Pure, zero-dependency — the same role
- * path-containment.ts plays for CWE-22.
+ * spawn back into a shell. `spawnArgv` is the seam that applies all of it —
+ * argv, shell, and the child `env` (`sanitizeSpawnEnv`), because an inherited
+ * environment names code the argv never shows. Pure, zero-dependency — the same
+ * role path-containment.ts plays for CWE-22.
  */
 
 /** Stable code so callers branch without string-matching the message. */
@@ -91,9 +93,14 @@ export function assertNoShell<T extends object>(options: T | undefined): T & { s
 
 /**
  * The single argv-array spawn seam: validate `command`/`args` through the
- * policy and force `shell:false` before the injected `spawnFn` runs, so no
- * caller can reach a real spawn with an unvalidated program or a shell. The
- * `spawnFn` binding is the only thing a caller supplies — the argv is not.
+ * policy, force `shell:false`, and — when the caller supplied one — route the
+ * child's `env` through `sanitizeSpawnEnv` before the injected `spawnFn` runs,
+ * so no caller can reach a real spawn with an unvalidated program, a shell, or
+ * an environment that names code the argv never shows. The `spawnFn` binding is
+ * the only thing a caller supplies — the argv and the env policy are not.
+ *
+ * Throws synchronously (`UnsafeArgvError`) so a caller that wants a result
+ * object instead of an exception can map it at its own boundary.
  */
 export function spawnArgv(
 	spawnFn: (program: string, args: string[], options: object) => unknown,
@@ -102,7 +109,23 @@ export function spawnArgv(
 	options?: object,
 ): unknown {
 	const { program, args: safeArgs } = argvCommand(command, args);
-	return spawnFn(program, [...safeArgs], assertNoShell(options));
+	// `assertNoShell` already returns a fresh object, so dropping a key here
+	// cannot reach the caller's options.
+	const safeOptions = assertNoShell(options) as Record<string, unknown>;
+	const env = safeOptions.env;
+	if (env === undefined) {
+		// Never synthesize an env: absent means "inherit", which spawn expresses
+		// as the key simply not being there.
+		delete safeOptions.env;
+		return spawnFn(program, [...safeArgs], safeOptions);
+	}
+	if (typeof env !== "object" || env === null || Array.isArray(env)) {
+		fail("options.env", "must be a plain object of environment variables");
+	}
+	return spawnFn(program, [...safeArgs], {
+		...safeOptions,
+		env: sanitizeSpawnEnv(env as Record<string, string | undefined>),
+	});
 }
 
 /** Reject NUL in env keys/values (Node throws ERR_INVALID_ARG_VALUE); other bytes pass. */
