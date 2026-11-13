@@ -1,0 +1,96 @@
+{
+	"provenance": {
+		"issue": 2107,
+		"title": "315 High Complexity Files",
+		"kind": "architecture",
+		"disposition": "file-refactor",
+		"analyzedAt": "13.11.2026, 20:31:00",
+		"filedCount": 315,
+		"analyzer": "https://github.com/braedonsaunders/codeflow",
+		"ref": "b0e82d127fc4990f571ebc6da6c5d9af2591aaa1",
+		"oracle": "test/fixtures/complexity-mirror.mts (calcComplexity, 24 regexes)",
+		"metric": "architectureIssues[\"N High Complexity Files\"] — analyzed files where calcComplexity(content).level === \"critical\", i.e. 1 + Σ(branch-regex hits) > 30 over the RAW file text, comments and string literals included (index.html:1663-1685, 5453-5454)",
+		"sampleNote": "the filed finding names 315 files and cites 5 of them by bare file name (agent-comment.ts, codeflow-fp-filter.test.mts, entrypoint.sh, fp-filter.js, git-issue-create-external-skill.test.mts) — the only two shared with the other drafted issues are the fp-filter pair. Each bare name is resolved here to its single tracked path.",
+		"scoreNote": "the mirror scores RAW text, so branch-shaped English in a comment (`and`, `or`, `if `) counts. Deleting the security rationale to lower the number is not a refactor; the `after` scores below are what the delivered files measure."
+	},
+	"base": {
+		"commit": "7bc61a9d07c9d756cdeb8da9bb4e0e2494a13307",
+		"files": 1624,
+		"codeFiles": 860,
+		"criticalCount": 190
+	},
+	"cited": [
+		{
+			"path": ".pi/extensions/supervisor/pipeline/stages/agent-comment.ts",
+			"citedAs": "agent-comment.ts",
+			"lines": 399,
+			"before": 113,
+			"after": 82,
+			"verdict": "reduced",
+			"finding": "applies, minor — not a god object, no split",
+			"change": "one module-scope ROLE_HEADINGS table replaces BARE_TEXT_RULES plus the per-call HEADING_RULES copy; the COMMENT_SOURCES list replaces the hand-unrolled textOnly → textOutput → thinkingOutput chain; one postComment() owns both duplicated post try/catch paths; the unused `pi` and `extractionSource` parameters are gone (caller updated in the same change)",
+			"evidence": "15 characterization tests in .pi/extensions/supervisor/test/agent-comment-stage.test.mts, green on the unmodified file before the refactor and green after",
+			"deferred": "none — the remaining score is prose, not branching"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"citedAs": "fp-filter.js",
+			"lines": 1750,
+			"before": 764,
+			"after": 725,
+			"verdict": "reduced",
+			"finding": "applies, major — one UMD closure mixing six false-positive categories, a hand-rolled SHA-256 and two scanner pairs",
+			"change": "skipQuoted deleted (`skipString` is the same scanner, now the only copy); the require/import child-process binding scans merged into one pass behind addReceiver(); argvCarriesCodeToken + argvNamesInterpreter collapsed into one argvFacts() pass; parseName() is the one alias parser for import clauses and destructuring (childProcessBindings + safeArgvPolicyNames); QUOTED_LITERAL is the one literal-shape owner for programs and argv elements; hasShellExecution() is a construct table; the three suppression loops share partitionList(); the two aggregate rewriters share mapIssues(); the four stats reconcilers share one keptCounts table; isTestArtifact/isDocArtifact share hasDirSegment()",
+			"evidence": "201 behavioural tests (test/codeflow-fp-filter.test.mts, -part6, test/codeflow-fp-acceptance.test.mts) plus the shim/bridge contracts pin the public surface — green before and after; the exported API is unchanged",
+			"deferred": "the 1750-line single file itself"
+		},
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+			"citedAs": "entrypoint.sh",
+			"lines": 415,
+			"before": 144,
+			"after": 144,
+			"verdict": "unchanged",
+			"finding": "does not apply — linear bootstrap, 7 small functions; the length is a sequence of steps (temporal coupling), not nested branching",
+			"change": "none: the score is step count, and any edit here needs a shell harness the repo does not have",
+			"evidence": "no nested-branch hotspot; the ordering is the contract"
+		},
+		{
+			"path": "test/codeflow-fp-filter.test.mts",
+			"citedAs": "codeflow-fp-filter.test.mts",
+			"lines": 2906,
+			"before": null,
+			"after": null,
+			"verdict": "not-scored",
+			"finding": "does not apply to the metric — `.mts` is not in CODE_EXTS, so the analyzer never scores this suite; its length mirrors the 1750-line module under test",
+			"change": "none",
+			"evidence": "CODE_EXTS excludes `.mts`; the file is the module's behaviour oracle, not source"
+		},
+		{
+			"path": "test/git-issue-create-external-skill.test.mts",
+			"citedAs": "git-issue-create-external-skill.test.mts",
+			"lines": 498,
+			"before": null,
+			"after": null,
+			"verdict": "not-scored",
+			"finding": "does not apply — test-only and unscorable (`CODE_EXTS` excludes `.mts`)",
+			"change": "none",
+			"evidence": "29 tests, no production code"
+		}
+	],
+	"deferred": {
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js": {
+			"reason": "the remaining score is six policy categories plus the shared lexical scanners in one UMD closure; splitting them into siblings is the only way under the ceiling",
+			"requires": "a sibling-module split under codeflow/ that keeps the single-script UMD loading contract — loader changes in run-analysis.mjs (require), ui_rewrites.py (one served route), the Go embed list, the Dockerfile COPY, and the byte-verbatim serve test in codeflow_shim_fp_filter_test.go"
+		},
+		".pi/extensions/supervisor/pipeline/stages/agent-comment.ts": {
+			"reason": "the remaining score is branch-shaped English in the explanatory comments (and/or/if/with/when) — the code itself is one linear flow with a single table",
+			"requires": "no code change is available that lowers it further without deleting the rationale; a new metric that ignores comments is the actual fix"
+		}
+	},
+	"controls": {
+		"codeFiles": 860,
+		"criticalCount": 190,
+		"note": "both cited scorable files were reduced in place and stay above the ceiling, so no flag moved: the tree-wide critical set is unchanged and the #2033 envelope still describes it. No `.js`/`.ts` file was added — splitting would move `codeFiles`, which test/complexity-refactor-2033.test.mts pins at 860."
+	}
+}

@@ -42,7 +42,7 @@ export async function handlePostAgentSuccess(
 ): Promise<boolean> {
 	// Agent comments: architect, test-designer, researcher
 	if (agentName === "architect" || agentName === "test-designer" || agentName === "researcher") {
-		await handleAgentComment(pi, ctx, result, agentName, issueNum, config, collector, port);
+		await handleAgentComment(ctx, result, agentName, issueNum, config, collector, port);
 	}
 
 	// Commit and push for developer, then upsert the PR so pre-audit CI gates

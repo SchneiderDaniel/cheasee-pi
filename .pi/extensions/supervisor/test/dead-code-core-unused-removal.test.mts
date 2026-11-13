@@ -86,16 +86,25 @@ describe("core.ts — live bindings preserved (over-deletion guard)", () => {
 	});
 });
 
-describe("agent-comment.ts — canonical bare-text table intact", () => {
+describe("agent-comment.ts — canonical role-heading table intact", () => {
 	const source = readSource("pipeline/stages/agent-comment.ts");
 
-	it("defines BareTextRule and BARE_TEXT_RULES", () => {
-		assert.equal(source.includes("type BareTextRule"), true);
-		assert.equal(source.includes("const BARE_TEXT_RULES"), true);
+	it("defines RoleHeading and ROLE_HEADINGS", () => {
+		// Issue #2107 merged the bare-text rules and the per-call heading rules
+		// into this one table; the guard's intent is unchanged — the live copy
+		// survives in exactly one module.
+		assert.equal(source.includes("interface RoleHeading"), true);
+		assert.equal(source.includes("const ROLE_HEADINGS"), true);
 	});
 
-	it("BARE_TEXT_RULES is consumed", () => {
-		assert.match(source, /BARE_TEXT_RULES\.find\(/);
+	it("ROLE_HEADINGS is consumed for every role it defines", () => {
+		assert.match(source, /ROLE_HEADINGS\[agentName\]/);
+		for (const role of ["architect", "test-designer", "researcher"]) {
+			assert.match(source, new RegExp(`"?${role}"?:\\s*\\{`), `${role} lost its heading rule`);
+		}
+		for (const heading of ["## Architecture", "## Test Plan", "## Research Findings"]) {
+			assert.equal(source.includes(heading), true, `${heading} is no longer pinned`);
+		}
 	});
 });
 
