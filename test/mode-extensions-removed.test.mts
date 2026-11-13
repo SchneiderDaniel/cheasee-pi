@@ -83,7 +83,6 @@ const PONYTAIL_SOURCE_LITERAL = "https://github.com/DietrichGebert/ponytail";
 /** Needles a committed config must not carry: the package source pi installs,
  *  and the skill filter that narrowed it once it was installed. */
 const PACKAGE_NEEDLES = [PONYTAIL_SOURCE, "ponytail-*"];
-
 /** Config files pi and the container read. None may carry the package. */
 const PACKAGE_CONFIG_FILES = [
 	".pi/settings.json",
@@ -122,7 +121,6 @@ function sweep(
 	}
 	return hits;
 }
-
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf-8");
 
 /** Read every file of a sweep into `[label, content]` samples. */
