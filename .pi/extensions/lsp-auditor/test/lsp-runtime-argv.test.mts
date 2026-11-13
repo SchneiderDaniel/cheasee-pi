@@ -116,5 +116,37 @@ if (!hasMockModule) {
 			);
 			assert.strictEqual(spawnCalls.length, 0, "spawn must not be called after a rejection");
 		});
+
+		it("drops env execution channels but keeps the inherited PATH", async () => {
+			const { createDefaultRuntime } = await loadRuntime();
+			spawnCalls.length = 0;
+			createDefaultRuntime().spawn("/usr/bin/node", ["--version"], {
+				env: {
+					...process.env,
+					NODE_OPTIONS: "--require /tmp/hook.cjs",
+					LD_PRELOAD: "/tmp/lib.so",
+				},
+			});
+
+			assert.strictEqual(spawnCalls.length, 1);
+			const env = spawnCalls[0]!.options.env as Record<string, unknown>;
+			assert.strictEqual("NODE_OPTIONS" in env, false, "NODE_OPTIONS must be dropped");
+			assert.strictEqual("LD_PRELOAD" in env, false, "LD_PRELOAD must be dropped");
+			assert.strictEqual(typeof env.PATH, "string", "PATH survives (positive control)");
+			assert.strictEqual(spawnCalls[0]!.options.shell, false);
+		});
+
+		it("invents no env when the caller passes none", async () => {
+			const { createDefaultRuntime } = await loadRuntime();
+			spawnCalls.length = 0;
+			createDefaultRuntime().spawn("/usr/bin/node", ["--version"], {});
+
+			assert.strictEqual(spawnCalls.length, 1);
+			assert.strictEqual(
+				"env" in spawnCalls[0]!.options,
+				false,
+				"the runtime must not synthesize an env",
+			);
+		});
 	});
 }

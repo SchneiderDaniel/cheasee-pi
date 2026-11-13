@@ -780,7 +780,7 @@
 	// bytes that hash to `POLICY_MODULE_SHA256` count as provenance. Any edit to
 	// the policy — a reformat included — fails the check and keeps the finding
 	// until the digest here is re-reviewed. An unreadable module is not evidence.
-	var POLICY_MODULE_SHA256 = "ddaa8f04841ea411652f323a61453d05a1783160f8360da0cc1bcb90d73fc3e4";
+	var POLICY_MODULE_SHA256 = "22136e3c275d524c1b3335b0e58c4d5b2908425ca4a31ed614f5134aa91948e5";
 	function moduleDeclaresPolicy(readFile, path) {
 		if (path !== POLICY_MODULE_PATH) return false;
 		var text = readFile && typeof path === "string" ? readFile(path) : null;

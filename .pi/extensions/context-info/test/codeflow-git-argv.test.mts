@@ -92,5 +92,40 @@ if (!hasMockModule) {
 			assert.strictEqual(calls.length, 1);
 			assert.strictEqual(slug, "ws");
 		});
+
+		it("carries a sanitized env — no execution channel, the rest inherited", async () => {
+			calls.length = 0;
+			execError = null;
+			const poisoned = {
+				NODE_OPTIONS: "--require /tmp/hook.cjs",
+				LD_PRELOAD: "/tmp/lib.so",
+				GIT_SSH_COMMAND: "sh -c id",
+				GIT_CONFIG_COUNT: "1",
+				PI_TEST_MARKER: "marker-42",
+			};
+			const previous: Record<string, string | undefined> = {};
+			for (const [key, value] of Object.entries(poisoned)) {
+				previous[key] = process.env[key];
+				process.env[key] = value;
+			}
+			try {
+				await repoSlug("/tmp/ws");
+			} finally {
+				for (const key of Object.keys(poisoned)) {
+					if (previous[key] === undefined) delete process.env[key];
+					else process.env[key] = previous[key];
+				}
+			}
+
+			assert.strictEqual(calls.length, 1);
+			const env = calls[0]!.options.env as Record<string, unknown> | undefined;
+			assert.ok(env, "the git call must carry an explicit env");
+			for (const channel of ["NODE_OPTIONS", "LD_PRELOAD", "GIT_SSH_COMMAND", "GIT_CONFIG_COUNT"]) {
+				assert.strictEqual(channel in env!, false, `${channel} must be dropped`);
+			}
+			assert.strictEqual(env!.PI_TEST_MARKER, "marker-42", "harmless env passes through");
+			assert.strictEqual(typeof env!.PATH, "string", "PATH survives (positive control)");
+			assert.strictEqual(calls[0]!.options.shell, false);
+		});
 	});
 }
