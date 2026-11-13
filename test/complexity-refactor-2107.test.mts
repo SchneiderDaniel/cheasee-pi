@@ -13,7 +13,7 @@
 //   (c) two are `.mts` and are therefore never scored — recorded, not claimed;
 //   (d) no flag moved: both refactored files stay above the ceiling and stay
 //       deferred in the #2033 envelope, which this change must not invalidate;
-//   (e) no `.js`/`.ts` file was added, so `codeFiles` is unchanged at 860.
+//   (e) no scored file was added by this PR, so `codeFiles` stays at the 871-file branch-base count.
 //
 // The recorded envelope lives in `test/fixtures/complexity-baseline-2107.json`.
 //
@@ -128,7 +128,7 @@ describe("complexity refactor #2107 — the filed finding", () => {
 				codeFiles: baseline.base.codeFiles,
 				criticalCount: baseline.base.criticalCount,
 			},
-			{ files: 1624, codeFiles: 860, criticalCount: 190 },
+			{ files: 1635, codeFiles: 871, criticalCount: 190 },
 			"the measurement at the branch base",
 		);
 	});
@@ -198,7 +198,7 @@ describe("complexity refactor #2107 — no flag moved", () => {
 		const measured = measureComplexity(ROOT);
 		assert.ok(
 			measured.codeFiles === baseline.controls.codeFiles,
-			"a new .js/.ts file would move the metric the #2033 suite pins",
+			"the PR must not add a scored file beyond its recorded branch base",
 		);
 		assert.ok(measured.files >= baseline.base.files, "the tracked tree never shrinks");
 		// An untracked sibling would not reach `git ls-files` yet, so check the

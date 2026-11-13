@@ -14,9 +14,9 @@
 		"scoreNote": "the mirror scores RAW text, so branch-shaped English in a comment (`and`, `or`, `if `) counts. Deleting the security rationale to lower the number is not a refactor; the `after` scores below are what the delivered files measure."
 	},
 	"base": {
-		"commit": "7bc61a9d07c9d756cdeb8da9bb4e0e2494a13307",
-		"files": 1624,
-		"codeFiles": 860,
+		"commit": "e8d169a35389406d1cddb1f1a8e1e6c15935c077",
+		"files": 1635,
+		"codeFiles": 871,
 		"criticalCount": 190
 	},
 	"cited": [
@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 860,
+		"codeFiles": 871,
 		"criticalCount": 190,
-		"note": "both cited scorable files were reduced in place and stay above the ceiling, so no flag moved: the tree-wide critical set is unchanged and the #2033 envelope still describes it. No `.js`/`.ts` file was added — splitting would move `codeFiles`, which test/complexity-refactor-2033.test.mts pins at 860."
+		"note": "the branch base is e8d169a35389406d1cddb1f1a8e1e6c15935c077 (after #2081), whose 871 scored files and 190 critical files are measured above. This PR adds no scored file; both cited scorable files were reduced in place and stay above the ceiling, so no flag moved and the #2033 envelope still describes the tree. The earlier 860-file snapshot predates #2081."
 	}
 }
