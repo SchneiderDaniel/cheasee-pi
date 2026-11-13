@@ -23,9 +23,6 @@ func TestRunUpE_runningStaleSidecarWarnsAndProceeds(t *testing.T) {
 	staleCache := filepath.Join(t.TempDir(), "cheasee-pi", "0.54.0")
 	staleJSON := mustJSON(codeflowInspectDoc(staleCache, strings.Repeat("0", 64), "9000"))
 	c := stubReadyFlow(t, root, func(_ context.Context, arg []string) runner {
-		if slices.Contains(arg, "ps") {
-			return &mockCmd{outputFn: func() ([]byte, error) { return []byte(containerName(root)), nil }}
-		}
 		if slices.Contains(arg, "inspect") {
 			if slices.Contains(arg, "{{json .}}") {
 				return codeflowInspectRunner(staleJSON)
@@ -37,6 +34,7 @@ func TestRunUpE_runningStaleSidecarWarnsAndProceeds(t *testing.T) {
 		}
 		return &mockCmd{}
 	})
+	c.states = allStackStates(root, "running")
 
 	stderr := testutil.CaptureStderr(t, func() {
 		if err := runUpE(&cobra.Command{}, nil); err != nil {

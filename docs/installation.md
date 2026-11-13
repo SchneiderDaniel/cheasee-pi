@@ -220,10 +220,12 @@ baked exactly the commit `about` reports. To force a refresh regardless of
 upstream movement, run `cheasee-pi rebuild` (no-cache).
 
 Pi is installed at image build time pinned to a released version (currently
-`1.0.2`, matching the Dockerfile and compose defaults). `cheasee-pi start`
-rebuilds the image whenever the container isn't running, re-resolving that
-pinned version. To track the floating npm latest instead, opt in explicitly:
-`PI_VERSION=latest cheasee-pi start`.
+`1.0.2`, matching the Dockerfile and compose defaults). A plain
+`cheasee-pi start` never rebuilds: it starts existing containers and only
+builds an image that is absent. Use `cheasee-pi build` (or
+`cheasee-pi start --build`) to re-resolve that pinned version. To track the
+floating npm latest instead, opt in explicitly:
+`PI_VERSION=latest cheasee-pi start --build`.
 
 Stop the container when done:
 

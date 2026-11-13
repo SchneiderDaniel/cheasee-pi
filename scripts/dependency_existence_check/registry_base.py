@@ -44,8 +44,8 @@ class Registry:
             f"registry {self.name} unreachable for {url} after 3 attempts ({last})"
         )
 
-    def check(self, name: str) -> PackageRecord:
-        url = self._url(name)
+    def check(self, name: str, version: str | None = None) -> PackageRecord:
+        url = self._url(name, version) if self.name == "go" and version else self._url(name)
         cached = self.fetcher.cache_entry(url)
         etag = cached[2] if cached else None
         status, body, _ = self._request(url, etag)

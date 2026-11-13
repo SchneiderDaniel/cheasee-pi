@@ -122,7 +122,8 @@ def run_check(root: Path, fetcher, threshold_days: int,
         adapter = adapter_by_lang[lang]
         registry = registries[dep.registry_name or adapter.registry_name]
         try:
-            record = registry.check(name)
+            record = (registry.check(name, dep.version)
+                      if registry.name == "go" and dep.version else registry.check(name))
         except RegistryError as e:
             failures.append(_failure(dep, "registry-unreachable", str(e)))
             continue

@@ -80,10 +80,9 @@ func TestRunUpE_fullFlowRunsContainer(t *testing.T) {
 	if !slices.Contains(build, "-f") || !slices.Contains(build, composeFile) {
 		t.Errorf("build must target %s, got %v", composeFile, build)
 	}
-	if !slices.Contains(up, "up") || !slices.Contains(up, "--remove-orphans") {
+	if !slices.Contains(up, "up") || !slices.Contains(up, "--no-build") {
 		t.Errorf("up args wrong: %v", up)
 	}
-
 	// Two sibling mounts: workspace folder + its .bare; ${PWD} never used.
 	upEnv := c.composeCmds[1].env
 	if !slices.Contains(upEnv, "WORKSPACE_HOST_PATH="+root) {

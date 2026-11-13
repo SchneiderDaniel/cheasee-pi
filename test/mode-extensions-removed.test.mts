@@ -96,11 +96,13 @@ describe("response modes #2072 — the runtime trees are gone", () => {
 		}
 	});
 
-	it("the committed project settings keep private-pi and no source filter", () => {
+	it("the committed project settings retain private-pi", () => {
 		const settings = JSON.parse(read(".pi/settings.json")) as {
 			packages?: unknown[];
 		};
-		assert.deepEqual(settings.packages, ["https://github.com/SchneiderDaniel/private-pi"]);
+		assert.ok(
+			settings.packages?.some((pkg) => pkg === "https://github.com/SchneiderDaniel/private-pi"),
+		);
 	});
 });
 

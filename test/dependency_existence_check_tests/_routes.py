@@ -23,7 +23,7 @@ def pypi_body(iso=OLD_ISO):
                        "releases": {"0.1.0": [{"upload_time": iso}]}})
 
 
-def url_for(registry, name):
+def url_for(registry, name, version="v1.0.0"):
     """Expected registry URL for a package name (mirrors the script's table)."""
     if registry == "pypi":
         return f"https://pypi.org/pypi/{name}/json"
@@ -31,7 +31,7 @@ def url_for(registry, name):
         return f"https://registry.npmjs.org/{urllib.parse.quote(name, safe='@')}"
     if registry == "go":
         n = re.sub(r"[A-Z]", lambda m: "!" + m.group(0).lower(), name)
-        return f"https://proxy.golang.org/{n}/@latest"
+        return f"https://proxy.golang.org/{n}/@v/{version}.info"
     if registry == "crates":
         return f"https://crates.io/api/v1/crates/{name}"
     if registry == "maven":

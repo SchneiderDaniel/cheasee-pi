@@ -15,16 +15,16 @@ import (
 // ──────────────────────────────────────────────
 // CodeFlow sidecar drift detection
 //
-// `cheasee-pi start` skips `docker compose up` on an already-running
-// container — locked in by TestRunUpE_containerRunningSkipsComposeUp, start
-// must not surprise-rebuild. The sidecar can still drift from the current
+// `cheasee-pi start` skips `docker compose up` entirely when the whole stack
+// is already up — zero-compose while everything runs, locked in by
+// TestRunUpE_containerRunningSkipsComposeUp: start must not surprise-rebuild. The sidecar can still drift from the current
 // CLI/config: a newer CLI extracts a new version-keyed cache dir (new
 // codeflow/config.json bind source), the workspace docker.codeflowPort can
 // change, or config.json content can change in place. warnIfCodeflowDrift
 // compares the LIVE sidecar (one docker inspect) against the freshly
 // resolved expected state and warns on stderr with the exact recovery
-// command — never auto-recreating and never invoking compose on the running
-// path (the zero-compose contract).
+// command — never auto-recreating and never invoking compose on the
+// all-running path (the zero-compose contract).
 //
 // The composite stamp is CLI-owned (sha256 over the CLI version, cache-dir
 // path, explicit port-or-sentinel, extracted config.json and compose bytes),
@@ -45,7 +45,7 @@ const (
 	// codeflowConfigJSON is the sidecar config file inside the cache dir,
 	// bind-mounted read-only into the container; codeflowConfigMountDest is
 	// its in-container path (docker-compose.yml).
-	codeflowConfigJSON     = "codeflow/config.json"
+	codeflowConfigJSON      = "codeflow/config.json"
 	codeflowConfigMountDest = "/opt/codeflow/config.json"
 
 	// codeflowSpecSentinel replaces the derived/probed port in the stamp —

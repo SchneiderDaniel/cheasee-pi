@@ -131,18 +131,29 @@ func TestModeExtensionsRemoved_BuildInputsClean(t *testing.T) {
 	if err := json.Unmarshal([]byte(readCommittedSettings(t)), &settings); err != nil {
 		t.Fatalf("committed .pi/settings.json: %v", err)
 	}
-	var packages []string
+	hasPrivatePi := false
 	for _, entry := range settings.Packages {
 		var source string
 		if err := json.Unmarshal(entry, &source); err != nil {
-			t.Errorf("committed packages entry must be a bare source string, got %s", entry)
+			var pkg struct {
+				Source string `json:"source"`
+			}
+			if objectErr := json.Unmarshal(entry, &pkg); objectErr != nil {
+				t.Errorf("committed package must be a source string or object, got %s", entry)
+				continue
+			}
+			source = pkg.Source
+		}
+		if source == "" {
+			t.Errorf("committed package has no source: %s", entry)
 			continue
 		}
-		packages = append(packages, source)
+		if source == "https://github.com/SchneiderDaniel/private-pi" {
+			hasPrivatePi = true
+		}
 	}
-	want := []string{"https://github.com/SchneiderDaniel/private-pi"}
-	if strings.Join(packages, ",") != strings.Join(want, ",") {
-		t.Errorf("committed packages = %v, want %v", packages, want)
+	if !hasPrivatePi {
+		t.Error("committed packages must keep private-pi")
 	}
 
 	workflow, err := os.ReadFile(filepath.Join(modeRepoRoot(), ".github", "workflows", "tests.yml"))

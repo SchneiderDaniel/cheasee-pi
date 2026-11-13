@@ -60,9 +60,11 @@ class GoRegistry(Registry):
     name = "go"
     interval = 2.0
 
-    def _url(self, name: str) -> str:
+    def _url(self, name: str, version: str | None = None) -> str:
         # Go module proxy encoding: uppercase -> `!` + lowercase.
         n = re.sub(r"[A-Z]", lambda m: "!" + m.group(0).lower(), name)
+        if version:
+            return f"https://proxy.golang.org/{n}/@v/{version}.info"
         return f"https://proxy.golang.org/{n}/@latest"
 
     def _parse(self, name: str, status: int, body: str) -> PackageRecord:
