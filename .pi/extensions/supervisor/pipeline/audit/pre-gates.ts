@@ -11,6 +11,7 @@ import type { SupervisorConfig } from "../../config/types.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import { pollCiChecks } from "../../checks/ci-gating.ts";
+import type { CiPollResult } from "../../checks/ci-gating.ts";
 import { runDuplicateCheck } from "../../checks/duplicate-code.ts";
 import type { DuplicateCodeResult } from "../../checks/duplicate-code.ts";
 import { runDeadCodeCheck, buildDeadCodeContext } from "../../checks/dead-code.ts";
@@ -48,64 +49,80 @@ export interface CiGateResult {
 }
 
 /**
- * Step 0: CI gating — poll check runs before running local hooks.
- * Disabled when ciGatingTimeoutSec is unset or ≤ 0.
+ * Step 0: CI gating — poll the open PR's check runs before running local hooks.
+ * BLOCKING: `failing`, `pending` (at timeout) and `error` all stop the
+ * Implementation → Audit transition. `unconfigured` passes with a warning so
+ * repos without CI never hang. Disabled when ciGatingTimeoutSec is unset or ≤ 0.
  */
 export async function runCiGate(
 	deps: PreGateDeps,
 	config: SupervisorConfig,
-	worktreePath: string,
 ): Promise<CiGateResult> {
-	if (!config.ciGatingTimeoutSec || config.ciGatingTimeoutSec <= 0) {
+	const timeoutSec = config.ciGatingTimeoutSec;
+	if (!timeoutSec || timeoutSec <= 0) {
 		return { failureText: null };
 	}
 
-	getDebugLogger().info("pipeline-audit", "Polling CI checks", {
+	getDebugLogger().info("pipeline-audit", "Polling PR check runs", {
 		branch: deps.branch,
-		timeoutSec: config.ciGatingTimeoutSec,
+		timeoutSec,
 	});
+
 	const pollCiChecksFn = deps.pollCiChecksFn ?? pollCiChecks;
-	const ciResult = await pollCiChecksFn(
-		deps.pi,
-		deps.branch,
-		deps.repo,
-		config.ciGatingTimeoutSec,
-		worktreePath,
-	);
-
-	if (ciResult.status === "failing") {
-		const failedNames = ciResult.checks
-			.filter(
-				(c) =>
-					c.conclusion === "failure" ||
-					c.conclusion === "cancelled" ||
-					c.conclusion === "action_required" ||
-					c.conclusion === "timed_out" ||
-					c.conclusion === "stale",
-			)
-			.map((c) => c.name)
-			.join(", ");
-		deps.ui.notify(`CI checks failing: ${failedNames}. Continuing with other gates.`, "warning");
-		return { failureText: `--- CI Gate ---\n${ciResult.message}` };
+	let ciResult: CiPollResult;
+	try {
+		ciResult = await pollCiChecksFn(deps.pi, deps.branch, deps.repo, timeoutSec);
+	} catch (err: unknown) {
+		// pollCiChecks reports failures as status "error"; a throw is a defect.
+		// Fail closed and surface it instead of letting a red PR reach audit.
+		const message = err instanceof Error ? err.message : String(err);
+		deps.ui.notify(`CI gate crashed: ${message}. Blocking audit (fail-closed).`, "warning");
+		return { failureText: `--- CI Gate ---\nCI gate crashed: ${message}` };
 	}
 
-	if (ciResult.status === "pending") {
-		deps.ui.notify(
-			`CI checks still pending after ${config.ciGatingTimeoutSec}s. Proceeding to audit.`,
-			"warning",
-		);
-	}
+	switch (ciResult.status) {
+		case "passing":
+			getDebugLogger().info("pipeline-audit", ciResult.message);
+			return { failureText: null };
 
-	if (ciResult.status === "unconfigured") {
-		// No CI configured — proceed silently
-		getDebugLogger().info("pipeline-audit", ciResult.message);
-	}
+		case "unconfigured":
+			// AC4: no CI configured — proceed, but never silently.
+			deps.ui.notify(`CI gate: ${ciResult.message}`, "warning");
+			return { failureText: null };
 
-	if (ciResult.status === "error") {
-		deps.ui.notify(`CI check polling issue: ${ciResult.message}. Proceeding to audit.`, "warning");
-	}
+		case "failing": {
+			const names =
+				ciResult.failingChecks.length > 0 ? ciResult.failingChecks.join(", ") : "unknown";
+			deps.ui.notify(`CI checks failing: ${names}. Blocking audit until CI is green.`, "warning");
+			return { failureText: formatCiFailureText(ciResult) };
+		}
 
-	return { failureText: null };
+		case "pending":
+			deps.ui.notify(
+				`CI checks still pending after ${timeoutSec}s (ciGatingTimeoutSec). Blocking audit until CI settles.`,
+				"warning",
+			);
+			return { failureText: `--- CI Gate ---\n${ciResult.message}` };
+
+		case "error":
+			deps.ui.notify(
+				`CI check polling failed: ${ciResult.message} Blocking audit (fail-closed).`,
+				"warning",
+			);
+			return { failureText: `--- CI Gate ---\n${ciResult.message}` };
+	}
+}
+
+/**
+ * Build the CI gate failure body. The poll result owns the message; when the
+ * failing check names are not already mentioned they are appended so the
+ * developer always sees which check is red (AC3).
+ */
+function formatCiFailureText(ciResult: CiPollResult): string {
+	const message = ciResult.message.trim();
+	const missing = ciResult.failingChecks.filter((name) => !message.includes(name));
+	const body = missing.length > 0 ? `${message} Failing check(s): ${missing.join(", ")}.` : message;
+	return `--- CI Gate ---\n${body}`;
 }
 
 // ── Duplicate Code ─────────────────────────────────────────────────

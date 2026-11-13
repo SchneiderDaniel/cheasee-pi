@@ -50,11 +50,9 @@ async function runPreGates(
 	worktreePath: string,
 	gateFailures: string[],
 ): Promise<{ dupGate: DuplicateGateResult; deadGate: DeadCodeGateResult; osvGate: OsvGateResult }> {
-	// Step 0: CI gating — poll check runs before running local hooks
-	if (config.ciGatingTimeoutSec && config.ciGatingTimeoutSec > 0) {
-		ctx.ui.setStatus("supervisor", "Polling CI checks...");
-	}
-	const ciGate = await runCiGate(deps, config, worktreePath);
+	// Step 0: CI gating — poll the PR head's check runs before running local hooks
+	ctx.ui.setStatus("supervisor", "Polling CI checks...");
+	const ciGate = await runCiGate(deps, config);
 	if (ciGate.failureText) gateFailures.push(ciGate.failureText);
 
 	// Step 1: Duplicate code detection gate (non-blocking)

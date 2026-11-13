@@ -60,7 +60,7 @@ describe("SupervisorConfigSchema — parse", () => {
 		assert.equal(result.remote, "origin");
 		assert.equal(result.worktreeBase, "../");
 		assert.equal(result.branchPrefix, "worktree-git-issue-");
-		assert.equal(result.ciGatingTimeoutSec, 300);
+		assert.equal(result.ciGatingTimeoutSec, 600);
 		assert.equal(result.bellOnComplete, false);
 		assert.equal(result.enableExperimentalFeatures, false);
 		assert.equal(result.auditScoreThreshold, 0.75);
@@ -280,6 +280,17 @@ describe("SupervisorConfigSchema — parse", () => {
 		);
 	});
 
+	// ── ciGatingTimeoutSec (Issue #1828: default 300 → 600) ───────
+
+	it("defaults ciGatingTimeoutSec to 600 and keeps explicit values (AC5)", () => {
+		const parse = (v?: number): number =>
+			SupervisorConfigSchema.parse({ ...validMinimal, ciGatingTimeoutSec: v }).ciGatingTimeoutSec;
+		assert.equal(parse(undefined), 600);
+		assert.equal(parse(300), 300);
+		assert.equal(parse(0), 0);
+		assert.throws(() => parse(-5), z.ZodError);
+	});
+
 	// ── submodules ───────────────────────────────────────────────
 
 	it("strips a stray submodules key (zod removes unknown fields)", () => {
@@ -343,7 +354,7 @@ describe("loadConfig — zod integration", () => {
 		assert.equal(config.repo, "owner/repo");
 		assert.equal(config.projectNumber, 1);
 		assert.equal(config.maxRejections, 3);
-		assert.equal(config.ciGatingTimeoutSec, 300);
+		assert.equal(config.ciGatingTimeoutSec, 600);
 		assert.equal(config.bellOnComplete, false);
 		assert.equal(config.enableExperimentalFeatures, false);
 		assert.equal(config.auditScoreThreshold, 0.75);

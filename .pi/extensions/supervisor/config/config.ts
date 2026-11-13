@@ -70,7 +70,7 @@ export const SupervisorConfigSchema = z.object({
 		.partialRecord(z.enum(["small", "medium", "large"]), z.number().finite().positive())
 		.optional(),
 	agentKillGraceSec: z.number().int().nonnegative().max(MAX_AGENT_TIMEOUT_SEC).optional(),
-	ciGatingTimeoutSec: z.number().int().nonnegative().default(300),
+	ciGatingTimeoutSec: z.number().int().nonnegative().default(600),
 	bellOnComplete: z.boolean().default(false),
 	agentTokenBudget: z.number().int().nonnegative().optional(),
 	maxToolCalls: z.number().int().nonnegative().optional(),

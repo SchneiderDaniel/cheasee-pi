@@ -108,7 +108,7 @@ Configure the project in `.pi/settings.json`:
 		"agentKillGraceSec": 10,
 		"agentTokenBudget": 300000,
 		"maxToolCalls": 0,
-		"ciGatingTimeoutSec": 300,
+		"ciGatingTimeoutSec": 600,
 		"auditScoreThreshold": 0.75,
 		"enableExperimentalFeatures": false,
 		"bellOnComplete": false
@@ -136,7 +136,7 @@ Configure the project in `.pi/settings.json`:
 | `agentKillGraceSec`          | number   | `10`                                        | SIGTERM→SIGKILL grace for the subprocess kill ladder on timeout                                                                                     |
 | `agentTokenBudget`           | number   | `300000`                                    | Soft token cap per agent session (0=unlimited)                                                                                                      |
 | `maxToolCalls`               | number   | `0`                                         | Hard tool call cap per agent (0=unlimited)                                                                                                          |
-| `ciGatingTimeoutSec`         | number   | `300`                                       | Max seconds to poll CI before auditor dispatch (0=disable)                                                                                          |
+| `ciGatingTimeoutSec`         | number   | `600`                                       | Max seconds to poll PR check runs before blocking the transition (0=disable)                                                                        |
 | `auditScoreThreshold`        | number   | `0.75`                                      | Minimum passing ratio for audit score gate                                                                                                          |
 | `enableExperimentalFeatures` | boolean  | `false`                                     | Enable experimental pipeline features                                                                                                               |
 | `bellOnComplete`             | boolean  | `false`                                     | Emit terminal bell on pipeline completion                                                                                                           |
