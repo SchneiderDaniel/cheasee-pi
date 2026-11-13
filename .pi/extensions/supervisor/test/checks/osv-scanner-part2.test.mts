@@ -10,37 +10,9 @@ import {
 	runVulnScan,
 } from "../../checks/osv-scanner.ts";
 
-import type { ExecFn } from "../../checks/shared.ts";
-
 import { CLEAN_JSON, VULNS_JSON, CC_COMMIT_MATCH_JSON } from "./osv-scanner-fixtures.mts";
 
-interface ExecCall {
-	cmd: string;
-	args: string[];
-	opts?: Record<string, unknown>;
-}
-
-function createMockExec(
-	results: Array<{ code: number; stdout: string; stderr: string }>,
-	calls?: ExecCall[],
-): ExecFn {
-	const callLog = calls || [];
-	let idx = 0;
-	const fn: ExecFn = async (cmd, args, opts) => {
-		callLog.push({ cmd, args: args || [], opts });
-		const r = results[idx] || { code: 0, stdout: "", stderr: "" };
-		idx++;
-		return Promise.resolve(r);
-	};
-	(fn as unknown as { calls: ExecCall[] }).calls = callLog;
-	return fn;
-}
-
-function createRejectingExec(error: unknown): ExecFn {
-	return async (_cmd: string, _args: string[], _opts?: Record<string, unknown>) => {
-		throw error;
-	};
-}
+import { createMockExec, createRejectingExec, type ExecCall } from "../helpers/exec-fakes.ts";
 
 describe("buildVulnContext()", () => {
 	it("clean result returns short message", () => {
