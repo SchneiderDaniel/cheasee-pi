@@ -7,8 +7,10 @@
  * bound, which text analysis does not resolve. The synthetic fixture in
  * `test/codeflow-fp-filter.test.mts` pins the filter rule; this file pairs it
  * with the real files, so the rule is proven against the tree that ships — and
- * fails if the real trait name or the real call site drifts away from what the
- * filter needs.
+ * fails if the real `wire` call site (`socket.on_message(` in
+ * `retry/wiring.rs`) drifts away from what the filter resolves. The port
+ * declaration and the two `impl`s it resolves against are pinned by the Go gates
+ * in `../cmd/cheasee-pi/ui_asset_on_message_liveness_test.go`.
  *
  * Run with:
  *   node --experimental-strip-types --test test/codeflow-on-message-liveness.test.mts

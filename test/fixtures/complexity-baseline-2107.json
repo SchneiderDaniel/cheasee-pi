@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 871,
+		"codeFiles": 872,
 		"criticalCount": 190,
-		"note": "the branch base is e8d169a35389406d1cddb1f1a8e1e6c15935c077 (after #2081), whose 871 scored files and 190 critical files are measured above. This PR adds no scored file; both cited scorable files were reduced in place and stay above the ceiling, so no flag moved and the #2033 envelope still describes the tree. The earlier 860-file snapshot predates #2081."
+		"note": "the branch base is e8d169a35389406d1cddb1f1a8e1e6c15935c077 (after #2081), whose 871 scored files and 190 critical files are measured above. This PR adds no scored file; both cited scorable files were reduced in place and stay above the ceiling, so no flag moved and the #2033 envelope still describes the tree. The earlier 860-file snapshot predates #2081. The codeFiles control was reconciled 871 -> 872 by #2089, which added one scored Go gate file (cmd/cheasee-pi/ui_asset_on_message_liveness_test.go); criticalCount stayed 190, so no flag moved and the #2033 envelope still describes the delivered tree."
 	}
 }
