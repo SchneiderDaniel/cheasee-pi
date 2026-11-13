@@ -100,7 +100,9 @@ describe("response modes #2072 — the runtime trees are gone", () => {
 		const settings = JSON.parse(read(".pi/settings.json")) as {
 			packages?: unknown[];
 		};
-		assert.ok(settings.packages?.includes("https://github.com/SchneiderDaniel/private-pi"));
+		assert.ok(
+			settings.packages?.some((pkg) => pkg === "https://github.com/SchneiderDaniel/private-pi"),
+		);
 	});
 });
 
