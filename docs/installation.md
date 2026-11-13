@@ -108,17 +108,6 @@ first run.
 
 {:.note-title}
 
-> Upgrading from a release that shipped the Ponytail mode?
-> A workspace set up by an earlier release may still record the
-> `ponytail` package in its own `.pi/settings.json` (or `skillRepos` in
-> `cheasee-settings.json`), and pi installs whatever an entry records. Nothing
-> in the harness loads or refreshes that entry any more, so delete it once —
-> and run `pi uninstall ponytail` inside the container to drop the clone —
-> if you want it gone from an existing workspace. New workspaces start clean,
-> and no user-level file is touched by the upgrade itself.
-
-{:.note-title}
-
 > No GitHub?
 > `cheasee-pi init --no-github` skips auth and the clone; you provide API keys
 > separately. `--no-input` needs `--repo-url <url>` since there is no prompt.
@@ -130,6 +119,42 @@ first run.
 > flow + provider API-key setup) without touching the clone or the settings
 > scaffold. Plain `cheasee-pi init` still refuses an initialized workspace —
 > `--reauth` is the explicit redo entry point.
+
+### Upgrade from a Ponytail release
+
+Earlier releases shipped Ponytail as a bundled response mode. The harness no
+longer bundles it, and the settings this repository commits no longer list it —
+but an existing workspace keeps its own copy of `.pi/settings.json`, and pi
+installs whatever a package entry records. Nothing in the harness installs or
+refreshes that package any more, so an existing workspace keeps loading it
+until you clean it up once, in this order:
+
+1. Uninstall the package inside the container. pi then drops the settings
+   entry together with its clone (add `--approve` if pi reports that the
+   project is not trusted):
+
+   ```bash
+   pi uninstall https://github.com/DietrichGebert/ponytail -l
+   ```
+
+2. If `.pi/settings.json` still lists the package, delete only the entry whose
+   source is `https://github.com/DietrichGebert/ponytail`. Keep every other
+   entry — user-installed packages live in the same list. If you recorded it as
+   a skill repository instead, drop that `skillRepos` entry from
+   `cheasee-settings.json`.
+
+3. If `.pi/git/github.com/DietrichGebert/ponytail` still exists, delete only
+   that path. Never delete `.pi/git` itself: it also holds the clones of your
+   own skill repositories.
+
+4. Verify, then restart the container and confirm no `ponytail` footer, status
+   indicator or command appears:
+
+   ```bash
+   jq -r '.packages' .pi/settings.json
+   ```
+
+New workspaces start clean, and the upgrade itself touches no user-level file.
 
 ### Add API keys later
 
