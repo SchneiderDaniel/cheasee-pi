@@ -26,11 +26,13 @@ import { spawnSync } from "node:child_process";
 import {
 	existsSync,
 	mkdtempSync,
+	mkdirSync,
 	readdirSync,
 	readFileSync,
 	realpathSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -456,10 +458,29 @@ describe("response modes #2072 — the prompt-audit layer knows one injection", 
 // footer/status surfaces arrive as machine-readable events. `setFooter` is a
 // TUI-only hook that RPC mode ignores, which is why the loaded module paths are
 // pumped too: a footer factory can only come from a module pi actually loaded.
+// A canary extension in a temp project drives the same probe with both surfaces
+// named after the removed mode, so a pi release that stopped reporting either
+// channel fails the suite instead of silently making its assertions vacuous.
 
 /** The feature words a loaded mode integration prints on any surface: the
  *  command it registers, the footer/status entry it sets. */
 const MODE_SURFACE_PATTERN = /ponytail|caveman/i;
+
+/** A throwaway extension that registers the two surfaces a removed mode used:
+ *  a command and a footer/status entry set with `ctx.ui.setStatus`. It runs in
+ *  a temp project, so nothing it surfaces can leak into the project startup the
+ *  suite asserts, and it is named after the mode on purpose: the live assertion
+ *  must fire on a real startup that produces these surfaces. */
+const SURFACE_CANARY_SOURCE = `export default function surfaceCanary(pi: any): void {
+\tpi.registerCommand("ponytail", {
+\t\tdescription: "Startup surface canary",
+\t\thandler: async (): Promise<void> => {},
+\t});
+\tpi.on("session_start", async (_event: unknown, ctx: any): Promise<void> => {
+\t\tctx.ui.setStatus("ponytail", "canary active");
+\t});
+}
+`;
 
 /** How long a real pi startup gets before the probe fails. Warm startup is
  *  ~2s; the ceiling is for a cold CI runner, not for a slow assertion. */
@@ -491,14 +512,14 @@ function piBinary(): string {
 	throw new Error("pi CLI not found: set PI_BIN or run npm ci in the repository root");
 }
 
-/** Boot pi against this project and record the surfaces it produced. The
- *  agent directory is a temp dir so a developer's own user-level extensions
- *  cannot collide with the project's and mask the result. */
-function probeStartup(): StartupProbe {
+/** Boot pi against `cwd` and record the surfaces it produced. The agent
+ *  directory is a temp dir so a developer's own user-level extensions cannot
+ *  collide with the project's and mask the result. */
+function probeStartup(cwd: string = ROOT): StartupProbe {
 	const agentDir = mkdtempSync(join(tmpdir(), "pi-startup-smoke-"));
 	try {
 		const run = spawnSync(piBinary(), ["--mode", "rpc", "--offline", "--no-session", "--approve"], {
-			cwd: ROOT,
+			cwd,
 			encoding: "utf-8",
 			input: `${JSON.stringify({ type: "get_commands" })}\n`,
 			timeout: STARTUP_TIMEOUT_MS,
@@ -623,5 +644,26 @@ describe("response modes #2072 — a real pi startup loads no mode surface", () 
 			[],
 			"the surface matcher fires on an unrelated footer entry",
 		);
+	});
+
+	it("the live probe observes the command and footer/status channels a mode used", () => {
+		// Teeth for the two assertions above: they read the command list and the
+		// forwarded `setStatus` calls of a real startup. A pi release that stopped
+		// reporting either channel would make them pass while proving nothing, so
+		// the same probe runs against a canary extension that registers both.
+		const project = mkdtempSync(join(tmpdir(), "pi-surface-canary-"));
+		try {
+			const dir = join(project, ".pi", "extensions", "surface-canary");
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "index.ts"), SURFACE_CANARY_SOURCE);
+			const canary = probeStartup(project);
+			assert.deepEqual(
+				modeSurfaceHits(canary),
+				["command ponytail", "ui request setStatus"],
+				"the live probe no longer observes the command and footer/status surfaces",
+			);
+		} finally {
+			rmSync(project, { recursive: true, force: true });
+		}
 	});
 });
