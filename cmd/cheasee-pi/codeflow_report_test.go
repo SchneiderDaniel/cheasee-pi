@@ -17,8 +17,8 @@ import (
 	"time"
 )
 
-// maxReportBytes mirrors the 16 MiB cap in server.py.
-const maxReportBytes = 16 * 1024 * 1024
+// maxReportBytes mirrors the 32 MiB cap in server.py.
+const maxReportBytes = 32 * 1024 * 1024
 
 // reportShim is a running embedded codeflow shim subprocess.
 type reportShim struct {

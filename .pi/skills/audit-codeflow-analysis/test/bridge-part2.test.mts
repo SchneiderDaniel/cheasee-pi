@@ -484,7 +484,7 @@ describe("codeflow bridge capture", () => {
 			await waitFor(() => h.errorBanner() !== null, "error banner");
 			const text = String(h.errorBanner()?.textContent ?? "");
 			assert.match(text, /HTTP 413/);
-			assert.match(text, /16 MiB/, "413 must name the size cap");
+			assert.match(text, /32 MiB/, "413 must name the size cap");
 			assert.match(String(h.sandbox.window.__codeflowBridgeError ?? ""), /HTTP 413/);
 		} finally {
 			await failing.close();

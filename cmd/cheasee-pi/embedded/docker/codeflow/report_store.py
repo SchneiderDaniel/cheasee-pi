@@ -11,7 +11,7 @@ import time
 # under a ThreadingHTTPServer, so the dict is guarded by one lock; readers copy
 # the (body, timestamp) pair atomically to avoid a torn read. No history: the
 # browser re-runs the analysis after a container restart.
-_MAX_REPORT_BYTES = 16 * 1024 * 1024
+_MAX_REPORT_BYTES = 32 * 1024 * 1024
 _REPORT_LOCK = threading.Lock()
 _REPORTS = {}  # route -> (body: bytes, at: epoch-ms int)
 _REPORT_ROUTES = {
