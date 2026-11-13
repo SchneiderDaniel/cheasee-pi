@@ -269,7 +269,10 @@ describe("agent-loop split — dispatch-skeleton shape (issue #1533)", () => {
 			"validateAgentResult(result)",
 			"if (result.budgetExceeded)",
 			"const { result: initialResult } = await executeAgent(",
-			"const auditResult = await runTscAndLspAudit(",
+			// Issue #1829: the audit chain is reached through an injected seam, so
+			// the pinned call is the resolved runner rather than the concrete import.
+			"const runAuditFn = deps.runAuditFn ?? runTscAndLspAudit;",
+			"const auditResult = await runAuditFn(",
 			"applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note",
 			"step.hooks?.some((h) => GATE_HOOKS.includes(h))",
 			"// Graceful degradation",

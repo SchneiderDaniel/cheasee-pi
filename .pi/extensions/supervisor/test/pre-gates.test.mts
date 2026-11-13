@@ -24,6 +24,7 @@ import {
 } from "../pipeline/audit/pre-gates.ts";
 import type { SupervisorConfig } from "../config/types.ts";
 import type { ExecFn } from "../../lib/port-types.ts";
+import { applyGateFailureContext, createStageState } from "../pipeline/stages/index.ts";
 import type { CiPollResult } from "../checks/ci-gating.ts";
 import type { DuplicateCodeResult } from "../checks/duplicate-code.ts";
 import type { DeadCodeResult } from "../checks/dead-code.ts";
@@ -120,6 +121,12 @@ const ciResult = (
 // Issue #1828: the gate is blocking. Only `passing` (and `unconfigured`,
 // which warns) let the pipeline reach Audit; `failing`, `pending` and
 // `error` all produce a gate failure text.
+// Issue #1829: the gate is pinned to the commit the developer just pushed —
+// every call passes the SHA captured before the gates ran, and the failing
+// check names move into the section header so the developer sees them.
+
+/** The commit HEAD pointed at when the gate fanned out. */
+const PUSHED_SHA = "pushedcommitsha1";
 
 describe("runCiGate (Issue #1828 blocking policy)", () => {
 	it("(use-case) passing → no failure text, no notification", async () => {
@@ -129,22 +136,25 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			pollCiChecksFn: async () => ciResult("passing", "All 3 CI check(s) passing."),
 		});
 
-		const result = await runCiGate(deps, makeConfig());
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
 		assert.equal(result.failureText, null);
 		assert.equal(notifyCalls.length, 0, "passing CI must stay silent");
 	});
 
-	it("(use-case) failing → `--- CI Gate ---\\n<message>` and one warning naming the checks", async () => {
+	it("(use-case) failing → `--- CI Gate (failing: …) ---\n<message>` and one warning naming the checks", async () => {
 		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
 			ui: notifySpy(notifyCalls),
 			pollCiChecksFn: async () => ciResult("failing", "CI checks failing: build.", ["build"]),
 		});
 
-		const result = await runCiGate(deps, makeConfig());
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.equal(result.failureText, "--- CI Gate ---\nCI checks failing: build.");
+		assert.equal(
+			result.failureText,
+			"--- CI Gate (failing: build) ---\nCI checks failing: build.",
+		);
 		assert.equal(notifyCalls.length, 1);
 		assert.ok(
 			notifyCalls[0]![0].includes("build"),
@@ -158,7 +168,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			pollCiChecksFn: async () => ciResult("failing", "CI checks failing.", ["build", "e2e"]),
 		});
 
-		const result = await runCiGate(deps, makeConfig());
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
 		assert.ok(result.failureText, "failing CI must block");
 		assert.ok(result.failureText!.includes("build"), result.failureText!);
@@ -172,7 +182,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			pollCiChecksFn: async () => ciResult("pending", "CI checks still pending after 30s."),
 		});
 
-		const result = await runCiGate(deps, makeConfig());
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
 		assert.ok(result.failureText, "pending at timeout must block");
 		assert.equal(notifyCalls.length, 1);
@@ -190,7 +200,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			pollCiChecksFn: async () => ciResult("error", "gh: no open pull request for branch."),
 		});
 
-		const result = await runCiGate(deps, makeConfig());
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
 		assert.ok(result.failureText, "error must block");
 		assert.ok(result.failureText!.includes("no open pull request"), result.failureText!);
@@ -206,7 +216,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 				ciResult("unconfigured", "No CI checks configured for this repo."),
 		});
 
-		const result = await runCiGate(deps, makeConfig());
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
 		assert.equal(result.failureText, null);
 		assert.equal(notifyCalls.length, 1, "unconfigured is a warning, not silence");
@@ -222,7 +232,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			},
 		});
 
-		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: 0 }));
+		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: 0 }), PUSHED_SHA);
 
 		assert.equal(result.failureText, null);
 		assert.equal(invoked, false, "runner must not run when CI gating is disabled");
@@ -237,7 +247,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			},
 		});
 
-		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: undefined }));
+		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: undefined }), PUSHED_SHA);
 
 		assert.equal(result.failureText, null);
 		assert.equal(invoked, false);
@@ -248,8 +258,8 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 		const deps = makeDeps({
 			pollCiChecksFn: async () => ({ ...ciResult("failing", "CI is red."), checks: failureChecks }),
 		});
-		const blocking = await runCiGate(deps, makeConfig());
-		assert.equal(blocking.failureText, "--- CI Gate ---\nCI is red.");
+		const blocking = await runCiGate(deps, makeConfig(), PUSHED_SHA);
+		assert.equal(blocking.failureText, "--- CI Gate ---\nCI is red. Failing check(s): unknown.");
 
 		const passingDeps = makeDeps({
 			pollCiChecksFn: async () => ({
@@ -257,12 +267,123 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 				checks: failureChecks,
 			}),
 		});
-		const allowed = await runCiGate(passingDeps, makeConfig());
+		const allowed = await runCiGate(passingDeps, makeConfig(), PUSHED_SHA);
 		assert.equal(
 			allowed.failureText,
 			null,
 			"status alone decides; conclusions are not re-filtered",
 		);
+	});
+});
+
+// ── runCiGate — pinned head SHA + named checks (issue #1829) ───────
+
+describe("runCiGate (issue #1829: pinned SHA, named failing checks)", () => {
+	const emptyChecks = () => ciResult("failing", "CI checks failing.");
+
+	it("(use-case) forwards the pushed head SHA to the poller", async () => {
+		const seen: Array<string | undefined> = [];
+		const deps = makeDeps({
+			pollCiChecksFn: (async (
+				_pi: unknown,
+				_branch: string,
+				_repo: string,
+				_timeoutSec: number,
+				opts: { expectedHeadSha?: string },
+			) => {
+				seen.push(opts?.expectedHeadSha);
+				return ciResult("passing", "All checks passing.");
+			}) as unknown as NonNullable<PreGateDeps["pollCiChecksFn"]>,
+		});
+
+		await runCiGate(deps, makeConfig(), PUSHED_SHA);
+
+		assert.deepEqual(seen, [PUSHED_SHA], "the poller must be pinned to the pushed commit");
+	});
+
+	it("(use-case) failing check names sit in the section header", async () => {
+		const deps = makeDeps({
+			pollCiChecksFn: async () =>
+				ciResult("failing", "CI checks failing: build, lint.", ["build", "lint"]),
+		});
+
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
+
+		assert.ok(result.failureText, "failing CI must block");
+		assert.equal(result.failureText!.split("\n")[0], "--- CI Gate (failing: build, lint) ---");
+		assert.ok(result.failureText!.includes("build"), result.failureText!);
+		assert.ok(result.failureText!.includes("lint"), result.failureText!);
+	});
+
+	it("(use-case) the header carries the names into gateFailureHistory", async () => {
+		const deps = makeDeps({
+			pollCiChecksFn: async () =>
+				ciResult("failing", "CI checks failing: build, lint.", ["build", "lint"]),
+		});
+		const note = (await runCiGate(deps, makeConfig(), PUSHED_SHA)).failureText!;
+
+		const state = createStageState("Implementation");
+		applyGateFailureContext(state, "Implementation", note, 2);
+
+		assert.deepEqual(state.gateFailureHistory, [
+			"CI Gate (failing: build, lint) gate failed on run 2 — developer restarted",
+		]);
+	});
+
+	it("(use-case) failing without names → plain header, body says unknown", async () => {
+		const deps = makeDeps({ pollCiChecksFn: async () => emptyChecks() });
+
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
+
+		assert.ok(result.failureText, "failing CI must block");
+		assert.equal(result.failureText!.split("\n")[0], "--- CI Gate ---");
+		assert.match(result.failureText!, /unknown/i);
+	});
+
+	it("(use-case) the appended tail never repeats names the header already carries", async () => {
+		const deps = makeDeps({
+			pollCiChecksFn: async () => ciResult("failing", "CI is red.", ["build", "lint"]),
+		});
+
+		const text = (await runCiGate(deps, makeConfig(), PUSHED_SHA)).failureText!;
+
+		assert.ok(text.includes("build"), `build is named: ${text}`);
+		assert.ok(text.includes("lint"), `lint is named: ${text}`);
+		assert.ok(!text.includes("Failing check(s)"), `no duplicated tail: ${text}`);
+	});
+
+	it("(use-case) no expected head SHA with the gate enabled → blocking, runner never invoked", async () => {
+		let invoked = false;
+		const deps = makeDeps({
+			pollCiChecksFn: async () => {
+				invoked = true;
+				return ciResult("passing", "All checks passing.");
+			},
+		});
+
+		const result = await runCiGate(deps, makeConfig(), "");
+
+		assert.ok(result.failureText, "a missing SHA must fail closed");
+		assert.equal(result.failureText!.split("\n")[0], "--- CI Gate ---");
+		assert.match(result.failureText!, /expected head SHA/i);
+		assert.equal(invoked, false, "the poller must not run without a pinned commit");
+	});
+
+	it("(use-case) disabled gating wins over the SHA requirement", async () => {
+		let invoked = false;
+		const deps = makeDeps({
+			pollCiChecksFn: async () => {
+				invoked = true;
+				return ciResult("failing");
+			},
+		});
+
+		const zero = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: 0 }), "");
+		const unset = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: undefined }), "");
+
+		assert.equal(zero.failureText, null);
+		assert.equal(unset.failureText, null);
+		assert.equal(invoked, false);
 	});
 });
 

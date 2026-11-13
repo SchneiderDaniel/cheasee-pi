@@ -423,22 +423,23 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			getDebugLogger().info("handler", "Feedback loop", { from: loopStatus, to: nextStatus });
 		}
 
-		// Pre-transition hooks (CI, TSC, LSP, duplicate code)
-		const effectiveNextStatus = await runPreTransitionHooks(
+		// Pre-transition hooks (CI, TSC, LSP, duplicate code). A CI block is a
+		// counted loop-back: the helper records it and returns a stop signal when
+		// the counter cannot be written (issue #1829).
+		const hookOutcome = await runPreTransitionHooks(
+			runCtx,
 			step,
 			nextStatus,
-			issueNum,
-			issueTitle,
-			config,
 			agentName,
 			loopFilteredData,
-			worktreePath,
-			pi,
-			ctx,
-			collector,
-			stageState,
 			i + 1,
 		);
+		if (hookOutcome.kind === "stop") {
+			stopReason = hookOutcome.stopReason;
+			ctx.ui.notify(stopReason, "error");
+			break;
+		}
+		const effectiveNextStatus = hookOutcome.status;
 
 		// Status transition
 		try {

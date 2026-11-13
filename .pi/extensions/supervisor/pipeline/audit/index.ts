@@ -30,10 +30,12 @@ import {
 	type DuplicateGateResult,
 	type DeadCodeGateResult,
 	type OsvGateResult,
+	captureHeadSha,
 } from "./pre-gates.ts";
 import { runTscGate } from "./tsc-gate.ts";
 import { runLspPreAudit } from "./lsp-gate.ts";
 import { decideAudit } from "./aggregate.ts";
+import { uncommitDeveloperWork } from "../stages/audit-rejection-ops.ts";
 import type { DuplicateCodeResult } from "../../checks/duplicate-code.ts";
 import type { DeadCodeResult } from "../../checks/dead-code.ts";
 import type { OsvScanResult } from "../../checks/osv-scanner.ts";
@@ -41,7 +43,8 @@ import type { OsvScanResult } from "../../checks/osv-scanner.ts";
 /**
  * Run the six non-transition gates in today's push order, appending each
  * blocking failure's section text to gateFailures. Returns the gate results
- * the orchestrator threads into the final decision.
+ * the orchestrator threads into the final decision, plus the CI gate failure
+ * text (when CI blocked) so the caller can count the loop-back.
  */
 async function runPreGates(
 	ctx: ExtensionCommandContext,
@@ -49,10 +52,16 @@ async function runPreGates(
 	config: SupervisorConfig,
 	worktreePath: string,
 	gateFailures: string[],
-): Promise<{ dupGate: DuplicateGateResult; deadGate: DeadCodeGateResult; osvGate: OsvGateResult }> {
+	expectedHeadSha: string,
+): Promise<{
+	dupGate: DuplicateGateResult;
+	deadGate: DeadCodeGateResult;
+	osvGate: OsvGateResult;
+	ciFailureText: string | null;
+}> {
 	// Step 0: CI gating — poll the PR head's check runs before running local hooks
 	ctx.ui.setStatus("supervisor", "Polling CI checks...");
-	const ciGate = await runCiGate(deps, config);
+	const ciGate = await runCiGate(deps, config, expectedHeadSha);
 	if (ciGate.failureText) gateFailures.push(ciGate.failureText);
 
 	// Step 1: Duplicate code detection gate (non-blocking)
@@ -77,7 +86,7 @@ async function runPreGates(
 	ctx.ui.setStatus("supervisor", "Running requirements traceability checks...");
 	await runTraceabilityGate(deps, config, worktreePath);
 
-	return { dupGate, deadGate, osvGate };
+	return { dupGate, deadGate, osvGate, ciFailureText: ciGate.failureText };
 }
 
 /**
@@ -131,6 +140,8 @@ export async function runTscAndLspAudit(
 ): Promise<{
 	nextStatus: string;
 	note: string;
+	/** CI gate failure section, when CI blocked the transition (issue #1829). */
+	ciFailureText?: string | null;
 	duplicateCodeResult?: DuplicateCodeResult;
 	deadCodeResult?: DeadCodeResult;
 	vulnResult?: OsvScanResult;
@@ -145,6 +156,12 @@ export async function runTscAndLspAudit(
 	// Developer gets one combined context with every issue at once.
 	const gateFailures: string[] = [];
 
+	// Pin the CI gate to the commit this run pushed (issue #1829). Captured
+	// before any gate runs so the CI poll can never classify a stale PR head;
+	// an empty answer makes the CI gate fail closed instead of passing blind.
+	const ciGatingEnabled = (config.ciGatingTimeoutSec ?? 0) > 0;
+	const expectedHeadSha = ciGatingEnabled ? await captureHeadSha(exec, worktreePath, ctx.ui) : "";
+
 	const preGateDeps: PreGateDeps = {
 		pi,
 		execFn: exec,
@@ -156,12 +173,13 @@ export async function runTscAndLspAudit(
 	};
 
 	try {
-		const { dupGate, deadGate, osvGate } = await runPreGates(
+		const { dupGate, deadGate, osvGate, ciFailureText } = await runPreGates(
 			ctx,
 			preGateDeps,
 			config,
 			worktreePath,
 			gateFailures,
+			expectedHeadSha,
 		);
 
 		// Step 5: TSC checkpoint (Tier 2)
@@ -187,44 +205,24 @@ export async function runTscAndLspAudit(
 		// After ALL gates: if any blocking failure, uncommit once so the
 		// developer resumes with context intact, then return combined context
 		if (gateFailures.length > 0) {
-			await uncommitDeveloperWork(exec, worktreePath);
+			await uncommitDeveloperWork(
+				exec,
+				worktreePath,
+				config.remote ?? "origin",
+				branch,
+				ctx.ui,
+				collector,
+			);
 		}
-		return decideAudit(gateFailures, lspResult.note, {
-			duplicateCodeResult: dupGate.dupResult,
-			deadCodeResult: deadGate.deadResult,
-			vulnResult: osvGate.vulnResult,
-		});
+		return {
+			...decideAudit(gateFailures, lspResult.note, {
+				duplicateCodeResult: dupGate.dupResult,
+				deadCodeResult: deadGate.deadResult,
+				vulnResult: osvGate.vulnResult,
+			}),
+			ciFailureText,
+		};
 	} finally {
 		ctx.ui.setStatus("supervisor", undefined);
-	}
-}
-
-/**
- * Uncommit the developer's most recent commit in the worktree.
- * Uses `git reset --soft HEAD~1` to preserve changes as staged modifications
- * so the developer resumes with context intact when a pre-transition gate fails.
- *
- * Gate failures (dead code, CI, TSC, LSP) should NOT result in fresh context
- * for the developer — only auditor rejections should. By uncommitting, the
- * worktree keeps the changes, and the developer sees them on next dispatch.
- *
- * Fail-safe: if no commit exists (e.g., developer made no changes), the error
- * is silently caught — the worktree is already in the desired state.
- */
-async function uncommitDeveloperWork(exec: ExecFn, worktreePath: string): Promise<void> {
-	try {
-		await exec("git", ["reset", "--soft", "HEAD~1"], {
-			cwd: worktreePath,
-			timeout: 10_000,
-		});
-		getDebugLogger().info("pipeline-audit", "Uncommitted developer work after gate failure", {
-			worktreePath,
-		});
-	} catch {
-		// No commit to uncommit — developer may not have made changes, or
-		// there are edge cases (initial commit, detached HEAD). Silent skip.
-		getDebugLogger().debug("pipeline-audit", "No commit to uncommit — worktree clean or error", {
-			worktreePath,
-		});
 	}
 }

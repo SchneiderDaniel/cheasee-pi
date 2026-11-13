@@ -24,6 +24,8 @@ import { executeAgent } from "../execute-agent.ts";
 import { tryRebaseOntoBase } from "../rebase.ts";
 import { GATE_HOOKS, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
+import { postCiGateRejection, recordCiLoopBack } from "../stages/audit-rejection-ops.ts";
+import { upsertDeveloperPr } from "../stages/git-ops.ts";
 import { validateAgentResult } from "../output.ts";
 import { getRefusalInfo } from "../../agent/output.ts";
 import {
@@ -352,89 +354,134 @@ export async function handleBudgetExceeded(
 	return { continue: false };
 }
 
+/** Test seams for the pre-transition hook chain (production omits this). */
+export interface PreTransitionHookDeps {
+	runAuditFn?: typeof runTscAndLspAudit;
+	postCiGateRejectionFn?: typeof postCiGateRejection;
+	upsertDeveloperPrFn?: typeof upsertDeveloperPr;
+}
+
+/** Control-flow signal of the pre-transition hooks: continue or stop. */
+export type PreTransitionOutcome =
+	| { kind: "next"; status: string }
+	| { kind: "stop"; stopReason: string };
+
 /**
  * Pre-transition hooks (CI, TSC, LSP, duplicate code) — issue #787/#1407.
  * Runs the audit gate chain and returns the effective next status. Kept in
  * agent-loop.ts as the dispatch site for the gate hooks declared in
  * config/workflow.ts (GATE_HOOKS). Fail-open: hook exception → warn +
  * collector, proceed with the unmodified next status.
+ *
+ * A CI-gate block is also the loop-back the rejection budget counts
+ * (issue #1829): it is recorded on the issue, and a failed recording stops the
+ * pipeline instead of re-dispatching the developer unbounded.
  */
 export async function runPreTransitionHooks(
+	runCtx: RunContext,
 	step: WorkflowStep,
 	nextStatus: string,
-	issueNum: number,
-	issueTitle: string,
-	config: SupervisorConfig,
 	agentName: string,
 	loopFilteredData: FilteredIssueData,
-	worktreePath: string | undefined,
-	pi: ExtensionAPI,
-	ctx: ExtensionCommandContext,
-	collector: ErrorCollector | undefined,
-	stageState: StageState,
 	iteration: number,
-): Promise<string> {
+	deps: PreTransitionHookDeps = {},
+): Promise<PreTransitionOutcome> {
+	const { ctx, pi, config, issueNum, issueTitle, collector, stageState, worktreePath } = runCtx;
+	if (!step.hooks?.some((h) => GATE_HOOKS.includes(h))) {
+		return { kind: "next", status: nextStatus };
+	}
+
 	let effectiveNextStatus = nextStatus;
-	if (step.hooks?.some((h) => GATE_HOOKS.includes(h))) {
-		try {
-			getDebugLogger().info("handler", "Running pre-transition hooks", {
-				hooks: step.hooks,
+	let ciFailureText: string | null = null;
+	try {
+		getDebugLogger().info("handler", "Running pre-transition hooks", {
+			hooks: step.hooks,
+		});
+		const runAuditFn = deps.runAuditFn ?? runTscAndLspAudit;
+		const auditResult = await runAuditFn(
+			issueNum,
+			issueTitle,
+			config,
+			agentName,
+			loopFilteredData,
+			worktreePath!,
+			pi,
+			ctx,
+			collector,
+		);
+		effectiveNextStatus = auditResult.nextStatus;
+		ciFailureText = auditResult.ciFailureText ?? null;
+		// Capture gate failure context for developer feedback loop
+		// When a pre-transition hook returns Implementation, the failure note
+		// is stored so the next developer iteration receives targeted context.
+		applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note, iteration);
+
+		// Surface gate failure to user so they know developer will re-dispatch
+		// with the failure context injected into the next task prompt.
+		if (effectiveNextStatus === "Implementation" && auditResult.note) {
+			pi.sendMessage({
+				customType: "supervisor",
+				content: `## 🔴 Pre-Transition Gates Blocked — Returning to Developer\n\n${auditResult.note}\n\nFix issues above and the pipeline will retry automatically.`,
+				display: true,
 			});
-			const auditResult = await runTscAndLspAudit(
-				issueNum,
-				issueTitle,
-				config,
-				agentName,
-				loopFilteredData,
-				worktreePath!,
-				pi,
-				ctx,
-				collector,
+			ctx.ui.notify(
+				`Pre-transition gates blocked: ${auditResult.note.slice(0, 120)}… Re-dispatching developer.`,
+				"warning",
 			);
-			effectiveNextStatus = auditResult.nextStatus;
-			// Capture gate failure context for developer feedback loop
-			// When a pre-transition hook returns Implementation, the failure note
-			// is stored so the next developer iteration receives targeted context.
-			applyGateFailureContext(stageState, effectiveNextStatus, auditResult.note, iteration);
+		}
 
-			// Surface gate failure to user so they know developer will re-dispatch
-			// with the failure context injected into the next task prompt.
-			if (effectiveNextStatus === "Implementation" && auditResult.note) {
-				pi.sendMessage({
-					customType: "supervisor",
-					content: `## 🔴 Pre-Transition Gates Blocked — Returning to Developer\n\n${auditResult.note}\n\nFix issues above and the pipeline will retry automatically.`,
-					display: true,
-				});
-				ctx.ui.notify(
-					`Pre-transition gates blocked: ${auditResult.note.slice(0, 120)}… Re-dispatching developer.`,
-					"warning",
-				);
-			}
+		// Store dead code result in stage state for auditor context injection
+		if (auditResult.deadCodeResult) {
+			stageState.deadCodeResult = auditResult.deadCodeResult;
+		}
+		// Store duplicate code result in stage state for auditor context injection
+		if (auditResult.duplicateCodeResult) {
+			stageState.duplicateCodeResult = auditResult.duplicateCodeResult;
+		}
+		// Store vuln scan result in stage state for auditor context injection
+		if (auditResult.vulnResult) {
+			stageState.vulnResult = auditResult.vulnResult;
+		}
+		getDebugLogger().info("handler", "Pre-transition hook result", {
+			effectiveNextStatus,
+			note: auditResult.note,
+		});
+	} catch (auditErr: unknown) {
+		const auditMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
+		ctx.ui.notify(`Pre-audit error: ${auditMsg}`, "warning");
+		collector?.push("handler", "warn", `Pre-transition hook error: ${auditMsg}`);
+		getDebugLogger().error("handler", "Pre-transition hook error", {
+			error: auditMsg,
+		});
+	}
 
-			// Store dead code result in stage state for auditor context injection
-			if (auditResult.deadCodeResult) {
-				stageState.deadCodeResult = auditResult.deadCodeResult;
-			}
-			// Store duplicate code result in stage state for auditor context injection
-			if (auditResult.duplicateCodeResult) {
-				stageState.duplicateCodeResult = auditResult.duplicateCodeResult;
-			}
-			// Store vuln scan result in stage state for auditor context injection
-			if (auditResult.vulnResult) {
-				stageState.vulnResult = auditResult.vulnResult;
-			}
-			getDebugLogger().info("handler", "Pre-transition hook result", {
-				effectiveNextStatus,
-				note: auditResult.note,
-			});
-		} catch (auditErr: unknown) {
-			const auditMsg = auditErr instanceof Error ? auditErr.message : String(auditErr);
-			ctx.ui.notify(`Pre-audit error: ${auditMsg}`, "warning");
-			collector?.push("handler", "warn", `Pre-transition hook error: ${auditMsg}`);
-			getDebugLogger().error("handler", "Pre-transition hook error", {
-				error: auditMsg,
-			});
+	if (effectiveNextStatus === "Implementation" && ciFailureText) {
+		const recorded = await recordCiLoopBack({
+			issueNum,
+			config,
+			note: ciFailureText,
+			iteration,
+			ctx,
+			collector,
+			port: runCtx.port,
+			pr: {
+				pi,
+				issueTitle,
+				worktreePath,
+				worktreeBranch: runCtx.worktreeBranch,
+				gateFailureHistory: stageState.gateFailureHistory,
+			},
+			overrides: {
+				postRejection: deps.postCiGateRejectionFn,
+				upsertPr: deps.upsertDeveloperPrFn,
+			},
+		});
+		if (!recorded.ok) {
+			const stopReason = `Failed to record CI gate rejection: ${recorded.error}`;
+			ctx.ui.notify(`${stopReason}. Stopping to avoid an unbounded loop.`, "error");
+			collector?.push("handler", "error", stopReason);
+			return { kind: "stop", stopReason };
 		}
 	}
-	return effectiveNextStatus;
+	return { kind: "next", status: effectiveNextStatus };
 }

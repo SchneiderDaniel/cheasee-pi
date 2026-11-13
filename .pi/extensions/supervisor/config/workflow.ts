@@ -41,6 +41,13 @@ export interface WorkflowStep {
 export const GATE_HOOKS = ["ci", "tsc", "lsp", "dup", "trace"] as const;
 type GateHook = (typeof GATE_HOOKS)[number];
 
+/**
+ * Loop-back budget shared by auditor rejections and CI-gate failures
+ * (issue #1829). Both paths advance the same `reject-N` label counter, so one
+ * number bounds the whole feedback loop instead of two drifting budgets.
+ */
+export const REJECTION_LIMIT = 5;
+
 export const WORKFLOW: WorkflowStep[] = [
 	// Built-in: Backlog → Research
 	{ status: "Backlog", builtIn: "backlog" },
@@ -71,11 +78,14 @@ export const WORKFLOW: WorkflowStep[] = [
 	},
 
 	// Implementation → Audit (with CI + TSC + LSP + duplicate code hooks)
+	// maxRejections here bounds the CI-gate loop-back: a red gate counts against
+	// the same `reject-N` budget as an auditor rejection (issue #1829).
 	{
 		status: "Implementation",
 		agentName: "developer",
 		markerMap: { IMPLEMENTATION_COMPLETE: "Audit" },
 		hooks: [...GATE_HOOKS],
+		maxRejections: REJECTION_LIMIT,
 	},
 
 	// Audit → Done (approve) or Implementation (reject/loop back)
@@ -93,7 +103,7 @@ export const WORKFLOW: WorkflowStep[] = [
 			AUDIT_REJECTED: "Implementation",
 		},
 		canLoopBackTo: ["Implementation"],
-		maxRejections: 5,
+		maxRejections: REJECTION_LIMIT,
 	},
 
 	// Built-in: Done → stop

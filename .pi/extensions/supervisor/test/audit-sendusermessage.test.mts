@@ -149,12 +149,16 @@ describe("pipeline/audit — CI failure path preserves behavior (Phase 2)", () =
 			})) as any,
 		} as PreGateDeps;
 
-		const result = await runCiGate(deps, {
-			ciGatingTimeoutSec: 30,
-			defaultBranch: "main",
-		} as SupervisorConfig);
+		const result = await runCiGate(
+			deps,
+			{
+				ciGatingTimeoutSec: 30,
+				defaultBranch: "main",
+			} as SupervisorConfig,
+			"pushedcommitsha1",
+		);
 
-		assert.equal(result.failureText, "--- CI Gate ---\nCI build failed");
+		assert.equal(result.failureText, "--- CI Gate (failing: build) ---\nCI build failed");
 		assert.equal(notify.mock.callCount(), 1);
 		assert.equal(notify.mock.calls[0]!.arguments[1], "warning");
 		assert.ok(String(notify.mock.calls[0]!.arguments[0]).includes("CI checks failing"));

@@ -29,6 +29,14 @@ export interface PollCiChecksOptions {
 	/** How long zero check runs must persist before reporting `unconfigured`. */
 	unconfiguredGraceMs?: number;
 	pollIntervalMs?: number;
+	/**
+	 * The commit the gate expects to evaluate — normally the SHA the developer
+	 * just pushed (issue #1829). When set, a resolved PR head that differs makes
+	 * the poll `pending` naming both SHAs: the pushed commit's checks have not
+	 * been created yet, and classifying the stale head could pass a red push.
+	 * Omit it for the legacy behaviour of classifying whatever the PR head is.
+	 */
+	expectedHeadSha?: string;
 }
 
 const DEFAULT_POLL_INTERVAL_MS = 15_000;
@@ -106,10 +114,36 @@ export async function pollCiChecks(
 	const nowFn = opts.nowFn ?? Date.now;
 	const pollIntervalMs = opts.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
 	const unconfiguredGraceMs = opts.unconfiguredGraceMs ?? 60_000;
+	const expectedHeadSha = opts.expectedHeadSha;
+
+	// An explicitly empty expectation is a caller defect: failing closed here is
+	// the only safe answer — a poll with no pinned commit cannot prove anything
+	// about the push the gate is guarding (issue #1829).
+	if (expectedHeadSha !== undefined && expectedHeadSha.trim().length === 0) {
+		return {
+			status: "error",
+			checks: [],
+			failingChecks: [],
+			message:
+				"CI gate has no expected head SHA to verify — refusing to classify check runs.",
+		};
+	}
 
 	const head = await resolvePullRequestHeadSha(pi, branch, repo);
 	if (!head.ok) {
 		return { status: "error", checks: [], failingChecks: [], message: head.message };
+	}
+
+	// A head that moved past the expected commit means the pushed commit's check
+	// runs do not exist yet (or the PR was updated by someone else). Report
+	// pending instead of classifying another commit's checks (issue #1829 AC4).
+	if (expectedHeadSha !== undefined && head.sha !== expectedHeadSha) {
+		return {
+			status: "pending",
+			checks: [],
+			failingChecks: [],
+			message: `PR head ${head.sha} does not match the pushed commit ${expectedHeadSha}; CI has not run on the pushed commit yet.`,
+		};
 	}
 
 	const deadline = nowFn() + Math.max(0, timeoutSec) * 1000;
