@@ -208,6 +208,12 @@ func TestModeExtensionsRemoved_InstallGuideCleanupPath(t *testing.T) {
 	if !hasLinePrefixedBy(steps[0], uninstall) {
 		t.Errorf("cleanup step 1 must carry %q on one line (a wrapped command is not runnable)", uninstall)
 	}
+	// `pi list` reports the installed extension sources for the current scope, so
+	// the verification step must offer it: a settings edit alone does not prove
+	// that pi still resolves the package.
+	if !strings.Contains(steps[3], "pi list") {
+		t.Errorf("cleanup step 4 must offer `pi list` next to the %q check", "jq -r '.packages'")
+	}
 
 	// `.pi/git` also holds user-installed skill clones: a wholesale delete would
 	// destroy unrelated packages, so the guide must never suggest one.

@@ -41,6 +41,17 @@ const MODE_STATE_NEEDLES = [
 	"PONYTAIL_DEFAULT_MODE",
 ];
 
+/** The same identifiers, spelled out a second time on purpose. A canary built
+ *  from a needle proves nothing: it passes whatever the needle says. These
+ *  literals are independent of `MODE_STATE_NEEDLES`, so a typo there fails the
+ *  pin instead of turning the sweep vacuous. */
+const MODE_STATE_LITERALS = [
+	"caveman.json",
+	"caveman-level",
+	"ponytail-mode",
+	"PONYTAIL_DEFAULT_MODE",
+];
+
 /** Production-source roots swept for mode state (tests and fixtures excluded). */
 const PRODUCTION_ROOTS = [".pi/extensions", "cmd", "scripts"];
 
@@ -48,6 +59,15 @@ const PRODUCTION_ROOTS = [".pi/extensions", "cmd", "scripts"];
  *  deliberately not the needle: `ponytail:` deferral markers in unrelated
  *  sources are an orphaned convention with zero runtime effect. */
 const PONYTAIL_SOURCE = "DietrichGebert/ponytail";
+
+/** The whole source URL, written out without `PONYTAIL_SOURCE`. A canary that
+ *  builds its sample from the needle always passes; this independent literal is
+ *  what pins the needle to the package the repository must not install. */
+const PONYTAIL_SOURCE_LITERAL = "https://github.com/DietrichGebert/ponytail";
+
+/** Needles a committed config must not carry: the package source pi installs,
+ *  and the skill filter that narrowed it once it was installed. */
+const PACKAGE_NEEDLES = [PONYTAIL_SOURCE, "ponytail-*"];
 
 /** Config files pi and the container read. None may carry the package. */
 const PACKAGE_CONFIG_FILES = [
@@ -68,7 +88,31 @@ const PRUNED_PREFIXES = [".pi/git/", ".pi/sessions/"];
 /** Directory names never descended into: vendored installs, VCS metadata. */
 const PRUNED_DIR_NAMES = new Set(["node_modules", ".git"]);
 
+/** The sweep matcher itself: the labels of the labelled samples whose content
+ *  carries any of the needles. Production sweeps and their canaries both run
+ *  through it, so a canary proves the matcher the repository actually relies on
+ *  fires — not a copy of it.
+ *
+ *  Only repo content is matched. Operator state (`.pi/git` clones, session
+ *  transcripts) is never a sample, so tests neither flag nor delete it. */
+function sweep(
+	needles: readonly string[],
+	samples: ReadonlyArray<readonly [label: string, content: string]>,
+): string[] {
+	const hits: string[] = [];
+	for (const [label, content] of samples) {
+		for (const needle of needles) {
+			if (content.includes(needle)) hits.push(`${label} carries ${needle}`);
+		}
+	}
+	return hits;
+}
+
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf-8");
+
+/** Read every file of a sweep into `[label, content]` samples. */
+const samples = (paths: readonly string[]): ReadonlyArray<readonly [string, string]> =>
+	paths.map((rel) => [rel, read(rel)] as const);
 const isFile = (rel: string): boolean => {
 	try {
 		return statSync(resolve(ROOT, rel)).isFile();
@@ -199,12 +243,23 @@ describe("response modes #2072 — the runtime trees are gone", () => {
 describe("response modes #2072 — no production source reads or writes mode state", () => {
 	const files = PRODUCTION_ROOTS.flatMap(productionSources);
 
+	it("the mode-state needles are the identifiers under test", () => {
+		// Two independent guards against a vacuous sweep: the needle list is pinned
+		// to literals written separately, and the matcher is driven with a fixture
+		// built from those literals rather than from the needles.
+		assert.deepEqual([...MODE_STATE_NEEDLES].sort(), [...MODE_STATE_LITERALS].sort());
+		for (const literal of MODE_STATE_LITERALS) {
+			assert.deepEqual(
+				sweep(MODE_STATE_NEEDLES, [["fixture", `{ "mode": ${JSON.stringify(literal)} }`]]),
+				[`fixture carries ${literal}`],
+				`the sweep must fire on the independent fixture naming ${literal}`,
+			);
+		}
+	});
+
 	for (const needle of MODE_STATE_NEEDLES) {
 		it(`no production source mentions ${needle}`, () => {
-			// Teeth: the matcher must fire on a synthetic sample, so a typo in the
-			// needle cannot turn this sweep into a vacuous pass.
-			assert.ok(`const x = "${needle}";`.includes(needle), `needle ${needle} is not a literal`);
-			const hits = files.filter((rel) => read(rel).includes(needle));
+			const hits = sweep([needle], samples(files));
 			assert.deepEqual(hits, [], `${needle} is still read or written by production source`);
 		});
 	}
@@ -223,18 +278,40 @@ describe("response modes #2072 — no production source reads or writes mode sta
 
 describe("response modes #2072 — no config can reinstall the Ponytail package", () => {
 	it("neither pi nor the container config names the package", () => {
-		const hits: string[] = [];
-		for (const rel of PACKAGE_CONFIG_FILES) {
-			const content = read(rel);
-			if (content.includes(PONYTAIL_SOURCE)) hits.push(`${rel} names ${PONYTAIL_SOURCE}`);
-			if (content.includes("ponytail-*")) hits.push(`${rel} carries the ponytail-* skill filter`);
-		}
+		const hits = sweep(PACKAGE_NEEDLES, samples(PACKAGE_CONFIG_FILES));
 		assert.deepEqual(hits, [], "a committed config still installs Ponytail");
 	});
 
+	it("the needle is the recorded package source", () => {
+		// Independent literal: the needle cannot be mistyped into a sweep that
+		// matches nothing, because the whole URL is pinned here.
+		assert.equal(
+			`https://github.com/${PONYTAIL_SOURCE}`,
+			PONYTAIL_SOURCE_LITERAL,
+			"PONYTAIL_SOURCE is not the source the repository must not install",
+		);
+	});
+
 	it("the config sweep has teeth and covers every file", () => {
-		const sample = `{"source": "https://github.com/${PONYTAIL_SOURCE}"}`;
-		assert.ok(sample.includes(PONYTAIL_SOURCE), "the config needle is not a literal");
+		// Teeth: the matcher is driven with independent literals — the package URL
+		// spelled out in full and the skill filter — so a typo in either needle
+		// fails here instead of turning the sweep into a vacuous pass.
+		assert.deepEqual(
+			sweep(PACKAGE_NEEDLES, [
+				["fixture-source", `{"source": "${PONYTAIL_SOURCE_LITERAL}"}`],
+				["fixture-skills", `{"source": "x", "skills": ["!ponytail-*"]}`],
+			]),
+			[`fixture-source carries ${PONYTAIL_SOURCE}`, "fixture-skills carries ponytail-*"],
+			"the config matcher does not fire on the package source and its skill filter",
+		);
+		// Negative control: a package the repository does keep must not trip it.
+		assert.deepEqual(
+			sweep(PACKAGE_NEEDLES, [
+				["fixture-private-pi", `{"source": "https://github.com/SchneiderDaniel/private-pi"}`],
+			]),
+			[],
+			"the config matcher fires on an unrelated package",
+		);
 		for (const rel of PACKAGE_CONFIG_FILES) {
 			assert.ok(isFile(rel), `${rel} must exist — a missing file makes the sweep vacuous`);
 		}
@@ -243,7 +320,7 @@ describe("response modes #2072 — no config can reinstall the Ponytail package"
 	it("no production source names the package source", () => {
 		const files = PACKAGE_SOURCE_ROOTS.flatMap(productionSources);
 		assert.ok(files.length > 50, `package source sweep found only ${files.length} files`);
-		const hits = files.filter((rel) => read(rel).includes(PONYTAIL_SOURCE));
+		const hits = sweep([PONYTAIL_SOURCE], samples(files));
 		assert.deepEqual(hits, [], `${PONYTAIL_SOURCE} is still recorded in production source`);
 	});
 

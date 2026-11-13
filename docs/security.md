@@ -169,6 +169,19 @@ npm view <pkg> time.created
 
 This prevents supply chain attacks via recently published malicious packages.
 
+The same gate applies when a lockfile has to be regenerated for a security fix,
+so advisory pins are recorded in `package.json` `overrides` together with the
+advisory they close:
+
+| Package                           | Pin    | Why                                                                                                          |
+| --------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------ |
+| `minimatch`                       | 11.0.1 | GHSA-g3hv-75wg-m249 / CVE-2026-118764; 10.x has no patched release                                           |
+| `@isaacs/nonrecursive-glob-match` | 1.0.1  | helper introduced by `minimatch` 11, pinned so `npm install` cannot pick a release younger than the age gate |
+
+`test/dependency-overrides.test.mts` fails when a pin is removed, turned into an
+object override (which drops the version), or resolved back into an affected
+range, so a later dependency bump cannot silently reopen the advisory.
+
 ## Scope boundary enforcement
 
 Before dispatching the Developer agent, the supervisor runs a `git diff` check against the GitHub issue labels to determine which files the agent is allowed to modify. Agents are restricted from writing to files outside their assigned scope.

@@ -152,6 +152,7 @@ until you clean it up once, in this order:
 
    ```bash
    jq -r '.packages' .pi/settings.json
+   pi list
    ```
 
 New workspaces start clean, and the upgrade itself touches no user-level file.
