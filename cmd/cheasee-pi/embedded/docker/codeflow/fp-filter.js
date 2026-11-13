@@ -86,6 +86,19 @@
 		return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 	}
 
+	/**
+	 * One entry of an import clause or a destructuring pattern: `name`,
+	 * `name as alias`, or `key: local`. Returns the imported name and the local
+	 * name it binds, or null when the entry names nothing.
+	 */
+	function parseName(seg) {
+		var text = String(seg).trim();
+		var alias = /^(\w+)(?:\s+as\s+|\s*:\s*)(\w+)$/.exec(text);
+		if (alias) return { imported: alias[1], local: alias[2] };
+		if (/^\w+$/.test(text)) return { imported: text, local: text };
+		return null;
+	}
+
 	// A snippet that carries nothing but comments cannot contain executable code.
 	function isCommentOnly(code) {
 		return (
@@ -329,12 +342,19 @@
 		return null;
 	}
 
-	// A literal program: a quoted string with no escape sequence and no template
-	// interpolation. An escape can hide a shell (`"/bin/\u0073h"` is `/bin/sh`),
-	// so a program carrying one is not a proven literal — the caller fails closed.
+	// A quoted literal with no escape sequence and no template interpolation. An
+	// escape can hide a shell (`"/bin/\u0073h"` is `/bin/sh`), and a template hole
+	// assembles its text at runtime, so neither is a proven literal. One owner for
+	// the shape, shared by the program test (the executable is named) and the
+	// argv-element test (a flag cannot be built on the fly).
+	var QUOTED_LITERAL = /^(?:"[^"\\\n]*"|'[^'\\\n]*'|`[^`$\\]*`)$/;
+
+	function isQuotedLiteral(text) {
+		return QUOTED_LITERAL.test(text.trim());
+	}
+
 	function isLiteralProgram(text) {
-		var a = text.trim();
-		return /^"[^"\\\n]*"$/.test(a) || /^'[^'\\\n]*'$/.test(a) || /^`[^`$\\]*`$/.test(a);
+		return isQuotedLiteral(text);
 	}
 
 	// Names bound by `const { program, args } = argvCommand(...)`. Only a
@@ -394,15 +414,22 @@
 		function addNamed(list) {
 			var parts = list.split(",");
 			for (var i = 0; i < parts.length; i++) {
-				var seg = parts[i].trim();
-				if (!seg) continue;
-				var asMatch = /^(\w+)(?:\s+as\s+|\s*:\s*)(\w+)$/.exec(seg);
-				if (asMatch) {
-					if (CP_MEMBERS[asMatch[1]]) members[asMatch[2]] = asMatch[1];
-				} else if (/^\w+$/.test(seg) && CP_MEMBERS[seg]) {
-					members[seg] = seg;
-				}
+				var name = parseName(parts[i]);
+				if (name && CP_MEMBERS[name.imported]) members[name.local] = name.imported;
 			}
+		}
+
+		// A declaration binding of the module result, in either form:
+		// `require(...)` or the dynamic `await import(...)`, bare, destructured,
+		// or with a `.member` suffix.
+		function addReceiver(receiver, member) {
+			var lhs = (receiver === undefined ? "" : receiver).trim();
+			if (member) {
+				if (CP_MEMBERS[member]) members[lhs] = member;
+				return;
+			}
+			if (/^\{/.test(lhs)) addNamed(lhs.replace(/^\{/, "").replace(/\}$/, ""));
+			else if (/^\w+$/.test(lhs)) namespaces[lhs] = true;
 		}
 
 		var re = /import\s*(?:type\s*)?([\s\S]*?)\s*from\s*["'](?:node:)?child_process["']/g;
@@ -416,27 +443,8 @@
 		}
 
 		re =
-			/(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*require\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
-		while ((m = re.exec(code)) !== null) {
-			var lhs = m[1].trim();
-			if (m[2]) {
-				if (CP_MEMBERS[m[2]]) members[lhs] = m[2];
-			} else if (/^\{/.test(lhs)) addNamed(lhs.replace(/^\{/, "").replace(/\}$/, ""));
-			else if (/^\w+$/.test(lhs)) namespaces[lhs] = true;
-		}
-
-		// The dynamic-import form of the same binding: `const cp = await
-		// import("node:child_process")` (and its destructured/`.member` variants)
-		// resolves to the same namespace, so `cp.spawn(...)` must be scanned.
-		re =
-			/(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*import\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
-		while ((m = re.exec(code)) !== null) {
-			var dlhs = m[1].trim();
-			if (m[2]) {
-				if (CP_MEMBERS[m[2]]) members[dlhs] = m[2];
-			} else if (/^\{/.test(dlhs)) addNamed(dlhs.replace(/^\{/, "").replace(/\}$/, ""));
-			else if (/^\w+$/.test(dlhs)) namespaces[dlhs] = true;
-		}
+			/(?:const|let|var)\s+([^;=\n]+?)\s*=\s*\(*\s*(?:await\s+)?\(*\s*(?:require|import)\s*\(\s*["'](?:node:)?child_process["']\s*\)\s*\)*\s*(?:\.\s*(\w+))?/g;
+		while ((m = re.exec(code)) !== null) addReceiver(m[1], m[2]);
 
 		// Assignment to a name declared elsewhere (`let cp; cp = require(...)`):
 		// the declaration scans above miss it, so register the receiver too.
@@ -477,13 +485,19 @@
 	// `execSync`, `fork` — standalone, aliased or namespaced), a `shell` option
 	// that is not explicitly `false`, a `-c` command string, a shell-program
 	// literal, `eval`, or `new Function`.
+	var SHELL_CONSTRUCTS = [
+		/(?:^|[^\w$])(?:exec|execSync|fork)(?![\w$])/,
+		/(?:^|[^\w$])shell\s*:\s*(?!\s*false\b)/,
+		/["'`]-c["'`]/,
+		SHELL_PROGRAM,
+		/(?:^|[^\w$])eval\s*\(/,
+		/\bnew\s+Function\s*\(/,
+	];
+
 	function hasShellExecution(code) {
-		if (/(?:^|[^\w$])(?:exec|execSync|fork)(?![\w$])/.test(code)) return true;
-		if (/(?:^|[^\w$])shell\s*:\s*(?!\s*false\b)/.test(code)) return true;
-		if (/["'`]-c["'`]/.test(code)) return true;
-		if (SHELL_PROGRAM.test(code)) return true;
-		if (/(?:^|[^\w$])eval\s*\(/.test(code)) return true;
-		if (/\bnew\s+Function\s*\(/.test(code)) return true;
+		for (var i = 0; i < SHELL_CONSTRUCTS.length; i++) {
+			if (SHELL_CONSTRUCTS[i].test(code)) return true;
+		}
 		return false;
 	}
 
@@ -584,8 +598,7 @@
 	function isLiteralElement(text) {
 		var a = text.trim();
 		return (
-			/^"[^"\\\n]*"$/.test(a) ||
-			/^'[^'\\\n]*'$/.test(a) ||
+			isQuotedLiteral(a) ||
 			/^-?(?:\d+\.?\d*|\.\d+)$/.test(a) ||
 			/^(?:true|false|null|undefined)$/.test(a)
 		);
@@ -793,11 +806,8 @@
 			spans.push([m.index, m.index + m[0].length]);
 			var parts = m[1].split(",");
 			for (var i = 0; i < parts.length; i++) {
-				var seg = parts[i].trim();
-				if (!seg) continue;
-				var asMatch = /^(\w+)\s+as\s+(\w+)$/.exec(seg);
-				if (asMatch) names[asMatch[2]] = true;
-				else if (/^\w+$/.test(seg)) names[seg] = true;
+				var name = parseName(parts[i]);
+				if (name) names[name.local] = true;
 			}
 		}
 		if (spans.length) {
@@ -862,26 +872,25 @@
 		return name !== null && INTERPRETER_PROGRAM.test(name);
 	}
 
-	/** True when a literal argv array carries an interpreter's code flag. */
-	function argvCarriesCodeToken(argvText) {
-		if (!isArrayLiteral(argvText)) return false;
+	/**
+	 * What a literal argv array says about execution: whether it is a literal at
+	 * all, whether it names an interpreter itself, and whether it carries an
+	 * interpreter's code flag. One pass answers all three, so the interpreter and
+	 * code-flag rules cannot drift apart. A non-literal argv proves none of them
+	 * (the caller fails closed).
+	 */
+	function argvFacts(argvText) {
+		var facts = { literal: false, code: false, interpreter: false };
+		if (!isArrayLiteral(argvText)) return facts;
+		facts.literal = true;
 		var parts = splitTopLevel(argvText.slice(1, -1));
 		for (var i = 0; i < parts.length; i++) {
 			var val = elementText(parts[i]);
-			if (val !== null && CODE_EVAL_TOKEN.test(val)) return true;
+			if (val === null) continue;
+			if (CODE_EVAL_TOKEN.test(val)) facts.code = true;
+			if (INTERPRETER_PROGRAM.test(val)) facts.interpreter = true;
 		}
-		return false;
-	}
-
-	/** True when a literal argv array names an interpreter itself. */
-	function argvNamesInterpreter(argvText) {
-		if (!isArrayLiteral(argvText)) return false;
-		var parts = splitTopLevel(argvText.slice(1, -1));
-		for (var i = 0; i < parts.length; i++) {
-			var val = elementText(parts[i]);
-			if (val !== null && INTERPRETER_PROGRAM.test(val)) return true;
-		}
-		return false;
+		return facts;
 	}
 
 	/**
@@ -916,9 +925,10 @@
 		// a literal argv free of its code flag; a runner needs an argv that does not
 		// name an interpreter plus a code flag; and either cannot be proven safe
 		// with a dynamic argv.
-		if (isInterpreterProgram(programLiteral) && argvCarriesCodeToken(argvSource)) return false;
-		if (argvCarriesCodeToken(argvSource) && argvNamesInterpreter(argvSource)) return false;
-		if (needsLiteralArgv(programLiteral) && !isArrayLiteral(argvSource)) return false;
+		var argv = argvFacts(argvSource);
+		if (isInterpreterProgram(programLiteral) && argv.code) return false;
+		if (argv.code && argv.interpreter) return false;
+		if (needsLiteralArgv(programLiteral) && !argv.literal) return false;
 		// The options are argv position 3. Requiring the *actual* options argument
 		// to be the `assertNoShell` call rejects a call that shadows it behind an
 		// ignored extra argument (`spawn(p, a, opts, assertNoShell({}))`).
@@ -972,49 +982,41 @@
 	}
 
 	// Every child-process call in the file must prove argv-safe; a bare name, a
-	// registered alias, or a known namespace member all count as a call site.
+	// registered alias, or a known namespace member all count as a call site. One
+	// pattern list, one scan — a members-only scan would miss `cp.spawn(...)` and
+	// a namespace-only one would miss `spawn(...)`.
 	function everyChildProcessCallIsSafe(code, bindings, policy) {
 		var cp = childProcessBindings(code);
 		if (hasComputedChildProcessAccess(code, cp)) return false;
-		var names = Object.create(null);
+		var patterns = [];
 		var i;
-		for (i = 0; i < CP_NAMES.length; i++) names[CP_NAMES[i]] = true;
-		for (var local in cp.members) names[local] = true;
-
-		var safe = true;
-		Object.keys(names).forEach(function (name) {
-			if (!safe) return;
-			var member = cp.members[name] || name;
-			var re = callRegex(name);
+		for (i = 0; i < CP_NAMES.length; i++) {
+			patterns.push({ member: CP_NAMES[i], re: callRegex(CP_NAMES[i]) });
+		}
+		for (var local in cp.members) {
+			patterns.push({ member: cp.members[local], re: callRegex(local) });
+		}
+		var namespaces = Object.keys(cp.namespaces);
+		for (i = 0; i < namespaces.length; i++) {
+			patterns.push({
+				member: null,
+				re: new RegExp(
+					escapeRe(namespaces[i]) + "\\s*(?:\\?\\.|\\.)\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
+					"g",
+				),
+			});
+		}
+		for (i = 0; i < patterns.length; i++) {
+			var re = patterns[i].re;
 			var m;
 			while ((m = re.exec(code)) !== null) {
+				var member = patterns[i].member === null ? m[1] : patterns[i].member;
 				var open = code.indexOf("(", m.index + m[0].length - 1);
 				var args = argumentText(code, open);
-				if (args === null || !isSafeArgvCall(member, args, bindings, policy)) {
-					safe = false;
-					return;
-				}
-			}
-		});
-		if (!safe) return false;
-
-		var namespaceNames = Object.keys(cp.namespaces);
-		for (i = 0; i < namespaceNames.length && safe; i++) {
-			var nsRe = new RegExp(
-				escapeRe(namespaceNames[i]) + "\\s*(?:\\?\\.|\\.)\\s*(\\w+)\\s*(?:<[^<>]*>)?\\s*\\(",
-				"g",
-			);
-			var mm;
-			while ((mm = nsRe.exec(code)) !== null) {
-				var openNs = code.indexOf("(", mm.index + mm[0].length - 1);
-				var argsNs = argumentText(code, openNs);
-				if (argsNs === null || !isSafeArgvCall(mm[1], argsNs, bindings, policy)) {
-					safe = false;
-					break;
-				}
+				if (args === null || !isSafeArgvCall(member, args, bindings, policy)) return false;
 			}
 		}
-		return safe;
+		return true;
 	}
 
 	function isFalsePositiveCommandExecution(issue, readFile) {
@@ -1064,27 +1066,28 @@
 	}
 
 	var TEST_FILE = /\.(?:test|spec)\.[^./]+$/;
+	var TEST_DIRS = { test: true, tests: true, __tests__: true };
+	var DOC_DIRS = { docs: true };
+	var DOC_FILE = /\.(?:md|mdx)$/;
+
+	/** Does any directory segment (every segment but the file name) satisfy `mark`? */
+	function hasDirSegment(segments, mark) {
+		for (var i = 0; i < segments.length - 1; i++) if (mark[segments[i]] === true) return true;
+		return false;
+	}
 
 	// A test artifact is a `test`/`tests`/`__tests__` directory or a `*.test.*` /
 	// `*.spec.*` file name. The class is deliberately narrow: a genuine marker
 	// inside one of them never reaches the report.
 	function isTestArtifact(path) {
 		var segments = path.split("/");
-		var last = segments.length - 1;
-		for (var i = 0; i < last; i++) {
-			if (segments[i] === "test" || segments[i] === "tests" || segments[i] === "__tests__")
-				return true;
-		}
-		return TEST_FILE.test(segments[last]);
+		return hasDirSegment(segments, TEST_DIRS) || TEST_FILE.test(segments[segments.length - 1]);
 	}
 
 	// A documentation artifact is a `.md`/`.mdx` file or a path under `docs/`.
 	function isDocArtifact(path) {
 		var segments = path.split("/");
-		var last = segments.length - 1;
-		if (/\.(?:md|mdx)$/.test(segments[last])) return true;
-		for (var i = 0; i < last; i++) if (segments[i] === "docs") return true;
-		return false;
+		return DOC_FILE.test(segments[segments.length - 1]) || hasDirSegment(segments, DOC_DIRS);
 	}
 
 	/**
@@ -1181,19 +1184,11 @@
 	// would swallow everything up to the next apostrophe.
 	var APOSTROPHE_IS_CODE = { ".rs": true };
 
-	function skipQuoted(content, i, quote) {
-		i++;
-		while (i < content.length) {
-			if (content[i] === "\\") i += 2;
-			else if (content[i] === quote) return i + 1;
-			else i++;
-		}
-		return i;
-	}
-
 	// Blank comments and string bodies so a name mentioned there cannot read as a
-	// reference while the code keeps its shape. shortcut: template interpolations
-	// are treated as literal text, which only ever keeps a finding.
+	// reference while the code keeps its shape. `skipString` is the same scanner
+	// the security rules use; keeping one copy meant one place to audit.
+	// shortcut: template interpolations are treated as literal text, which only
+	// ever keeps a finding.
 	function stripNoise(content, path) {
 		var apostropheIsCode = APOSTROPHE_IS_CODE[extensionOf(path)] === true;
 		var out = "";
@@ -1209,7 +1204,7 @@
 				out += " ";
 				i = end < 0 ? content.length : end + 2;
 			} else if (ch === '"' || ch === "`" || (ch === "'" && !apostropheIsCode)) {
-				i = skipQuoted(content, i, ch);
+				i = skipString(content, i);
 				out += ch + ch;
 			} else {
 				out += ch;
@@ -1383,6 +1378,20 @@
 		return index.isReferenced(finding.name, finding.file);
 	}
 
+	/**
+	 * Rebuild an ordered issue list: `transform` returns the entries to emit for an
+	 * item — `[item]` to pass it through, `[rebuilt]` to replace it, `[]` to drop
+	 * it. Both aggregate rewriters share this skeleton.
+	 */
+	function mapIssues(issues, transform) {
+		var out = [];
+		for (var i = 0; i < issues.length; i++) {
+			var emitted = transform(issues[i]);
+			for (var j = 0; j < emitted.length; j++) out.push(emitted[j]);
+		}
+		return out;
+	}
+
 	/** Partition a dead-function list into surviving and refuted entries. */
 	function partitionDead(list, index) {
 		var kept = [];
@@ -1401,25 +1410,17 @@
 	// and list are filtered together here; the count-only summary is left to
 	// `reconcileAggregateIssues`, which owns every aggregate title.
 	function filterUnusedIssues(issues, index) {
-		var out = [];
-		for (var i = 0; i < issues.length; i++) {
-			var issue = issues[i];
+		return mapIssues(issues, function (issue) {
 			var isDeadList =
 				!!issue &&
 				typeof issue === "object" &&
 				Array.isArray(issue.items) &&
 				/^\d+ Unused Functions$/.test(String(issue.title));
-			if (!isDeadList) {
-				out.push(issue);
-				continue;
-			}
+			if (!isDeadList) return [issue];
 			var kept = partitionDead(issue.items, index).kept;
-			if (kept.length)
-				out.push(
-					Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept }),
-				);
-		}
-		return out;
+			if (!kept.length) return [];
+			return [Object.assign({}, issue, { title: kept.length + " Unused Functions", items: kept })];
+		});
 	}
 
 	// The analyzer also emits one count-only architecture item per derived metric
@@ -1437,21 +1438,16 @@
 	 * match, and non-object entries, pass through untouched and in order.
 	 */
 	function reconcileAggregateIssues(issues, counts) {
-		var out = [];
-		for (var i = 0; i < issues.length; i++) {
-			var issue = issues[i];
+		return mapIssues(issues, function (issue) {
 			var match =
 				!!issue && typeof issue === "object" && typeof issue.title === "string"
 					? AGGREGATE_TITLE.exec(issue.title)
 					: null;
 			var kept = match ? counts[match[1]] : null;
-			if (!match || typeof kept !== "number") {
-				out.push(issue);
-				continue;
-			}
-			if (kept > 0) out.push(Object.assign({}, issue, { title: kept + " " + match[1] }));
-		}
-		return out;
+			if (!match || typeof kept !== "number") return [issue];
+			if (kept < 1) return [];
+			return [Object.assign({}, issue, { title: kept + " " + match[1] })];
+		});
 	}
 
 	// --- duplicate code groups ------------------------------------------------
@@ -1601,6 +1597,28 @@
 	}
 
 	/**
+	 * Split `list` by its entries' first matching rule: a claimed entry is appended
+	 * to that rule's bucket, an unclaimed one is kept. Returns the kept list. Every
+	 * suppression bucket in `sanitizeAnalysisData` uses this one pass.
+	 */
+	function partitionList(list, rules) {
+		var kept = [];
+		for (var i = 0; i < list.length; i++) {
+			var entry = list[i];
+			var matched = null;
+			for (var r = 0; r < rules.length; r++) {
+				if (rules[r].test(entry)) {
+					matched = rules[r].bucket;
+					break;
+				}
+			}
+			if (matched) matched.push(entry);
+			else kept.push(entry);
+		}
+		return kept;
+	}
+
+	/**
 	 * Filter `data.securityIssues` / `data.layerViolations` / the dead-function
 	 * lists / `data.duplicates` in place-free fashion. Returns a new `data` object
 	 * plus the findings that were dropped, so a caller can report the suppression
@@ -1627,24 +1645,32 @@
 		}
 
 		if (Array.isArray(data.securityIssues)) {
-			out.securityIssues = [];
-			for (var i = 0; i < data.securityIssues.length; i++) {
-				var issue = data.securityIssues[i];
-				if (isFalsePositiveHygiene(issue, readFile)) suppressed.hygiene.push(issue);
-				else if (isFalsePositiveSecurity(issue, readFile)) suppressed.security.push(issue);
-				else out.securityIssues.push(issue);
-			}
+			out.securityIssues = partitionList(data.securityIssues, [
+				{
+					bucket: suppressed.hygiene,
+					test: function (issue) {
+						return isFalsePositiveHygiene(issue, readFile);
+					},
+				},
+				{
+					bucket: suppressed.security,
+					test: function (issue) {
+						return isFalsePositiveSecurity(issue, readFile);
+					},
+				},
+			]);
 		}
 
 		if (Array.isArray(data.layerViolations)) {
 			var index = buildIndex(data);
-			out.layerViolations = [];
-			for (var j = 0; j < data.layerViolations.length; j++) {
-				var violation = data.layerViolations[j];
-				if (isFalsePositiveLayerViolation(violation, index))
-					suppressed.layerViolations.push(violation);
-				else out.layerViolations.push(violation);
-			}
+			out.layerViolations = partitionList(data.layerViolations, [
+				{
+					bucket: suppressed.layerViolations,
+					test: function (violation) {
+						return isFalsePositiveLayerViolation(violation, index);
+					},
+				},
+			]);
 		}
 
 		// The reported dead-function lists are `deadFunctions` in the analyzer's own
@@ -1670,12 +1696,14 @@
 		}
 
 		if (Array.isArray(data.duplicates)) {
-			out.duplicates = [];
-			for (var d = 0; d < data.duplicates.length; d++) {
-				var dup = data.duplicates[d];
-				if (isFalsePositiveDuplicate(dup, readFile)) suppressed.duplicates.push(dup);
-				else out.duplicates.push(dup);
-			}
+			out.duplicates = partitionList(data.duplicates, [
+				{
+					bucket: suppressed.duplicates,
+					test: function (dup) {
+						return isFalsePositiveDuplicate(dup, readFile);
+					},
+				},
+			]);
 			// The analyzer keeps its two duplicate items apart (`N Duplicate Function
 			// Names` counts `type:'name'` groups, `N Similar Code Blocks` the `code`
 			// ones), so the reconciled counts must be bucketed the same way.
@@ -1702,18 +1730,19 @@
 		// `data.stats.security` / `data.stats.violations` are the same counts the
 		// report summary and the UI tab badge read, so they must move with the
 		// arrays or the report contradicts its own score ("9 high" under an A).
-		// `data.stats.duplicates` is the count the architecture item names.
+		// `data.stats.duplicates` is the count the architecture item names. A count
+		// the filter could not recompute (`null`) leaves the field untouched.
 		if (data.stats && typeof data.stats === "object") {
 			var stats = (out.stats = Object.assign({}, data.stats));
-			if (typeof stats.security === "number" && Array.isArray(out.securityIssues)) {
-				stats.security = countHigh(out.securityIssues);
-			}
-			if (typeof stats.violations === "number" && Array.isArray(out.layerViolations)) {
-				stats.violations = out.layerViolations.length;
-			}
-			if (typeof stats.dead === "number" && deadCount !== null) stats.dead = deadCount;
-			if (typeof stats.duplicates === "number" && Array.isArray(out.duplicates)) {
-				stats.duplicates = out.duplicates.length;
+			var keptCounts = {
+				security: Array.isArray(out.securityIssues) ? countHigh(out.securityIssues) : null,
+				violations: Array.isArray(out.layerViolations) ? out.layerViolations.length : null,
+				dead: deadCount,
+				duplicates: Array.isArray(out.duplicates) ? out.duplicates.length : null,
+			};
+			for (var statKey in keptCounts) {
+				if (typeof stats[statKey] !== "number") continue;
+				if (typeof keptCounts[statKey] === "number") stats[statKey] = keptCounts[statKey];
 			}
 		}
 
