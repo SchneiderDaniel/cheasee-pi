@@ -121,7 +121,7 @@ func startTerminalSession(t *testing.T, agentName, sessionID string) {
 	dockerExecOK(t, agentName, "/bin/bash", "-c", script)
 	// The DinD daemon shares /tmp with the runner, so root-owned bind-mount
 	// entries would prevent t.TempDir from removing the workspace.
-	dockerExecOK(t, agentName, "chown", "-R", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "/workspaces/main/.pi")
+	dockerExecOK(t, agentName, "chown", "-R", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()), "/workspaces/main")
 }
 
 // shellQuote wraps a value in POSIX single quotes for the in-container write.
