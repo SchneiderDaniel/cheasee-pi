@@ -9,15 +9,37 @@
 // unrelated Rust/Go/TS sources and `.github/workflows/cli-install-smoke.yml`
 // are an orphaned convention name with zero runtime effect and stay untouched.
 //
+// Configuration is a build input too: pi installs whatever a `packages` entry
+// records, so the committed `.pi/settings.json` must not list the package —
+// otherwise a rebuilt image loads Ponytail from the checkout again.
+//
+// Configuration is not the whole contract: the last suite boots the pi CLI and
+// reads what a real startup produced (registered commands, the footer/status
+// entries extensions set, the modules it actually loaded), because a settings
+// file can be clean while a stale clone still gets loaded from elsewhere.
+//
 // Run: node --experimental-strip-types --test test/mode-extensions-removed.test.mts
 
-import { describe, it } from "node:test";
+import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** Repository root with every symlink resolved, so a linked directory can be
+ *  told apart from repository content when ROOT itself sits behind a link. */
+const REAL_ROOT = realpathSync(ROOT);
 
 /** Doc pages that documented one mode each. */
 const MODE_DOCS = ["docs/extensions/caveman.md", "docs/extensions/ponytail.md"];
@@ -34,10 +56,78 @@ const MODE_STATE_NEEDLES = [
 	"PONYTAIL_DEFAULT_MODE",
 ];
 
+/** The same identifiers, spelled out a second time on purpose. A canary built
+ *  from a needle proves nothing: it passes whatever the needle says. These
+ *  literals are independent of `MODE_STATE_NEEDLES`, so a typo there fails the
+ *  pin instead of turning the sweep vacuous. */
+const MODE_STATE_LITERALS = [
+	"caveman.json",
+	"caveman-level",
+	"ponytail-mode",
+	"PONYTAIL_DEFAULT_MODE",
+];
+
 /** Production-source roots swept for mode state (tests and fixtures excluded). */
 const PRODUCTION_ROOTS = [".pi/extensions", "cmd", "scripts"];
 
+/** The exact package source pi would reinstall and then load. The bare word is
+ *  deliberately not the needle: `ponytail:` deferral markers in unrelated
+ *  sources are an orphaned convention with zero runtime effect. */
+const PONYTAIL_SOURCE = "DietrichGebert/ponytail";
+
+/** The whole source URL, written out without `PONYTAIL_SOURCE`. A canary that
+ *  builds its sample from the needle always passes; this independent literal is
+ *  what pins the needle to the package the repository must not install. */
+const PONYTAIL_SOURCE_LITERAL = "https://github.com/DietrichGebert/ponytail";
+
+/** Needles a committed config must not carry: the package source pi installs,
+ *  and the skill filter that narrowed it once it was installed. */
+const PACKAGE_NEEDLES = [PONYTAIL_SOURCE, "ponytail-*"];
+
+/** Config files pi and the container read. None may carry the package. */
+const PACKAGE_CONFIG_FILES = [
+	".pi/settings.json",
+	"cmd/cheasee-pi/embedded/pi/settings.json",
+	"cmd/cheasee-pi/embedded/docker/entrypoint.sh",
+	"cmd/cheasee-pi/embedded/docker/Dockerfile",
+];
+
+/** Production roots swept for the package source (tests and fixtures excluded). */
+const PACKAGE_SOURCE_ROOTS = [".pi", "cmd", "scripts", ".github"];
+
+/** Repo-relative directory prefixes that are operator state, not repository
+ *  content: `.pi/git` holds installed package clones (including a stale
+ *  Ponytail checkout in existing workspaces) and `.pi/sessions` transcripts. */
+const PRUNED_PREFIXES = [".pi/git/", ".pi/sessions/"];
+
+/** Directory names never descended into: vendored installs, VCS metadata. */
+const PRUNED_DIR_NAMES = new Set(["node_modules", ".git"]);
+
+/** The sweep matcher itself: the labels of the labelled samples whose content
+ *  carries any of the needles. Production sweeps and their canaries both run
+ *  through it, so a canary proves the matcher the repository actually relies on
+ *  fires — not a copy of it.
+ *
+ *  Only repo content is matched. Operator state (`.pi/git` clones, session
+ *  transcripts) is never a sample, so tests neither flag nor delete it. */
+function sweep(
+	needles: readonly string[],
+	samples: ReadonlyArray<readonly [label: string, content: string]>,
+): string[] {
+	const hits: string[] = [];
+	for (const [label, content] of samples) {
+		for (const needle of needles) {
+			if (content.includes(needle)) hits.push(`${label} carries ${needle}`);
+		}
+	}
+	return hits;
+}
+
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf-8");
+
+/** Read every file of a sweep into `[label, content]` samples. */
+const samples = (paths: readonly string[]): ReadonlyArray<readonly [string, string]> =>
+	paths.map((rel) => [rel, read(rel)] as const);
 const isFile = (rel: string): boolean => {
 	try {
 		return statSync(resolve(ROOT, rel)).isFile();
@@ -46,28 +136,60 @@ const isFile = (rel: string): boolean => {
 	}
 };
 
-/** Every file under a repo-relative root, as repo-relative paths. */
+/** Whether a directory entry is a file, a directory, or neither. Symlinks are
+ *  resolved once: a worktree links its Python venvs into `.pi/` (reading those
+ *  trees would bury the sweep in environment files) and a dangling link
+ *  resolves to nothing. */
+function entryKind(full: string): "file" | "dir" | "skip" {
+	try {
+		const stats = statSync(full);
+		if (stats.isFile()) return "file";
+		if (!stats.isDirectory()) return "skip";
+		// A linked directory is walked only while it stays inside the repository.
+		return realpathSync(full).startsWith(`${REAL_ROOT}${sep}`) ? "dir" : "skip";
+	} catch {
+		// A dangling symlink resolves to nothing: there is nothing to read and no
+		// tree to descend, so every sweep skips it.
+		return "skip";
+	}
+}
+
+/** Every file under a repo-relative root, as repo-relative paths. Vendored
+ *  installs, VCS metadata and operator state are never descended into — the
+ *  latter keeps untracked clones (`.pi/git`) out of every sweep. */
 function walk(rel: string): string[] {
 	const abs = resolve(ROOT, rel);
 	const out: string[] = [];
 	const visit = (dir: string): void => {
 		for (const entry of readdirSync(dir, { withFileTypes: true })) {
 			const full = join(dir, entry.name);
-			if (entry.isDirectory()) visit(full);
-			else out.push(relative(ROOT, full));
+			const child = relative(ROOT, full);
+			const kind = entryKind(full);
+			if (kind === "dir") {
+				if (PRUNED_DIR_NAMES.has(entry.name)) continue;
+				if (PRUNED_PREFIXES.some((prefix) => `${child}/`.startsWith(prefix))) continue;
+				visit(full);
+				continue;
+			}
+			if (kind === "skip") continue;
+			out.push(child);
 		}
 	};
 	visit(abs);
 	return out;
 }
 
-/** Production sources: no test suite, no fixture, no vendored clone. */
+/** Production sources: no test suite, no fixture, no vendored clone, no
+ *  workspace state. */
 function productionSources(rel: string): string[] {
 	if (isFile(rel)) return [rel];
 	return walk(rel).filter(
 		(p) =>
 			!/\.(test|spec)\.(mts|ts|js)$/.test(p) &&
-			!p.split("/").some((part) => part === "test" || part === "tests" || part === "fixtures"),
+			!/_test\.go$/.test(p) &&
+			!p.split("/").some((part) => part === "test" || part === "tests" || part === "fixtures") &&
+			!PRUNED_PREFIXES.some((prefix) => p.startsWith(prefix)) &&
+			!p.split("/").includes("node_modules"),
 	);
 }
 
@@ -104,17 +226,57 @@ describe("response modes #2072 — the runtime trees are gone", () => {
 			settings.packages?.some((pkg) => pkg === "https://github.com/SchneiderDaniel/private-pi"),
 		);
 	});
+
+	it("every package entry is a bare source string", () => {
+		const settings = JSON.parse(read(".pi/settings.json")) as { packages?: unknown };
+		const entries = settings.packages;
+		assert.ok(Array.isArray(entries), "committed packages must be a list");
+		for (const entry of entries) {
+			assert.equal(
+				typeof entry,
+				"string",
+				`package entry must be a bare source string, got ${JSON.stringify(entry)}`,
+			);
+		}
+	});
+
+	it("the raw settings file names neither the package nor its skill filter", () => {
+		const raw = read(".pi/settings.json");
+		assert.equal(raw.includes(PONYTAIL_SOURCE), false, `settings still name ${PONYTAIL_SOURCE}`);
+		assert.equal(
+			raw.includes("ponytail-*"),
+			false,
+			"settings still carry the ponytail-* skill filter",
+		);
+	});
+
+	it("the settings keep the prompts key", () => {
+		const settings = JSON.parse(read(".pi/settings.json")) as { prompts?: unknown };
+		assert.ok("prompts" in settings, "committed settings must keep the prompts key");
+		assert.deepEqual(settings.prompts, []);
+	});
 });
 
 describe("response modes #2072 — no production source reads or writes mode state", () => {
 	const files = PRODUCTION_ROOTS.flatMap(productionSources);
 
+	it("the mode-state needles are the identifiers under test", () => {
+		// Two independent guards against a vacuous sweep: the needle list is pinned
+		// to literals written separately, and the matcher is driven with a fixture
+		// built from those literals rather than from the needles.
+		assert.deepEqual([...MODE_STATE_NEEDLES].sort(), [...MODE_STATE_LITERALS].sort());
+		for (const literal of MODE_STATE_LITERALS) {
+			assert.deepEqual(
+				sweep(MODE_STATE_NEEDLES, [["fixture", `{ "mode": ${JSON.stringify(literal)} }`]]),
+				[`fixture carries ${literal}`],
+				`the sweep must fire on the independent fixture naming ${literal}`,
+			);
+		}
+	});
+
 	for (const needle of MODE_STATE_NEEDLES) {
 		it(`no production source mentions ${needle}`, () => {
-			// Teeth: the matcher must fire on a synthetic sample, so a typo in the
-			// needle cannot turn this sweep into a vacuous pass.
-			assert.ok(`const x = "${needle}";`.includes(needle), `needle ${needle} is not a literal`);
-			const hits = files.filter((rel) => read(rel).includes(needle));
+			const hits = sweep([needle], samples(files));
 			assert.deepEqual(hits, [], `${needle} is still read or written by production source`);
 		});
 	}
@@ -131,11 +293,107 @@ describe("response modes #2072 — no production source reads or writes mode sta
 	});
 });
 
+describe("response modes #2072 — no config can reinstall the Ponytail package", () => {
+	it("neither pi nor the container config names the package", () => {
+		const hits = sweep(PACKAGE_NEEDLES, samples(PACKAGE_CONFIG_FILES));
+		assert.deepEqual(hits, [], "a committed config still installs Ponytail");
+	});
+
+	it("the needle is the recorded package source", () => {
+		// Independent literal: the needle cannot be mistyped into a sweep that
+		// matches nothing, because the whole URL is pinned here.
+		assert.equal(
+			`https://github.com/${PONYTAIL_SOURCE}`,
+			PONYTAIL_SOURCE_LITERAL,
+			"PONYTAIL_SOURCE is not the source the repository must not install",
+		);
+	});
+
+	it("the config sweep has teeth and covers every file", () => {
+		// Teeth: the matcher is driven with independent literals — the package URL
+		// spelled out in full and the skill filter — so a typo in either needle
+		// fails here instead of turning the sweep into a vacuous pass.
+		assert.deepEqual(
+			sweep(PACKAGE_NEEDLES, [
+				["fixture-source", `{"source": "${PONYTAIL_SOURCE_LITERAL}"}`],
+				["fixture-skills", `{"source": "x", "skills": ["!ponytail-*"]}`],
+			]),
+			[`fixture-source carries ${PONYTAIL_SOURCE}`, "fixture-skills carries ponytail-*"],
+			"the config matcher does not fire on the package source and its skill filter",
+		);
+		// Negative control: a package the repository does keep must not trip it.
+		assert.deepEqual(
+			sweep(PACKAGE_NEEDLES, [
+				["fixture-private-pi", `{"source": "https://github.com/SchneiderDaniel/private-pi"}`],
+			]),
+			[],
+			"the config matcher fires on an unrelated package",
+		);
+		for (const rel of PACKAGE_CONFIG_FILES) {
+			assert.ok(isFile(rel), `${rel} must exist — a missing file makes the sweep vacuous`);
+		}
+	});
+
+	it("no production source names the package source", () => {
+		const files = PACKAGE_SOURCE_ROOTS.flatMap(productionSources);
+		assert.ok(files.length > 50, `package source sweep found only ${files.length} files`);
+		const hits = sweep([PONYTAIL_SOURCE], samples(files));
+		assert.deepEqual(hits, [], `${PONYTAIL_SOURCE} is still recorded in production source`);
+	});
+
+	it("the sweep matches the source, not the bare word", () => {
+		// `.pi/extensions/rtk/index.ts` carries an orphaned `ponytail:` deferral
+		// marker. It must not trip the sweep, which proves the needle is the exact
+		// package source and not the feature word.
+		const rtk = ".pi/extensions/rtk/index.ts";
+		assert.equal(read(rtk).includes(PONYTAIL_SOURCE), false, `${rtk} must not name the source`);
+		assert.match(read(rtk), /ponytail/i, `${rtk} must still carry the deferral marker`);
+	});
+
+	it("the sweep descends into no untracked clone or session state", () => {
+		const swept = PACKAGE_SOURCE_ROOTS.flatMap(productionSources);
+		const leaked = swept.filter(
+			(p) =>
+				PRUNED_PREFIXES.some((prefix) => p.startsWith(prefix)) ||
+				p.split("/").includes("node_modules"),
+		);
+		assert.deepEqual(leaked, [], "the sweep must stay scoped to repository content");
+		// The stale checkout existing in a workspace is operator state, not a repo
+		// artifact: it must never be swept, and it must never be deleted by tests.
+		const checkout = ".pi/git/github.com/DietrichGebert/ponytail";
+		if (existsSync(resolve(ROOT, checkout))) {
+			assert.equal(
+				swept.includes(checkout),
+				false,
+				`${checkout} is untracked workspace state and must not be swept`,
+			);
+		}
+	});
+});
+
 describe("response modes #2072 — docs carry no feature pages", () => {
 	it("the two feature pages are deleted", () => {
 		for (const rel of MODE_DOCS) {
 			assert.equal(existsSync(resolve(ROOT, rel)), false, `${rel} must be absent`);
 		}
+	});
+
+	it("no doc page links to a deleted feature page", () => {
+		const removed = MODE_DOCS.map((rel) => resolve(ROOT, rel));
+		const linked: string[] = [];
+		for (const rel of docFiles()) {
+			for (const target of relativeMarkdownLinks(rel)) {
+				if (removed.includes(target)) linked.push(`${rel} -> ${relative(ROOT, target)}`);
+			}
+		}
+		assert.deepEqual(linked, [], "a doc page still links to a removed feature page");
+	});
+
+	it("installation.md is the one page exempt from the feature-word ban", () => {
+		assert.ok(
+			DOC_EXEMPT.has("docs/installation.md"),
+			"docs/installation.md must stay exempt: it carries the package cleanup path",
+		);
 	});
 
 	it("no doc page mentions either feature (installation.md exempt)", () => {
@@ -188,5 +446,184 @@ describe("response modes #2072 — the prompt-audit layer knows one injection", 
 		]) {
 			assert.equal(/caveman|ponytail/i.test(read(rel)), false, `${rel} still names a mode`);
 		}
+	});
+});
+
+// ─── Live startup probe ───────────────────────────────────────────
+// The suites above read files; this one asks pi. Ponytail rendered itself
+// through three surfaces: a `/ponytail*` command family, a `ponytail` footer
+// entry set with `ctx.ui.setStatus`, and the footer factory it could install
+// from the same module. RPC mode reports the registered command set and
+// forwards `setStatus` as an `extension_ui_request`, so the command and
+// footer/status surfaces arrive as machine-readable events. `setFooter` is a
+// TUI-only hook that RPC mode ignores, which is why the loaded module paths are
+// pumped too: a footer factory can only come from a module pi actually loaded.
+
+/** The feature words a loaded mode integration prints on any surface: the
+ *  command it registers, the footer/status entry it sets. */
+const MODE_SURFACE_PATTERN = /ponytail|caveman/i;
+
+/** How long a real pi startup gets before the probe fails. Warm startup is
+ *  ~2s; the ceiling is for a cold CI runner, not for a slow assertion. */
+const STARTUP_TIMEOUT_MS = 120_000;
+
+/** One command as pi reports it from the live startup. */
+interface StartupCommand {
+	name?: string;
+	description?: string;
+	source?: string;
+	sourceInfo?: { path?: string; source?: string };
+}
+
+/** What a real pi startup produced: the commands it registered and every
+ *  fire-and-forget UI call its extensions made (status entries, widgets,
+ *  notifications). */
+interface StartupProbe {
+	commands: StartupCommand[];
+	uiRequests: Array<Record<string, unknown>>;
+}
+
+/** The pi CLI under test: the CI-declared binary, else the one `npm ci` links
+ *  into this workspace. No silent skip — the smoke check is the only live
+ *  evidence the removal holds, so a missing CLI fails it. */
+function piBinary(): string {
+	for (const candidate of [process.env.PI_BIN, resolve(ROOT, "node_modules", ".bin", "pi")]) {
+		if (candidate && existsSync(candidate)) return candidate;
+	}
+	throw new Error("pi CLI not found: set PI_BIN or run npm ci in the repository root");
+}
+
+/** Boot pi against this project and record the surfaces it produced. The
+ *  agent directory is a temp dir so a developer's own user-level extensions
+ *  cannot collide with the project's and mask the result. */
+function probeStartup(): StartupProbe {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-startup-smoke-"));
+	try {
+		const run = spawnSync(piBinary(), ["--mode", "rpc", "--offline", "--no-session", "--approve"], {
+			cwd: ROOT,
+			encoding: "utf-8",
+			input: `${JSON.stringify({ type: "get_commands" })}\n`,
+			timeout: STARTUP_TIMEOUT_MS,
+			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+		});
+		const stdout = run.stdout ?? "";
+		const stderr = run.stderr ?? "";
+		if (run.error) throw new Error(`pi startup failed: ${run.error.message}\n${stderr}`);
+		if (run.status !== 0) throw new Error(`pi startup exited ${run.status}\n${stderr}`);
+		const events = stdout
+			.split("\n")
+			.filter((line) => line.trim() !== "")
+			.map((line) => {
+				try {
+					return JSON.parse(line) as Record<string, unknown>;
+				} catch {
+					throw new Error(`pi emitted a non-JSON line: ${line}`);
+				}
+			});
+		const answer = events.find(
+			(event) => event.type === "response" && event.command === "get_commands",
+		);
+		if (!answer || answer.success !== true) {
+			throw new Error(
+				`pi answered no get_commands response\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+			);
+		}
+		const commands = (answer.data as { commands?: StartupCommand[] } | undefined)?.commands;
+		if (!Array.isArray(commands)) {
+			throw new Error(`pi answered get_commands without a command list\nstdout:\n${stdout}`);
+		}
+		return { commands, uiRequests: events.filter((e) => e.type === "extension_ui_request") };
+	} finally {
+		// Temp agent state, including the auth/settings stubs pi writes on boot.
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+}
+
+/** The display strings a UI request carries — every label an extension could
+ *  print a mode name into (footer/status entries, widgets, notifications). */
+function uiRequestText(request: Record<string, unknown>): string {
+	const fields = ["message", "title", "text", "statusKey", "statusText", "widgetKey"];
+	const parts = fields
+		.map((field) => request[field])
+		.filter((value): value is string => typeof value === "string");
+	const lines = request.widgetLines;
+	if (Array.isArray(lines)) {
+		parts.push(...lines.filter((line): line is string => typeof line === "string"));
+	}
+	return parts.join(" ");
+}
+
+/** Labelled surfaces of one startup that name a removed mode. Shared by the
+ *  live probe and its teeth sample, so the assertion and the canary cannot
+ *  drift apart. */
+function modeSurfaceHits(probe: StartupProbe): string[] {
+	const hits: string[] = [];
+	for (const command of probe.commands) {
+		const label = [command.name, command.description].filter(Boolean).join(" ");
+		if (MODE_SURFACE_PATTERN.test(label)) hits.push(`command ${command.name ?? "<unnamed>"}`);
+	}
+	for (const request of probe.uiRequests) {
+		if (MODE_SURFACE_PATTERN.test(uiRequestText(request))) {
+			hits.push(`ui request ${String(request.method)}`);
+		}
+	}
+	return hits;
+}
+
+describe("response modes #2072 — a real pi startup loads no mode surface", () => {
+	let probe: StartupProbe;
+	before(() => {
+		probe = probeStartup();
+	});
+
+	it("the startup loaded the project's own extensions", () => {
+		// Teeth for every assertion below: a startup that loaded nothing would
+		// satisfy them all without proving anything.
+		const fromExtensions = probe.commands.filter((command) => command.source === "extension");
+		assert.ok(
+			fromExtensions.length > 0,
+			"no extension registered a command — the startup probe proves nothing",
+		);
+	});
+
+	it("registers no ponytail or caveman command, and sets no such footer entry", () => {
+		assert.deepEqual(modeSurfaceHits(probe), [], "a removed mode is still live in the UI");
+	});
+
+	it("loads no module from the Ponytail package", () => {
+		// The footer factory arrives with the module, and RPC mode drops
+		// `setFooter` on the floor: the load set is what can be observed, and it
+		// covers the factory as well as the commands and status entries.
+		const loaded = probe.commands
+			.map((command) => command.sourceInfo?.path ?? "")
+			.filter((path) => path.includes(PONYTAIL_SOURCE));
+		assert.deepEqual(loaded, [], `pi loaded an extension from ${PONYTAIL_SOURCE}`);
+	});
+
+	it("the surface matcher fires on the surfaces Ponytail actually used", () => {
+		// Independent sample: the command name and the footer/status entry are
+		// what the removed extension registered.
+		const sample: StartupProbe = {
+			commands: [
+				{
+					name: "ponytail",
+					description: "Lazy senior dev mode",
+					source: "extension",
+					sourceInfo: {
+						path: resolve(ROOT, ".pi/git/github.com", PONYTAIL_SOURCE, "pi-extension/index.js"),
+					},
+				},
+			],
+			uiRequests: [
+				{ method: "setStatus", statusKey: "ponytail", statusText: "ponytail: balanced" },
+			],
+		};
+		assert.deepEqual(modeSurfaceHits(sample), ["command ponytail", "ui request setStatus"]);
+		// Negative control: an unrelated status entry must not trip it.
+		assert.deepEqual(
+			modeSurfaceHits({ commands: [], uiRequests: [{ method: "setStatus", statusKey: "rtk" }] }),
+			[],
+			"the surface matcher fires on an unrelated footer entry",
+		);
 	});
 });

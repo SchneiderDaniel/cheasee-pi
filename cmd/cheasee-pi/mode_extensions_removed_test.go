@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -168,6 +169,119 @@ func TestModeExtensionsRemoved_BuildInputsClean(t *testing.T) {
 	if !strings.Contains(string(workflow), "npm install -g @ast-grep/cli") {
 		t.Error("tests.yml must keep the ast-grep install the node suite needs")
 	}
+}
+
+// ponytailSource is the exact package source the harness no longer records.
+// It stays a literal here so the guide contract cannot drift with the doc.
+const ponytailSource = "https://github.com/DietrichGebert/ponytail"
+
+// ponytailClonePath is the project-local checkout `pi install -l` creates. The
+// cleanup path names this path and never the parent directory, which also
+// holds user-installed skill clones.
+const ponytailClonePath = ".pi/git/github.com/DietrichGebert/ponytail"
+
+func TestModeExtensionsRemoved_InstallGuideCleanupPath(t *testing.T) {
+	path := filepath.Join(modeRepoRoot(), "docs", "installation.md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read docs/installation.md: %v", err)
+	}
+	guide := string(data)
+
+	// The cleanup path is the one place an operator can still be running
+	// Ponytail, so it must be an executable, ordered procedure.
+	section, ok := guideSection(guide, "### Upgrade from a Ponytail release")
+	if !ok {
+		t.Fatal("docs/installation.md must carry a '### Upgrade from a Ponytail release' section")
+	}
+	uninstall := "pi uninstall " + ponytailSource
+	steps := numberedSteps(section)
+	if len(steps) < 4 {
+		t.Fatalf("cleanup path must be an ordered list of at least 4 steps, got %d", len(steps))
+	}
+
+	// Order matters: pi uninstall first, the manual settings edit second, the
+	// clone deletion third. Removing the entry by hand before uninstalling can
+	// leave the checkout behind.
+	for i, want := range []struct {
+		needle string
+		what   string
+	}{
+		{uninstall, "the pi uninstall command"},
+		{".pi/settings.json", "the scoped settings edit"},
+		{ponytailClonePath, "the scoped clone deletion"},
+		{"jq -r '.packages'", "the verification command"},
+	} {
+		if !strings.Contains(steps[i], want.needle) {
+			t.Errorf("cleanup step %d must carry %s (%q)", i+1, want.what, want.needle)
+		}
+	}
+	if !hasLinePrefixedBy(steps[0], uninstall) {
+		t.Errorf("cleanup step 1 must carry %q on one line (a wrapped command is not runnable)", uninstall)
+	}
+	// `pi list` reports the installed extension sources for the current scope, so
+	// the verification step must offer it: a settings edit alone does not prove
+	// that pi still resolves the package.
+	if !strings.Contains(steps[3], "pi list") {
+		t.Errorf("cleanup step 4 must offer `pi list` next to the %q check", "jq -r '.packages'")
+	}
+
+	// `.pi/git` also holds user-installed skill clones: a wholesale delete would
+	// destroy unrelated packages, so the guide must never suggest one.
+	if strings.Contains(guide, "rm -rf .pi/git") {
+		t.Error("docs/installation.md must not suggest deleting .pi/git wholesale")
+	}
+	// Existing Node contract: the harness no longer preinstalls a skill repo.
+	if strings.Contains(strings.ToLower(guide), "installed by default") {
+		t.Error("docs/installation.md must not claim a skill repository is installed by default")
+	}
+}
+
+// guideSection slices the body of one markdown heading out of a doc, up to the
+// next heading of the same or a higher level.
+func guideSection(content, heading string) (string, bool) {
+	start := strings.Index(content, heading+"\n")
+	if start < 0 {
+		return "", false
+	}
+	body := content[start+len(heading)+1:]
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "### ") || strings.HasPrefix(line, "## ") {
+			return body[:strings.Index(body, line)], true
+		}
+	}
+	return body, true
+}
+
+// numberedSteps returns the ordinal list items of a markdown section, in order.
+func numberedSteps(section string) []string {
+	locs := numberedStepRe.FindAllStringIndex(section, -1)
+	steps := make([]string, 0, len(locs))
+	for i, loc := range locs {
+		end := len(section)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		steps = append(steps, section[loc[0]:end])
+	}
+	return steps
+}
+
+var numberedStepRe = regexp.MustCompile(`(?m)^\d+\.\s`)
+
+// hasLinePrefixedBy reports whether some line starts with the given command
+// (after a blockquote or code-fence marker), so a wrapped command cannot
+// satisfy a cleanup step.
+func hasLinePrefixedBy(content, prefix string) bool {
+	for _, line := range strings.Split(content, "\n") {
+		trimmed := strings.TrimSpace(line)
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, ">"))
+		trimmed = strings.TrimSpace(strings.TrimPrefix(trimmed, "```"))
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestModeExtensionsRemoved_AgentFrontmatterResolves(t *testing.T) {

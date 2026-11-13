@@ -38,8 +38,11 @@ go test ./cmd/cheasee-pi/ -count=1
 
 `npm test` runs the extension and repository Node.js tests. The TypeScript
 check validates extension types. The Go test suite covers CLI behavior and
-includes documentation consistency checks for the command reference. CI also
-runs shell and Python tests, plus a standalone Node.js test:
+includes documentation consistency checks for the command reference. Part of the
+Node.js suite boots the pi CLI to assert what a real startup loads, so the test
+shell needs the binary: the guards read `PI_BIN`, falling back to
+`node_modules/.bin/pi` (CI sets `PI_BIN`). CI also runs shell and Python tests,
+plus a standalone Node.js test:
 
 ```bash
 bash test/no-submodules.test.sh

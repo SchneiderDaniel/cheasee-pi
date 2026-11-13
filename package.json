@@ -33,12 +33,11 @@
 		"typescript": "^6.0.3"
 	},
 	"overrides": {
+		"@isaacs/nonrecursive-glob-match": "1.0.1",
 		"brace-expansion": "5.0.12",
+		"minimatch": "11.0.1",
 		"undici": "8.12.3",
 		"protobufjs": "7.6.5",
-		"minimatch": {
-			"brace-expansion": "5.0.12"
-		},
 		"@google/genai": {
 			"protobufjs": "7.6.5"
 		}
