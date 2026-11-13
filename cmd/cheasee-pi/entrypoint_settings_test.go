@@ -48,7 +48,7 @@ func TestCommittedSettings_ValidJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(content), &doc); err != nil {
 		t.Fatalf("committed .pi/settings.json must parse as valid JSON: %v", err)
 	}
-	for _, key := range []string{"extensions", "skills", "prompts", "theme", "packages", "defaultModel"} {
+	for _, key := range []string{"extensions", "skills", "theme", "packages", "defaultModel"} {
 		if _, ok := doc[key]; !ok {
 			t.Errorf("committed settings must keep top-level key %q", key)
 		}

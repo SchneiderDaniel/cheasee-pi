@@ -45,7 +45,9 @@ class Registry:
         )
 
     def check(self, name: str) -> PackageRecord:
-        url = self._url(name)
+        return self.check_url(name, self._url(name))
+
+    def check_url(self, name: str, url: str) -> PackageRecord:
         cached = self.fetcher.cache_entry(url)
         etag = cached[2] if cached else None
         status, body, _ = self._request(url, etag)

@@ -60,10 +60,16 @@ class GoRegistry(Registry):
     name = "go"
     interval = 2.0
 
-    def _url(self, name: str) -> str:
+    def _module_path(self, name: str) -> str:
         # Go module proxy encoding: uppercase -> `!` + lowercase.
-        n = re.sub(r"[A-Z]", lambda m: "!" + m.group(0).lower(), name)
-        return f"https://proxy.golang.org/{n}/@latest"
+        return re.sub(r"[A-Z]", lambda m: "!" + m.group(0).lower(), name)
+
+    def _url(self, name: str) -> str:
+        return f"https://proxy.golang.org/{self._module_path(name)}/@latest"
+
+    def check_version(self, name: str, version: str) -> PackageRecord:
+        url = f"https://proxy.golang.org/{self._module_path(name)}/@v/{version}.info"
+        return self.check_url(name, url)
 
     def _parse(self, name: str, status: int, body: str) -> PackageRecord:
         if status == 404 or not body:
