@@ -49,29 +49,74 @@ export interface CiGateResult {
 }
 
 /**
+ * Read the commit HEAD points at — the commit the gate must evaluate
+ * (issue #1829 AC4). Returns `""` when git cannot answer, so the CI gate fails
+ * closed instead of classifying an unverified commit. Called only while CI
+ * gating is enabled, so a disabled gate adds no git calls.
+ */
+export async function captureHeadSha(
+	exec: ExecFn,
+	worktreePath: string,
+	ui: ExtensionCommandContext["ui"],
+): Promise<string> {
+	try {
+		const result = await exec("git", ["rev-parse", "HEAD"], {
+			cwd: worktreePath,
+			timeout: 10_000,
+		});
+		const sha = (result.stdout || "").trim();
+		if (result.code === 0 && sha.length > 0) return sha;
+		const reason = (result.stderr || "").trim() || `git exited with code ${result.code}`;
+		ui.notify(`Cannot resolve the pushed commit SHA: ${reason}`, "warning");
+		return "";
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		ui.notify(`Cannot resolve the pushed commit SHA: ${msg}`, "warning");
+		return "";
+	}
+}
+
+/**
  * Step 0: CI gating — poll the open PR's check runs before running local hooks.
  * BLOCKING: `failing`, `pending` (at timeout) and `error` all stop the
  * Implementation → Audit transition. `unconfigured` passes with a warning so
  * repos without CI never hang. Disabled when ciGatingTimeoutSec is unset or ≤ 0.
+ *
+ * `expectedHeadSha` pins the poll to the commit the developer just pushed
+ * (issue #1829): without it the gate cannot tell the pushed commit apart from
+ * a stale PR head, so a missing SHA is a blocking failure (fail closed).
  */
 export async function runCiGate(
 	deps: PreGateDeps,
 	config: SupervisorConfig,
+	expectedHeadSha: string,
 ): Promise<CiGateResult> {
 	const timeoutSec = config.ciGatingTimeoutSec;
 	if (!timeoutSec || timeoutSec <= 0) {
 		return { failureText: null };
 	}
 
+	// Disabled gating wins over the SHA requirement; with gating on, an absent
+	// SHA must never let a red PR reach the auditor.
+	if (!expectedHeadSha || expectedHeadSha.trim().length === 0) {
+		const message =
+			"CI gate requires the expected head SHA (the commit just pushed) but none was captured — refusing to pass CI unverified.";
+		deps.ui.notify(`${message} Blocking audit (fail-closed).`, "warning");
+		return { failureText: `--- CI Gate ---\n${message}` };
+	}
+
 	getDebugLogger().info("pipeline-audit", "Polling PR check runs", {
 		branch: deps.branch,
 		timeoutSec,
+		expectedHeadSha,
 	});
 
 	const pollCiChecksFn = deps.pollCiChecksFn ?? pollCiChecks;
 	let ciResult: CiPollResult;
 	try {
-		ciResult = await pollCiChecksFn(deps.pi, deps.branch, deps.repo, timeoutSec);
+		ciResult = await pollCiChecksFn(deps.pi, deps.branch, deps.repo, timeoutSec, {
+			expectedHeadSha,
+		});
 	} catch (err: unknown) {
 		// pollCiChecks reports failures as status "error"; a throw is a defect.
 		// Fail closed and surface it instead of letting a red PR reach audit.
@@ -114,15 +159,18 @@ export async function runCiGate(
 }
 
 /**
- * Build the CI gate failure body. The poll result owns the message; when the
- * failing check names are not already mentioned they are appended so the
- * developer always sees which check is red (AC3).
+ * Build the CI gate failure section. The failing check names go into the
+ * section header (issue #1829) so they survive `extractFirstGateName` into
+ * `gateFailureHistory` and the developer/PR surfaces always name the red
+ * check. When the poller could not name them the header stays plain and the
+ * body says so.
  */
 function formatCiFailureText(ciResult: CiPollResult): string {
+	const names = ciResult.failingChecks.length > 0 ? ciResult.failingChecks.join(", ") : null;
+	const header = names ? `--- CI Gate (failing: ${names}) ---` : "--- CI Gate ---";
 	const message = ciResult.message.trim();
-	const missing = ciResult.failingChecks.filter((name) => !message.includes(name));
-	const body = missing.length > 0 ? `${message} Failing check(s): ${missing.join(", ")}.` : message;
-	return `--- CI Gate ---\n${body}`;
+	const body = names ? message : `${message} Failing check(s): unknown.`;
+	return `${header}\n${body}`;
 }
 
 // ── Duplicate Code ─────────────────────────────────────────────────

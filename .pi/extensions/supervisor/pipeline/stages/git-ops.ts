@@ -123,6 +123,46 @@ export async function fetchResolvedByInfo(
 	return { sha, prNumber, source };
 }
 
+// ─── Pushed-commit guard (issue #1829) ───────────────────────────
+// A gate loop-back may only unwind a local-only commit: a pushed commit stays
+// put so the developer adds fix commits on top of the branch.
+
+/** Answer to "is the current HEAD already on the remote branch?". */
+export type HeadOnRemoteStatus = "on-remote" | "not-on-remote" | "unknown";
+
+export interface HeadOnRemoteResult {
+	status: HeadOnRemoteStatus;
+	/** Why the answer is `unknown` — surfaced, never swallowed. */
+	error?: string;
+}
+
+/**
+ * Decide whether HEAD is reachable from `<remote>/<branch>` (issue #1829).
+ * `merge-base --is-ancestor` exits 0 once HEAD is contained in the remote ref,
+ * 1 while it is not, else on a resolution error. Never throws: an exec throw
+ * maps to `unknown` so the caller preserves history.
+ */
+export async function isHeadOnRemote(
+	exec: ExecFn,
+	worktreePath: string,
+	remote: string,
+	branch: string,
+): Promise<HeadOnRemoteResult> {
+	try {
+		const probe = await exec(
+			"git",
+			["merge-base", "--is-ancestor", "HEAD", `${remote}/${branch}`],
+			{ cwd: worktreePath, timeout: 10_000 },
+		);
+		if (probe.code === 0) return { status: "on-remote" };
+		if (probe.code === 1) return { status: "not-on-remote" };
+		const detail = (probe.stderr || probe.stdout || "").trim();
+		return { status: "unknown", error: detail || `git exited with code ${probe.code}` };
+	} catch (err: unknown) {
+		return { status: "unknown", error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
 // ─── Developer commit + push ─────────────────────────────────────
 
 /**
@@ -174,6 +214,8 @@ export interface UpsertDeveloperPrDeps {
 	worktreePath: string;
 	worktreeBranch: string | undefined;
 	agentResults?: PipelineAgentResult[];
+	/** Gate loop-back history rendered in the PR body (issue #1829). */
+	gateFailureHistory?: string[];
 	port?: GitHubPort;
 	notify?: NotifyFn;
 	collector?: ErrorCollector;
@@ -209,6 +251,7 @@ export async function upsertDeveloperPr(deps: UpsertDeveloperPrDeps): Promise<Pr
 
 		const { title, body } = buildPrBody(issueNum, issueTitle, deps.agentResults ?? [], config, {
 			overallStatus: "in-progress",
+			gateFailureHistory: deps.gateFailureHistory,
 		});
 		const result = await upsertPullRequest({
 			repo: config.repo,

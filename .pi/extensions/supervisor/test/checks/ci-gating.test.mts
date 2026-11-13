@@ -458,3 +458,104 @@ describe("pollCiChecks — PR head resolution and polling", () => {
 		assert.equal(result.status, "unconfigured", "a repo without CI must not hang (AC4)");
 	});
 });
+
+// ─── Phase 1 (issue #1829): expected head SHA pinning ──────────────
+// The gate must classify only the commit the developer just pushed while
+// polling. A resolved PR head that differs from the expected SHA returns
+// `pending` immediately — never `passing`/`unconfigured` on a stale commit.
+
+describe("pollCiChecks — expected head SHA (issue #1829)", () => {
+	const PUSHED = "pushedcommitsha1";
+	const STALE = "staleheadsha2222";
+
+	it("(adapter) resolved head equals expectedHeadSha → normal classification", async () => {
+		const clock = makeClock();
+		const pi = piForPolls(pullsOk(PUSHED), checkRunsResult(checkRun("build", "completed", "success")));
+
+		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
+			sleepFn: clock.sleepFn,
+			nowFn: clock.nowFn,
+			expectedHeadSha: PUSHED,
+		});
+
+		assert.equal(result.status, "passing");
+	});
+
+	it("(adapter) resolved head differs from expectedHeadSha → pending naming both SHAs, zero check-runs calls", async () => {
+		const calls: ExecCall[] = [];
+		const clock = makeClock();
+		const pi = piForPolls(pullsOk(STALE), checkRunsResult(checkRun("build", "completed", "success")), calls);
+
+		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
+			sleepFn: clock.sleepFn,
+			nowFn: clock.nowFn,
+			expectedHeadSha: PUSHED,
+		});
+
+		assert.equal(result.status, "pending");
+		assert.ok(result.message.includes(PUSHED), `message must name the pushed SHA: ${result.message}`);
+		assert.ok(result.message.includes(STALE), `message must name the polled SHA: ${result.message}`);
+		assert.equal(calls.filter(isCheckRunsCall).length, 0, "must not classify a stale commit");
+		assert.deepEqual(result.failingChecks, []);
+	});
+
+	it("(adapter) head mismatch past the grace window with zero checks → pending, never unconfigured", async () => {
+		const clock = makeClock();
+		const pi = piForPolls(pullsOk(STALE), EMPTY_CHECK_RUNS);
+
+		const result = await pollCiChecks(pi, BRANCH, REPO, 600, {
+			sleepFn: clock.sleepFn,
+			nowFn: clock.nowFn,
+			unconfiguredGraceMs: 60_000,
+			expectedHeadSha: PUSHED,
+		});
+
+		assert.equal(result.status, "pending");
+		assert.equal(clock.now(), 0, "a mismatch is decided before any waiting");
+	});
+
+	it("(adapter) head mismatch while the polled SHA is red → pending (mismatch wins over failing)", async () => {
+		const clock = makeClock();
+		const pi = piForPolls(pullsOk(STALE), checkRunsResult(checkRun("build", "completed", "failure")));
+
+		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
+			sleepFn: clock.sleepFn,
+			nowFn: clock.nowFn,
+			expectedHeadSha: PUSHED,
+		});
+
+		assert.equal(result.status, "pending");
+		assert.deepEqual(result.failingChecks, [], "a stale commit's red checks are not attributed to this push");
+	});
+
+	it("(adapter) empty-string expectedHeadSha → error naming the missing SHA", async () => {
+		let polls = 0;
+		const clock = makeClock();
+		const pi = createMockPi(() => {
+			polls++;
+			return pullsOk(PUSHED);
+		});
+
+		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
+			sleepFn: clock.sleepFn,
+			nowFn: clock.nowFn,
+			expectedHeadSha: "",
+		});
+
+		assert.equal(result.status, "error");
+		assert.match(result.message.toLowerCase(), /sha/);
+		assert.equal(polls, 0, "an unusable expectation must not poll anything");
+	});
+
+	it("(adapter) omitted expectedHeadSha → unchanged classification (regression)", async () => {
+		const clock = makeClock();
+		const pi = piForPolls(pullsOk(STALE), checkRunsResult(checkRun("build", "completed", "success")));
+
+		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
+			sleepFn: clock.sleepFn,
+			nowFn: clock.nowFn,
+		});
+
+		assert.equal(result.status, "passing");
+	});
+});

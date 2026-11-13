@@ -8,6 +8,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-c
 import type { SupervisorConfig, PipelineAgentResult, PrConflictInfo } from "../../config/types.ts";
 import { createMockGitHubPort, type PortCall } from "../helper/mock-github-port.ts";
 import { buildPrBody, createPrOnApproval, upsertPullRequest } from "../../pipeline/pr-creation.ts";
+import { upsertDeveloperPr } from "../../pipeline/stages/git-ops.ts";
 import { buildPipelineSummary } from "../../pipeline/output.ts";
 
 // ─── Fixtures ─────────────────────────────────────────────────────
@@ -411,5 +412,71 @@ describe("createPrOnApproval() — pins preserved by the extraction", () => {
 		assert.deepEqual(result.rebaseConflicts, ["src/a.ts"]);
 		assert.equal(calls.filter((c) => c.method === "createPullRequest").length, 0);
 		assert.equal(execCalls.filter((c) => c.args[0] === "push").length, 0);
+	});
+});
+
+// ─── Phase 6 (issue #1829): gate history reaches the PR body ──────
+
+const GATE_ENTRY = "CI Gate (failing: build) gate failed on run 2 — developer restarted";
+
+describe("buildPrBody() — gate failure history (issue #1829)", () => {
+	it("(entity) renders the gate-history entry verbatim", () => {
+		const { body } = buildPrBody(42, "Test issue", agentResults, mockConfig, {
+			gateFailureHistory: [GATE_ENTRY],
+		});
+
+		assert.ok(body.includes(GATE_ENTRY), `body must carry the entry: ${body}`);
+	});
+
+	it("(entity) empty and undefined history add no gate-history section", () => {
+		const none = buildPrBody(42, "Test issue", agentResults, mockConfig);
+		const empty = buildPrBody(42, "Test issue", agentResults, mockConfig, {
+			gateFailureHistory: [],
+		});
+
+		assert.ok(!none.body.includes("**Gate failures:**"));
+		assert.ok(!empty.body.includes("**Gate failures:**"));
+	});
+});
+
+describe("upsertDeveloperPr() — gate failure history (issue #1829)", () => {
+	function developerPrPort(calls: PortCall[]) {
+		return createMockGitHubPort(
+			{
+				listPullRequestsForBranch: async () => null,
+				createPullRequest: async () => ({ number: 456 }),
+			},
+			calls,
+		);
+	}
+
+	function developerPrDeps(port: ReturnType<typeof createMockGitHubPort>) {
+		return {
+			pi: {
+				exec: (async () => ({ code: 0, stdout: "1", stderr: "" })) as unknown as ExtensionAPI["exec"],
+			} as unknown as ExtensionAPI,
+			issueNum: 42,
+			issueTitle: "Test issue",
+			config: mockConfig,
+			worktreePath: "/wt/issue-42",
+			worktreeBranch: "worktree-git-issue-42-test",
+			port,
+		};
+	}
+
+	it("(use-case) forwards gateFailureHistory into the PR body", async () => {
+		const calls: PortCall[] = [];
+		const port = developerPrPort(calls);
+
+		const result = await upsertDeveloperPr({
+			...developerPrDeps(port),
+			gateFailureHistory: [GATE_ENTRY],
+		});
+
+		assert.equal(result.success, true);
+		const create = calls.find((c) => c.method === "createPullRequest");
+		assert.ok(create, "a PR was created");
+		const body = String((create!.args[0] as { body?: string }).body ?? "");
+		assert.ok(body.includes(GATE_ENTRY), `PR body must carry the entry: ${body}`);
 	});
 });
