@@ -2,169 +2,28 @@ import { describe, it, mock, before } from "node:test";
 
 import assert from "node:assert/strict";
 
-interface MockSessionConfig {
-	/** Events to fire synchronously on subscribe */
-	events?: Array<Record<string, unknown>>;
-	/** Whether session.prompt should reject */
-	shouldReject?: boolean;
-	/** Error to reject with */
-	rejectError?: Error;
-	/** Messages to return from session.agent.state.messages */
-	messages?: unknown[];
-	/** Prompt stays pending until session.abort() rejects it (deadline test). */
-	hangUntilAbort?: boolean;
-	/** Error the hung prompt rejects with on abort. */
-	abortError?: Error;
-	/** Set by the mock when session.abort() runs. */
-	abortCalled?: boolean;
-	/** Set by the mock when session.dispose() runs. */
-	disposeCalled?: boolean;
-	/** Count of session.prompt() invocations (must stay 0 after a deadline). */
-	promptCalls?: number;
-	/**
-	 * Delay (ms) before createAgentSession resolves — models SDK setup
-	 * (model resolution / SDK load / session creation) that must count
-	 * against the wall-clock bound (audit finding #2).
-	 */
-	setupDelayMs?: number;
-	/**
-	 * createAgentSession never settles — models a provider/SDK setup hang that
-	 * must be bounded by the deadline, leaving no background session work.
-	 */
-	setupNeverSettles?: boolean;
-}
+import {
+	createCodingAgentMockExports,
+	createProviderMockExports,
+	type MockSessionConfig,
+} from "./helpers/mock-agent-session.ts";
 
 let currentSessionConfig: MockSessionConfig = {};
-
-let slowSyncSetupMs = 0;
-
-function createMockSession() {
-	const subscribers: Array<(event: Record<string, unknown>) => void> = [];
-	const config = currentSessionConfig;
-	let pendingReject: ((err: Error) => void) | null = null;
-
-	const session = {
-		subscribe: (fn: (event: Record<string, unknown>) => void) => {
-			subscribers.push(fn);
-			// Fire events synchronously on subscribe as SDK does
-			if (config.events) {
-				for (const event of config.events) {
-					fn(event);
-				}
-			}
-			// Return unsubscribe function
-			return () => {
-				const idx = subscribers.indexOf(fn);
-				if (idx >= 0) subscribers.splice(idx, 1);
-			};
-		},
-		prompt: async (_task: string) => {
-			config.promptCalls = (config.promptCalls ?? 0) + 1;
-			if (config.shouldReject) {
-				throw config.rejectError || new Error("session.prompt failed");
-			}
-			if (config.hangUntilAbort) {
-				// Stay pending until abort() rejects us — models an SDK session
-				// blocked on a slow model after a tool result.
-				await new Promise<never>((_resolve, reject) => {
-					pendingReject = reject;
-				});
-			}
-		},
-		abort: () => {
-			config.abortCalled = true;
-			if (config.hangUntilAbort) {
-				pendingReject?.(config.abortError || new Error("This operation was aborted"));
-			}
-		},
-		dispose: () => {
-			config.disposeCalled = true;
-		},
-		agent: {
-			state: {
-				messages: config.messages || [
-					{ role: "assistant", content: [{ type: "text", text: "done" }] },
-				],
-			},
-		},
-		isStreaming: false,
-	};
-
-	return session;
-}
-
-function createMockSessionManager() {
-	return {
-		create: (cwd: string) => ({
-			getCwd: () => cwd,
-			getSessionDir: () => "/tmp/pi-session",
-		}),
-		inMemory: () => ({
-			getCwd: () => undefined,
-			getSessionDir: () => undefined,
-		}),
-	};
-}
-
-function createMockSettingsManager() {
-	return {
-		inMemory: () => ({}),
-	};
-}
 
 const hasMockModule = typeof mock.module === "function";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 if (hasMockModule) {
-	// Mock the model resolver so a test can inject a SYNCHRONOUS setup delay.
-	// agent-session-runner.ts imports getBuiltinModel from this subpath, so the
-	// mock must target "@earendil-works/pi-ai/providers/all" (the bare package
-	// export is not what the runner consumes).
+	// Registration stays here: module mocks are per-process and must be
+	// installed before the runner import below. The factory only builds the
+	// export objects, reading `currentSessionConfig` at call time.
 	mock.module("@earendil-works/pi-ai/providers/all", {
-		namedExports: {
-			getBuiltinModel: (provider: string, id: string) => {
-				if (slowSyncSetupMs > 0) {
-					const end = Date.now() + slowSyncSetupMs;
-					while (Date.now() < end) {
-						/* synchronous busy-wait: models slow setup before any await */
-					}
-				}
-				if (provider !== "anthropic") {
-					throw new Error(`unknown provider ${provider}`);
-				}
-				return { id, provider, api: "anthropic-messages" };
-			},
-		},
+		namedExports: createProviderMockExports(() => currentSessionConfig),
 	});
 
 	mock.module("@earendil-works/pi-coding-agent", {
-		namedExports: {
-			createAgentSession: async (opts: any) => {
-				// A setup that never settles models a provider/SDK hang: the
-				// dispatch must still return at the deadline with no prompt started.
-				if (currentSessionConfig.setupNeverSettles) {
-					await new Promise<never>(() => {});
-				}
-				// Setup delay models SDK session creation time — must count
-				// against the wall-clock deadline armed at runner entry.
-				if (currentSessionConfig.setupDelayMs) {
-					await sleep(currentSessionConfig.setupDelayMs);
-				}
-				return createMockSession();
-			},
-			SessionManager: createMockSessionManager(),
-			SettingsManager: createMockSettingsManager(),
-			createBashToolDefinition: (_cwd: string) => ({}),
-			createReadToolDefinition: (_cwd: string) => ({}),
-			createWriteToolDefinition: (_cwd: string) => ({}),
-			createEditToolDefinition: (_cwd: string) => ({}),
-			createGrepToolDefinition: (_cwd: string) => ({}),
-			createFindToolDefinition: (_cwd: string) => ({}),
-			createLsToolDefinition: (_cwd: string) => ({}),
-			initTheme: () => {},
-			getMarkdownTheme: () => ({}),
-		},
+		namedExports: createCodingAgentMockExports(() => currentSessionConfig),
 	});
 }
 
@@ -196,7 +55,6 @@ const mockPi: any = {
 
 function resetMocks(): void {
 	currentSessionConfig = {};
-	slowSyncSetupMs = 0;
 	(mockCtx.ui.setWidget as any).mock.resetCalls?.();
 	(mockCtx.ui.setWorkingMessage as any).mock.resetCalls?.();
 	(mockPi.sendMessage as any).mock.resetCalls?.();
@@ -379,7 +237,7 @@ if (hasMockModule) {
 			// 200ms of SYNCHRONOUS setup (a getBuiltinModel busy-wait) with a 100ms bound.
 			// The deadline is computed at ENTRY, so the total stays ≈200ms — it must
 			// never become setup + timeout (≈300ms).
-			slowSyncSetupMs = 200;
+			currentSessionConfig.slowSyncSetupMs = 200;
 			try {
 				const { runAgentInProcess } = await import("../agent/agent-session-runner.ts");
 				const startedAt = Date.now();
@@ -399,7 +257,7 @@ if (hasMockModule) {
 					`bound NOT extended by sync setup: expected ≈200ms, got ${elapsed}ms`,
 				);
 			} finally {
-				slowSyncSetupMs = 0;
+				currentSessionConfig.slowSyncSetupMs = 0;
 			}
 		});
 		it("never-settling session setup is bounded; no prompt starts, no background session (audit #2)", async () => {

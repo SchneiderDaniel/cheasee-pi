@@ -18,34 +18,12 @@ import {
 	runDuplicateCheck,
 } from "../checks/duplicate-code.ts";
 import type { ExecFn } from "../checks/shared.ts";
+import { createMockExec, type ExecCall } from "./helpers/exec-fakes.ts";
 
 // Split from duplicate-code.test.mts (issue #2035 Long File refactor).
 // ═══════════════════════════════════════════════════════════════════════
 // Use-case: runDuplicateCheck (with mocked exec)
 // ═══════════════════════════════════════════════════════════════════════
-
-interface ExecCall {
-	cmd: string;
-	args: string[];
-	opts?: Record<string, unknown>;
-}
-
-function createMockExec(
-	results: Array<{ code: number; stdout: string; stderr: string }>,
-	calls?: ExecCall[],
-): ExecFn {
-	const callLog = calls || [];
-	let idx = 0;
-	const fn: ExecFn = async (cmd, args, opts) => {
-		callLog.push({ cmd, args: args || [], opts });
-		// Don't advance index for which check — let it always succeed for results
-		const r = results[idx] || { code: 0, stdout: "", stderr: "" };
-		idx++;
-		return Promise.resolve(r);
-	};
-	(fn as unknown as { calls: ExecCall[] }).calls = callLog;
-	return fn;
-}
 
 describe("runDuplicateCheck()", () => {
 	it("calls git diff then jscpd with correct args", async () => {

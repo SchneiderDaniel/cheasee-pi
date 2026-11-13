@@ -12,6 +12,10 @@ import { createDefaultFooterConfig } from "../footer-state.ts";
 
 import { installFooter } from "../footer.ts";
 
+import { computeTps, formatTps } from "../formatting.ts";
+
+import type { TpsSample } from "../types.ts";
+
 interface ThresholdEntry {
 	maxTokens: number | null;
 	color: string;
@@ -51,45 +55,12 @@ function getWorktreeName(cwd: string): string | null {
 	}
 }
 
-interface TpsSample {
-	time: number;
-	cumulativeTokens: number;
-}
-
 interface ContextStatusBarConfig {
 	enabled: boolean;
 	thresholds: ThresholdEntry[];
 	showTimer: boolean;
 	showTps: boolean;
 	showCache: boolean;
-}
-
-function computeTps(samples: TpsSample[]): number | null {
-	if (samples.length < 2) return null;
-
-	const now = Date.now();
-	const cutoff = now - 30_000;
-
-	// Filter to 30s window
-	const active = samples.filter((s) => s.time >= cutoff);
-	if (active.length < 2) return null;
-
-	const first = active[0]!;
-	const last = active[active.length - 1]!;
-	const tokenDelta = last.cumulativeTokens - first.cumulativeTokens;
-	const timeDelta = last.time - first.time;
-
-	if (timeDelta <= 0) return null;
-	if (tokenDelta <= 0) return null;
-
-	return (tokenDelta / timeDelta) * 1000;
-}
-
-function formatTps(tps: number | null): string {
-	if (tps === null) return "-- t/s";
-	if (tps < 0.1) return "0.0 t/s";
-	if (tps > 999.9) return `${Math.round(tps)} t/s`;
-	return `${tps.toFixed(1)} t/s`;
 }
 
 function loadConfig(rawSettings: Record<string, unknown> | null): {

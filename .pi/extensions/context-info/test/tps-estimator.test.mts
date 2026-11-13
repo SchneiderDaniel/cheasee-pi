@@ -11,66 +11,14 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 
-// ---------------------------------------------------------------------------
-// Duplicated helpers from .pi/extensions/context-info.ts (TPS feature)
-// ---------------------------------------------------------------------------
+import { computeTps, formatTps } from "../formatting.ts";
+import type { TpsSample } from "../types.ts";
 
-interface TpsSample {
-	time: number;
-	cumulativeTokens: number;
-}
+// ---------------------------------------------------------------------------
+// Shared TPS helpers (production: ../formatting.ts)
+// ---------------------------------------------------------------------------
 
 const TPS_WINDOW_MS = 30_000;
-
-/**
- * Compute tokens-per-second from rolling buffer.
- * Returns null when buffer has insufficient data (< 2 samples or no time span).
- */
-function computeTps(samples: TpsSample[]): number | null {
-	if (samples.length < 2) return null;
-
-	const now = samples[samples.length - 1]!.time;
-	const cutoff = now - TPS_WINDOW_MS;
-
-	// Find first sample within window
-	let startIdx = -1;
-	for (let i = 0; i < samples.length; i++) {
-		if (samples[i]!.time >= cutoff) {
-			startIdx = i;
-			break;
-		}
-	}
-
-	// No samples within window
-	if (startIdx === -1) return null;
-
-	// Need at least 2 samples in window
-	const inWindow = samples.slice(startIdx);
-	if (inWindow.length < 2) return null;
-
-	const first = inWindow[0]!;
-	const last = inWindow[inWindow.length - 1]!;
-	const deltaTime = last.time - first.time;
-	const deltaTokens = last.cumulativeTokens - first.cumulativeTokens;
-
-	if (deltaTime <= 0 || deltaTokens <= 0) return null;
-
-	return (deltaTokens / deltaTime) * 1000;
-}
-
-/**
- * Format TPS value for display.
- * - null → "-- t/s"
- * - < 0.1 → "0.0 t/s"
- * - < 1000 → 1 decimal place (e.g. "42.5 t/s")
- * - >= 1000 → integer (e.g. "1234 t/s")
- */
-function formatTps(tps: number | null): string {
-	if (tps === null) return "-- t/s";
-	if (tps < 0.1) return "0.0 t/s";
-	if (tps < 1000) return `${tps.toFixed(1)} t/s`;
-	return `${Math.round(tps)} t/s`;
-}
 
 /**
  * Add a sample to the rolling buffer, pruning samples older than TPS_WINDOW_MS.
@@ -204,7 +152,8 @@ describe("computeTps", () => {
 		assert.strictEqual(computeTps([{ time: 0, cumulativeTokens: 100 }]), null);
 	});
 
-	it("two samples → correct rate", () => {
+	it("two samples → correct rate", (t) => {
+		t.mock.timers.enable({ apis: ["Date"], now: 2000 }); // production window anchors on Date.now()
 		const samples: TpsSample[] = [
 			{ time: 0, cumulativeTokens: 0 },
 			{ time: 2000, cumulativeTokens: 100 },
@@ -214,7 +163,8 @@ describe("computeTps", () => {
 		assert.strictEqual(result, 50);
 	});
 
-	it("three samples over 10s → 10 t/s", () => {
+	it("three samples over 10s → 10 t/s", (t) => {
+		t.mock.timers.enable({ apis: ["Date"], now: 10_000 });
 		const samples: TpsSample[] = [
 			{ time: 0, cumulativeTokens: 0 },
 			{ time: 5000, cumulativeTokens: 50 },
@@ -225,8 +175,9 @@ describe("computeTps", () => {
 		assert.strictEqual(result, 10);
 	});
 
-	it("samples older than 30s window are excluded", () => {
+	it("samples older than 30s window are excluded", (t) => {
 		const now = 60_000;
+		t.mock.timers.enable({ apis: ["Date"], now });
 		const samples: TpsSample[] = [
 			{ time: 0, cumulativeTokens: 0 }, // old — outside window
 			{ time: 35_000, cumulativeTokens: 100 }, // within window (60s - 35s = 25s ≤ 30s)
@@ -239,7 +190,8 @@ describe("computeTps", () => {
 		assert.strictEqual(result, 12);
 	});
 
-	it("zero token delta → null", () => {
+	it("zero token delta → null", (t) => {
+		t.mock.timers.enable({ apis: ["Date"], now: 5000 });
 		const samples: TpsSample[] = [
 			{ time: 0, cumulativeTokens: 100 },
 			{ time: 5000, cumulativeTokens: 100 },
@@ -247,7 +199,8 @@ describe("computeTps", () => {
 		assert.strictEqual(computeTps(samples), null);
 	});
 
-	it("only one sample within window → null", () => {
+	it("only one sample within window → null", (t) => {
+		t.mock.timers.enable({ apis: ["Date"], now: 31_000 });
 		const samples: TpsSample[] = [
 			{ time: 0, cumulativeTokens: 0 }, // 31s ago → before cutoff
 			{ time: 500, cumulativeTokens: 10 }, // 30.5s ago → before cutoff
@@ -259,8 +212,9 @@ describe("computeTps", () => {
 		assert.strictEqual(computeTps(samples), null);
 	});
 
-	it("exactly at 30s boundary → included", () => {
+	it("exactly at 30s boundary → included", (t) => {
 		const now = 60_000;
+		t.mock.timers.enable({ apis: ["Date"], now });
 		const samples: TpsSample[] = [
 			{ time: 30_000, cumulativeTokens: 0 }, // exactly at cutoff
 			{ time: now, cumulativeTokens: 300 },
@@ -371,7 +325,10 @@ describe("loadConfig — showTps", () => {
 // ---------------------------------------------------------------------------
 
 describe("rolling buffer + computeTps integration", () => {
-	it("simulates a 30s generation at 20 t/s", () => {
+	it("simulates a 30s generation at 20 t/s", (t) => {
+		// Production computeTps anchors its window on Date.now() — freeze the
+		// clock at the last simulated sample (t = 30s).
+		t.mock.timers.enable({ apis: ["Date"], now: 30_000 });
 		let samples: TpsSample[] = [];
 		let cumulativeTokens = 0;
 
@@ -386,7 +343,8 @@ describe("rolling buffer + computeTps integration", () => {
 		assert.ok(Math.abs(tps - 20) < 0.1, `Expected ~20 t/s, got ${tps}`);
 	});
 
-	it("persists last computed TPS after idle (single sample in buffer → still shows last value)", () => {
+	it("persists last computed TPS after idle (single sample in buffer → still shows last value)", (t) => {
+		t.mock.timers.enable({ apis: ["Date"], now: 30_000 });
 		// After generation ends, last sample stays in buffer
 		// computeTps returns null with < 2 samples, but the display
 		// should use lastComputedTps — this test verifies the buffer state
@@ -404,7 +362,8 @@ describe("rolling buffer + computeTps integration", () => {
 		assert.strictEqual(tps2, 20);
 	});
 
-	it("handles response reset mid-stream", () => {
+	it("handles response reset mid-stream", (t) => {
+		t.mock.timers.enable({ apis: ["Date"], now: 4000 });
 		// First response
 		let samples: TpsSample[] = [
 			{ time: 0, cumulativeTokens: 0 },
@@ -420,7 +379,8 @@ describe("rolling buffer + computeTps integration", () => {
 		// No TPS with single sample
 		assert.strictEqual(computeTps(samples), null);
 
-		// Now new response generates tokens
+		// Now new response generates tokens — advance the frozen clock with the stream
+		t.mock.timers.setTime(9000);
 		samples = addTpsSample(samples, 30, 7000);
 		samples = addTpsSample(samples, 60, 9000);
 
