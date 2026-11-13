@@ -221,13 +221,13 @@ def _execute_analysis(source, out_dir):
     if not markdown:
         return _run_failure("no-markdown", "analyzer produced no markdown report")
     if len(markdown) > _MAX_REPORT_BYTES:
-        return _run_failure("analyzer-error", "markdown report exceeds the 16 MiB limit")
+        return _run_failure("analyzer-error", "markdown report exceeds the 32 MiB limit")
     json_bytes = None
     json_name = envelope.get("json")
     if isinstance(json_name, str) and json_name:
         json_bytes = _read_artifact(out_dir, json_name)
         if json_bytes is not None and len(json_bytes) > _MAX_REPORT_BYTES:
-            return _run_failure("analyzer-error", "json report exceeds the 16 MiB limit")
+            return _run_failure("analyzer-error", "json report exceeds the 32 MiB limit")
     return {
         "reason": None,
         "error": None,

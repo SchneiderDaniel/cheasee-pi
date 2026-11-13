@@ -60,7 +60,7 @@ BRIDGE_JS = br"""(function () {
         if (!res.ok) {
           reportError(
             url + " -> HTTP " + res.status +
-            (res.status === 413 ? " (report exceeds the 16 MiB limit)" : "")
+            (res.status === 413 ? " (report exceeds the 32 MiB limit)" : "")
           );
         } else {
           try { window.__codeflowBridgeError = null; } catch (e) {}
