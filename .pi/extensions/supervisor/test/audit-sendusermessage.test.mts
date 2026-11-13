@@ -143,16 +143,16 @@ describe("pipeline/audit — CI failure path preserves behavior (Phase 2)", () =
 			issueTitle: "t",
 			pollCiChecksFn: (async () => ({
 				status: "failing",
-				checks: [{ name: "build", conclusion: "failure" }],
+				checks: [{ name: "build", status: "completed", conclusion: "failure" }],
+				failingChecks: ["build"],
 				message: "CI build failed",
 			})) as any,
 		} as PreGateDeps;
 
-		const result = await runCiGate(
-			deps,
-			{ ciGatingTimeoutSec: 30, defaultBranch: "main" } as SupervisorConfig,
-			"/wt",
-		);
+		const result = await runCiGate(deps, {
+			ciGatingTimeoutSec: 30,
+			defaultBranch: "main",
+		} as SupervisorConfig);
 
 		assert.equal(result.failureText, "--- CI Gate ---\nCI build failed");
 		assert.equal(notify.mock.callCount(), 1);

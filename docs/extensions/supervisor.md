@@ -137,17 +137,17 @@ flowchart LR
 
 ### 1. CI gating
 
-Polls GitHub check runs for the worktree branch via `gh api repos/<repo>/commits/<sha>/check-runs`. Polls every 15s up to `ciGatingTimeoutSec` (default 300s).
+Resolves the open pull request for the worktree branch (`gh api repos/<repo>/pulls?head=<owner>:<branch>&state=open`), then polls the check runs of that PR's head SHA via `gh api --paginate repos/<repo>/commits/<sha>/check-runs?filter=latest`. Polls every 15s up to `ciGatingTimeoutSec` (default 600s).
 
-| Result                          | Action                    |
-| ------------------------------- | ------------------------- |
-| All checks pass                 | Proceed                   |
-| Any check fails                 | Block → Implementation    |
-| Checks still pending at timeout | Warning, proceed to audit |
-| No checks configured            | Skip silently             |
-| `gh api` error                  | Warning, proceed to audit |
+| Result                            | Action                                  |
+| --------------------------------- | --------------------------------------- |
+| All checks completed successfully | Proceed (`skipped`/`neutral` tolerated) |
+| Any check fails                   | Block → Implementation, names the check |
+| Checks still pending at timeout   | Block → Implementation                  |
+| No checks configured (60s grace)  | Warning, proceed to audit               |
+| No open PR / `gh api` error       | Block → Implementation (fail-closed)    |
 
-If the branch SHA isn't on remote yet (push still in flight), the gate attempts **push recovery**: it pushes the branch from worktree, then retries SHA resolution.
+Blocking conclusions are `failure`, `cancelled`, `action_required`, `timed_out` and `stale`. Set `ciGatingTimeoutSec: 0` to disable the gate entirely.
 
 ### 2. TSC checkpoint
 
@@ -255,7 +255,7 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
 		"codeowners": ["your-github-username"],
 		"maxRejections": 3,
 		"auditScoreThreshold": 0.75,
-		"ciGatingTimeoutSec": 300,
+		"ciGatingTimeoutSec": 600,
 		"agentTokenBudget": 300000,
 		"maxToolCalls": 0,
 		"agentTimeoutsMin": {},
@@ -284,7 +284,7 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
 | `branchPrefix`               | `worktree-git-issue-`                 | Prefix for worktree branch names                                                                                                                                               |
 | `maxRejections`              | `3`                                   | Max auditor rejections before pipeline stops                                                                                                                                   |
 | `auditScoreThreshold`        | `0.75`                                | Minimum passing/total ratio for audit score gate                                                                                                                               |
-| `ciGatingTimeoutSec`         | `300`                                 | Seconds to poll CI before giving up. `0` = skip CI gate entirely                                                                                                               |
+| `ciGatingTimeoutSec`         | `600`                                 | Seconds to poll PR check runs before blocking the transition. `0` = skip CI gate entirely                                                                                      |
 | `agentTokenBudget`           | `0`                                   | Soft token cap per agent dispatch. `0` = unlimited                                                                                                                             |
 | `maxToolCalls`               | `0`                                   | Hard cap on tool invocations per agent. `0` = unlimited                                                                                                                        |
 | `agentTimeoutsMin`           | `{}`                                  | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`)                                                     |

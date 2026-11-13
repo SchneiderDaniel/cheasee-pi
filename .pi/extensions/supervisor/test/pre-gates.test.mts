@@ -98,79 +98,171 @@ const CLEAN_OSV: OsvScanResult = {
 	ccFindingsFlagged: false,
 };
 
-const ciResult = (status: CiPollResult["status"], message = "ci message"): CiPollResult => ({
+/** Collects (message, level) pairs from ui.notify for policy assertions. */
+function notifySpy(sink: Array<[string, string]>): ExtensionCommandContext["ui"] {
+	return {
+		notify: (msg: string, level: string) => sink.push([msg, level]),
+	} as unknown as ExtensionCommandContext["ui"];
+}
+
+const ciResult = (
+	status: CiPollResult["status"],
+	message = "ci message",
+	failingChecks: string[] = [],
+): CiPollResult => ({
 	status,
 	checks: [],
 	message,
+	failingChecks,
 });
 
 // ── runCiGate ──────────────────────────────────────────────────────
+// Issue #1828: the gate is blocking. Only `passing` (and `unconfigured`,
+// which warns) let the pipeline reach Audit; `failing`, `pending` and
+// `error` all produce a gate failure text.
 
-describe("runCiGate (Issue #1407 split)", () => {
-	it("failing → failureText `--- CI Gate ---\\n<message>`", async () => {
+describe("runCiGate (Issue #1828 blocking policy)", () => {
+	it("(use-case) passing → no failure text, no notification", async () => {
 		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
-			ui: {
-				notify: (msg: string, level: string) => notifyCalls.push([msg, level]),
-			} as unknown as ExtensionCommandContext["ui"],
-			pollCiChecksFn: async () =>
-				ciResult("failing", "2 check(s) failed: build, lint") as Awaited<
-					ReturnType<NonNullable<PreGateDeps["pollCiChecksFn"]>>
-				>,
+			ui: notifySpy(notifyCalls),
+			pollCiChecksFn: async () => ciResult("passing", "All 3 CI check(s) passing."),
 		});
-		const result = await runCiGate(deps, makeConfig(), "/wt");
-		assert.equal(result.failureText, "--- CI Gate ---\n2 check(s) failed: build, lint");
+
+		const result = await runCiGate(deps, makeConfig());
+
+		assert.equal(result.failureText, null);
+		assert.equal(notifyCalls.length, 0, "passing CI must stay silent");
+	});
+
+	it("(use-case) failing → `--- CI Gate ---\\n<message>` and one warning naming the checks", async () => {
+		const notifyCalls: Array<[string, string]> = [];
+		const deps = makeDeps({
+			ui: notifySpy(notifyCalls),
+			pollCiChecksFn: async () => ciResult("failing", "CI checks failing: build.", ["build"]),
+		});
+
+		const result = await runCiGate(deps, makeConfig());
+
+		assert.equal(result.failureText, "--- CI Gate ---\nCI checks failing: build.");
 		assert.equal(notifyCalls.length, 1);
-		assert.ok(notifyCalls[0]![0].includes("CI checks failing"));
+		assert.ok(
+			notifyCalls[0]![0].includes("build"),
+			`notify must name the check: ${notifyCalls[0]![0]}`,
+		);
 		assert.equal(notifyCalls[0]![1], "warning");
 	});
 
-	it("pending → null with warning notify", async () => {
+	it("(use-case) failing with two names → both names visible in the failure text", async () => {
+		const deps = makeDeps({
+			pollCiChecksFn: async () => ciResult("failing", "CI checks failing.", ["build", "e2e"]),
+		});
+
+		const result = await runCiGate(deps, makeConfig());
+
+		assert.ok(result.failureText, "failing CI must block");
+		assert.ok(result.failureText!.includes("build"), result.failureText!);
+		assert.ok(result.failureText!.includes("e2e"), result.failureText!);
+	});
+
+	it("(use-case) pending at timeout blocks with a ciGatingTimeoutSec hint", async () => {
 		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
-			ui: {
-				notify: (msg: string, level: string) => notifyCalls.push([msg, level]),
-			} as unknown as ExtensionCommandContext["ui"],
-			pollCiChecksFn: async () =>
-				ciResult("pending") as Awaited<ReturnType<NonNullable<PreGateDeps["pollCiChecksFn"]>>>,
+			ui: notifySpy(notifyCalls),
+			pollCiChecksFn: async () => ciResult("pending", "CI checks still pending after 30s."),
 		});
-		const result = await runCiGate(deps, makeConfig(), "/wt");
-		assert.equal(result.failureText, null);
+
+		const result = await runCiGate(deps, makeConfig());
+
+		assert.ok(result.failureText, "pending at timeout must block");
+		assert.equal(notifyCalls.length, 1);
+		assert.equal(notifyCalls[0]![1], "warning");
+		assert.ok(
+			notifyCalls[0]![0].includes("ciGatingTimeoutSec"),
+			`notify must mention ciGatingTimeoutSec: ${notifyCalls[0]![0]}`,
+		);
+	});
+
+	it("(use-case) error blocks (fail-closed) with a warning", async () => {
+		const notifyCalls: Array<[string, string]> = [];
+		const deps = makeDeps({
+			ui: notifySpy(notifyCalls),
+			pollCiChecksFn: async () => ciResult("error", "gh: no open pull request for branch."),
+		});
+
+		const result = await runCiGate(deps, makeConfig());
+
+		assert.ok(result.failureText, "error must block");
+		assert.ok(result.failureText!.includes("no open pull request"), result.failureText!);
 		assert.equal(notifyCalls.length, 1);
 		assert.equal(notifyCalls[0]![1], "warning");
 	});
 
-	it("error → null with warning notify", async () => {
+	it("(use-case) unconfigured → no failure text but a warning (AC4)", async () => {
+		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
+			ui: notifySpy(notifyCalls),
 			pollCiChecksFn: async () =>
-				ciResult("error") as Awaited<ReturnType<NonNullable<PreGateDeps["pollCiChecksFn"]>>>,
+				ciResult("unconfigured", "No CI checks configured for this repo."),
 		});
-		const result = await runCiGate(deps, makeConfig(), "/wt");
+
+		const result = await runCiGate(deps, makeConfig());
+
 		assert.equal(result.failureText, null);
+		assert.equal(notifyCalls.length, 1, "unconfigured is a warning, not silence");
+		assert.equal(notifyCalls[0]![1], "warning");
 	});
 
-	it("unconfigured → null, silent", async () => {
-		const deps = makeDeps({
-			pollCiChecksFn: async () =>
-				ciResult("unconfigured") as Awaited<ReturnType<NonNullable<PreGateDeps["pollCiChecksFn"]>>>,
-		});
-		const result = await runCiGate(deps, makeConfig(), "/wt");
-		assert.equal(result.failureText, null);
-	});
-
-	it("ciGatingTimeoutSec unset/0 → null and runner NOT invoked", async () => {
+	it("(use-case) ciGatingTimeoutSec 0 → fail-open, runner not invoked", async () => {
 		let invoked = false;
 		const deps = makeDeps({
 			pollCiChecksFn: async () => {
 				invoked = true;
-				return ciResult("failing") as Awaited<
-					ReturnType<NonNullable<PreGateDeps["pollCiChecksFn"]>>
-				>;
+				return ciResult("failing");
 			},
 		});
-		const disabled = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: 0 }), "/wt");
-		assert.equal(disabled.failureText, null);
-		assert.equal(invoked, false, "runner must not run when CI gating disabled");
+
+		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: 0 }));
+
+		assert.equal(result.failureText, null);
+		assert.equal(invoked, false, "runner must not run when CI gating is disabled");
+	});
+
+	it("(use-case) ciGatingTimeoutSec unset → fail-open, runner not invoked", async () => {
+		let invoked = false;
+		const deps = makeDeps({
+			pollCiChecksFn: async () => {
+				invoked = true;
+				return ciResult("failing");
+			},
+		});
+
+		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: undefined }));
+
+		assert.equal(result.failureText, null);
+		assert.equal(invoked, false);
+	});
+
+	it("(use-case) policy follows status only — runCiGate no longer re-filters conclusions", async () => {
+		const failureChecks = [{ name: "build", status: "completed", conclusion: "failure" }];
+		const deps = makeDeps({
+			pollCiChecksFn: async () => ({ ...ciResult("failing", "CI is red."), checks: failureChecks }),
+		});
+		const blocking = await runCiGate(deps, makeConfig());
+		assert.equal(blocking.failureText, "--- CI Gate ---\nCI is red.");
+
+		const passingDeps = makeDeps({
+			pollCiChecksFn: async () => ({
+				...ciResult("passing", "All checks passing."),
+				checks: failureChecks,
+			}),
+		});
+		const allowed = await runCiGate(passingDeps, makeConfig());
+		assert.equal(
+			allowed.failureText,
+			null,
+			"status alone decides; conclusions are not re-filtered",
+		);
 	});
 });
 
