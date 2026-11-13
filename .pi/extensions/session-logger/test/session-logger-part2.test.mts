@@ -11,6 +11,8 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
 
+import { extractText, type LogRecord, type TokenUsage } from "./helpers/record-fixtures.ts";
+
 // ---------------------------------------------------------------------------
 // Import functions under test
 // ---------------------------------------------------------------------------
@@ -38,32 +40,7 @@ function truncate(text: string, head: number, tail = 0): string {
 	return text.slice(0, head) + `\n\n[... ${cut} chars truncated ...]`;
 }
 
-function extractText(blocks: unknown): string {
-	if (typeof blocks === "string") return blocks;
-	if (!Array.isArray(blocks)) return "";
-	return blocks
-		.filter((b: any) => b.type === "text")
-		.map((b: any) => b.text)
-		.join("\n\n");
-}
-
 // Replicate serializeRecord
-interface TokenUsage {
-	input: number;
-	output: number;
-	total: number;
-}
-
-interface LogRecord {
-	timestamp: string;
-	agent: string;
-	tool: string;
-	token_usage?: TokenUsage;
-	error: string | null;
-	loop_step: number;
-	payload: Record<string, unknown>;
-}
-
 function serializeRecord(record: LogRecord): string {
 	const normalized: LogRecord = {
 		timestamp: record.timestamp,
@@ -78,19 +55,6 @@ function serializeRecord(record: LogRecord): string {
 }
 
 // Replicate event mappers
-function userMessageToRecord(msg: any, step: number): LogRecord {
-	const text = extractText(msg.content);
-	return {
-		timestamp:
-			typeof msg.timestamp === "string" ? msg.timestamp : new Date(msg.timestamp).toISOString(),
-		agent: "user",
-		tool: "message",
-		error: null,
-		loop_step: step,
-		payload: { role: "user", content: text },
-	};
-}
-
 function assistantMessageToRecord(msg: any, step: number): LogRecord {
 	const texts: string[] = [];
 	const thinking: string[] = [];
