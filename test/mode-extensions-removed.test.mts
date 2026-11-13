@@ -13,11 +13,26 @@
 // records, so the committed `.pi/settings.json` must not list the package —
 // otherwise a rebuilt image loads Ponytail from the checkout again.
 //
+// Configuration is not the whole contract: the last suite boots the pi CLI and
+// reads what a real startup produced (registered commands, the footer/status
+// entries extensions set, the modules it actually loaded), because a settings
+// file can be clean while a stale clone still gets loaded from elsewhere.
+//
 // Run: node --experimental-strip-types --test test/mode-extensions-removed.test.mts
 
-import { describe, it } from "node:test";
+import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	realpathSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -431,5 +446,184 @@ describe("response modes #2072 — the prompt-audit layer knows one injection", 
 		]) {
 			assert.equal(/caveman|ponytail/i.test(read(rel)), false, `${rel} still names a mode`);
 		}
+	});
+});
+
+// ─── Live startup probe ───────────────────────────────────────────
+// The suites above read files; this one asks pi. Ponytail rendered itself
+// through three surfaces: a `/ponytail*` command family, a `ponytail` footer
+// entry set with `ctx.ui.setStatus`, and the footer factory it could install
+// from the same module. RPC mode reports the registered command set and
+// forwards `setStatus` as an `extension_ui_request`, so the command and
+// footer/status surfaces arrive as machine-readable events. `setFooter` is a
+// TUI-only hook that RPC mode ignores, which is why the loaded module paths are
+// pumped too: a footer factory can only come from a module pi actually loaded.
+
+/** The feature words a loaded mode integration prints on any surface: the
+ *  command it registers, the footer/status entry it sets. */
+const MODE_SURFACE_PATTERN = /ponytail|caveman/i;
+
+/** How long a real pi startup gets before the probe fails. Warm startup is
+ *  ~2s; the ceiling is for a cold CI runner, not for a slow assertion. */
+const STARTUP_TIMEOUT_MS = 120_000;
+
+/** One command as pi reports it from the live startup. */
+interface StartupCommand {
+	name?: string;
+	description?: string;
+	source?: string;
+	sourceInfo?: { path?: string; source?: string };
+}
+
+/** What a real pi startup produced: the commands it registered and every
+ *  fire-and-forget UI call its extensions made (status entries, widgets,
+ *  notifications). */
+interface StartupProbe {
+	commands: StartupCommand[];
+	uiRequests: Array<Record<string, unknown>>;
+}
+
+/** The pi CLI under test: the CI-declared binary, else the one `npm ci` links
+ *  into this workspace. No silent skip — the smoke check is the only live
+ *  evidence the removal holds, so a missing CLI fails it. */
+function piBinary(): string {
+	for (const candidate of [process.env.PI_BIN, resolve(ROOT, "node_modules", ".bin", "pi")]) {
+		if (candidate && existsSync(candidate)) return candidate;
+	}
+	throw new Error("pi CLI not found: set PI_BIN or run npm ci in the repository root");
+}
+
+/** Boot pi against this project and record the surfaces it produced. The
+ *  agent directory is a temp dir so a developer's own user-level extensions
+ *  cannot collide with the project's and mask the result. */
+function probeStartup(): StartupProbe {
+	const agentDir = mkdtempSync(join(tmpdir(), "pi-startup-smoke-"));
+	try {
+		const run = spawnSync(piBinary(), ["--mode", "rpc", "--offline", "--no-session", "--approve"], {
+			cwd: ROOT,
+			encoding: "utf-8",
+			input: `${JSON.stringify({ type: "get_commands" })}\n`,
+			timeout: STARTUP_TIMEOUT_MS,
+			env: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
+		});
+		const stdout = run.stdout ?? "";
+		const stderr = run.stderr ?? "";
+		if (run.error) throw new Error(`pi startup failed: ${run.error.message}\n${stderr}`);
+		if (run.status !== 0) throw new Error(`pi startup exited ${run.status}\n${stderr}`);
+		const events = stdout
+			.split("\n")
+			.filter((line) => line.trim() !== "")
+			.map((line) => {
+				try {
+					return JSON.parse(line) as Record<string, unknown>;
+				} catch {
+					throw new Error(`pi emitted a non-JSON line: ${line}`);
+				}
+			});
+		const answer = events.find(
+			(event) => event.type === "response" && event.command === "get_commands",
+		);
+		if (!answer || answer.success !== true) {
+			throw new Error(
+				`pi answered no get_commands response\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+			);
+		}
+		const commands = (answer.data as { commands?: StartupCommand[] } | undefined)?.commands;
+		if (!Array.isArray(commands)) {
+			throw new Error(`pi answered get_commands without a command list\nstdout:\n${stdout}`);
+		}
+		return { commands, uiRequests: events.filter((e) => e.type === "extension_ui_request") };
+	} finally {
+		// Temp agent state, including the auth/settings stubs pi writes on boot.
+		rmSync(agentDir, { recursive: true, force: true });
+	}
+}
+
+/** The display strings a UI request carries — every label an extension could
+ *  print a mode name into (footer/status entries, widgets, notifications). */
+function uiRequestText(request: Record<string, unknown>): string {
+	const fields = ["message", "title", "text", "statusKey", "statusText", "widgetKey"];
+	const parts = fields
+		.map((field) => request[field])
+		.filter((value): value is string => typeof value === "string");
+	const lines = request.widgetLines;
+	if (Array.isArray(lines)) {
+		parts.push(...lines.filter((line): line is string => typeof line === "string"));
+	}
+	return parts.join(" ");
+}
+
+/** Labelled surfaces of one startup that name a removed mode. Shared by the
+ *  live probe and its teeth sample, so the assertion and the canary cannot
+ *  drift apart. */
+function modeSurfaceHits(probe: StartupProbe): string[] {
+	const hits: string[] = [];
+	for (const command of probe.commands) {
+		const label = [command.name, command.description].filter(Boolean).join(" ");
+		if (MODE_SURFACE_PATTERN.test(label)) hits.push(`command ${command.name ?? "<unnamed>"}`);
+	}
+	for (const request of probe.uiRequests) {
+		if (MODE_SURFACE_PATTERN.test(uiRequestText(request))) {
+			hits.push(`ui request ${String(request.method)}`);
+		}
+	}
+	return hits;
+}
+
+describe("response modes #2072 — a real pi startup loads no mode surface", () => {
+	let probe: StartupProbe;
+	before(() => {
+		probe = probeStartup();
+	});
+
+	it("the startup loaded the project's own extensions", () => {
+		// Teeth for every assertion below: a startup that loaded nothing would
+		// satisfy them all without proving anything.
+		const fromExtensions = probe.commands.filter((command) => command.source === "extension");
+		assert.ok(
+			fromExtensions.length > 0,
+			"no extension registered a command — the startup probe proves nothing",
+		);
+	});
+
+	it("registers no ponytail or caveman command, and sets no such footer entry", () => {
+		assert.deepEqual(modeSurfaceHits(probe), [], "a removed mode is still live in the UI");
+	});
+
+	it("loads no module from the Ponytail package", () => {
+		// The footer factory arrives with the module, and RPC mode drops
+		// `setFooter` on the floor: the load set is what can be observed, and it
+		// covers the factory as well as the commands and status entries.
+		const loaded = probe.commands
+			.map((command) => command.sourceInfo?.path ?? "")
+			.filter((path) => path.includes(PONYTAIL_SOURCE));
+		assert.deepEqual(loaded, [], `pi loaded an extension from ${PONYTAIL_SOURCE}`);
+	});
+
+	it("the surface matcher fires on the surfaces Ponytail actually used", () => {
+		// Independent sample: the command name and the footer/status entry are
+		// what the removed extension registered.
+		const sample: StartupProbe = {
+			commands: [
+				{
+					name: "ponytail",
+					description: "Lazy senior dev mode",
+					source: "extension",
+					sourceInfo: {
+						path: resolve(ROOT, ".pi/git/github.com", PONYTAIL_SOURCE, "pi-extension/index.js"),
+					},
+				},
+			],
+			uiRequests: [
+				{ method: "setStatus", statusKey: "ponytail", statusText: "ponytail: balanced" },
+			],
+		};
+		assert.deepEqual(modeSurfaceHits(sample), ["command ponytail", "ui request setStatus"]);
+		// Negative control: an unrelated status entry must not trip it.
+		assert.deepEqual(
+			modeSurfaceHits({ commands: [], uiRequests: [{ method: "setStatus", statusKey: "rtk" }] }),
+			[],
+			"the surface matcher fires on an unrelated footer entry",
+		);
 	});
 });
