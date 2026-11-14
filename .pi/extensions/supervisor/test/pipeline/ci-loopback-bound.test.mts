@@ -252,9 +252,10 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 	it("(use-case) CI block refreshes the PR body with the new gate-history entry", async () => {
 		const stageState = createStageState("Implementation");
 		const runCtx = buildRunCtx({ stageState });
-		const upsertDeveloperPrFn = mock.fn(
-			async (_deps: { gateFailureHistory?: string[] }) => ({ success: true, source: "developer-pr" }),
-		);
+		const upsertDeveloperPrFn = mock.fn(async (_deps: { gateFailureHistory?: string[] }) => ({
+			success: true,
+			source: "developer-pr",
+		}));
 
 		await runPreTransitionHooks(runCtx, IMPLEMENTATION_STEP, "Audit", "developer", DATA, 2, {
 			runAuditFn: (async () => ({
@@ -269,7 +270,8 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 		assert.equal(upsertDeveloperPrFn.mock.callCount(), 1, "the PR body is refreshed once");
 		const deps = upsertDeveloperPrFn.mock.calls[0]!.arguments[0] as {
 			gateFailureHistory?: string[];
-		};		assert.deepEqual(deps.gateFailureHistory, [
+		};
+		assert.deepEqual(deps.gateFailureHistory, [
 			"CI Gate (failing: build) gate failed on run 2 — developer restarted",
 		]);
 	});
@@ -286,16 +288,17 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			DATA,
 			1,
 			{
-			runAuditFn: (async () => ({
-				nextStatus: "Implementation",
-				note: CI_NOTE,
-				ciFailureText: CI_NOTE,
-			})) as never,
-			postCiGateRejectionFn: (async () => 1) as never,
-			upsertDeveloperPrFn: (async () => {
-				throw new Error("PR API down");
-			}) as never,
-		});
+				runAuditFn: (async () => ({
+					nextStatus: "Implementation",
+					note: CI_NOTE,
+					ciFailureText: CI_NOTE,
+				})) as never,
+				postCiGateRejectionFn: (async () => 1) as never,
+				upsertDeveloperPrFn: (async () => {
+					throw new Error("PR API down");
+				}) as never,
+			},
+		);
 
 		assert.deepEqual(outcome, { kind: "next", status: "Implementation" });
 		assert.ok(

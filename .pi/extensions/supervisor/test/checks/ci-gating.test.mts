@@ -470,7 +470,10 @@ describe("pollCiChecks — expected head SHA (issue #1829)", () => {
 
 	it("(adapter) resolved head equals expectedHeadSha → normal classification", async () => {
 		const clock = makeClock();
-		const pi = piForPolls(pullsOk(PUSHED), checkRunsResult(checkRun("build", "completed", "success")));
+		const pi = piForPolls(
+			pullsOk(PUSHED),
+			checkRunsResult(checkRun("build", "completed", "success")),
+		);
 
 		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
 			sleepFn: clock.sleepFn,
@@ -484,7 +487,11 @@ describe("pollCiChecks — expected head SHA (issue #1829)", () => {
 	it("(adapter) resolved head differs from expectedHeadSha → pending naming both SHAs, zero check-runs calls", async () => {
 		const calls: ExecCall[] = [];
 		const clock = makeClock();
-		const pi = piForPolls(pullsOk(STALE), checkRunsResult(checkRun("build", "completed", "success")), calls);
+		const pi = piForPolls(
+			pullsOk(STALE),
+			checkRunsResult(checkRun("build", "completed", "success")),
+			calls,
+		);
 
 		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
 			sleepFn: clock.sleepFn,
@@ -493,8 +500,14 @@ describe("pollCiChecks — expected head SHA (issue #1829)", () => {
 		});
 
 		assert.equal(result.status, "pending");
-		assert.ok(result.message.includes(PUSHED), `message must name the pushed SHA: ${result.message}`);
-		assert.ok(result.message.includes(STALE), `message must name the polled SHA: ${result.message}`);
+		assert.ok(
+			result.message.includes(PUSHED),
+			`message must name the pushed SHA: ${result.message}`,
+		);
+		assert.ok(
+			result.message.includes(STALE),
+			`message must name the polled SHA: ${result.message}`,
+		);
 		assert.equal(calls.filter(isCheckRunsCall).length, 0, "must not classify a stale commit");
 		assert.deepEqual(result.failingChecks, []);
 	});
@@ -516,7 +529,10 @@ describe("pollCiChecks — expected head SHA (issue #1829)", () => {
 
 	it("(adapter) head mismatch while the polled SHA is red → pending (mismatch wins over failing)", async () => {
 		const clock = makeClock();
-		const pi = piForPolls(pullsOk(STALE), checkRunsResult(checkRun("build", "completed", "failure")));
+		const pi = piForPolls(
+			pullsOk(STALE),
+			checkRunsResult(checkRun("build", "completed", "failure")),
+		);
 
 		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
 			sleepFn: clock.sleepFn,
@@ -525,7 +541,11 @@ describe("pollCiChecks — expected head SHA (issue #1829)", () => {
 		});
 
 		assert.equal(result.status, "pending");
-		assert.deepEqual(result.failingChecks, [], "a stale commit's red checks are not attributed to this push");
+		assert.deepEqual(
+			result.failingChecks,
+			[],
+			"a stale commit's red checks are not attributed to this push",
+		);
 	});
 
 	it("(adapter) empty-string expectedHeadSha → error naming the missing SHA", async () => {
@@ -549,7 +569,10 @@ describe("pollCiChecks — expected head SHA (issue #1829)", () => {
 
 	it("(adapter) omitted expectedHeadSha → unchanged classification (regression)", async () => {
 		const clock = makeClock();
-		const pi = piForPolls(pullsOk(STALE), checkRunsResult(checkRun("build", "completed", "success")));
+		const pi = piForPolls(
+			pullsOk(STALE),
+			checkRunsResult(checkRun("build", "completed", "success")),
+		);
 
 		const result = await pollCiChecks(pi, BRANCH, REPO, 60, {
 			sleepFn: clock.sleepFn,

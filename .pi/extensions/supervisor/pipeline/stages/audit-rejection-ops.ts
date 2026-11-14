@@ -98,7 +98,10 @@ export async function postCiGateRejection(
 	const next = await bumpRejectCounter(port, issueNum, config.repo, collector);
 	try {
 		await port.postIssueComment(issueNum, config.repo, buildCiGateRejectionBody(note, iteration));
-		ctx.ui.notify(`CI gate rejection posted on issue #${issueNum} — developer resumes with the red checks.`, "warning");
+		ctx.ui.notify(
+			`CI gate rejection posted on issue #${issueNum} — developer resumes with the red checks.`,
+			"warning",
+		);
 	} catch (err: unknown) {
 		const msg = err instanceof Error ? err.message : String(err);
 		collector?.push("stages", "error", `Failed to post CI gate rejection: ${msg}`);
@@ -106,8 +109,7 @@ export async function postCiGateRejection(
 		try {
 			await port.removeIssueLabel(issueNum, config.repo, rejectLabel(next));
 		} catch (rollbackErr: unknown) {
-			const rollbackMsg =
-				rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
+			const rollbackMsg = rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr);
 			collector?.push("stages", "warn", `Failed to roll back reject label: ${rollbackMsg}`);
 		}
 		throw new Error(`Failed to post CI gate rejection: ${msg}`);

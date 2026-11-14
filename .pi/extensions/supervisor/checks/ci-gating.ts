@@ -124,8 +124,7 @@ export async function pollCiChecks(
 			status: "error",
 			checks: [],
 			failingChecks: [],
-			message:
-				"CI gate has no expected head SHA to verify — refusing to classify check runs.",
+			message: "CI gate has no expected head SHA to verify — refusing to classify check runs.",
 		};
 	}
 

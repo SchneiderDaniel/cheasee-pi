@@ -151,10 +151,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.equal(
-			result.failureText,
-			"--- CI Gate (failing: build) ---\nCI checks failing: build.",
-		);
+		assert.equal(result.failureText, "--- CI Gate (failing: build) ---\nCI checks failing: build.");
 		assert.equal(notifyCalls.length, 1);
 		assert.ok(
 			notifyCalls[0]![0].includes("build"),

@@ -363,8 +363,42 @@ export interface PreTransitionHookDeps {
 
 /** Control-flow signal of the pre-transition hooks: continue or stop. */
 export type PreTransitionOutcome =
-	| { kind: "next"; status: string }
-	| { kind: "stop"; stopReason: string };
+	{ kind: "next"; status: string } | { kind: "stop"; stopReason: string };
+
+/**
+ * Record a CI-gate block as a counted loop-back (issue #1829 AC1/AC2). A failed
+ * counter write stops the pipeline: an uncounted loop-back would spin forever.
+ */
+async function recordCiBlock(
+	runCtx: RunContext,
+	note: string,
+	iteration: number,
+	deps: PreTransitionHookDeps,
+): Promise<PreTransitionOutcome | null> {
+	const { ctx, pi, config, issueNum, issueTitle, collector, stageState, worktreePath } = runCtx;
+	const recorded = await recordCiLoopBack({
+		issueNum,
+		config,
+		note,
+		iteration,
+		ctx,
+		collector,
+		port: runCtx.port,
+		pr: {
+			pi,
+			issueTitle,
+			worktreePath,
+			worktreeBranch: runCtx.worktreeBranch,
+			gateFailureHistory: stageState.gateFailureHistory,
+		},
+		overrides: { postRejection: deps.postCiGateRejectionFn, upsertPr: deps.upsertDeveloperPrFn },
+	});
+	if (recorded.ok) return null;
+	const stopReason = `Failed to record CI gate rejection: ${recorded.error}`;
+	ctx.ui.notify(`${stopReason}. Stopping to avoid an unbounded loop.`, "error");
+	collector?.push("handler", "error", stopReason);
+	return { kind: "stop", stopReason };
+}
 
 /**
  * Pre-transition hooks (CI, TSC, LSP, duplicate code) — issue #787/#1407.
@@ -456,32 +490,8 @@ export async function runPreTransitionHooks(
 	}
 
 	if (effectiveNextStatus === "Implementation" && ciFailureText) {
-		const recorded = await recordCiLoopBack({
-			issueNum,
-			config,
-			note: ciFailureText,
-			iteration,
-			ctx,
-			collector,
-			port: runCtx.port,
-			pr: {
-				pi,
-				issueTitle,
-				worktreePath,
-				worktreeBranch: runCtx.worktreeBranch,
-				gateFailureHistory: stageState.gateFailureHistory,
-			},
-			overrides: {
-				postRejection: deps.postCiGateRejectionFn,
-				upsertPr: deps.upsertDeveloperPrFn,
-			},
-		});
-		if (!recorded.ok) {
-			const stopReason = `Failed to record CI gate rejection: ${recorded.error}`;
-			ctx.ui.notify(`${stopReason}. Stopping to avoid an unbounded loop.`, "error");
-			collector?.push("handler", "error", stopReason);
-			return { kind: "stop", stopReason };
-		}
+		const stop = await recordCiBlock(runCtx, ciFailureText, iteration, deps);
+		if (stop) return stop;
 	}
 	return { kind: "next", status: effectiveNextStatus };
 }

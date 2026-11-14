@@ -453,7 +453,11 @@ describe("upsertDeveloperPr() — gate failure history (issue #1829)", () => {
 	function developerPrDeps(port: ReturnType<typeof createMockGitHubPort>) {
 		return {
 			pi: {
-				exec: (async () => ({ code: 0, stdout: "1", stderr: "" })) as unknown as ExtensionAPI["exec"],
+				exec: (async () => ({
+					code: 0,
+					stdout: "1",
+					stderr: "",
+				})) as unknown as ExtensionAPI["exec"],
 			} as unknown as ExtensionAPI,
 			issueNum: 42,
 			issueTitle: "Test issue",
