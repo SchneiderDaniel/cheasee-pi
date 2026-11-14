@@ -63,7 +63,7 @@ describe("pipeline-audit.ts — worktreePath param plumbing (Phase 1)", () => {
 	it("runTscAndLspAudit accepts worktreePath as 6th param (between filteredData and pi)", () => {
 		const src = readAuditSource();
 		const fnIdx = src.indexOf("export async function runTscAndLspAudit(");
-		const fnEnd = src.indexOf("): Promise<{", fnIdx);
+		const fnEnd = src.indexOf("): Promise<", fnIdx);
 		const signature = src.substring(fnIdx, fnEnd);
 		// Verify worktreePath is a parameter
 		assert.ok(
@@ -376,7 +376,7 @@ if (hasMockModule) {
 	});
 	mock.module("../pipeline/audit/pre-gates.ts", {
 		namedExports: {
-			runCiGate: (async () => ({})) as unknown,
+			runCiGate: (async () => ({ kind: "pass" })) as unknown,
 			runDuplicateGate: (async () => ({
 				dupResult: {
 					status: "no_jscpd",
@@ -446,7 +446,7 @@ if (hasMockModule) {
 				undefined,
 			);
 
-			assert.equal(result.nextStatus, "Audit");
+			assert.equal((result as { nextStatus?: string }).nextStatus, "Audit");
 			assert.deepEqual(
 				checkpointWrites.map((w) => w.state.checkpoint),
 				["pre-tsc", "pre-lsp"],

@@ -44,8 +44,37 @@ export interface PreGateDeps {
 
 // ── CI Gating ──────────────────────────────────────────────────────
 
-export interface CiGateResult {
-	failureText: string | null;
+/**
+ * Three-way verdict of the CI gate (issue #1830).
+ *
+ * - `pass`          — verified green, or CI is unconfigured (no CI never blocks)
+ * - `fail`          — red checks: a code defect, so the developer loops back
+ * - `unverifiable`  — `gh` error / still pending at `ciGatingTimeoutSec` / crash.
+ *                     Not a code defect: the pipeline stops with a blocker
+ *                     comment instead of re-dispatching the developer.
+ */
+export type CiGateOutcome =
+	{ kind: "pass" } | { kind: "fail"; text: string } | { kind: "unverifiable"; reason: string };
+
+/**
+ * Pure policy: map the poll facts to the gate's three outcomes.
+ *
+ * `error` and `pending` are infrastructure/verification problems, not code
+ * defects — they must never be handed to the developer as a gate failure. The
+ * poll message is carried verbatim so the blocker comment names the `gh` error
+ * or the still-pending checks (AC1/AC2/AC3).
+ */
+export function classifyCiGate(ciResult: CiPollResult): CiGateOutcome {
+	switch (ciResult.status) {
+		case "passing":
+		case "unconfigured":
+			return { kind: "pass" };
+		case "failing":
+			return { kind: "fail", text: formatCiFailureText(ciResult) };
+		case "pending":
+		case "error":
+			return { kind: "unverifiable", reason: ciResult.message };
+	}
 }
 
 /**
@@ -78,22 +107,26 @@ export async function captureHeadSha(
 
 /**
  * Step 0: CI gating — poll the open PR's check runs before running local hooks.
- * BLOCKING: `failing`, `pending` (at timeout) and `error` all stop the
- * Implementation → Audit transition. `unconfigured` passes with a warning so
- * repos without CI never hang. Disabled when ciGatingTimeoutSec is unset or ≤ 0.
+ *
+ * Returns one of three outcomes (issue #1830): `pass`, `fail` (red checks →
+ * developer loop) or `unverifiable` (`gh` error, pending at timeout, crash →
+ * the pipeline stops with a blocker comment; the status is never advanced and
+ * the developer is never re-dispatched). `unconfigured` passes with a warning
+ * so repos without CI never hang. Disabled when ciGatingTimeoutSec is unset or
+ * ≤ 0.
  *
  * `expectedHeadSha` pins the poll to the commit the developer just pushed
  * (issue #1829): without it the gate cannot tell the pushed commit apart from
- * a stale PR head, so a missing SHA is a blocking failure (fail closed).
+ * a stale PR head, so a missing SHA is unverifiable (fail closed).
  */
 export async function runCiGate(
 	deps: PreGateDeps,
 	config: SupervisorConfig,
 	expectedHeadSha: string,
-): Promise<CiGateResult> {
+): Promise<CiGateOutcome> {
 	const timeoutSec = config.ciGatingTimeoutSec;
 	if (!timeoutSec || timeoutSec <= 0) {
-		return { failureText: null };
+		return { kind: "pass" };
 	}
 
 	// Disabled gating wins over the SHA requirement; with gating on, an absent
@@ -102,7 +135,7 @@ export async function runCiGate(
 		const message =
 			"CI gate requires the expected head SHA (the commit just pushed) but none was captured — refusing to pass CI unverified.";
 		deps.ui.notify(`${message} Blocking audit (fail-closed).`, "warning");
-		return { failureText: `--- CI Gate ---\n${message}` };
+		return { kind: "unverifiable", reason: message };
 	}
 
 	getDebugLogger().info("pipeline-audit", "Polling PR check runs", {
@@ -119,42 +152,57 @@ export async function runCiGate(
 		});
 	} catch (err: unknown) {
 		// pollCiChecks reports failures as status "error"; a throw is a defect.
-		// Fail closed and surface it instead of letting a red PR reach audit.
+		// Fail closed by stopping the pipeline — never by looping the developer.
 		const message = err instanceof Error ? err.message : String(err);
-		deps.ui.notify(`CI gate crashed: ${message}. Blocking audit (fail-closed).`, "warning");
-		return { failureText: `--- CI Gate ---\nCI gate crashed: ${message}` };
+		deps.ui.notify(`CI gate crashed: ${message}. Stopping the pipeline (fail-closed).`, "warning");
+		return { kind: "unverifiable", reason: `CI gate crashed: ${message}` };
 	}
 
-	switch (ciResult.status) {
-		case "passing":
+	const outcome = classifyCiGate(ciResult);
+	notifyCiGateOutcome(deps, outcome, ciResult, timeoutSec);
+	return outcome;
+}
+
+/**
+ * Surface the gate verdict to the operator. `pass` after a green poll stays
+ * silent; every other outcome warns once so a stopped or looped run is never
+ * log-only.
+ */
+function notifyCiGateOutcome(
+	deps: PreGateDeps,
+	outcome: CiGateOutcome,
+	ciResult: CiPollResult,
+	timeoutSec: number,
+): void {
+	switch (outcome.kind) {
+		case "pass":
+			if (ciResult.status === "unconfigured") {
+				// AC4: no CI configured — proceed, but never silently.
+				deps.ui.notify(`CI gate: ${ciResult.message}`, "warning");
+				return;
+			}
 			getDebugLogger().info("pipeline-audit", ciResult.message);
-			return { failureText: null };
+			return;
 
-		case "unconfigured":
-			// AC4: no CI configured — proceed, but never silently.
-			deps.ui.notify(`CI gate: ${ciResult.message}`, "warning");
-			return { failureText: null };
-
-		case "failing": {
+		case "fail": {
 			const names =
 				ciResult.failingChecks.length > 0 ? ciResult.failingChecks.join(", ") : "unknown";
 			deps.ui.notify(`CI checks failing: ${names}. Blocking audit until CI is green.`, "warning");
-			return { failureText: formatCiFailureText(ciResult) };
+			return;
 		}
 
-		case "pending":
+		case "unverifiable":
+			if (ciResult.status === "pending") {
+				deps.ui.notify(
+					`CI checks still pending after ${timeoutSec}s (ciGatingTimeoutSec). Stopping the pipeline — CI could not be verified.`,
+					"warning",
+				);
+				return;
+			}
 			deps.ui.notify(
-				`CI checks still pending after ${timeoutSec}s (ciGatingTimeoutSec). Blocking audit until CI settles.`,
+				`CI check polling failed: ${ciResult.message} Stopping the pipeline (fail-closed).`,
 				"warning",
 			);
-			return { failureText: `--- CI Gate ---\n${ciResult.message}` };
-
-		case "error":
-			deps.ui.notify(
-				`CI check polling failed: ${ciResult.message} Blocking audit (fail-closed).`,
-				"warning",
-			);
-			return { failureText: `--- CI Gate ---\n${ciResult.message}` };
 	}
 }
 

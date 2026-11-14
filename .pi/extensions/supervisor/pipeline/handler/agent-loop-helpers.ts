@@ -24,8 +24,6 @@ import { executeAgent } from "../execute-agent.ts";
 import { tryRebaseOntoBase } from "../rebase.ts";
 import { GATE_HOOKS, type WorkflowStep } from "../../config/workflow.ts";
 import { runTscAndLspAudit } from "../audit/index.ts";
-import { postCiGateRejection, recordCiLoopBack } from "../stages/audit-rejection-ops.ts";
-import { upsertDeveloperPr } from "../stages/git-ops.ts";
 import { validateAgentResult } from "../output.ts";
 import { getRefusalInfo } from "../../agent/output.ts";
 import {
@@ -38,6 +36,11 @@ import {
 } from "../stages/index.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import type { ErrorCollector } from "../error-collector.ts";
+import {
+	postCiVerificationBlocker,
+	recordCiBlock,
+	type CiBlockOverrides,
+} from "./blocker-comment.ts";
 import type { RunContext } from "./shared.ts";
 
 /**
@@ -354,57 +357,24 @@ export async function handleBudgetExceeded(
 }
 
 /** Test seams for the pre-transition hook chain (production omits this). */
-export interface PreTransitionHookDeps {
+export interface PreTransitionHookDeps extends CiBlockOverrides {
 	runAuditFn?: typeof runTscAndLspAudit;
-	postCiGateRejectionFn?: typeof postCiGateRejection;
-	upsertDeveloperPrFn?: typeof upsertDeveloperPr;
 }
 
 /** Control-flow signal of the pre-transition hooks: continue or stop. */
 export type PreTransitionOutcome =
-	{ kind: "next"; status: string } | { kind: "stop"; stopReason: string };
-
-/**
- * Record a CI-gate block as a counted loop-back (issue #1829 AC1/AC2). A failed
- * counter write stops the pipeline: an uncounted loop-back would spin forever.
- */
-async function recordCiBlock(
-	runCtx: RunContext,
-	note: string,
-	iteration: number,
-	deps: PreTransitionHookDeps,
-): Promise<PreTransitionOutcome | null> {
-	const { ctx, pi, config, issueNum, issueTitle, collector, stageState, worktreePath } = runCtx;
-	const recorded = await recordCiLoopBack({
-		issueNum,
-		config,
-		note,
-		iteration,
-		ctx,
-		collector,
-		port: runCtx.port,
-		pr: {
-			pi,
-			issueTitle,
-			worktreePath,
-			worktreeBranch: runCtx.worktreeBranch,
-			gateFailureHistory: stageState.gateFailureHistory,
-		},
-		overrides: { postRejection: deps.postCiGateRejectionFn, upsertPr: deps.upsertDeveloperPrFn },
-	});
-	if (recorded.ok) return null;
-	const stopReason = `Failed to record CI gate rejection: ${recorded.error}`;
-	ctx.ui.notify(`${stopReason}. Stopping to avoid an unbounded loop.`, "error");
-	collector?.push("handler", "error", stopReason);
-	return { kind: "stop", stopReason };
-}
+	{ kind: "proceed"; status: string } | { kind: "blocked"; stopReason: string };
 
 /**
  * Pre-transition hooks (CI, TSC, LSP, duplicate code) — issue #787/#1407.
  * Runs the audit gate chain and returns the effective next status. Kept in
  * agent-loop.ts as the dispatch site for the gate hooks declared in
- * config/workflow.ts (GATE_HOOKS). Fail-open: hook exception → warn +
- * collector, proceed with the unmodified next status.
+ * config/workflow.ts (GATE_HOOKS).
+ *
+ * Fail-open: a non-CI hook exception → warn + collector, proceed with the
+ * unmodified next status. Fail-closed: an `unverifiable` CI verdict
+ * (issue #1830) posts a blocker comment, returns `blocked` and stops the
+ * pipeline — no status change, no developer re-dispatch.
  *
  * A CI-gate block is also the loop-back the rejection budget counts
  * (issue #1829): it is recorded on the issue, and a failed recording stops the
@@ -421,7 +391,7 @@ export async function runPreTransitionHooks(
 ): Promise<PreTransitionOutcome> {
 	const { ctx, pi, config, issueNum, issueTitle, collector, stageState, worktreePath } = runCtx;
 	if (!step.hooks?.some((h) => GATE_HOOKS.includes(h))) {
-		return { kind: "next", status: nextStatus };
+		return { kind: "proceed", status: nextStatus };
 	}
 
 	let effectiveNextStatus = nextStatus;
@@ -442,6 +412,11 @@ export async function runPreTransitionHooks(
 			ctx,
 			collector,
 		);
+		if (auditResult.outcome === "blocked") {
+			// CI unverifiable (issue #1830): blocker comment, then stop.
+			const stopReason = await postCiVerificationBlocker(runCtx, auditResult.reason);
+			return { kind: "blocked", stopReason };
+		}
 		effectiveNextStatus = auditResult.nextStatus;
 		ciFailureText = auditResult.ciFailureText ?? null;
 		// Capture gate failure context for developer feedback loop
@@ -489,8 +464,9 @@ export async function runPreTransitionHooks(
 	}
 
 	if (effectiveNextStatus === "Implementation" && ciFailureText) {
-		const stop = await recordCiBlock(runCtx, ciFailureText, iteration, deps);
-		if (stop) return stop;
+		// A CI loop-back is counted; a failed counter write stops the pipeline.
+		const stopReason = await recordCiBlock(runCtx, ciFailureText, iteration, deps);
+		if (stopReason) return { kind: "blocked", stopReason };
 	}
-	return { kind: "next", status: effectiveNextStatus };
+	return { kind: "proceed", status: effectiveNextStatus };
 }

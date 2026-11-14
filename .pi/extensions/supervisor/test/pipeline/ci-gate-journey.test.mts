@@ -160,8 +160,9 @@ describe("journey — developer fixes a red CI and the gate re-polls the new hea
 
 		// 1. The developer's run committed and pushed P1; the gate polls P1.
 		const blocked = await runCiGate(deps, CONFIG, P1);
-		assert.ok(blocked.failureText, "red CI blocks the transition");
-		assert.equal(blocked.failureText!.split("\n")[0], "--- CI Gate (failing: build) ---");
+		assert.equal(blocked.kind, "fail", "red CI blocks the transition");
+		const blockedText = (blocked as { text: string }).text;
+		assert.equal(blockedText.split("\n")[0], "--- CI Gate (failing: build) ---");
 		assert.equal(state.headSha, P1);
 		assert.equal(checkRunCalls(calls).length, 1, "one poll of the pushed commit");
 
@@ -171,15 +172,9 @@ describe("journey — developer fixes a red CI and the gate re-polls the new hea
 		assert.deepEqual(resetCalls(calls), []);
 
 		// 3. The developer sees the failing check on the issue.
-		const counted = await postCiGateRejection(
-			ISSUE,
-			CONFIG,
-			blocked.failureText!,
-			2,
-			collector,
-			port,
-			{ ui } as unknown as ExtensionCommandContext,
-		);
+		const counted = await postCiGateRejection(ISSUE, CONFIG, blockedText, 2, collector, port, {
+			ui,
+		} as unknown as ExtensionCommandContext);
 		assert.equal(counted, 1);
 		assert.equal(comments(portCalls).length, 1);
 		assert.ok(comments(portCalls)[0]!.startsWith("## CI Gate Failed"));
@@ -188,7 +183,7 @@ describe("journey — developer fixes a red CI and the gate re-polls the new hea
 
 		// 4. The gate history is recorded for the PR body.
 		const stageState = createStageState("Implementation");
-		applyGateFailureContext(stageState, "Implementation", blocked.failureText!, 2);
+		applyGateFailureContext(stageState, "Implementation", blockedText, 2);
 		assert.deepEqual(stageState.gateFailureHistory, [
 			"CI Gate (failing: build) gate failed on run 2 — developer restarted",
 		]);
@@ -197,7 +192,7 @@ describe("journey — developer fixes a red CI and the gate re-polls the new hea
 		state.headSha = P2;
 		const allowed = await runCiGate(deps, CONFIG, P2);
 
-		assert.equal(allowed.failureText, null, "the fix push is green");
+		assert.equal(allowed.kind, "pass", "the fix push is green");
 		const polls = checkRunCalls(calls);
 		assert.equal(polls.length, 2);
 		assert.ok(

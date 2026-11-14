@@ -292,7 +292,7 @@ async function runHooks(
 	auditResult: Record<string, unknown>,
 	opts: { stageState?: StageState; results?: AgentRunResult[]; loopStatus?: string } = {},
 ) {
-	nextAuditResult = auditResult;
+	nextAuditResult = { outcome: "transition", ...auditResult };
 	auditSpy.mock.resetCalls();
 	const notify = mock.fn();
 	const sendMessage = mock.fn();

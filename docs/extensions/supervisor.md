@@ -141,20 +141,22 @@ Resolves the open pull request for the worktree branch (`gh api repos/<repo>/pul
 
 The gate is pinned to the commit the run pushed: HEAD is captured before the gates run, and a PR head that differs from it blocks as `pending` instead of classifying another commit's checks. A missing HEAD SHA blocks too (fail-closed).
 
-| Result                            | Action                                     |
-| --------------------------------- | ------------------------------------------ |
-| All checks completed successfully | Proceed (`skipped`/`neutral` tolerated)    |
-| Any check fails                   | Block → Implementation, names the check(s) |
-| Checks still pending at timeout   | Block → Implementation                     |
-| PR head ≠ pushed commit           | Block → Implementation (re-polls new head) |
-| No checks configured (60s grace)  | Warning, proceed to audit                  |
-| No open PR / `gh api` error       | Block → Implementation (fail-closed)       |
+| Result                            | Action                                              |
+| --------------------------------- | --------------------------------------------------- |
+| All checks completed successfully | Proceed (`skipped`/`neutral` tolerated)             |
+| Any check fails                   | Block → Implementation, names the check(s)          |
+| Checks still pending at timeout   | Stop the pipeline, blocker names the pending checks |
+| PR head ≠ pushed commit           | Stop the pipeline, blocker names both SHAs          |
+| No checks configured (60s grace)  | Warning, proceed to audit                           |
+| No open PR / `gh api` error       | Stop the pipeline (fail-closed), blocker names it   |
+
+The gate has three outcomes: `pass`, `fail` (red checks — a code defect, so the developer loops back) and `unverifiable` (a `gh` error, checks still pending at `ciGatingTimeoutSec`, or the gate crashing). An `unverifiable` verdict is infrastructure, not code: the pipeline posts a `## 🔴 CI Verification Blocked — Pipeline Stopped` comment and stops. The issue status is left unchanged (never Done), no gate loop-back is counted and the developer is not re-dispatched.
 
 Blocking conclusions are `failure`, `cancelled`, `action_required`, `timed_out` and `stale`. Set `ciGatingTimeoutSec: 0` to disable the gate entirely.
 
 A CI block is a counted loop-back — see [Loop-back budget](#loop-back-budget). The pushed commit is never rewritten: `uncommitDeveloperWork` skips `git reset --soft HEAD~1` while HEAD is reachable from `<remote>/<branch>`, so the developer adds fix commits on top and the gate re-polls the new PR head SHA.
 
-A check whose runtime exceeds `ciGatingTimeoutSec` blocks every run, because a still-running check counts as `pending` at the deadline. Repos whose slowest check is longer than 600s must raise the setting (for example this repo's `smoke` job, which builds the binary and a compose image and regularly runs 8–11 min).
+A check whose runtime exceeds `ciGatingTimeoutSec` stops every run with a blocker comment naming the still-pending checks, because a still-running check counts as `pending` at the deadline. Repos whose slowest check is longer than 600s must raise the setting (for example this repo's `smoke` job, which builds the binary and a compose image and regularly runs 8–11 min).
 
 ### 2. TSC checkpoint
 
@@ -300,7 +302,7 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
 | `branchPrefix`               | `worktree-git-issue-`                 | Prefix for worktree branch names                                                                                                                                                                               |
 | `maxRejections`              | `3`                                   | Documented loop-back cap. The effective limit is `REJECTION_LIMIT` (5) in `config/workflow.ts`, shared by auditor rejections and CI-gate failures; at the cap a `## Rejection Limit Reached` blocker is posted |
 | `auditScoreThreshold`        | `0.75`                                | Minimum passing/total ratio for audit score gate                                                                                                                                                               |
-| `ciGatingTimeoutSec`         | `600`                                 | Seconds to poll PR check runs before blocking the transition. `0` = skip CI gate entirely                                                                                                                      |
+| `ciGatingTimeoutSec`         | `600`                                 | Seconds to poll PR check runs before the pipeline stops with a blocker comment. `0` = skip CI gate entirely                                                                                                    |
 | `agentTokenBudget`           | `0`                                   | Soft token cap per agent dispatch. `0` = unlimited                                                                                                                                                             |
 | `maxToolCalls`               | `0`                                   | Hard cap on tool invocations per agent. `0` = unlimited                                                                                                                                                        |
 | `agentTimeoutsMin`           | `{}`                                  | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`)                                                                                     |
@@ -429,17 +431,18 @@ A summary message is sent with agent stats (duration, tokens, tools, model), PR 
 
 ### Quality gates
 
-| Gate           | Problem                  | What happens                              |
-| -------------- | ------------------------ | ----------------------------------------- |
-| CI             | Checks fail              | Block → Implementation                    |
-| CI             | Checks pending > timeout | Warning → proceed to audit                |
-| CI             | Unconfigured             | Skip                                      |
-| Dead code      | Found                    | Block → Implementation + uncommit         |
-| TSC            | Error                    | Block → Implementation                    |
-| LSP            | Error                    | Block → Implementation                    |
-| Dup code       | Results                  | Stored for auditor context (non-blocking) |
-| Package safety | Blocked packages         | Warning → auditor may flag                |
-| Traceability   | Gaps                     | Warning → auditor reviews                 |
+| Gate           | Problem                  | What happens                                    |
+| -------------- | ------------------------ | ----------------------------------------------- |
+| CI             | Checks fail              | Block → Implementation                          |
+| CI             | Checks pending > timeout | Pipeline stops with a blocker comment (no Done) |
+| CI             | `gh` error               | Pipeline stops with a blocker comment (no Done) |
+| CI             | Unconfigured             | Skip                                            |
+| Dead code      | Found                    | Block → Implementation + uncommit               |
+| TSC            | Error                    | Block → Implementation                          |
+| LSP            | Error                    | Block → Implementation                          |
+| Dup code       | Results                  | Stored for auditor context (non-blocking)       |
+| Package safety | Blocked packages         | Warning → auditor may flag                      |
+| Traceability   | Gaps                     | Warning → auditor reviews                       |
 
 ### Crash recovery
 

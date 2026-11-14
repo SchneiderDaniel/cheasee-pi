@@ -22,6 +22,7 @@ import { ensurePrReadyForDone } from "../merge.ts";
 import { applyStatusTransition } from "../stages/index.ts";
 import { createPrOnApproval } from "../pr-creation.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
+import { postPipelineBlocker } from "./blocker-comment.ts";
 import type { RunContext } from "./shared.ts";
 
 async function runPrReadinessGate(
@@ -87,22 +88,17 @@ async function blockPipelineOnPrGate(
 	collector: ErrorCollector | undefined,
 	blockerNote: string,
 ): Promise<string> {
-	try {
-		await port.postIssueComment(
-			issueNum,
-			config.repo,
-			`## 🔴 PR Readiness Blocked — Manual Intervention Required\n\n${blockerNote}\n\nThe issue stays open in **Implementation**. The next pipeline run re-dispatches the developer with this blocker in context.`,
-		);
-		ctx.ui.notify(`PR readiness blocked for #${issueNum}: ${blockerNote}`, "error");
-	} catch (commentErr: unknown) {
-		const commentMsg = commentErr instanceof Error ? commentErr.message : String(commentErr);
-		ctx.ui.notify(`Failed to post blocker comment: ${commentMsg}`, "warning");
-		collector?.push(
-			"handler",
-			"warn",
-			`Failed to post PR blocker comment on issue #${issueNum}: ${commentMsg}`,
-		);
-	}
+	// Comment text pinned by handler-part5/pr-approval-flow tests.
+	await postPipelineBlocker(
+		port,
+		ctx,
+		config,
+		issueNum,
+		"## 🔴 PR Readiness Blocked — Manual Intervention Required",
+		`${blockerNote}\n\nThe issue stays open in **Implementation**. The next pipeline run re-dispatches the developer with this blocker in context.`,
+		collector,
+	);
+	ctx.ui.notify(`PR readiness blocked for #${issueNum}: ${blockerNote}`, "error");
 	try {
 		await applyStatusTransition(
 			port,

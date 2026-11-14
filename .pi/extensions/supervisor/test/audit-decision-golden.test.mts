@@ -137,9 +137,32 @@ function runScenarios(): AuditDecision[] {
 	return SCENARIOS.map((s) => decideAudit(s.failures, s.lastNote, s.results));
 }
 
+/**
+ * Project a decision to the commutative fixture shape the golden file pins
+ * (issue #1830 added the `outcome` discriminator — the pre-#1830 semantics are
+ * exactly `{ nextStatus, note, ...results }`, so dropping the discriminator
+ * keeps the guarantee intact across the shape change).
+ */
+function toLegacyShape(decision: AuditDecision): Record<string, unknown> {
+	if (decision.outcome !== "transition") {
+		assert.fail(`scenario must stay a transition, got: ${JSON.stringify(decision)}`);
+	}
+	const { outcome: _outcome, ...legacy } = decision;
+	return legacy;
+}
+
 describe("audit decision golden corpus (issue #1407 split)", () => {
 	it("decision output is byte-identical to the committed fixture", () => {
-		const results = runScenarios();
+		const decisions = runScenarios();
+		const results = decisions.map(toLegacyShape);
+
+		for (const decision of decisions) {
+			assert.equal(
+				decision.outcome,
+				"transition",
+				"CI passing never blocks — every golden scenario is a transition (issue #1830)",
+			);
+		}
 
 		if (CAPTURE) {
 			writeFileSync(FIXTURE_URL, JSON.stringify(results, null, 2) + "\n", "utf8");
@@ -156,6 +179,6 @@ describe("audit decision golden corpus (issue #1407 split)", () => {
 			);
 		}
 
-		assert.deepEqual(results, JSON.parse(fixtureRaw) as AuditDecision[]);
+		assert.deepEqual(results, JSON.parse(fixtureRaw) as unknown[]);
 	});
 });

@@ -119,8 +119,9 @@ const ciResult = (
 
 // ── runCiGate ──────────────────────────────────────────────────────
 // Issue #1828: the gate is blocking. Only `passing` (and `unconfigured`,
-// which warns) let the pipeline reach Audit; `failing`, `pending` and
-// `error` all produce a gate failure text.
+// which warns) let the pipeline reach Audit; `failing` loops the developer
+// back, while `pending` and `error` are unverifiable and stop the pipeline
+// (issue #1830).
 // Issue #1829: the gate is pinned to the commit the developer just pushed —
 // every call passes the SHA captured before the gates ran, and the failing
 // check names move into the section header so the developer sees them.
@@ -129,7 +130,7 @@ const ciResult = (
 const PUSHED_SHA = "pushedcommitsha1";
 
 describe("runCiGate (Issue #1828 blocking policy)", () => {
-	it("(use-case) passing → no failure text, no notification", async () => {
+	it("(use-case) passing → pass, no notification", async () => {
 		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
 			ui: notifySpy(notifyCalls),
@@ -138,7 +139,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.equal(result.failureText, null);
+		assert.deepEqual(result, { kind: "pass" });
 		assert.equal(notifyCalls.length, 0, "passing CI must stay silent");
 	});
 
@@ -151,7 +152,10 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.equal(result.failureText, "--- CI Gate (failing: build) ---\nCI checks failing: build.");
+		assert.deepEqual(result, {
+			kind: "fail",
+			text: "--- CI Gate (failing: build) ---\nCI checks failing: build.",
+		});
 		assert.equal(notifyCalls.length, 1);
 		assert.ok(
 			notifyCalls[0]![0].includes("build"),
@@ -167,12 +171,13 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.ok(result.failureText, "failing CI must block");
-		assert.ok(result.failureText!.includes("build"), result.failureText!);
-		assert.ok(result.failureText!.includes("e2e"), result.failureText!);
+		assert.equal(result.kind, "fail");
+		const text = (result as { text: string }).text;
+		assert.ok(text.includes("build"), text);
+		assert.ok(text.includes("e2e"), text);
 	});
 
-	it("(use-case) pending at timeout blocks with a ciGatingTimeoutSec hint", async () => {
+	it("(use-case) pending at timeout is unverifiable with a ciGatingTimeoutSec hint", async () => {
 		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
 			ui: notifySpy(notifyCalls),
@@ -181,7 +186,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.ok(result.failureText, "pending at timeout must block");
+		assert.equal(result.kind, "unverifiable", "pending at timeout stops the pipeline");
 		assert.equal(notifyCalls.length, 1);
 		assert.equal(notifyCalls[0]![1], "warning");
 		assert.ok(
@@ -190,7 +195,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 		);
 	});
 
-	it("(use-case) error blocks (fail-closed) with a warning", async () => {
+	it("(use-case) error is unverifiable (fail-closed) with a warning", async () => {
 		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
 			ui: notifySpy(notifyCalls),
@@ -199,13 +204,30 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.ok(result.failureText, "error must block");
-		assert.ok(result.failureText!.includes("no open pull request"), result.failureText!);
+		assert.equal(result.kind, "unverifiable", "error stops the pipeline");
+		assert.ok((result as { reason: string }).reason.includes("no open pull request"));
 		assert.equal(notifyCalls.length, 1);
 		assert.equal(notifyCalls[0]![1], "warning");
 	});
 
-	it("(use-case) unconfigured → no failure text but a warning (AC4)", async () => {
+	it("(use-case) a throwing poller is unverifiable with a warning", async () => {
+		const notifyCalls: Array<[string, string]> = [];
+		const deps = makeDeps({
+			ui: notifySpy(notifyCalls),
+			pollCiChecksFn: (async () => {
+				throw new Error("gh exploded");
+			}) as unknown as NonNullable<PreGateDeps["pollCiChecksFn"]>,
+		});
+
+		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
+
+		assert.equal(result.kind, "unverifiable");
+		assert.ok((result as { reason: string }).reason.includes("gh exploded"));
+		assert.equal(notifyCalls.length, 1);
+		assert.equal(notifyCalls[0]![1], "warning");
+	});
+
+	it("(use-case) unconfigured → pass but a warning (AC4)", async () => {
 		const notifyCalls: Array<[string, string]> = [];
 		const deps = makeDeps({
 			ui: notifySpy(notifyCalls),
@@ -215,12 +237,12 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.equal(result.failureText, null);
+		assert.deepEqual(result, { kind: "pass" });
 		assert.equal(notifyCalls.length, 1, "unconfigured is a warning, not silence");
 		assert.equal(notifyCalls[0]![1], "warning");
 	});
 
-	it("(use-case) ciGatingTimeoutSec 0 → fail-open, runner not invoked", async () => {
+	it("(use-case) ciGatingTimeoutSec 0 → pass, runner not invoked", async () => {
 		let invoked = false;
 		const deps = makeDeps({
 			pollCiChecksFn: async () => {
@@ -231,11 +253,11 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: 0 }), PUSHED_SHA);
 
-		assert.equal(result.failureText, null);
+		assert.deepEqual(result, { kind: "pass" });
 		assert.equal(invoked, false, "runner must not run when CI gating is disabled");
 	});
 
-	it("(use-case) ciGatingTimeoutSec unset → fail-open, runner not invoked", async () => {
+	it("(use-case) ciGatingTimeoutSec unset → pass, runner not invoked", async () => {
 		let invoked = false;
 		const deps = makeDeps({
 			pollCiChecksFn: async () => {
@@ -246,7 +268,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 
 		const result = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: undefined }), PUSHED_SHA);
 
-		assert.equal(result.failureText, null);
+		assert.deepEqual(result, { kind: "pass" });
 		assert.equal(invoked, false);
 	});
 
@@ -256,7 +278,10 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			pollCiChecksFn: async () => ({ ...ciResult("failing", "CI is red."), checks: failureChecks }),
 		});
 		const blocking = await runCiGate(deps, makeConfig(), PUSHED_SHA);
-		assert.equal(blocking.failureText, "--- CI Gate ---\nCI is red. Failing check(s): unknown.");
+		assert.equal(
+			(blocking as { text: string }).text,
+			"--- CI Gate ---\nCI is red. Failing check(s): unknown.",
+		);
 
 		const passingDeps = makeDeps({
 			pollCiChecksFn: async () => ({
@@ -265,11 +290,7 @@ describe("runCiGate (Issue #1828 blocking policy)", () => {
 			}),
 		});
 		const allowed = await runCiGate(passingDeps, makeConfig(), PUSHED_SHA);
-		assert.equal(
-			allowed.failureText,
-			null,
-			"status alone decides; conclusions are not re-filtered",
-		);
+		assert.equal(allowed.kind, "pass", "status alone decides; conclusions are not re-filtered");
 	});
 });
 
@@ -306,10 +327,11 @@ describe("runCiGate (issue #1829: pinned SHA, named failing checks)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.ok(result.failureText, "failing CI must block");
-		assert.equal(result.failureText!.split("\n")[0], "--- CI Gate (failing: build, lint) ---");
-		assert.ok(result.failureText!.includes("build"), result.failureText!);
-		assert.ok(result.failureText!.includes("lint"), result.failureText!);
+		assert.equal(result.kind, "fail", "failing CI must block the transition");
+		const text = (result as { text: string }).text;
+		assert.equal(text.split("\n")[0], "--- CI Gate (failing: build, lint) ---");
+		assert.ok(text.includes("build"), text);
+		assert.ok(text.includes("lint"), text);
 	});
 
 	it("(use-case) the header carries the names into gateFailureHistory", async () => {
@@ -317,7 +339,7 @@ describe("runCiGate (issue #1829: pinned SHA, named failing checks)", () => {
 			pollCiChecksFn: async () =>
 				ciResult("failing", "CI checks failing: build, lint.", ["build", "lint"]),
 		});
-		const note = (await runCiGate(deps, makeConfig(), PUSHED_SHA)).failureText!;
+		const note = ((await runCiGate(deps, makeConfig(), PUSHED_SHA)) as { text: string }).text;
 
 		const state = createStageState("Implementation");
 		applyGateFailureContext(state, "Implementation", note, 2);
@@ -332,9 +354,10 @@ describe("runCiGate (issue #1829: pinned SHA, named failing checks)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), PUSHED_SHA);
 
-		assert.ok(result.failureText, "failing CI must block");
-		assert.equal(result.failureText!.split("\n")[0], "--- CI Gate ---");
-		assert.match(result.failureText!, /unknown/i);
+		assert.equal(result.kind, "fail");
+		const text = (result as { text: string }).text;
+		assert.equal(text.split("\n")[0], "--- CI Gate ---");
+		assert.match(text, /unknown/i);
 	});
 
 	it("(use-case) the appended tail never repeats names the header already carries", async () => {
@@ -342,14 +365,14 @@ describe("runCiGate (issue #1829: pinned SHA, named failing checks)", () => {
 			pollCiChecksFn: async () => ciResult("failing", "CI is red.", ["build", "lint"]),
 		});
 
-		const text = (await runCiGate(deps, makeConfig(), PUSHED_SHA)).failureText!;
+		const text = ((await runCiGate(deps, makeConfig(), PUSHED_SHA)) as { text: string }).text;
 
 		assert.ok(text.includes("build"), `build is named: ${text}`);
 		assert.ok(text.includes("lint"), `lint is named: ${text}`);
 		assert.ok(!text.includes("Failing check(s)"), `no duplicated tail: ${text}`);
 	});
 
-	it("(use-case) no expected head SHA with the gate enabled → blocking, runner never invoked", async () => {
+	it("(use-case) no expected head SHA with the gate enabled → unverifiable, runner never invoked", async () => {
 		let invoked = false;
 		const deps = makeDeps({
 			pollCiChecksFn: async () => {
@@ -360,9 +383,8 @@ describe("runCiGate (issue #1829: pinned SHA, named failing checks)", () => {
 
 		const result = await runCiGate(deps, makeConfig(), "");
 
-		assert.ok(result.failureText, "a missing SHA must fail closed");
-		assert.equal(result.failureText!.split("\n")[0], "--- CI Gate ---");
-		assert.match(result.failureText!, /expected head SHA/i);
+		assert.equal(result.kind, "unverifiable", "a missing SHA must fail closed");
+		assert.match((result as { reason: string }).reason, /expected head SHA/i);
 		assert.equal(invoked, false, "the poller must not run without a pinned commit");
 	});
 
@@ -378,8 +400,8 @@ describe("runCiGate (issue #1829: pinned SHA, named failing checks)", () => {
 		const zero = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: 0 }), "");
 		const unset = await runCiGate(deps, makeConfig({ ciGatingTimeoutSec: undefined }), "");
 
-		assert.equal(zero.failureText, null);
-		assert.equal(unset.failureText, null);
+		assert.deepEqual(zero, { kind: "pass" });
+		assert.deepEqual(unset, { kind: "pass" });
 		assert.equal(invoked, false);
 	});
 });

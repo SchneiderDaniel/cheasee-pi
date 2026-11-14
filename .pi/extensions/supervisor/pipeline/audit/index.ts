@@ -30,21 +30,49 @@ import {
 	type DuplicateGateResult,
 	type DeadCodeGateResult,
 	type OsvGateResult,
+	type CiGateOutcome,
 	captureHeadSha,
 } from "./pre-gates.ts";
 import { runTscGate } from "./tsc-gate.ts";
 import { runLspPreAudit } from "./lsp-gate.ts";
-import { decideAudit } from "./aggregate.ts";
+import { decideAudit, type AuditGateResults } from "./aggregate.ts";
 import { uncommitDeveloperWork } from "../stages/audit-rejection-ops.ts";
-import type { DuplicateCodeResult } from "../../checks/duplicate-code.ts";
-import type { DeadCodeResult } from "../../checks/dead-code.ts";
-import type { OsvScanResult } from "../../checks/osv-scanner.ts";
+
+/** Test seams for the two heavy gates (production passes nothing). */
+export interface AuditOrchestratorDeps {
+	runTscGateFn: typeof runTscGate;
+	runLspPreAuditFn: typeof runLspPreAudit;
+}
+
+/** The CI gate failure section rides along on both verdicts (issue #1829). */
+interface CiFailureCarrier {
+	ciFailureText: string | null;
+}
+
+/**
+ * Result of the Implementation → Audit transition.
+ *
+ * `blocked` (issue #1830) means CI could not be verified: no gate pair ran,
+ * nothing is uncommitted, no status may be applied — the caller posts a blocker
+ * comment and stops the pipeline.
+ */
+export type AuditRunResult =
+	| ({ outcome: "blocked"; reason: string } & CiFailureCarrier)
+	| ({
+			outcome: "transition";
+			nextStatus: string;
+			note: string;
+	  } & AuditGateResults &
+			CiFailureCarrier);
+
+/** CI verdicts that let the remaining gates run. */
+type CiSettledOutcome = Extract<CiGateOutcome, { kind: "pass" | "fail" }>;
 
 /**
  * Run the six non-transition gates in today's push order, appending each
- * blocking failure's section text to gateFailures. Returns the gate results
- * the orchestrator threads into the final decision, plus the CI gate failure
- * text (when CI blocked) so the caller can count the loop-back.
+ * blocking failure's section text to gateFailures. The CI verdict is computed
+ * first and returned as a value: an `unverifiable` CI returns `blocked` before
+ * any other gate runs, so an unreachable CI never reaches the fail-open paths.
  */
 async function runPreGates(
 	ctx: ExtensionCommandContext,
@@ -53,16 +81,26 @@ async function runPreGates(
 	worktreePath: string,
 	gateFailures: string[],
 	expectedHeadSha: string,
-): Promise<{
-	dupGate: DuplicateGateResult;
-	deadGate: DeadCodeGateResult;
-	osvGate: OsvGateResult;
-	ciFailureText: string | null;
-}> {
+): Promise<
+	| { blocked: true; reason: string }
+	| {
+			blocked: false;
+			ciOutcome: CiSettledOutcome;
+			dupGate: DuplicateGateResult;
+			deadGate: DeadCodeGateResult;
+			osvGate: OsvGateResult;
+			ciFailureText: string | null;
+	  }
+> {
 	// Step 0: CI gating — poll the PR head's check runs before running local hooks
 	ctx.ui.setStatus("supervisor", "Polling CI checks...");
 	const ciGate = await runCiGate(deps, config, expectedHeadSha);
-	if (ciGate.failureText) gateFailures.push(ciGate.failureText);
+	if (ciGate.kind === "unverifiable") {
+		// Infrastructure, not a code defect: stop instead of looping the developer.
+		return { blocked: true, reason: ciGate.reason };
+	}
+	const ciFailureText = ciGate.kind === "fail" ? ciGate.text : null;
+	if (ciFailureText) gateFailures.push(ciFailureText);
 
 	// Step 1: Duplicate code detection gate (non-blocking)
 	ctx.ui.setStatus("supervisor", "Checking for duplicate code...");
@@ -86,7 +124,7 @@ async function runPreGates(
 	ctx.ui.setStatus("supervisor", "Running requirements traceability checks...");
 	await runTraceabilityGate(deps, config, worktreePath);
 
-	return { dupGate, deadGate, osvGate, ciFailureText: ciGate.failureText };
+	return { blocked: false, ciOutcome: ciGate, dupGate, deadGate, osvGate, ciFailureText };
 }
 
 /**
@@ -137,15 +175,8 @@ export async function runTscAndLspAudit(
 	pi: ExtensionAPI,
 	ctx: ExtensionCommandContext,
 	collector?: ErrorCollector,
-): Promise<{
-	nextStatus: string;
-	note: string;
-	/** CI gate failure section, when CI blocked the transition (issue #1829). */
-	ciFailureText?: string | null;
-	duplicateCodeResult?: DuplicateCodeResult;
-	deadCodeResult?: DeadCodeResult;
-	vulnResult?: OsvScanResult;
-}> {
+	deps: Partial<AuditOrchestratorDeps> = {},
+): Promise<AuditRunResult> {
 	const branch = generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
 	// Shared exec function for running shell commands via pi.exec
@@ -162,6 +193,9 @@ export async function runTscAndLspAudit(
 	const ciGatingEnabled = (config.ciGatingTimeoutSec ?? 0) > 0;
 	const expectedHeadSha = ciGatingEnabled ? await captureHeadSha(exec, worktreePath, ctx.ui) : "";
 
+	// Heavy-gate seams: production gets the real runners, tests get stubs.
+	const { runTscGateFn = runTscGate, runLspPreAuditFn = runLspPreAudit } = deps;
+
 	const preGateDeps: PreGateDeps = {
 		pi,
 		execFn: exec,
@@ -173,7 +207,7 @@ export async function runTscAndLspAudit(
 	};
 
 	try {
-		const { dupGate, deadGate, osvGate, ciFailureText } = await runPreGates(
+		const preGates = await runPreGates(
 			ctx,
 			preGateDeps,
 			config,
@@ -181,19 +215,28 @@ export async function runTscAndLspAudit(
 			gateFailures,
 			expectedHeadSha,
 		);
+		if (preGates.blocked) {
+			// CI could not be verified: stop here. No TSC/LSP/dup gates run and
+			// nothing is uncommitted — the developer's commit is preserved.
+			getDebugLogger().warn("pipeline-audit", "CI unverifiable — pipeline stopped", {
+				reason: preGates.reason,
+			});
+			return { outcome: "blocked", reason: preGates.reason, ciFailureText: null };
+		}
+		const { ciOutcome, dupGate, deadGate, osvGate, ciFailureText } = preGates;
 
 		// Step 5: TSC checkpoint (Tier 2)
 		// Write checkpoint before TSC (heavy/long-running operation)
 		writeAuditCheckpoint(ctx, issueNum, "pre-tsc", "TSC", branch, worktreePath);
 		ctx.ui.setStatus("supervisor", "Running TSC checkpoint...");
-		const tscFailure = await runTscGate(worktreePath, ctx, collector);
+		const tscFailure = await runTscGateFn(worktreePath, ctx, collector);
 		if (tscFailure) gateFailures.push(tscFailure);
 
 		// Step 5: LSP pre-audit (Tier 3)
 		// Write checkpoint before LSP (heavy/long-running operation)
 		writeAuditCheckpoint(ctx, issueNum, "pre-lsp", "LSP", branch, worktreePath);
 		ctx.ui.setStatus("supervisor", "Running LSP pre-audit diagnostics...");
-		const lspResult = await runLspPreAudit(issueNum, issueTitle, config, pi, ctx, worktreePath);
+		const lspResult = await runLspPreAuditFn(issueNum, issueTitle, config, pi, ctx, worktreePath);
 		getDebugLogger().info("pipeline-audit", "LSP pre-audit result", {
 			nextStatus: lspResult.nextStatus,
 			note: lspResult.note,
@@ -215,11 +258,16 @@ export async function runTscAndLspAudit(
 			);
 		}
 		return {
-			...decideAudit(gateFailures, lspResult.note, {
-				duplicateCodeResult: dupGate.dupResult,
-				deadCodeResult: deadGate.deadResult,
-				vulnResult: osvGate.vulnResult,
-			}),
+			...decideAudit(
+				gateFailures,
+				lspResult.note,
+				{
+					duplicateCodeResult: dupGate.dupResult,
+					deadCodeResult: deadGate.deadResult,
+					vulnResult: osvGate.vulnResult,
+				},
+				ciOutcome,
+			),
 			ciFailureText,
 		};
 	} finally {
