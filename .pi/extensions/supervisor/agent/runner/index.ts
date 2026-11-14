@@ -23,7 +23,12 @@ import { getDebugLogger } from "../../lib/debug.ts";
 import { createAgentRunState } from "../state-helpers.ts";
 import { runAgentInProcess } from "../agent-session-runner.ts";
 import { spawnAgentChild } from "./spawn.ts";
-import { exhaustedBeforeSpawn, prepareSubprocessRun, runSpawnedProcess } from "./spawned-run.ts";
+import {
+	exhaustedBeforeSpawn,
+	prepareSubprocessRun,
+	runSpawnedProcess,
+	endPresentation,
+} from "./spawned-run.ts";
 import { createRunPresenter } from "./ui.ts";
 
 // ─── Dispatch window — one owner for the 1× rule ─────────────────
@@ -115,42 +120,52 @@ export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRu
 	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, thinkingLevel);
 	const presenter = createRunPresenter({ ctx, widgetId, agentName, model, state });
 
-	const prepared = prepareSubprocessRun({
-		agent,
-		task,
-		model,
-		presenter,
-		effectiveCwd,
-		sessionPath,
-		timeoutMs,
-		startedAt,
-	});
-	if (!prepared.ok) return prepared.result;
-	const { args } = prepared;
+	// The presenter is built before the pre-spawn path (the guards report
+	// through it) and arms its timers at construction, so EVERY throw from here
+	// on must tear the presentation down before it escapes: a leaked heartbeat
+	// keeps rendering the aborted run's widget and keeps the process alive.
+	try {
+		const prepared = prepareSubprocessRun({
+			agent,
+			task,
+			model,
+			presenter,
+			effectiveCwd,
+			sessionPath,
+			timeoutMs,
+			startedAt,
+		});
+		if (!prepared.ok) return prepared.result;
+		const { args } = prepared;
 
-	// Preparation may itself have consumed the whole configured window (the
-	// merge-conflict path calls this directly using a resolved per-agent
-	// timeout). Return a structured timeout failure instead of arming a fresh
-	// full window — otherwise the effective bound is preparation + T.
-	if (timeoutMs !== null && absoluteDeadlineMs !== null && absoluteDeadlineMs - Date.now() <= 0) {
-		return exhaustedBeforeSpawn({ presenter, state, agentName, startedAt, timeoutMs });
+		// Preparation may itself have consumed the whole configured window (the
+		// merge-conflict path calls this directly using a resolved per-agent
+		// timeout). Return a structured timeout failure instead of arming a fresh
+		// full window — otherwise the effective bound is preparation + T.
+		if (timeoutMs !== null && absoluteDeadlineMs !== null && absoluteDeadlineMs - Date.now() <= 0) {
+			return exhaustedBeforeSpawn({ presenter, state, agentName, startedAt, timeoutMs });
+		}
+		const remainingMs =
+			absoluteDeadlineMs === null ? null : Math.max(0, absoluteDeadlineMs - Date.now());
+
+		return await runSpawnedProcess({
+			args,
+			effectiveCwd,
+			sandboxEnv,
+			presenter,
+			agentName,
+			state,
+			spawnChild: spawnAgentChild,
+			pi,
+			timeoutMs,
+			remainingMs,
+			killGraceSec,
+			startedAt,
+			log,
+		});
+	} catch (err: unknown) {
+		// `await` inside the guard covers the asynchronous rejection path too.
+		endPresentation(presenter, `pre-spawn failure (${agentName})`);
+		throw err;
 	}
-	const remainingMs =
-		absoluteDeadlineMs === null ? null : Math.max(0, absoluteDeadlineMs - Date.now());
-
-	return runSpawnedProcess({
-		args,
-		effectiveCwd,
-		sandboxEnv,
-		presenter,
-		agentName,
-		state,
-		spawnChild: spawnAgentChild,
-		pi,
-		timeoutMs,
-		remainingMs,
-		killGraceSec,
-		startedAt,
-		log,
-	});
 }

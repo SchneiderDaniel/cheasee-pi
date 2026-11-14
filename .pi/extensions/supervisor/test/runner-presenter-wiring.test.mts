@@ -32,6 +32,11 @@ import type { ChildHandle } from "../agent/runner/spawn.ts";
 import { createAgentRunState } from "../agent/state-helpers.ts";
 import type { AgentRunState, ParsedAgent } from "../config/types.ts";
 import { getDebugLogger } from "../lib/debug.ts";
+import {
+	ErrorCollector,
+	resetErrorCollector,
+	setErrorCollector,
+} from "../pipeline/error-collector.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const RUNNER_DIR = join(__dirname, "../agent/runner");
@@ -421,6 +426,72 @@ describe("Phase 3c: pre-spawn guards tear down through the port", () => {
 		assert.equal(prepared.ok, true);
 		assert.deepEqual(fake.argsOf("announceStart"), [["test-agent"]]);
 		assert.equal(fake.count("clear"), 0, "a healthy preparation clears nothing");
+	});
+});
+
+// ─── Phase 3d: an aborted pre-spawn run never leaks the presenter ──
+// The composition root builds the presenter (which arms its timers) BEFORE the
+// pre-spawn path runs, so any throw in between must tear the presentation down.
+// Otherwise the 2s heartbeat keeps rendering the aborted run's widget and keeps
+// the process alive for the rest of the session.
+
+describe("Phase 3d: a thrown pre-spawn path tears the presentation down", () => {
+	it("announceStart throw → widget cleared once, no heartbeat resurrection, error surfaces", async () => {
+		const renders: unknown[][] = [];
+		const ctx: any = {
+			cwd: "/tmp",
+			ui: {
+				notify: () => {
+					throw new Error("ui exploded");
+				},
+				setStatus: () => {},
+				setWidget: (...args: unknown[]) => renders.push(args),
+				setWorkingMessage: () => {},
+			},
+		};
+		const { runAgentSubprocess } = await import("../agent/runner.ts");
+
+		await assert.rejects(
+			() => runAgentSubprocess({ agent: mockAgent, task: "task", ctx, timeoutMs: 5000 } as any),
+			/ui exploded/,
+			"the presentation failure still reaches the dispatcher",
+		);
+		assert.equal(renders.length, 1, "the aborted run's widget was cleared exactly once");
+		assert.deepEqual(renders[0], ["agent-test-agent", undefined], "cleared with undefined, not ''");
+
+		await wait(2200);
+		assert.equal(renders.length, 1, "the leaked heartbeat must not re-render the cleared widget");
+	});
+
+	it("a throwing teardown does not mask the original pre-spawn error", async (t) => {
+		const collector = new ErrorCollector();
+		setErrorCollector(collector);
+		t.after(() => resetErrorCollector());
+
+		const ctx: any = {
+			cwd: "/tmp",
+			ui: {
+				notify: () => {
+					throw new Error("ui exploded");
+				},
+				setStatus: () => {},
+				setWidget: () => {
+					throw new Error("widget teardown exploded");
+				},
+				setWorkingMessage: () => {},
+			},
+		};
+		const { runAgentSubprocess } = await import("../agent/runner.ts");
+
+		await assert.rejects(
+			() => runAgentSubprocess({ agent: mockAgent, task: "task", ctx, timeoutMs: 5000 } as any),
+			/ui exploded/,
+			"the original failure is not replaced by the teardown failure",
+		);
+
+		const collected = collector.flush("runner");
+		assert.equal(collected.length, 1, "the teardown failure reaches the operator warning panel");
+		assert.match(collected[0]!.message, /widget teardown exploded/);
 	});
 });
 

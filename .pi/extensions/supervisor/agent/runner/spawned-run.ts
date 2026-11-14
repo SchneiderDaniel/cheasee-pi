@@ -283,14 +283,30 @@ export function prepareSubprocessRun(opts: {
 }
 
 /**
- * Tear down the presentation of a run that never spawned (argv/build/cwd
- * guard failures). The timers go FIRST: the presenter is built before the
- * guards run, so its heartbeat is already armed — `clear()` alone would leave
- * it rendering the widget of a run that never started.
+ * Tear down the presentation of a run that will not report normally: a guard
+ * failure, a spawn rejection, or a throw that escaped the pre-spawn path. The
+ * timers go FIRST: the presenter is built before the guards run, so its
+ * heartbeat is already armed — `clear()` alone would leave an interval
+ * re-rendering the widget of a run that never started, and an armed interval
+ * also keeps the process alive.
+ *
+ * Both steps are contained: a presentation adapter that throws must neither
+ * mask the failure that triggered the teardown nor skip the remaining step.
  */
-function endPresentation(presenter: RunPresenter): void {
-	presenter.dispose();
-	presenter.clear();
+export function endPresentation(presenter: RunPresenter, reason = "run ended"): void {
+	runTeardownStep(() => presenter.dispose(), reason);
+	runTeardownStep(() => presenter.clear(), reason);
+}
+
+/** Run one teardown step; an adapter failure is reported, never rethrown. */
+function runTeardownStep(step: () => void, reason: string): void {
+	try {
+		step();
+	} catch (err: unknown) {
+		const msg = err instanceof Error ? err.message : String(err);
+		getDebugLogger().error("agent-runner", `Presentation teardown failed (${reason}): ${msg}`);
+		getErrorCollector().push("runner", "warn", `Presentation teardown failed (${reason}): ${msg}`);
+	}
 }
 
 /** Shared guard-failure path: stop the presentation timers, clear, then assemble the failure result. */
