@@ -1,5 +1,5 @@
 /**
- * git-harness.ts — Shared real-git harness and `ExecFn` fakes for the
+ * git-harness.mts — Shared real-git harness and `ExecFn` fakes for the
  * `github/git.ts` suites.
  *
  * `git.test.mts`, `git-part2.test.mts` and `git-part3.test.mts` used to carry a

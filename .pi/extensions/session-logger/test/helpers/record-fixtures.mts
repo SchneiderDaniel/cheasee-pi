@@ -1,5 +1,5 @@
 /**
- * record-fixtures.ts — Shared JSONL record fixtures for session-logger tests.
+ * record-fixtures.mts — Shared JSONL record fixtures for session-logger tests.
  *
  * The JSONL mappers in `.pi/extensions/session-logger.ts` are internal (no
  * production symbol to import), so the suites replicate them. Those replicas

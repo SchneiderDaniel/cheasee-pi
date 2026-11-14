@@ -1,8 +1,9 @@
 /**
- * exec-fakes.ts — Shared `ExecFn` fakes for OSV-scanner check tests.
+ * exec-fakes.mts — Shared `ExecFn` fakes for the supervisor check tests.
  *
- * The osv-scanner suites used to carry byte-identical copies of these two
- * factories in every `-partN` file (issue #2105). They live here once.
+ * The osv-scanner, dead-code and duplicate-code suites used to carry
+ * byte-identical copies of these two factories in every `-partN` file
+ * (issue #2105). They live here once.
  */
 
 import type { ExecFn } from "../../checks/shared.ts";

@@ -189,11 +189,27 @@ describe("createCodingAgentMockExports", () => {
 		assert.equal(second.agent.state.messages, mutated, "config re-read on every call");
 	});
 
-	it("honours setupDelayMs before resolving", async () => {
+	// Clock-free by construction: a wall-clock `elapsed >= 40` assertion is a
+	// flake under CI load (Node rounds timer deadlines down, so setTimeout(40)
+	// can fire before 40ms of Date.now() have elapsed — observed red on CI).
+	// Ticking the mocked timer proves both halves: no early resolve, and a
+	// resolve once the full delay elapses.
+	it("honours setupDelayMs before resolving", async (t) => {
+		t.mock.timers.enable({ apis: ["setTimeout"] });
 		const exports = createCodingAgentMockExports(() => ({ setupDelayMs: 40 }));
-		const startedAt = Date.now();
-		await exports.createAgentSession({});
-		assert.ok(Date.now() - startedAt >= 40, "setup delay applied");
+		let resolved = false;
+		const pending = exports.createAgentSession({}).then(() => {
+			resolved = true;
+		});
+
+		await Promise.resolve();
+		t.mock.timers.tick(39);
+		await Promise.resolve();
+		assert.equal(resolved, false, "must not resolve before the delay elapses");
+
+		t.mock.timers.tick(1);
+		await pending;
+		assert.equal(resolved, true, "resolves once the delay elapses");
 	});
 
 	it("never settles when setupNeverSettles is set", async () => {

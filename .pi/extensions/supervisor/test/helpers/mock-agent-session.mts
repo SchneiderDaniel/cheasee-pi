@@ -1,5 +1,5 @@
 /**
- * mock-agent-session.ts — Shared in-process `AgentSession` mock for supervisor tests.
+ * mock-agent-session.mts — Shared in-process `AgentSession` mock for supervisor tests.
  *
  * The `agent-runner-in-process*.test.mts` suites used to carry byte-identical
  * copies of the session factory, the manager stubs and the two `mock.module`
