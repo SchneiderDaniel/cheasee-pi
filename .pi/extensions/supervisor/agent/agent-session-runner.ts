@@ -11,6 +11,7 @@ import { agentSessionEventToNormalizedEvent, createForwardChatState } from "../e
 import { pushLog, createAgentRunState } from "./state-helpers.ts";
 import { buildWidgetLines } from "../session/widget.ts";
 import { handleNormalizedEvent } from "./runner/event-loop.ts";
+import type { RunPresenter } from "./runner/presenter.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import { getErrorCollector } from "../pipeline/error-collector.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../config/config.ts";
@@ -256,6 +257,14 @@ export async function runAgentInProcess(opts: AgentRunOptions): Promise<AgentRun
 			}
 		};
 
+		// Narrow RunPresenter slice for the shared event handler (issue #2106):
+		// this runner owns its own widget lifecycle and start/teardown calls, so
+		// only the two members handleNormalizedEvent depends on are adapted here.
+		const presenter: Pick<RunPresenter, "scheduleFlush" | "setWorkingMessage"> = {
+			scheduleFlush,
+			setWorkingMessage: (message) => ctx.ui.setWorkingMessage(message),
+		};
+
 		// Setup + prompt run as ONE cancellable body: the SDK load, session
 		// creation AND the prompt share the single absolute bound armed above.
 		// `timedOut` is re-checked after every await so a slow setup that resolves
@@ -340,8 +349,7 @@ export async function runAgentInProcess(opts: AgentRunOptions): Promise<AgentRun
 						agentName,
 						pi,
 						pending,
-						scheduleFlush,
-						ctx,
+						presenter,
 					});
 				} catch (parseErr: unknown) {
 					const errMsg = String(parseErr).slice(0, 200);

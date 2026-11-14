@@ -5,7 +5,8 @@
  * normalize → process → workingChange → forward invariant that both the
  * in-process subscriber and the subprocess line handler now share:
  *  - preThinkingText is captured BEFORE processNormalizedEvent clears it
- *  - workingChange drives scheduleFlush + ctx.ui.setWorkingMessage
+ *  - workingChange drives presenter.scheduleFlush + presenter.setWorkingMessage
+ *    (issue #2106: the handler depends on the RunPresenter port, not ctx.ui)
  *  - chat forwarding is skipped when pi is undefined
  *  - errors from pi.sendMessage propagate (callers own try/catch)
  */
@@ -17,22 +18,17 @@ import { createAgentRunState } from "../agent/state-helpers.ts";
 import { createForwardChatState } from "../event/adapter.ts";
 import type { NormalizedEvent } from "../event/adapter.ts";
 import type { AgentRunState } from "../config/types.ts";
-
-function createCtx(): any {
-	return {
-		cwd: "/tmp/work",
-		ui: {
-			notify: mock.fn(),
-			setStatus: mock.fn(),
-			setWidget: mock.fn(),
-			setWorkingMessage: mock.fn(),
-		},
-	};
-}
+import type { RunPresenter } from "../agent/runner/presenter.ts";
 
 function harness(opts?: { withPi?: boolean; state?: AgentRunState }) {
+	// Recording RunPresenter slice — the handler's only presentation dependency
+	// (issue #2106: no ctx.ui stub anymore).
 	const scheduleFlush = mock.fn();
-	const ctx = createCtx();
+	const setWorkingMessage = mock.fn();
+	const presenter: Pick<RunPresenter, "scheduleFlush" | "setWorkingMessage"> = {
+		scheduleFlush: () => scheduleFlush(),
+		setWorkingMessage: (message?: string) => setWorkingMessage(message),
+	};
 	const state = opts?.state ?? createAgentRunState(Date.now());
 	const pending = createForwardChatState();
 	const pi = opts?.withPi === false ? undefined : { sendMessage: mock.fn() };
@@ -42,10 +38,9 @@ function harness(opts?: { withPi?: boolean; state?: AgentRunState }) {
 		agentName: "tester",
 		pi,
 		pending,
-		scheduleFlush,
-		ctx,
+		presenter,
 	};
-	return { deps, ctx, scheduleFlush, pi, pending, state };
+	return { deps, presenter, scheduleFlush, setWorkingMessage, pi, pending, state };
 }
 
 describe("handleNormalizedEvent", () => {
@@ -80,8 +75,8 @@ describe("handleNormalizedEvent", () => {
 		);
 
 		assert.equal(h.scheduleFlush.mock.callCount(), 1, "flush scheduled once");
-		assert.equal(h.ctx.ui.setWorkingMessage.mock.callCount(), 1, "working message set");
-		assert.equal(h.ctx.ui.setWorkingMessage.mock.calls[0]!.arguments[0], "tester: bash");
+		assert.equal(h.setWorkingMessage.mock.callCount(), 1, "working message set");
+		assert.equal(h.setWorkingMessage.mock.calls[0]!.arguments[0], "tester: bash");
 		assert.equal(h.state.phase, "tool");
 	});
 
@@ -91,7 +86,7 @@ describe("handleNormalizedEvent", () => {
 		handleNormalizedEvent({ kind: "turn_start" } as NormalizedEvent, h.deps);
 
 		assert.equal(h.scheduleFlush.mock.callCount(), 0);
-		assert.equal(h.ctx.ui.setWorkingMessage.mock.callCount(), 0);
+		assert.equal(h.setWorkingMessage.mock.callCount(), 0);
 	});
 
 	it("no-op event (turn_end) → no state change, no flush, no message", () => {

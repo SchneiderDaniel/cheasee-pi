@@ -25,6 +25,7 @@ const MODULES = [
 	"budget.ts",
 	"deadline.ts",
 	"cleanup.ts",
+	"presenter.ts",
 	"ui.ts",
 	"event-loop.ts",
 	"spawned-run.ts",
@@ -381,21 +382,22 @@ if (hasMockModule) {
 	describe("runner/ui.ts — widget cadence", () => {
 		it("300ms debounce fires setWidget during execution", async () => {
 			resetMock();
-			const { createWidgetFlusher } = await import("../agent/runner/ui.ts");
+			// Issue #2106: the ctx.ui adapter is `createRunPresenter` (RunPresenter port).
+			const { createRunPresenter } = await import("../agent/runner/ui.ts");
 			const state = createState();
-			const flusher = createWidgetFlusher({
+			const presenter = createRunPresenter({
 				ctx: mockCtx,
 				widgetId: "agent-test-agent",
 				agentName: "test-agent",
 				model: "m",
 				state,
 			});
-			flusher.scheduleFlush();
+			presenter.scheduleFlush();
 			await new Promise((r) => setTimeout(r, 400));
 			const setWidget = mockCtx.ui.setWidget as ReturnType<typeof mock.fn>;
 			assert.ok(setWidget.mock.calls.length >= 1, "debounced flush rendered the widget");
-			flusher.dispose();
-			flusher.dispose(); // idempotent — no double-clear, no throw
+			presenter.dispose();
+			presenter.dispose(); // idempotent — no double-clear, no throw
 		});
 
 		it("clears widget + working message + status on completion and on spawn error", async () => {
@@ -456,22 +458,37 @@ if (hasMockModule) {
 			const { getDebugLogger } = await import("../lib/debug.ts");
 			spawnCalls.length = 0;
 
+			// Issue #2106: the use case takes a presentation port plus a spawn port; a
+			// reject-all spawn reproduces the argv rejection without node:child_process.
+			const cleared: string[] = [];
+			const presenter = {
+				scheduleFlush: () => {},
+				setWorkingMessage: () => {},
+				announceStart: () => {},
+				clear: () => {
+					cleared.push("clear");
+				},
+				dispose: () => {
+					cleared.push("dispose");
+				},
+			};
 			const result = await runSpawnedProcess({
 				args: ["bad\0arg"],
 				effectiveCwd: "/tmp",
 				sandboxEnv: {},
-				ctx: mockCtx,
-				widgetId: "agent-test-agent",
+				presenter,
 				agentName: "test-agent",
-				model: "",
 				state: createState(),
+				spawnChild: () => {
+					throw new TypeError("argv must not contain null bytes");
+				},
 				timeoutMs: null,
 				remainingMs: null,
 				killGraceSec: undefined,
 				startedAt: Date.now(),
 				log: getDebugLogger(),
 			});
-
+			assert.deepEqual(cleared, ["dispose", "clear"], "failed spawn tears the presentation down");
 			assert.strictEqual(result.success, false, "the rejection must not escape the contract");
 			assert.strictEqual(spawnCalls.length, 0, "no child may be spawned");
 			assert.ok(result.output.includes("Failed to start pi:"));
