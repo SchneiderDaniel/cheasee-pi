@@ -23,9 +23,9 @@ package (__path__ is set so dependency_existence_check.<sub> resolves).
 from __future__ import annotations
 
 import sys
-from pathlib import Path
+import pathlib
 
-_HERE = Path(__file__).resolve().parent
+_HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 __path__ = [str(_HERE / "dependency_existence_check")]  # type: ignore[attr-defined]
 

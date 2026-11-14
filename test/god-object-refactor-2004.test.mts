@@ -113,9 +113,11 @@ const TOUCHED: Record<string, string[]> = {
 const ALL_FILES = [...Object.keys(TOUCHED), ...Object.values(TOUCHED).flat()];
 
 /** Analyzer counts per family on the base commit — whole decls move verbatim,
- * so the total across a family is invariant. The one raised entry is the codeflow
- * shim family: #2036's `server.py` split added the shared `stageCodeflowShim`
- * staging helper (32 -> 33) instead of moving an existing declaration. */
+ * so the total across a family is invariant. Two raised entries are additions,
+ * never losses: #2036's `server.py` split added the shared `stageCodeflowShim`
+ * staging helper (32 -> 33), and #2103 moved the Go version rule out of the
+ * orchestrator into `Registry.check_dependency` (base + Go override) plus the
+ * shared `Registry._fetch` (42 -> 45) instead of relocating declarations. */
 const BASE_COUNT: Record<string, number> = {
 	"cmd/cheasee-pi/up_env_test.go": 34,
 	"cmd/cheasee-pi/codeflow_shim_test.go": 33,
@@ -130,7 +132,7 @@ const BASE_COUNT: Record<string, number> = {
 	"cmd/cheasee-pi/up_orphans_test.go": 20,
 	"cmd/cheasee-pi/helpers_run_test.go": 19,
 	"cmd/cheasee-pi/init_skillrepos_test.go": 16,
-	"scripts/dependency_existence_check/registries.py": 42,
+	"scripts/dependency_existence_check/registries.py": 45,
 	"scripts/dependency_existence_check/transport.py": 19,
 	"test/dependency-existence-check-refactor.test.py": 17,
 };

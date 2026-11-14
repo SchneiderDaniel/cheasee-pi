@@ -53,6 +53,14 @@ from dependency_existence_check_tests.test_ignore_mechanism import (  # noqa: E4
 from dependency_existence_check_tests.test_end_to_end import (  # noqa: E402,F401
     EndToEndTests,
 )
+from dependency_existence_check_tests.test_discovery_stage import (  # noqa: E402,F401
+    DiscoveryStageBoundaryTests,
+    DiscoveryStageTests,
+)
+from dependency_existence_check_tests.test_verify_stage import (  # noqa: E402,F401
+    CheckDependencyTests,
+    VerifyStageTests,
+)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

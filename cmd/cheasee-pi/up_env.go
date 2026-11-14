@@ -191,3 +191,71 @@ func cleanContainerTmp(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+// Env keys a start run owns beyond the provider keys from buildEnvFlags.
+const (
+	envCodeflowPort = "CODEFLOW_PORT"
+	envSessionID    = "CHEASEE_SESSION_ID"
+	envUIHostPort   = "PI_UI_PORT"
+	envUIUnresolved = "CHEASEE_UI_PORT_UNRESOLVED"
+)
+
+// sessionEnv owns the per-run env: the provider keys buildEnvFlags produced
+// plus the four keys a start resolves for itself (CodeFlow port, session
+// marker, UI host port, UI-unresolved marker). Owning them in one type per run
+// is what keeps two sequential starts from leaking each other's session marker
+// or resolved ports. The typed setters keep the two UI outcomes mutually
+// exclusive, so docker exec never sees a bare `PI_UI_PORT=` next to the
+// failure marker (R1 AC3).
+type sessionEnv struct {
+	base   map[string]string
+	values map[string]string
+}
+
+// newSessionEnv layers the run keys over the provider keys. The caller's map is
+// never written to.
+func newSessionEnv(base map[string]string) *sessionEnv {
+	return &sessionEnv{base: base}
+}
+
+func (e *sessionEnv) set(key, value string) {
+	if e.values == nil {
+		e.values = make(map[string]string, 4)
+	}
+	e.values[key] = value
+}
+
+// setCodeflowPort records the CodeFlow host port: the pre-start probe first,
+// then the bound port once the sidecar runs — last write wins.
+func (e *sessionEnv) setCodeflowPort(port string) { e.set(envCodeflowPort, port) }
+
+// setSessionID tags the run so the reaper can find exactly this session.
+func (e *sessionEnv) setSessionID(id string) { e.set(envSessionID, id) }
+
+// sessionID is the marker the reaper joins on after the exec client detaches.
+func (e *sessionEnv) sessionID() string { return e.values[envSessionID] }
+
+// setUIPort forwards the resolved UI host port and clears any stale failure
+// marker from an earlier resolution attempt.
+func (e *sessionEnv) setUIPort(port string) {
+	e.set(envUIHostPort, port)
+	delete(e.values, envUIUnresolved)
+}
+
+// markUIUnresolved records that no UI host port could be resolved. PI_UI_PORT
+// stays absent — never forwarded empty — and the in-container extension reads
+// the marker to suppress its UI link.
+func (e *sessionEnv) markUIUnresolved() {
+	e.set(envUIUnresolved, "1")
+	delete(e.values, envUIHostPort)
+}
+
+// Map flattens the run's env for the dry-run dump and the docker exec. It
+// always returns a fresh, non-nil map, so the zero value is usable and callers
+// cannot mutate the owner's state.
+func (e *sessionEnv) Map() map[string]string {
+	out := make(map[string]string, len(e.base)+len(e.values))
+	maps.Copy(out, e.base)
+	maps.Copy(out, e.values)
+	return out
+}

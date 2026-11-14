@@ -1,10 +1,14 @@
-"""One registry client per package registry, plus the REGISTRIES table."""
+"""Base registry client: rate-limited request loop, cache/etag handling.
+
+One subclass per package registry lives in registry_json / registry_meta /
+registry_other / registry_simple; the REGISTRIES table lives in registries.py.
+"""
 
 from __future__ import annotations
 
 import json
 
-from .models import PackageRecord, RegistryError
+from .models import Dependency, PackageRecord, RegistryError
 from .transport import RateLimiter
 
 
@@ -44,8 +48,19 @@ class Registry:
             f"registry {self.name} unreachable for {url} after 3 attempts ({last})"
         )
 
-    def check(self, name: str, version: str | None = None) -> PackageRecord:
-        url = self._url(name, version) if self.name == "go" and version else self._url(name)
+    def check(self, name: str) -> PackageRecord:
+        return self._fetch(self._url(name), name)
+
+    def check_dependency(self, dep: Dependency) -> PackageRecord:
+        """Verify one dependency as the report sees it.
+
+        Default: name-only lookup. Registries that can resolve a declared
+        version (Go module proxy) override this instead of teaching the
+        orchestrator to branch on a registry name.
+        """
+        return self.check(dep.name)
+
+    def _fetch(self, url: str, name: str) -> PackageRecord:
         cached = self.fetcher.cache_entry(url)
         etag = cached[2] if cached else None
         status, body, _ = self._request(url, etag)

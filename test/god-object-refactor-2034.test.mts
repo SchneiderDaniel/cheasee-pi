@@ -401,17 +401,20 @@ describe("god-object refactor #2034 — the Python harness family", () => {
 		}
 	});
 
-	it("keeps the runtime working: the python suite still discovers 62 tests", () => {
+	it("keeps the runtime working: the python suite still discovers 77 tests", () => {
 		// `unittest` exits 0 with a zero-match pattern, so the test count is the
 		// guard: a broken shim, a lost star-import or an unregistered `dec`
-		// shows up as an error or a smaller run, never as a silent pass.
+		// shows up as an error or a smaller run, never as a silent pass. The
+		// count is 62 from #2034 plus the 15 discovery/verify stage tests
+		// registered by #2103 (18 before the verify cases were folded into
+		// table-driven subtests to stay under the function-count ceiling).
 		const run = spawnSync("python3", ["test/dependency-existence-check.test.py"], {
 			cwd: ROOT,
 			encoding: "utf-8",
 		});
 		const output = `${run.stdout ?? ""}${run.stderr ?? ""}`;
 		assert.equal(run.status, 0, `python suite exited ${run.status}: ${output}`);
-		assert.match(output, /Ran 62 tests/);
+		assert.match(output, /Ran 77 tests/);
 		assert.match(output, /^OK$/m);
 	});
 });

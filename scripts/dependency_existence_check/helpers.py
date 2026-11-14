@@ -23,6 +23,6 @@ def days_since(iso: str | None) -> int | None:
     return math.floor((_dt.now(timezone.utc) - dt).total_seconds() / 86400)
 
 
-def _local(tag: str) -> str:
+def local_tag(tag: str) -> str:
     """Strip an XML namespace prefix from a tag name."""
     return tag.rsplit("}", 1)[-1]

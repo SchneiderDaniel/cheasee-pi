@@ -6,7 +6,7 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ..helpers import _local
+from ..helpers import local_tag
 from ..models import Dependency
 from .base import Adapter
 
@@ -31,11 +31,11 @@ class JavaAdapter(Adapter):
             return []
         deps = []
         for dep in root.iter():
-            if _local(dep.tag) != "dependency":
+            if local_tag(dep.tag) != "dependency":
                 continue
             group = artifact = version = None
             for child in dep:
-                t = _local(child.tag)
+                t = local_tag(child.tag)
                 if t == "groupId":
                     group = (child.text or "").strip() or None
                 elif t == "artifactId":

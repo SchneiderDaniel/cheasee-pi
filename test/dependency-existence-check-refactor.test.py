@@ -41,6 +41,11 @@ from dependency_existence_check_refactor.test_baseline import BaselineParityTest
 from dependency_existence_check_refactor.test_cli_smoke import CliSmokeTests  # noqa: E402,F401
 from dependency_existence_check_refactor.test_package_split import PackageSplitTests  # noqa: E402,F401
 from dependency_existence_check_refactor.test_public_surface import PublicSurfaceTests  # noqa: E402,F401
+from dependency_existence_check_refactor.test_stage_boundaries import (  # noqa: E402,F401
+    CoreCompositionTests,
+    ShimSurfaceTests,
+    StageBoundaryTests,
+)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

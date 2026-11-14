@@ -7,7 +7,7 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import timezone
 
-from .helpers import _local
+from .helpers import local_tag
 from .models import PackageRecord, RegistryError
 
 
@@ -32,7 +32,7 @@ class MavenRegistry(Registry):
             raise RegistryError(f"maven: unparseable metadata for {name}: {e}") from None
         versions = []
         for el in root.iter():
-            if _local(el.tag) == "versions":
+            if local_tag(el.tag) == "versions":
                 versions = [v.text for v in el if v.text]
                 break
         if not versions:
@@ -47,7 +47,7 @@ class MavenRegistry(Registry):
             raise RegistryError(f"maven: unparseable version metadata for {name}: {e}") from None
         ts = None
         for el in root2.iter():
-            if _local(el.tag) == "lastUpdated":
+            if local_tag(el.tag) == "lastUpdated":
                 ts = (el.text or "").strip()
                 break
         if not ts:
