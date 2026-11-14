@@ -178,6 +178,27 @@ describe("postCiGateRejection (issue #1829)", () => {
 		assert.ok(comments[0]!.includes("lint"), comments[0]!);
 	});
 
+	it("(use-case) a pending gate failure is not reported as red and quotes the note verbatim", async () => {
+		const calls: PortCall[] = [];
+		const port = createMockGitHubPort({ getIssueLabels: async () => [] }, calls);
+		const { ctx } = makeCtx();
+		const pendingNote = "--- CI Gate ---\nCI checks still pending after 600s timeout: smoke.";
+
+		await postCiGateRejection(ISSUE, CONFIG, pendingNote, 3, undefined, port, ctx);
+
+		const body = commentsFrom(calls)[0]!;
+		assert.ok(body.startsWith("## CI Gate Failed"), body);
+		assert.ok(
+			body.includes(pendingNote),
+			`the gate note is quoted verbatim so the check name reaches the issue: ${body}`,
+		);
+		assert.ok(body.includes("loop 3"), `the loop number is named: ${body}`);
+		assert.ok(
+			!body.includes("are red"),
+			`a pending or errored gate must not be described as red checks: ${body}`,
+		);
+	});
+
 	it("(use-case) comment post fails → reject-(N+1) removed and the error rethrown", async () => {
 		const calls: PortCall[] = [];
 		const port = createMockGitHubPort(
@@ -197,7 +218,11 @@ describe("postCiGateRejection (issue #1829)", () => {
 			/comment API down/,
 		);
 
-		assert.deepEqual(labelsFrom(calls), ["reject-2"]);
+		assert.deepEqual(
+			labelsFrom(calls),
+			["reject-2", "reject-1"],
+			"reject-2 is added, then the retired reject-1 is restored by the rollback",
+		);
 		assert.deepEqual(
 			removedLabelsFrom(calls),
 			["reject-1", "reject-2"],

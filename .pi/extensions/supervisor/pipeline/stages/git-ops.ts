@@ -128,7 +128,7 @@ export async function fetchResolvedByInfo(
 // put so the developer adds fix commits on top of the branch.
 
 /** Answer to "is the current HEAD already on the remote branch?". */
-export type HeadOnRemoteStatus = "on-remote" | "not-on-remote" | "unknown";
+type HeadOnRemoteStatus = "on-remote" | "not-on-remote" | "unknown";
 
 export interface HeadOnRemoteResult {
 	status: HeadOnRemoteStatus;

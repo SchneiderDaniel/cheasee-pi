@@ -28,7 +28,7 @@ Manual handoffs between research, architecture, implementation, and review are s
    - Runs agent in its worktree via worktree-sandbox (isolated file operations)
    - Posts results as GitHub issue comments
    - Moves board card to next status
-6. **Quality gates** — After Implementation, runs `tsc --noEmit` + LSP diagnostics on modified files. Failures return to Implementation (max 3 retries)
+6. **Quality gates** — After Implementation, runs CI gating + `tsc --noEmit` + LSP diagnostics on modified files. Failures return to Implementation; CI-gate loop-backs count toward the shared `reject-N` budget (`REJECTION_LIMIT`, default 5)
 7. **Audit** — Auditor reviews diff, approves or rejects. Rejected issues cycle back to Implementation (counts as 1 rejection toward `maxRejections`)
 8. **PR creation** — On approval, creates a PR with auditor's report as the body
 9. **Post-pipeline** — Checks PR for merge conflicts, asks user to auto-fix if needed
@@ -148,7 +148,8 @@ flowchart LR
 
 - **Research dedup gate** — If `## Research Findings` already exists in issue comments/body, researcher is skipped entirely.
 - **Structured JSON agent output** — `{ action, findings, commentBody, targetStatus }` with fallback to section heading detection, then legacy text markers.
-- **Gate failure != Auditor rejection** — Gate failures (CI/TSC/LSP/knip/jscpd/traceability) send back to Implementation but do NOT count toward `maxRejections`. Context accumulated in `gateFailureHistory`.
+- **Gate failure != Auditor rejection** — Gate failures (TSC/LSP/knip/jscpd/traceability) send back to Implementation but do NOT count toward `maxRejections`. Context accumulated in `gateFailureHistory`.
+- **CI-gate loop-backs are bounded** — A red CI gate also returns to Implementation, but it counts toward `maxRejections` (`reject-N` label, shared with auditor rejections, `REJECTION_LIMIT` = 5). At the limit the pipeline stops and posts a `## Rejection Limit Reached` blocker. Because the developer commit is already pushed, the gate never uncommits it — the developer adds fix commits on top, and the gate re-polls the new PR head SHA.
 - **Audit scoring across 8 dimensions** — Correctness, completeness, security, performance, style, test coverage, documentation, edge cases. Score must meet `auditScoreThreshold` (default 0.75).
 - **Worktree isolation** — Each issue gets its own git worktree at `../<branch-prefix><issue-number>/`.
 - **Per-agent budgets** — `agentTokenBudget` (soft cap) and `maxToolCalls` (hard cap).

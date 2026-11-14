@@ -35,7 +35,6 @@ import {
 	inferForwardStatus,
 	preserveTimedOutWork,
 	type PreservedWork,
-	type StageState,
 } from "../stages/index.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import type { ErrorCollector } from "../error-collector.ts";
