@@ -122,27 +122,34 @@ func TestExecPIContainer_portsThroughSeamWithStdio(t *testing.T) {
 	// The SetStdin interface addition is justified by this port: the real
 	// execPIContainer body (captured via the package-var seam) must route
 	// docker exec through runCommandContext with stdin/stdout/stderr wired
-	// then Run.
+	// then Run, and it must hand the caller's ctx to that seam (never
+	// context.Background(), or cancellation could not reach the docker client).
 	env := map[string]string{"KEY": "val"}
 	target := "/workspaces/main"
 	var m *mockCmd
 	var seenArgs []string
+	var seenCtx context.Context
 	runCalled := false
-	stubRunCommandContext(t, func(_ context.Context, name string, arg ...string) runner {
+	stubRunCommandContext(t, func(got context.Context, name string, arg ...string) runner {
 		if name != "docker" {
 			t.Fatalf("execPIContainer must call docker, got %q", name)
 		}
+		seenCtx = got
 		seenArgs = arg
 		m = &mockCmd{runFn: func() error { runCalled = true; return nil }}
 		return m
 	})
 
-	err := execPIContainer("cheasee-pi", env, target)
+	ctx := context.WithValue(context.Background(), ctxKey("test"), "marker")
+	err := execPIContainer(ctx, "cheasee-pi", env, target)
 	if err != nil {
 		t.Fatalf("execPIContainer: %v", err)
 	}
 	if m == nil {
 		t.Fatal("seam was not invoked")
+	}
+	if got := seenCtx.Value(ctxKey("test")); got != "marker" {
+		t.Errorf("seam must receive the caller's ctx, got %v", got)
 	}
 	if !slices.Equal(seenArgs, execArgs(env, "cheasee-pi", target)) {
 		t.Errorf("seam args = %v, want execArgs output %v", seenArgs, execArgs(env, "cheasee-pi", target))

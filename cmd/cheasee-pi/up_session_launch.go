@@ -47,10 +47,12 @@ func prepareLaunch(ctx context.Context, name string) error {
 // execPiSession runs the interactive exec and then reaps the session by marker.
 // The docker exec client just exited (user quit or disconnected); on disconnect
 // pi keeps running with PPid=0, invisible to the orphan scan — without this
-// every detached start leaks a pi.
+// every detached start leaks a pi. ctx is the caller's run ctx: it cancels the
+// exec client, and the reap still runs after a cancel so a torn-down start does
+// not leak the session it launched.
 func execPiSession(ctx context.Context, name string, env map[string]string,
 	target, sessionID string) error {
-	execErr := execPIContainer(name, env, target)
+	execErr := execPIContainer(ctx, name, env, target)
 	if err := killSessionByMarker(ctx, name, sessionID); err != nil {
 		fmt.Fprintf(os.Stderr, "  ⚠ session reaper: %v\n", err)
 	}

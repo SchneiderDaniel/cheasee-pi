@@ -128,10 +128,15 @@ func execArgs(env map[string]string, name, target string) []string {
 // working directory target. Package-var seam (newRepository/runCommandContext
 // pattern): tests override it to observe the non-dry-run exec without a real
 // docker daemon.
-var execPIContainer = func(name string, env map[string]string, target string) error {
+//
+// The docker client runs on the caller's ctx: a cancel (Ctrl-C, signal
+// handler, parent timeout) tears the exec down instead of leaving it on
+// context.Background(), which would also keep the session reaper in
+// execPiSession from running until the user quits pi by hand.
+var execPIContainer = func(ctx context.Context, name string, env map[string]string, target string) error {
 	args := execArgs(env, name, target)
 
-	cmd := runCommandContext(context.Background(), "docker", args...)
+	cmd := runCommandContext(ctx, "docker", args...)
 	cmd.SetStdin(os.Stdin)
 	cmd.SetStdout(os.Stdout)
 	cmd.SetStderr(os.Stderr)

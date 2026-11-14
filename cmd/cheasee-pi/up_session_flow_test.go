@@ -118,7 +118,7 @@ func TestStartSession_buildFlagSelectsTheComposePath(t *testing.T) {
 func TestStartSession_ctxReachesTheDockerSeams(t *testing.T) {
 	_, root := mkWorkspace(t, `{}`)
 	setUpRunMode(t, root, false)
-	stubExecPIContainer(t)
+	exec := stubExecPIContainer(t)
 	stubUpFlow(t, root, false)
 	rec := recordDockerSeams(t)
 
@@ -136,6 +136,11 @@ func TestStartSession_ctxReachesTheDockerSeams(t *testing.T) {
 		if got.Value(ctxKey("test")) != "marker" {
 			t.Errorf("docker call %d (%s) did not receive the caller's ctx", i, rec.calls[i])
 		}
+	}
+	// The exec seam is the last thing a run does; it must carry the same ctx so
+	// cancellation tears the interactive docker exec down.
+	if exec.ctx == nil || exec.ctx.Value(ctxKey("test")) != "marker" {
+		t.Error("the exec seam did not receive the caller's ctx")
 	}
 	if calls := rec.callsContaining("find", "/tmp"); len(calls) == 0 {
 		t.Error("expected the container /tmp reclaim among the docker exec calls")
