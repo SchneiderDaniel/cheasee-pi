@@ -19,33 +19,10 @@ import {
 	buildDeadCodeContext,
 	mapKnipFindingType,
 } from "../checks/dead-code.ts";
-import type { ExecFn } from "../checks/shared.ts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helpers
 // ═══════════════════════════════════════════════════════════════════════
-
-interface ExecCall {
-	cmd: string;
-	args: string[];
-	opts?: Record<string, unknown>;
-}
-
-function createMockExec(
-	results: Array<{ code: number; stdout: string; stderr: string }>,
-	calls?: ExecCall[],
-): ExecFn {
-	const callLog = calls || [];
-	let idx = 0;
-	const fn: ExecFn = async (cmd, args, opts) => {
-		callLog.push({ cmd, args: args || [], opts });
-		const r = results[idx] || { code: 0, stdout: "", stderr: "" };
-		idx++;
-		return Promise.resolve(r);
-	};
-	(fn as unknown as { calls: ExecCall[] }).calls = callLog;
-	return fn;
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // Domain: DeadCodeResult interface shape
