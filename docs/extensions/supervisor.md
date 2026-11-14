@@ -139,15 +139,22 @@ flowchart LR
 
 Resolves the open pull request for the worktree branch (`gh api repos/<repo>/pulls?head=<owner>:<branch>&state=open`), then polls the check runs of that PR's head SHA via `gh api --paginate repos/<repo>/commits/<sha>/check-runs?filter=latest`. Polls every 15s up to `ciGatingTimeoutSec` (default 600s).
 
-| Result                            | Action                                  |
-| --------------------------------- | --------------------------------------- |
-| All checks completed successfully | Proceed (`skipped`/`neutral` tolerated) |
-| Any check fails                   | Block → Implementation, names the check |
-| Checks still pending at timeout   | Block → Implementation                  |
-| No checks configured (60s grace)  | Warning, proceed to audit               |
-| No open PR / `gh api` error       | Block → Implementation (fail-closed)    |
+The gate is pinned to the commit the run pushed: HEAD is captured before the gates run, and a PR head that differs from it blocks as `pending` instead of classifying another commit's checks. A missing HEAD SHA blocks too (fail-closed).
+
+| Result                            | Action                                     |
+| --------------------------------- | ------------------------------------------ |
+| All checks completed successfully | Proceed (`skipped`/`neutral` tolerated)    |
+| Any check fails                   | Block → Implementation, names the check(s) |
+| Checks still pending at timeout   | Block → Implementation                     |
+| PR head ≠ pushed commit           | Block → Implementation (re-polls new head) |
+| No checks configured (60s grace)  | Warning, proceed to audit                  |
+| No open PR / `gh api` error       | Block → Implementation (fail-closed)       |
 
 Blocking conclusions are `failure`, `cancelled`, `action_required`, `timed_out` and `stale`. Set `ciGatingTimeoutSec: 0` to disable the gate entirely.
+
+A CI block is a counted loop-back — see [Loop-back budget](#loop-back-budget). The pushed commit is never rewritten: `uncommitDeveloperWork` skips `git reset --soft HEAD~1` while HEAD is reachable from `<remote>/<branch>`, so the developer adds fix commits on top and the gate re-polls the new PR head SHA.
+
+A check whose runtime exceeds `ciGatingTimeoutSec` blocks every run, because a still-running check counts as `pending` at the deadline. Repos whose slowest check is longer than 600s must raise the setting (for example this repo's `smoke` job, which builds the binary and a compose image and regularly runs 8–11 min).
 
 ### 2. TSC checkpoint
 
@@ -171,9 +178,18 @@ Cross-references the issue checklist against the implementation diff. Runs 5 det
 
 ### Gate failure notes
 
-- **Gate failures do NOT count as Auditor rejections.** The `maxRejections` counter tracks only explicit auditor REJECT decisions. A gate-bounced issue restarts Implementation with full context, not a consumed rejection slot.
+- **Only the CI gate counts as a loop-back.** `TSC`, `LSP`, `knip`, `jscpd` and traceability failures bounce the issue to Implementation with full context but do not consume a slot. A red CI gate does — see [Loop-back budget](#loop-back-budget).
 - **All gates run regardless of prior failures.** The combined note includes every failing gate, so the developer fixes everything at once.
 - **When gates block**, the user sees a chat message like `"🔴 Pre-Transition Gates Blocked — Returning to Developer"` with the failure details.
+
+### Loop-back budget
+
+The `reject-N` issue label is the single counter for every loop-back, so one number bounds the whole feedback cycle (auditor rejections and CI-gate failures alike; the checks share `REJECTION_LIMIT`, currently 5).
+
+- A CI block bumps the label and posts a `## CI Gate Failed` comment naming the red checks; the same entry lands in the PR body through `gateFailureHistory`.
+- The budget is enforced where the developer is dispatched, so neither path can re-dispatch past the limit.
+- At the limit the pipeline stops and posts a `## Rejection Limit Reached (N)` blocker on the issue instead of looping again.
+- A loop-back that cannot be recorded (label or comment write fails) stops the pipeline rather than running uncounted.
 
 ---
 
@@ -278,21 +294,21 @@ Settings live under the `supervisor` key in `.pi/settings.json`:
 
 ### Optional fields
 
-| Field                        | Default                               | What it does                                                                                                                                                                   |
-| ---------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `defaultBranch`              | `main`                                | Base branch for worktree and PR target                                                                                                                                         |
-| `branchPrefix`               | `worktree-git-issue-`                 | Prefix for worktree branch names                                                                                                                                               |
-| `maxRejections`              | `3`                                   | Max auditor rejections before pipeline stops                                                                                                                                   |
-| `auditScoreThreshold`        | `0.75`                                | Minimum passing/total ratio for audit score gate                                                                                                                               |
-| `ciGatingTimeoutSec`         | `600`                                 | Seconds to poll PR check runs before blocking the transition. `0` = skip CI gate entirely                                                                                      |
-| `agentTokenBudget`           | `0`                                   | Soft token cap per agent dispatch. `0` = unlimited                                                                                                                             |
-| `maxToolCalls`               | `0`                                   | Hard cap on tool invocations per agent. `0` = unlimited                                                                                                                        |
-| `agentTimeoutsMin`           | `{}`                                  | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`)                                                     |
-| `agentTimeoutSec`            | `{}`                                  | Per-agent wall-clock timeout in seconds: `{ "developer": 600 }`. `0` = no timeout (timers and kill disarmed). Authoritative override — **unscaled** by `agentTimeoutTierScale` |
-| `agentTimeoutTierScale`      | `{ small: 1, medium: 1.5, large: 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker: a `Large` issue scales 30 min → 60 min                                 |
-| `agentKillGraceSec`          | `10`                                  | SIGTERM→SIGKILL grace (s) for the subprocess kill ladder on timeout. `0` = immediate SIGKILL                                                                                   |
-| `bellOnComplete`             | `false`                               | Ring terminal bell when pipeline finishes                                                                                                                                      |
-| `enableExperimentalFeatures` | `false`                               | When false, only core pipeline stages run                                                                                                                                      |
+| Field                        | Default                               | What it does                                                                                                                                                                                                   |
+| ---------------------------- | ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaultBranch`              | `main`                                | Base branch for worktree and PR target                                                                                                                                                                         |
+| `branchPrefix`               | `worktree-git-issue-`                 | Prefix for worktree branch names                                                                                                                                                                               |
+| `maxRejections`              | `3`                                   | Documented loop-back cap. The effective limit is `REJECTION_LIMIT` (5) in `config/workflow.ts`, shared by auditor rejections and CI-gate failures; at the cap a `## Rejection Limit Reached` blocker is posted |
+| `auditScoreThreshold`        | `0.75`                                | Minimum passing/total ratio for audit score gate                                                                                                                                                               |
+| `ciGatingTimeoutSec`         | `600`                                 | Seconds to poll PR check runs before blocking the transition. `0` = skip CI gate entirely                                                                                                                      |
+| `agentTokenBudget`           | `0`                                   | Soft token cap per agent dispatch. `0` = unlimited                                                                                                                                                             |
+| `maxToolCalls`               | `0`                                   | Hard cap on tool invocations per agent. `0` = unlimited                                                                                                                                                        |
+| `agentTimeoutsMin`           | `{}`                                  | Per-agent timeouts in minutes: `{ "developer": 30 }` (legacy alias, minutes unit, lower precedence than `agentTimeoutSec`)                                                                                     |
+| `agentTimeoutSec`            | `{}`                                  | Per-agent wall-clock timeout in seconds: `{ "developer": 600 }`. `0` = no timeout (timers and kill disarmed). Authoritative override — **unscaled** by `agentTimeoutTierScale`                                 |
+| `agentTimeoutTierScale`      | `{ small: 1, medium: 1.5, large: 2 }` | Per-tier multiplier for the **default** per-agent timeout, keyed by the test plan's `**Tier:**` marker: a `Large` issue scales 30 min → 60 min                                                                 |
+| `agentKillGraceSec`          | `10`                                  | SIGTERM→SIGKILL grace (s) for the subprocess kill ladder on timeout. `0` = immediate SIGKILL                                                                                                                   |
+| `bellOnComplete`             | `false`                               | Ring terminal bell when pipeline finishes                                                                                                                                                                      |
+| `enableExperimentalFeatures` | `false`                               | When false, only core pipeline stages run                                                                                                                                                                      |
 
 ---
 

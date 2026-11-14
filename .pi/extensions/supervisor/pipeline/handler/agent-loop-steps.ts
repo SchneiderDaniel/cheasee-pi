@@ -34,6 +34,7 @@ import {
 } from "../stages/index.ts";
 import { buildDeadCodeContext } from "../../checks/dead-code.ts";
 import { buildVulnContext } from "../../checks/osv-scanner.ts";
+import { postRejectionLimitBlocker } from "../stages/audit-rejection-ops.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { countAuditRejections } from "../../lib/audit-rejections.ts";
 import type { RunContext } from "./shared.ts";
@@ -126,7 +127,7 @@ export async function loadLoopIssue(
 	runCtx: RunContext,
 	step: WorkflowStep,
 ): Promise<IssueResolution> {
-	const { ctx, config, issueNum, exec, collector, issueData, port } = runCtx;
+	const { ctx, config, issueNum, exec, collector, issueData, port, stageState } = runCtx;
 	const fresh = await fetchFreshIssueData(exec, config, issueNum, issueData, collector, port);
 	// Fail closed on incomplete discovery when this step enforces the rejection
 	// limit (issue #2044 audit findings #1/#2): without every comment and a
@@ -179,6 +180,24 @@ export async function loadLoopIssue(
 			maxRejections: step.maxRejections,
 			rejectionCount: rejectionLimit.count,
 		});
+		// The budget is shared by auditor rejections and CI-gate loop-backs
+		// (issue #1829), so the stop is stated on the issue instead of only in
+		// the local log. A failed post must not resurrect the loop.
+		const blocker = await postRejectionLimitBlocker(
+			port,
+			issueNum,
+			config.repo,
+			rejectionLimit.count,
+			stageState.gateFailureContext,
+		);
+		if (!blocker.ok) {
+			const reason = blocker.error ?? "unknown error";
+			ctx.ui.notify(
+				`Failed to post the rejection-limit blocker on issue #${issueNum}: ${reason}`,
+				"error",
+			);
+			collector?.push("handler", "error", `Failed to post rejection-limit blocker: ${reason}`);
+		}
 		return {
 			kind: "terminal",
 			stopReason: `Rejection limit reached (${rejectionLimit.count})`,
