@@ -4,6 +4,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Cobra flag binding store for `cheasee-pi start`: the flags write here and
+// startOptionsFromFlags copies the values into a startOptions value. The run
+// itself never writes back, so a second run cannot inherit a stale --name.
 var (
 	upName          string
 	upWorkdir       string

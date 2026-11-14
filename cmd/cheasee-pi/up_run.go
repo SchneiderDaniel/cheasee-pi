@@ -3,142 +3,56 @@ package main
 import (
 	"context"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
-	"strings"
 
 	"github.com/spf13/cobra"
 )
 
+// runUpE is the cobra adapter: read the parsed flags, hand the use case a
+// value, and surface its error. Every docker, port and exec call — and every
+// choice about them — lives in startSession, so the command layer stays humble.
 func runUpE(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	return startSession(ctx, startOptionsFromFlags(cmd))
+}
 
-	workdir, err := resolveWorkdir(upWorkdir)
-	if err != nil {
-		return fmt.Errorf("resolve workdir: %w", err)
+// startOptionsFromFlags turns the parsed cobra flags into the use-case input.
+// Only a flag that was actually set overrides a default: --name is the sole
+// value a run may not derive, and reading it through Changed keeps an unset
+// flag from pinning a stale package global into the run.
+func startOptionsFromFlags(cmd *cobra.Command) startOptions {
+	opts := startOptions{
+		Workdir:       upWorkdir,
+		Build:         upBuild,
+		NoDockerCheck: upNoDockerCheck,
+		DryRun:        upDryRun,
 	}
+	if cmd.Flags().Changed("name") {
+		opts.Name = upName
+	}
+	return opts
+}
 
-	// Phase 1: workspace gate — empty folder → auto-init and stop; cheasee-settings.json
-	// present → run; anything else → refuse. Runs before any docker/git call so
-	// a non-initialized cwd is refused fast (and dry-run touches nothing).
-	root, state, err := resolveStartWorkspace(workdir)
-	if err != nil {
-		return err
-	}
-	if state == WorkspaceEmpty {
-		if upDryRun {
-			fmt.Fprintf(os.Stderr, "  ℹ %s is empty — would run `cheasee-pi init` (bare clone + main worktree + cheasee-settings.json), then stop. Run `cheasee-pi start` again to launch pi.\n", workdir)
-			return nil
-		}
-		fmt.Fprintf(os.Stderr, "  ℹ %s is empty — running `cheasee-pi init`...\n", workdir)
-		// Init is time-bounded (device-flow OAuth polling dominates the window).
-		initCtx, cancel := context.WithTimeout(ctx, initTimeout)
-		initErr := runInit(initCtx, newInitDeps(workdir))
-		cancel()
-		if initErr != nil {
-			return fmt.Errorf("cheasee-pi detected an empty folder and tried to initialize it, but %w", initErr)
-		}
-		// Init never launches pi: stop here and let the next invocation start.
-		// If init left the folder non-empty without a settings marker, the next
-		// `cheasee-pi start` refuses via WorkspaceRefuse (fail-closed).
-		return nil
-	}
-	if state == WorkspaceRefuse {
-		return fmt.Errorf("not initialized: %q is not empty and has no cheasee-settings.json — run `cheasee-pi init` in an empty folder first", workdir)
-	}
-
-	// Container name carries the repo slug (cheasee-pi-<repo>) so multiple
-	// workspaces run side by side without daemon name collisions; an explicit
-	// --name overrides the derived default verbatim.
-	if !cmd.Flags().Changed("name") {
-		upName = containerName(root)
-	}
-
-	// docker exec working directory: /workspaces/main when started at the
-	// workspace root, /workspaces/main/<rel> when started from a subdirectory.
-	// Best-effort --show-prefix: a broken/corrupt worktree falls back to the
-	// root instead of refusing (the settings gate already passed).
-	target := "/workspaces/main"
-	if _, relCwd, err := repoRoot(workdir); err == nil && relCwd != "" && relCwd != "." {
-		target += "/" + relCwd
-	}
-
-	// Phase 2: Docker check
-	if !upNoDockerCheck {
-		if err := runInitDockerCheck(ctx); err != nil {
-			return err
-		}
-	}
-
-	// Phase 3: Build env map from auth.json + gh token + --api-key
-	envMap, err := buildEnvFlags(ctx)
-	if err != nil {
-		return fmt.Errorf("build env vars: %w", err)
-	}
-
-	// Forward the resolved CodeFlow host port into the exec env (buildEnvFlags
-	// passthroughs only provider keys + GH_TOKEN/CLOUDFLARE_ACCOUNT_ID), so the
-	// in-container context-info extension can print the exact bound URL instead
-	// of re-deriving (its derive-only copy matches except in probe-shift cases).
-	// Resolution failure is already surfaced by the post-up print below and by
-	// applyComposeEnv; the key stays absent and the extension falls back to its
-	// own derivation.
-	if port, err := codeflowHostPort(root); err == nil {
-		envMap["CODEFLOW_PORT"] = port
-	}
-
-	// Tag this session so the reaper can find it after the docker exec client
-	// detaches. Disconnected exec sessions stay alive (their parent remains the
-	// host-side shim, so the orphan scan never sees them); killing by this
-	// unique marker is the only way to reap exactly the session we launched.
-	sessionID := newSessionID()
-	envMap["CHEASEE_SESSION_ID"] = sessionID
-
-	if len(envMap) == 0 {
-		fmt.Fprintf(os.Stderr, "  ⚠ No provider keys found. Models may not be available.\n")
-		fmt.Fprintf(os.Stderr, "  ℹ Use: cheasee-pi auth add <provider>\n")
-	}
-
-	// Phase 4: dry-run — print env vars + the docker command, then exit.
-	// Touches nothing: no scaffold, no cache extraction, no compose, no exec
-	// (a dry-run on a fresh machine must not kick off a 10-minute image build).
-	if upDryRun {
-		fmt.Fprintf(os.Stderr, "Env vars to be injected:\n")
-		for _, envVar := range slices.Sorted(maps.Keys(envMap)) {
-			fmt.Fprintf(os.Stderr, "  %s=%s\n", envVar, redactSecret(envMap[envVar]))
-		}
-		// Show full docker command for debugging
-		args := execArgs(envMap, upName, target)
-		fmt.Fprintf(os.Stderr, "\nDocker command:\n  docker %s\n", strings.Join(args, " "))
-		return nil
-	}
-
-	// Phases 5-6: extract the version-keyed compose cache, start the stack
-	// (existing containers as they are, missing ones created, absent images
-	// built only with --build) and wait for the entrypoint ready marker before
-	// execing pi (see ensureContainerReady).
-	if _, err := ensureContainerReady(ctx, root, upName, upBuild); err != nil {
-		return err
-	}
-
+// publishResolvedPorts prints the sidecar hints and forwards both resolved host
+// ports into the exec env.
+func publishResolvedPorts(ctx context.Context, root string, env *sessionEnv) {
 	// CodeFlow URL: the port the sidecar actually published (`docker port`),
 	// authoritative when the container already runs — codeflowHostPort's probe
 	// sees that live bind as occupancy and shifts to the next free port,
 	// printing a URL that points at nothing. Falls back to derive+probe on any
-	// docker error (first up, stopped sidecar). envMap carries the same
+	// docker error (first up, stopped sidecar). The env carries the same
 	// resolved port so the in-container context-info echo stays in sync.
 	if port, err := codeflowBoundPort(ctx, root); err == nil {
-		envMap["CODEFLOW_PORT"] = port
+		env.setCodeflowPort(port)
 		printCodeFlowHint(port)
 	} else if port, err := codeflowHostPort(root); err != nil {
 		fmt.Fprintf(os.Stderr, "  ⚠ CodeFlow port: %v\n", err)
 	} else {
-		envMap["CODEFLOW_PORT"] = port
+		env.setCodeflowPort(port)
 		printCodeFlowHint(port)
 	}
 
@@ -159,59 +73,12 @@ func runUpE(cmd *cobra.Command, _ []string) error {
 	// while an absent PI_UI_PORT WITHOUT the marker (no CLI ran) still derives.
 	// Start succeeds either way (best-effort, like the CodeFlow forwarding).
 	if port, err := resolveUIHostPort(ctx, root); err == nil {
-		envMap["PI_UI_PORT"] = port
+		env.setUIPort(port)
 		printUIHint(port)
 	} else {
-		envMap["CHEASEE_UI_PORT_UNRESOLVED"] = "1"
+		env.markUIUnresolved()
 		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
 	}
-
-	// One-line cheatsheet so a fresh session has the in-pi help and the
-	// stop/cleanup commands in front of it the moment pi launches.
-	fmt.Fprintf(os.Stderr, "  ℹ inside pi: /help · exit session: Ctrl+D · stop container: cheasee-pi down · full cleanup: cheasee-pi clean\n")
-
-	// Phase 6b: publish the live-session claim on the shared workspace mount so
-	// the ui sidecar's cross-container in-use guard can refuse a second attach.
-	// Best-effort: a failed claim write degrades the guard to advisory, never a
-	// failed start. The claim is dropped on every exit path below.
-	sessionDir := filepath.Join(root, ".pi", "sessions")
-	if err := writeInUseClaim(sessionDir, sessionID, upName); err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ in-use claim: %v\n", err)
-	}
-	defer func() {
-		if err := removeInUseClaim(sessionDir, sessionID); err != nil {
-			fmt.Fprintf(os.Stderr, "  ⚠ in-use claim cleanup: %v\n", err)
-		}
-	}()
-
-	// Phase 7: Run pre-start orphan scan (best-effort; PPid=1 orphans only —
-	// age reaping is clean's job, a pre-start age sweep could kill a long-
-	// running session the user still has attached elsewhere)
-	killed, err := scanOrphans(ctx, upName, 0, false)
-	if err != nil {
-		return fmt.Errorf("pre-start orphan scan: %w", err)
-	}
-	if len(killed) > 0 {
-		fmt.Fprintf(os.Stderr, "  ✓ Killed %d orphaned pi process(es)\n", len(killed))
-	}
-
-	// Reclaim container /tmp scratch before pi starts (subagent runs and
-	// interrupted builds leave go-build/pi-session dirs that fill a tight
-	// overlay until pi's session mkdtemp hits ENOSPC). Non-fatal.
-	if err := cleanContainerTmp(ctx, upName); err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ %v\n", err)
-	}
-
-	// Phase 8: exec pi.
-	execErr := execPIContainer(upName, envMap, target)
-
-	// The docker exec client just exited (user quit or disconnected). Reap the
-	// session by marker: on disconnect pi keeps running with PPid=0, invisible
-	// to the orphan scan — without this every detached start leaks a pi.
-	if err := killSessionByMarker(ctx, upName, sessionID); err != nil {
-		fmt.Fprintf(os.Stderr, "  ⚠ session reaper: %v\n", err)
-	}
-	return execErr
 }
 
 // ensureContainerReady extracts the version-keyed compose cache, starts the

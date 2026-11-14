@@ -14,7 +14,7 @@ from pathlib import Path
 from ..models import Dependency
 
 
-def _pep508_name(spec: str) -> str | None:
+def pep508_name(spec: str) -> str | None:
     m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)", spec.strip())
     return m.group(1) if m else None
 

@@ -259,6 +259,7 @@ func setUpRunMode(t *testing.T, workdir string, dryRun bool) {
 
 // upExecCapture records a stubbed execPIContainer invocation.
 type upExecCapture struct {
+	ctx    context.Context
 	name   string
 	env    map[string]string
 	target string
@@ -270,7 +271,8 @@ func stubExecPIContainer(t *testing.T) *upExecCapture {
 	t.Helper()
 	c := &upExecCapture{}
 	saved := execPIContainer
-	execPIContainer = func(name string, env map[string]string, target string) error {
+	execPIContainer = func(ctx context.Context, name string, env map[string]string, target string) error {
+		c.ctx = ctx
 		c.name = name
 		c.env = env
 		c.target = target

@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 
 from ..models import Dependency
-from .base import _pep508_name
+from .base import pep508_name
 
 
 class PipfileTomlMixin:
@@ -31,13 +31,13 @@ class PipfileTomlMixin:
         project = data.get("project") or {}
         for spec in project.get("dependencies") or []:
             if isinstance(spec, str):
-                n = _pep508_name(spec)
+                n = pep508_name(spec)
                 if n:
                     deps.append(self._dep(n, None, 0, False, path))
         for group in (project.get("optional-dependencies") or {}).values():
             for spec in group or []:
                 if isinstance(spec, str):
-                    n = _pep508_name(spec)
+                    n = pep508_name(spec)
                     if n:
                         deps.append(self._dep(n, None, 0, False, path))
         poetry = (data.get("tool") or {}).get("poetry") or {}
@@ -78,7 +78,7 @@ class SetupMixin:
             else:
                 continue
             for spec in candidates:
-                n = _pep508_name(spec)
+                n = pep508_name(spec)
                 if n:
                     deps.append(self._dep(n, None, i, False, path))
         return deps
@@ -95,7 +95,7 @@ class SetupMixin:
                     if kw.arg == "install_requires" and isinstance(kw.value, (ast.List, ast.Tuple)):
                         for elt in kw.value.elts:
                             if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                                n = _pep508_name(elt.value)
+                                n = pep508_name(elt.value)
                                 if n:
                                     deps.append(self._dep(n, None, 0, False, path))
             elif isinstance(node, ast.Assign) and isinstance(node.value, (ast.List, ast.Tuple)):
@@ -103,7 +103,7 @@ class SetupMixin:
                     if isinstance(target, ast.Name) and target.id == "install_requires":
                         for elt in node.value.elts:
                             if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                                n = _pep508_name(elt.value)
+                                n = pep508_name(elt.value)
                                 if n:
                                     deps.append(self._dep(n, None, 0, False, path))
         return deps

@@ -5,7 +5,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ..helpers import _local
+from ..helpers import local_tag
 from ..models import Dependency
 from .base import Adapter
 
@@ -28,7 +28,7 @@ class DotnetAdapter(Adapter):
         deps = []
         central = name == "Directory.Packages.props"
         for el in root.iter():
-            tag = _local(el.tag)
+            tag = local_tag(el.tag)
             if central and tag == "PackageVersion":
                 include = el.get("Include") or el.get("Update")
                 if include:
@@ -46,7 +46,7 @@ class DotnetAdapter(Adapter):
             return []
         deps = []
         for el in root.iter():
-            if _local(el.tag) == "package":
+            if local_tag(el.tag) == "package":
                 pid = el.get("id")
                 if pid:
                     deps.append(self._dep(pid, el.get("version"), 0, False, path))

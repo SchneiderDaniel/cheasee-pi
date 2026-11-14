@@ -6,7 +6,7 @@ import json
 import re
 import urllib.parse
 
-from .models import PackageRecord, RegistryError
+from .models import Dependency, PackageRecord, RegistryError
 
 
 from .registry_base import Registry
@@ -66,6 +66,15 @@ class GoRegistry(Registry):
         if version:
             return f"https://proxy.golang.org/{n}/@v/{version}.info"
         return f"https://proxy.golang.org/{n}/@latest"
+
+    def check_dependency(self, dep: Dependency) -> PackageRecord:
+        """The one version-aware lookup: a pinned go.mod version wins over @latest.
+
+        Lives here so the orchestrator never compares a registry name; every
+        other ecosystem ignores the declared version (registries publish
+        existence and dates per package, not per version).
+        """
+        return self._fetch(self._url(dep.name, dep.version), dep.name)
 
     def _parse(self, name: str, status: int, body: str) -> PackageRecord:
         if status == 404 or not body:
