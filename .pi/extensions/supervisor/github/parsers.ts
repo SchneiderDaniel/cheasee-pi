@@ -8,6 +8,7 @@ import type {
 	PrConflictInfo,
 	ProjectFieldValueNode,
 } from "../config/types.ts";
+import type { ClosingPrRef } from "./ports.ts";
 
 // ─── Parse Dependency Timeline ────────────────────────────────────
 
@@ -110,6 +111,27 @@ export function mapRestPrToConflictInfo(
 		mergeStateStatus: mergeableState.toUpperCase(),
 		headRefName: (pr.head as { ref?: string })?.ref || fallbackHeadRef,
 		baseRefName: (pr.base as { ref?: string })?.ref || fallbackBaseRef,
+	};
+}
+
+// ─── PR Detail → Closing PR Ref Mapping ────────────────────────
+// Pure translation of a REST `pulls.get` item into the domain ClosingPrRef
+// shape (issue #2102). Octokit response names stay in this adapter layer, so
+// the merged/closed/open derivation and the closing-keyword rule are
+// unit-testable without HTTP mocks.
+
+const CLOSING_KEYWORDS = "close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved";
+
+export function mapPrToClosingRef(pr: Record<string, unknown>, issueNum: number): ClosingPrRef {
+	const head = pr.head as { sha?: string; ref?: string } | undefined;
+	const body = (pr.body as string | undefined) || "";
+	const closingPattern = new RegExp(`(${CLOSING_KEYWORDS})\\s*#${issueNum}\\b`, "i");
+	return {
+		number: pr.number as number,
+		sha: (pr.merge_commit_sha as string | null | undefined) || head?.sha || "",
+		source: closingPattern.test(body) ? "closing-keyword" : "branch-head",
+		branch: head?.ref || "",
+		state: pr.merged_at ? "merged" : pr.state === "closed" ? "closed" : "open",
 	};
 }
 

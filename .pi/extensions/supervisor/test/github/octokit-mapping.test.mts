@@ -9,7 +9,14 @@
 
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { OctokitClient, mapRestPrToConflictInfo } from "../../github/octokit-client.ts";
+import { mapPrToClosingRef } from "../../github/parsers.ts";
+
+const githubDir = dirname(fileURLToPath(import.meta.url));
+const parsersPath = join(githubDir, "..", "..", "github", "parsers.ts");
 
 // ─── Mock Logger ──────────────────────────────────────────────────
 
@@ -171,6 +178,114 @@ describe("OctokitClient.listPullRequestsForBranch — REST adapter", () => {
 		await assert.rejects(
 			async () => await client.listPullRequestsForBranch("branch", "invalid-repo"),
 			/Invalid repo format/,
+		);
+	});
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// mapPrToClosingRef — pure Octokit response → ClosingPrRef translation
+// Lives in parsers.ts so the merged/closed/open + keyword rules are
+// unit-testable without HTTP mocks (issue #2102).
+// ═══════════════════════════════════════════════════════════════════
+
+describe("mapPrToClosingRef — response → ClosingPrRef mapping", () => {
+	it("maps a merged PR with a closing keyword body", () => {
+		const ref = mapPrToClosingRef(
+			{
+				number: 7,
+				merged_at: "2025-01-01T00:00:00Z",
+				state: "closed",
+				merge_commit_sha: "abc",
+				head: { ref: "b", sha: "h" },
+				body: "This closes #42",
+			},
+			42,
+		);
+		assert.deepEqual(ref, {
+			number: 7,
+			sha: "abc",
+			source: "closing-keyword",
+			branch: "b",
+			state: "merged",
+		});
+	});
+
+	it("maps a closed-but-not-merged PR to state closed", () => {
+		const ref = mapPrToClosingRef({ number: 7, merged_at: null, state: "closed" }, 42);
+		assert.equal(ref.state, "closed");
+	});
+
+	it("maps an unmerged open PR to state open", () => {
+		const ref = mapPrToClosingRef({ number: 7, merged_at: null, state: "open" }, 42);
+		assert.equal(ref.state, "open");
+	});
+
+	it("falls back to head.sha when merge_commit_sha is null", () => {
+		const ref = mapPrToClosingRef(
+			{ number: 7, merge_commit_sha: null, head: { ref: "b", sha: "head-sha" } },
+			42,
+		);
+		assert.equal(ref.sha, "head-sha");
+	});
+
+	it("returns empty sha and branch when merge_commit_sha and head are absent", () => {
+		const ref = mapPrToClosingRef({ number: 7 }, 42);
+		assert.equal(ref.sha, "");
+		assert.equal(ref.branch, "");
+	});
+
+	it("classifies a missing body as branch-head", () => {
+		assert.equal(mapPrToClosingRef({ number: 7 }, 42).source, "branch-head");
+	});
+
+	it("only counts closing keywords, not a bare mention", () => {
+		assert.equal(
+			mapPrToClosingRef({ number: 7, body: "See #42 for context" }, 42).source,
+			"branch-head",
+		);
+		assert.equal(mapPrToClosingRef({ number: 7, body: "Fixes #42" }, 42).source, "closing-keyword");
+		assert.equal(
+			mapPrToClosingRef({ number: 7, body: "Closes #42." }, 42).source,
+			"closing-keyword",
+		);
+	});
+
+	it("anchors the closing keyword to the exact issue number", () => {
+		assert.equal(mapPrToClosingRef({ number: 7, body: "closes #420" }, 42).source, "branch-head");
+		assert.equal(mapPrToClosingRef({ number: 7, body: "closes #43" }, 42).source, "branch-head");
+	});
+
+	it("exposes exactly the ClosingPrRef keys — no REST field names leak", () => {
+		const ref = mapPrToClosingRef(
+			{
+				number: 7,
+				merged_at: null,
+				state: "open",
+				merge_commit_sha: null,
+				head: { ref: "b", sha: "h" },
+				body: "no keywords",
+				base: { ref: "main" },
+			},
+			42,
+		);
+		assert.deepEqual(Object.keys(ref).sort(), ["branch", "number", "sha", "source", "state"]);
+	});
+
+	it("is importable from parsers.ts without a runtime cycle back to the adapter", () => {
+		const source = readFileSync(parsersPath, "utf8");
+		assert.equal(
+			/from\s+["']\.\/octokit-client\.ts["']/.test(source),
+			false,
+			"parsers.ts must not import the adapter (runtime cycle)",
+		);
+		assert.equal(
+			/^import\s+(?!type\s).*from\s+["']\.\/ports\.ts["']/m.test(source),
+			false,
+			"parsers.ts may only type-import ports.ts",
+		);
+		assert.ok(
+			/import\s+type\s+\{[^}]*ClosingPrRef[^}]*\}\s*from\s+["']\.\/ports\.ts["']/.test(source),
+			"parsers.ts must type-import ClosingPrRef from ports.ts",
 		);
 	});
 });

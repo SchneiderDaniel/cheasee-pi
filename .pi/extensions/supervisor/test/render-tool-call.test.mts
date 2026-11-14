@@ -303,3 +303,110 @@ describe("renderToolCallText drift detection", () => {
 		assert.equal(result, "grep /TODO/ in /src");
 	});
 });
+
+// ═══════════════════════════════════════════════════════════════════════
+// Built-in dispatch table (issue #2102) — seven pi factories, one cast
+// ═══════════════════════════════════════════════════════════════════════
+
+/** Representative args that make each built-in renderer produce output. */
+const BUILTIN_ARGS: Record<string, unknown> = {
+	bash: { command: "npm test" },
+	read: { path: "/repo/file.ts", offset: 1, limit: 5 },
+	write: { path: "/repo/file.ts", content: "line1\nline2" },
+	edit: { path: "/repo/file.ts" },
+	grep: { pattern: "TODO", path: "/repo/src" },
+	find: { path: "/repo/src", pattern: "*.ts" },
+	ls: { path: "/repo" },
+};
+
+const BUILTIN_NAMES = Object.keys(BUILTIN_ARGS);
+
+describe("renderToolCallText — built-in dispatch", () => {
+	for (const name of BUILTIN_NAMES) {
+		it(`${name} goes through pi's native renderCall, not the JSON fallback`, () => {
+			const result = renderToolCallText(name, BUILTIN_ARGS[name], CWD);
+			assert.equal(
+				new RegExp(`^(${BUILTIN_NAMES.join("|")}): \\{`).test(result),
+				false,
+				`${name} must not fall back to JSON preview: ${result}`,
+			);
+		});
+
+		it(`${name} emits no ANSI escape codes`, () => {
+			const result = renderToolCallText(name, BUILTIN_ARGS[name], CWD);
+			assert.equal(
+				/[\u001b\u009b]/.test(result),
+				false,
+				`ANSI leaked into: ${JSON.stringify(result)}`,
+			);
+		});
+	}
+
+	it("pins the seven-factory / eight-label gap: rg has no factory", () => {
+		assert.equal(renderToolCallText("rg", { pattern: "TODO" }, CWD), 'rg: {"pattern":"TODO"}');
+	});
+
+	it("routes all five extension tools through the JSON preview", () => {
+		for (const name of [
+			"ripgrep_search",
+			"web_search",
+			"web_crawl",
+			"structural_search",
+			"ask_user",
+		]) {
+			const result = renderToolCallText(name, { query: "TODO" }, CWD);
+			assert.ok(result.startsWith(`${name}: `), `${name} must use the JSON preview`);
+		}
+	});
+
+	it("renders an unknown tool as a JSON preview", () => {
+		assert.equal(
+			renderToolCallText("unknown_tool", { a: 1, b: 2 }, CWD),
+			'unknown_tool: {"a":1,"b":2}',
+		);
+	});
+
+	it("clips large args to at most 80 chars ending in ...", () => {
+		const large = { query: "x".repeat(400) };
+		const result = renderToolCallText("ripgrep_search", large, CWD);
+		assert.ok(result.length <= 80, `preview must be clipped, got ${result.length} chars`);
+		assert.ok(result.endsWith("..."), "clipped preview must end with ...");
+	});
+
+	it("pins the empty-args table for every built-in", () => {
+		const expected: Record<string, string> = {
+			bash: "$ ...",
+			read: "read ...",
+			write: "write ...",
+			edit: "edit ...",
+			grep: "grep // in .",
+			find: "find  in .",
+			ls: "ls .",
+		};
+		for (const [name, want] of Object.entries(expected)) {
+			assert.equal(renderToolCallText(name, undefined, CWD), want, `${name} with undefined args`);
+			assert.equal(renderToolCallText(name, null, CWD), want, `${name} with null args`);
+		}
+	});
+
+	it("characterization: an extension tool with undefined args throws TypeError", () => {
+		// Deliberately preserved (not fixed here): JSON.stringify(undefined) is
+		// undefined, so the preview length read throws. Tracked as a follow-up.
+		assert.throws(() => renderToolCallText("ripgrep_search", undefined, CWD), TypeError);
+	});
+
+	it("ensureTheme is idempotent across sequential calls", () => {
+		const outputs: string[] = [];
+		for (let i = 0; i < 6; i++) {
+			outputs.push(renderToolCallText("bash", { command: "npm test" }, CWD));
+		}
+		for (const out of outputs) assert.equal(out, outputs[0]);
+		assert.equal(outputs[0], "$ npm test");
+	});
+
+	it("keeps the exported 3-argument signature (tsc-enforced)", () => {
+		const fn: (name: string, args: unknown, cwd: string) => string = renderToolCallText;
+		assert.equal(typeof fn, "function");
+		assert.equal(renderToolCallText.length, 3);
+	});
+});
