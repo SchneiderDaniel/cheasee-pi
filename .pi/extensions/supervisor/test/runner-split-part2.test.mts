@@ -25,6 +25,7 @@ const MODULES = [
 	"budget.ts",
 	"deadline.ts",
 	"cleanup.ts",
+	"presenter.ts",
 	"ui.ts",
 	"event-loop.ts",
 	"spawned-run.ts",

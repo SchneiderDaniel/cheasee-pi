@@ -31,6 +31,7 @@ const MODULES = [
 	"budget.ts",
 	"deadline.ts",
 	"cleanup.ts",
+	"presenter.ts",
 	"ui.ts",
 	"event-loop.ts",
 	"spawned-run.ts",
@@ -251,13 +252,15 @@ describe("runner/ split — module-graph invariants", () => {
 	it("runner/index.ts uses star re-exports only (no TS1205-fragile named re-export)", () => {
 		const graph = readGraph(join(RUNNER_DIR, "index.ts"));
 		assert.deepEqual(graph.namedReExports, [], "index.ts must not use named re-exports");
-		const expected = MODULES.filter((m) => m !== "index.ts")
+		// Issue #2106: ui.ts is the ctx.ui ADAPTER and is intentionally not part of
+		// the barrel surface — the composition root imports it directly.
+		const expected = MODULES.filter((m) => m !== "index.ts" && m !== "ui.ts")
 			.map((m) => `./${m}`)
 			.sort();
 		assert.deepEqual(
 			[...graph.starReExports].sort(),
 			expected,
-			"index.ts star-re-exports every runner module",
+			"index.ts star-re-exports every runner module except the ui adapter",
 		);
 	});
 

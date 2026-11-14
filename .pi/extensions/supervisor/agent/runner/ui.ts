@@ -1,22 +1,21 @@
-// ─── Widget presentation cadence ──────────────────────────────────
-// 300ms debounce on event-driven flushes + 2s heartbeat to keep the
-// terminal rendering during quiet periods. Presentation concern pulled
-// out of the orchestrator (separate presentation from logic).
+// ─── Run presenter adapter (outer layer) ──────────────────────────
+// The ONLY module in runner/ that owns ctx.ui (issue #2106). Implements the
+// inner RunPresenter port over the operator's terminal: widget cadence
+// (300ms debounce on event-driven flushes + 2s heartbeat during quiet
+// periods), the working-message line, the start announcement and the
+// teardown order (widget → working message → status).
+//
+// Presentation cadence lives here, not in the use cases: spawned-run and
+// event-loop only say WHAT a run reports, this file decides HOW and WHEN.
 
 import type { AgentRunState } from "../../config/types.ts";
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { buildWidgetLines } from "../../session/widget.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { getErrorCollector } from "../../pipeline/error-collector.ts";
+import type { RunPresenter } from "./presenter.ts";
 
-export interface WidgetFlusher {
-	/** Debounced (300ms) event-driven flush. */
-	scheduleFlush(): void;
-	/** Idempotent — clears timers and suppresses further renders. */
-	dispose(): void;
-}
-
-export interface WidgetFlusherOptions {
+export interface RunPresenterOptions {
 	ctx: ExtensionCommandContext;
 	widgetId: string;
 	agentName: string;
@@ -24,12 +23,21 @@ export interface WidgetFlusherOptions {
 	state: AgentRunState;
 }
 
-export function createWidgetFlusher(opts: WidgetFlusherOptions): WidgetFlusher {
+/** Event-driven flush debounce — bursts of events render once. */
+const FLUSH_DEBOUNCE_MS = 300;
+
+/** Quiet-period heartbeat — keeps the terminal alive while the agent thinks. */
+const HEARTBEAT_MS = 2000;
+
+/** Supervisor status slot owned by the runner. */
+const STATUS_KEY = "supervisor";
+
+export function createRunPresenter(opts: RunPresenterOptions): RunPresenter {
 	const log = getDebugLogger();
 	let flushTimer: NodeJS.Timeout | null = null;
 	let disposed = false;
 
-	const flushWidget = () => {
+	const flushWidget = (): void => {
 		if (flushTimer) {
 			clearTimeout(flushTimer);
 			flushTimer = null;
@@ -51,9 +59,9 @@ export function createWidgetFlusher(opts: WidgetFlusherOptions): WidgetFlusher {
 		}
 	};
 
-	const scheduleFlush = () => {
+	const scheduleFlush = (): void => {
 		if (!flushTimer && !disposed) {
-			flushTimer = setTimeout(flushWidget, 300);
+			flushTimer = setTimeout(flushWidget, FLUSH_DEBOUNCE_MS);
 		}
 	};
 
@@ -68,10 +76,24 @@ export function createWidgetFlusher(opts: WidgetFlusherOptions): WidgetFlusher {
 			const msg = hbErr instanceof Error ? hbErr.message : String(hbErr);
 			getErrorCollector().push("runner", "warn", `heartbeat error for ${opts.agentName}: ${msg}`);
 		}
-	}, 2000);
+	}, HEARTBEAT_MS);
 
 	return {
 		scheduleFlush,
+		setWorkingMessage: (message?: string) => {
+			opts.ctx.ui.setWorkingMessage(message);
+		},
+		announceStart: (agentName: string) => {
+			opts.ctx.ui.notify(`Running agent: ${agentName}...`, "info");
+			opts.ctx.ui.setStatus(STATUS_KEY, `Running ${agentName}...`);
+		},
+		// Teardown order is operator-visible: the widget goes first (it is the
+		// biggest surface), then the working line, then the status slot.
+		clear: () => {
+			opts.ctx.ui.setWidget(opts.widgetId, undefined);
+			opts.ctx.ui.setWorkingMessage(undefined);
+			opts.ctx.ui.setStatus(STATUS_KEY, undefined);
+		},
 		dispose: () => {
 			if (disposed) return;
 			disposed = true;

@@ -7,19 +7,18 @@
 
 import { existsSync } from "node:fs";
 import type { AgentRunResult, AgentRunState, ParsedAgent } from "../../config/types.ts";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { jsonLineToNormalizedEvent, createForwardChatState } from "../../event/adapter.ts";
-import { createAgentRunState } from "../state-helpers.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { getErrorCollector } from "../../pipeline/error-collector.ts";
 import { handleNormalizedEvent } from "./event-loop.ts";
 import { buildSubprocessArgs, warnIfArgsLarge } from "./args.ts";
-import { spawnAgentChild, type ChildHandle } from "./spawn.ts";
+import type { ChildHandle, SpawnAgentChildOptions } from "./spawn.ts";
 import { createLineStream, type StreamProcessor } from "./stream.ts";
 import { maybeKillOnBudgetExceeded } from "./budget.ts";
 import { armDeadlineWatchdog, DEFAULT_KILL_GRACE_MS, type DeadlineWatchdog } from "./deadline.ts";
 import { assembleResult, failResult, finalizeState } from "./cleanup.ts";
-import { createWidgetFlusher, type WidgetFlusher } from "./ui.ts";
+import type { RunPresenter } from "./presenter.ts";
 
 // ─── Spawned-run wiring ───────────────────────────────────────────
 // Spawns the child, wires stdio → line handler, arms the wall-clock
@@ -31,11 +30,16 @@ export interface SpawnedProcessOptions {
 	args: string[];
 	effectiveCwd: string;
 	sandboxEnv: Record<string, string>;
-	ctx: ExtensionCommandContext;
-	widgetId: string;
+	/** Presentation port — the ONLY way this use case talks to the operator. */
+	presenter: RunPresenter;
 	agentName: string;
-	model: string;
 	state: AgentRunState;
+	/**
+	 * Spawn implementation (port). The composition root passes
+	 * `spawnAgentChild`; tests pass a fake ChildHandle — the second adapter
+	 * that keeps this use case free of node:child_process.
+	 */
+	spawnChild: (opts: SpawnAgentChildOptions) => ChildHandle;
 	pi?: Pick<ExtensionAPI, "sendMessage">;
 	timeoutMs: number | null;
 	remainingMs: number | null;
@@ -53,7 +57,7 @@ function startAgentChild(
 	resolve: (result: AgentRunResult) => void,
 ): ChildHandle | null {
 	try {
-		return spawnAgentChild({
+		return opts.spawnChild({
 			args: opts.args,
 			cwd: opts.effectiveCwd,
 			sandboxEnv: opts.sandboxEnv,
@@ -64,7 +68,7 @@ function startAgentChild(
 			agentName: opts.agentName,
 		});
 		resolve(
-			failWithUiCleanup(opts.ctx, opts.widgetId, {
+			failWithCleanup(opts.presenter, {
 				agentName: opts.agentName,
 				startedAt: opts.startedAt,
 				errorMessage: errMsg,
@@ -81,10 +85,8 @@ export function runSpawnedProcess(opts: SpawnedProcessOptions): Promise<AgentRun
 		args,
 		effectiveCwd,
 		sandboxEnv,
-		ctx,
-		widgetId,
+		presenter,
 		agentName,
-		model,
 		state,
 		pi,
 		timeoutMs,
@@ -95,20 +97,27 @@ export function runSpawnedProcess(opts: SpawnedProcessOptions): Promise<AgentRun
 	} = opts;
 
 	return new Promise((resolve) => {
+		// Idempotent terminal guard: 'close' and a late 'error' (or the
+		// watchdog's force-resolve) must tear the run down exactly once.
+		let settled = false;
+		const claim = (): boolean => {
+			if (settled) return false;
+			settled = true;
+			return true;
+		};
+
 		const handle = startAgentChild(opts, resolve);
 		if (handle === null) return;
 
 		log.info("agent-runner", `Subprocess spawned: ${agentName}`, { childPid: handle.child.pid });
 
-		const widget = createWidgetFlusher({ ctx, widgetId, agentName, model, state });
 		const handleLine = createLineHandler({
 			state,
 			effectiveCwd,
 			agentName,
 			pi,
 			handle,
-			widget,
-			ctx,
+			presenter,
 		});
 		const stream = createLineStream({ onLine: handleLine });
 
@@ -123,13 +132,12 @@ export function runSpawnedProcess(opts: SpawnedProcessOptions): Promise<AgentRun
 
 		const doResolve = createResolver({
 			stream,
-			widget,
+			presenter,
 			state,
 			agentName,
 			startedAt,
-			ctx,
-			widgetId,
 			resolve,
+			claim,
 			timedOutProvider: () => watchdog?.timedOut ?? false,
 			killErrorProvider: () => watchdog?.killError ?? null,
 			configuredTimeoutMs: timeoutMs ?? undefined,
@@ -142,9 +150,8 @@ export function runSpawnedProcess(opts: SpawnedProcessOptions): Promise<AgentRun
 			createSpawnErrorHandler({
 				log,
 				agentName,
-				widget,
-				ctx,
-				widgetId,
+				presenter,
+				claim,
 				startedAt,
 				resolve,
 				onCleanup: () => watchdog?.dispose(),
@@ -162,7 +169,7 @@ export function runSpawnedProcess(opts: SpawnedProcessOptions): Promise<AgentRun
 
 // ─── Pre-spawn setup + guards ─────────────────────────────────────
 // Builds args (may throw from resolvers/mkdtempSync), warns on large
-// args, creates state, and validates effectiveCwd. Returns a failure
+// args, announces the run and validates effectiveCwd. Returns a failure
 // AgentRunResult for either guard, or the prepared run bundle.
 
 /**
@@ -172,16 +179,13 @@ export function runSpawnedProcess(opts: SpawnedProcessOptions): Promise<AgentRun
  * process that would get a fresh full window.
  */
 export function exhaustedBeforeSpawn(opts: {
-	ctx: ExtensionCommandContext;
-	widgetId: string;
+	presenter: RunPresenter;
 	state: AgentRunState;
 	agentName: string;
 	startedAt: number;
 	timeoutMs: number;
 }): AgentRunResult {
-	opts.ctx.ui.setWidget(opts.widgetId, undefined);
-	opts.ctx.ui.setWorkingMessage(undefined);
-	opts.ctx.ui.setStatus("supervisor", undefined);
+	opts.presenter.clear();
 	return assembleResult({
 		state: opts.state,
 		agentName: opts.agentName,
@@ -200,35 +204,21 @@ interface PreparedRun {
 	args: string[];
 	tools: string;
 	skillPaths: string[];
-	model: string;
-	state: AgentRunState;
 }
 
 export function prepareSubprocessRun(opts: {
 	agent: ParsedAgent;
 	task: string;
-	ctx: ExtensionCommandContext;
+	model: string;
+	presenter: RunPresenter;
 	effectiveCwd: string;
 	sessionPath?: string;
 	timeoutMs: number | null;
-	maxToolCalls?: number;
-	agentTokenBudget?: number;
 	startedAt: number;
 }): PreparedRun | { ok: false; result: AgentRunResult } {
-	const {
-		agent,
-		task,
-		ctx,
-		effectiveCwd,
-		sessionPath,
-		timeoutMs,
-		maxToolCalls,
-		agentTokenBudget,
-		startedAt,
-	} = opts;
+	const { agent, task, model, presenter, effectiveCwd, sessionPath, timeoutMs, startedAt } = opts;
 	const log = getDebugLogger();
 	const agentName = agent.config.name;
-	const widgetId = `agent-${agentName}`;
 
 	// ── Guard: build subprocess args (may throw from resolvers/mkdtempSync) ──
 	let buildResult: { args: string[]; tools: string; skillPaths: string[]; toolSpillDir?: string };
@@ -239,7 +229,7 @@ export function prepareSubprocessRun(opts: {
 		log.error("agent-runner", `Subprocess setup failed: ${errMsg}`, { agentName });
 		return {
 			ok: false,
-			result: failWithUiCleanup(ctx, widgetId, {
+			result: failWithCleanup(presenter, {
 				agentName,
 				startedAt,
 				errorMessage: errMsg,
@@ -250,7 +240,6 @@ export function prepareSubprocessRun(opts: {
 	}
 
 	const { args, tools, skillPaths } = buildResult;
-	const model = agent.config.model || "";
 
 	// Warn if task is large enough to risk ARG_MAX (Linux default: 2MB)
 	const argChars = warnIfArgsLarge(args, agentName);
@@ -265,11 +254,7 @@ export function prepareSubprocessRun(opts: {
 		argChars,
 	});
 
-	ctx.ui.notify(`Running agent: ${agentName}...`, "info");
-	ctx.ui.setStatus("supervisor", `Running ${agentName}...`);
-
-	const thinkingLevel = agent.config.thinking?.trim() || undefined;
-	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, thinkingLevel);
+	presenter.announceStart(agentName);
 
 	log.info("agent-runner", `Subprocess spawn: ${agentName}`, {
 		pid: process.pid,
@@ -284,7 +269,7 @@ export function prepareSubprocessRun(opts: {
 		log.error("agent-runner", spawnError, { agentName });
 		return {
 			ok: false,
-			result: failWithUiCleanup(ctx, widgetId, {
+			result: failWithCleanup(presenter, {
 				agentName,
 				startedAt,
 				errorMessage: spawnError,
@@ -294,13 +279,12 @@ export function prepareSubprocessRun(opts: {
 		};
 	}
 
-	return { ok: true, args, tools, skillPaths, model, state };
+	return { ok: true, args, tools, skillPaths };
 }
 
-/** Shared guard-failure path: clear UI, then assemble the failure result. */
-function failWithUiCleanup(
-	ctx: ExtensionCommandContext,
-	widgetId: string,
+/** Shared guard-failure path: clear the presentation, then assemble the failure result. */
+function failWithCleanup(
+	presenter: RunPresenter,
 	opts: {
 		agentName: string;
 		startedAt: number;
@@ -309,9 +293,7 @@ function failWithUiCleanup(
 		output: string;
 	},
 ): AgentRunResult {
-	ctx.ui.setWidget(widgetId, undefined);
-	ctx.ui.setWorkingMessage(undefined);
-	ctx.ui.setStatus("supervisor", undefined);
+	presenter.clear();
 	return failResult(opts);
 }
 
@@ -326,12 +308,11 @@ interface LineHandlerDeps {
 	agentName: string;
 	pi?: Pick<ExtensionAPI, "sendMessage">;
 	handle: ChildHandle;
-	widget: WidgetFlusher;
-	ctx: ExtensionCommandContext;
+	presenter: RunPresenter;
 }
 
 function createLineHandler(deps: LineHandlerDeps): (line: string) => void {
-	const { state, effectiveCwd, agentName, pi, handle, widget, ctx } = deps;
+	const { state, effectiveCwd, agentName, pi, handle, presenter } = deps;
 	const pending = createForwardChatState();
 	return (line: string) => {
 		try {
@@ -344,8 +325,7 @@ function createLineHandler(deps: LineHandlerDeps): (line: string) => void {
 				agentName,
 				pi,
 				pending,
-				scheduleFlush: widget.scheduleFlush,
-				ctx,
+				presenter,
 			});
 			// Budget exceeded — kill subprocess to prevent further turns
 			maybeKillOnBudgetExceeded(state, handle);
@@ -363,18 +343,18 @@ function createLineHandler(deps: LineHandlerDeps): (line: string) => void {
 // ─── Close resolver factory ───────────────────────────────────────
 // 'exit' reaps the process table entry (prevents zombie, childExited=
 // true); 'close' fires after stdio drains — resolve here with the
-// actual code/signal. resolved flag prevents double-resolve (both
-// 'close' and a late 'error' can surface).
+// actual code/signal. The caller-supplied `claim` guard prevents a
+// double teardown (both 'close' and a late 'error' can surface).
 
 interface ResolverDeps {
 	stream: StreamProcessor;
-	widget: WidgetFlusher;
+	presenter: RunPresenter;
 	state: AgentRunState;
 	agentName: string;
 	startedAt: number;
-	ctx: ExtensionCommandContext;
-	widgetId: string;
 	resolve: (result: AgentRunResult) => void;
+	/** Idempotent terminal guard shared with the spawn-error handler. */
+	claim: () => boolean;
 	/** Live watchdog state — true when the wall-clock deadline fired. */
 	timedOutProvider: () => boolean;
 	/**
@@ -397,22 +377,17 @@ interface ResolverDeps {
 }
 
 function createResolver(deps: ResolverDeps): (code: number | null, signal: string | null) => void {
-	const { stream, widget, state, agentName, startedAt, ctx, widgetId, resolve } = deps;
-	let resolved = false;
+	const { stream, presenter, state, agentName, startedAt, resolve } = deps;
 	return (code: number | null, signal: string | null) => {
-		if (resolved) return;
-		resolved = true;
+		if (!deps.claim()) return;
 		const timedOut = deps.timedOutProvider();
 
 		const finish = (): void => {
 			deps.onCleanup();
 			stream.flush();
-			widget.dispose();
+			presenter.dispose();
 			finalizeState(state);
-
-			ctx.ui.setWidget(widgetId, undefined);
-			ctx.ui.setWorkingMessage(undefined);
-			ctx.ui.setStatus("supervisor", undefined);
+			presenter.clear();
 
 			resolve(
 				assembleResult({
@@ -450,23 +425,22 @@ function createResolver(deps: ResolverDeps): (code: number | null, signal: strin
 function createSpawnErrorHandler(opts: {
 	log: ReturnType<typeof getDebugLogger>;
 	agentName: string;
-	widget: WidgetFlusher;
-	ctx: ExtensionCommandContext;
-	widgetId: string;
+	presenter: RunPresenter;
 	startedAt: number;
 	resolve: (result: AgentRunResult) => void;
+	/** Idempotent terminal guard shared with the close resolver. */
+	claim: () => boolean;
 	/** Watchdog teardown (armed after this handler is created). */
 	onCleanup: () => void;
 }): (err: Error) => void {
-	const { log, agentName, widget, ctx, widgetId, startedAt, resolve } = opts;
+	const { log, agentName, presenter, startedAt, resolve } = opts;
 	return (err: Error) => {
+		if (!opts.claim()) return;
 		const spawnError = `Subprocess spawn error: ${err.message}`;
 		log.error("agent-runner", spawnError, { agentName });
 		opts.onCleanup();
-		widget.dispose();
-		ctx.ui.setWidget(widgetId, undefined);
-		ctx.ui.setWorkingMessage(undefined);
-		ctx.ui.setStatus("supervisor", undefined);
+		presenter.dispose();
+		presenter.clear();
 		resolve(
 			failResult({
 				agentName,

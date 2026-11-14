@@ -1,8 +1,12 @@
 // ─── Agent runner orchestrator ────────────────────────────────────
 // runAgent dispatcher + runAgentSubprocess orchestrator. Subprocess
 // lifecycle lives in sibling modules (args/spawn/stream/budget/cleanup/
-// ui) — dependency direction is index → sub-modules only; no sub-module
-// imports another.
+// presenter/ui) — dependency direction is index → sub-modules only; no
+// sub-module imports another.
+//
+// This file is the COMPOSITION ROOT (issue #2106): it is the only place
+// that knows both the RunPresenter port and the ctx.ui adapter, and it
+// injects the spawn implementation into the use case.
 
 export * from "./args.ts";
 export * from "./spawn.ts";
@@ -10,15 +14,18 @@ export * from "./stream.ts";
 export * from "./budget.ts";
 export * from "./deadline.ts";
 export * from "./cleanup.ts";
-export * from "./ui.ts";
+export * from "./presenter.ts";
 export * from "./event-loop.ts";
 export * from "./spawned-run.ts";
 
 import type { AgentRunOptions, AgentRunResult } from "../../config/types.ts";
 import { DEFAULT_AGENT_TIMEOUT_MS } from "../../config/config.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
+import { createAgentRunState } from "../state-helpers.ts";
 import { runAgentInProcess } from "../agent-session-runner.ts";
+import { spawnAgentChild } from "./spawn.ts";
 import { exhaustedBeforeSpawn, prepareSubprocessRun, runSpawnedProcess } from "./spawned-run.ts";
+import { createRunPresenter } from "./ui.ts";
 
 // ─── runAgent — in-process first, subprocess fallback ────────────
 // Dispatcher that tries the in-process SDK runner first.
@@ -80,6 +87,8 @@ export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRu
 	const sandboxEnv: Record<string, string> = cwd ? { WORKTREE_SANDBOX_PATH: cwd } : {};
 	const agentName = agent.config.name;
 	const widgetId = `agent-${agentName}`;
+	const model = agent.config.model || "";
+	const thinkingLevel = agent.config.thinking?.trim() || undefined;
 	const startedAt = Date.now();
 	// Absolute dispatch deadline: preparation (arg assembly / task-spill /
 	// mkdtemp) also counts against the configured window, so the watchdog
@@ -88,26 +97,30 @@ export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRu
 	// `timeoutMs` stays the configured value for failure reporting (audit #3).
 	const absoluteDeadlineMs = timeoutMs === null ? null : (deadlineMs ?? startedAt + timeoutMs);
 
+	// Run state + presentation are built here so the guards below (which may
+	// abort before spawning) can report through the same presenter.
+	const state = createAgentRunState(startedAt, maxToolCalls, agentTokenBudget, thinkingLevel);
+	const presenter = createRunPresenter({ ctx, widgetId, agentName, model, state });
+
 	const prepared = prepareSubprocessRun({
 		agent,
 		task,
-		ctx,
+		model,
+		presenter,
 		effectiveCwd,
 		sessionPath,
 		timeoutMs,
-		maxToolCalls,
-		agentTokenBudget,
 		startedAt,
 	});
 	if (!prepared.ok) return prepared.result;
-	const { args, tools, skillPaths, model, state } = prepared;
+	const { args } = prepared;
 
 	// Preparation may itself have consumed the whole configured window (the
 	// merge-conflict path calls this directly with a resolved per-agent
 	// timeout). Return a structured timeout failure instead of arming a fresh
 	// full window — otherwise the effective bound is preparation + T.
 	if (timeoutMs !== null && absoluteDeadlineMs !== null && absoluteDeadlineMs - Date.now() <= 0) {
-		return exhaustedBeforeSpawn({ ctx, widgetId, state, agentName, startedAt, timeoutMs });
+		return exhaustedBeforeSpawn({ presenter, state, agentName, startedAt, timeoutMs });
 	}
 	const remainingMs =
 		absoluteDeadlineMs === null ? null : Math.max(0, absoluteDeadlineMs - Date.now());
@@ -116,11 +129,10 @@ export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRu
 		args,
 		effectiveCwd,
 		sandboxEnv,
-		ctx,
-		widgetId,
+		presenter,
 		agentName,
-		model,
 		state,
+		spawnChild: spawnAgentChild,
 		pi,
 		timeoutMs,
 		remainingMs,
