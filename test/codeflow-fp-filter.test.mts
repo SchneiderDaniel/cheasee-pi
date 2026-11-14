@@ -1909,6 +1909,58 @@ describe("fp-filter — unused-function reference rule (Phase 1)", () => {
 		);
 	});
 
+	it("drops a typed arrow-const default-injection seam bound with ?? (issue #2101)", () => {
+		// `defaultSleep` in `.pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts`
+		// is a typed arrow const, not a `function` declaration, and its only use is
+		// the `opts.sleepFn ?? defaultSleep` default binding. The value rule must
+		// resolve that definition form too, else the reported entry stands.
+		const seam =
+			"const defaultSleep: SleepFn = (ms, signal) =>\n\tnew Promise((resolve) => resolve(ms));\n";
+		assert.strictEqual(
+			keepsDead("defaultSleep", ".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts", {
+				".pi/skills/audit-codeflow-analysis/lib/codeflow-run.ts":
+					seam + "const sleep = opts.sleepFn ?? defaultSleep;\n",
+			}),
+			false,
+		);
+		// The same seam whose binding lives in another module: the defining file is
+		// the sole scanned owner, so the cross-file value mention refutes the entry.
+		assert.strictEqual(
+			keepsDead("defaultSleep", "src/run.ts", {
+				"src/run.ts": seam,
+				"src/opts.ts":
+					"export function resolveSleep(opts: RunOptions): SleepFn {\n" +
+					"\treturn opts.sleepFn ?? defaultSleep;\n}\n",
+			}),
+			false,
+		);
+		// `= name` and `, name` are the other two value shapes the same rule covers.
+		for (const [binding, label] of [
+			["const sleep = defaultSleep;\n", "= name"],
+			["pick(sleep, defaultSleep);\n", ", name"],
+		] as Array<[string, string]>) {
+			assert.strictEqual(
+				keepsDead("defaultSleep", "src/assign.ts", { "src/assign.ts": seam + binding }),
+				false,
+				label,
+			);
+		}
+	});
+
+	it("keeps a default-injection seam no file binds (issue #2101 negative control)", () => {
+		// The rule keys on a reference, not on the name: a definition head alone is
+		// still an unused function, so only a real binding may suppress the entry.
+		assert.strictEqual(
+			keepsDead("defaultSleep", "src/unbound.ts", {
+				"src/unbound.ts":
+					"const defaultSleep: SleepFn = (ms, signal) =>\n" +
+					"\tnew Promise((resolve) => resolve(ms));\n" +
+					"const sleep = opts.sleepFn ?? createSleep(opts);\n",
+			}),
+			true,
+		);
+	});
+
 	it("drops an entry only referenced through a dot-call", () => {
 		assert.strictEqual(
 			keepsDead("is_open", "ui/src/retry.rs", {
