@@ -13,7 +13,9 @@
 //   (c) two are `.mts` and are therefore never scored — recorded, not claimed;
 //   (d) no flag moved: both refactored files stay above the ceiling and stay
 //       deferred in the #2033 envelope, which this change must not invalidate;
-//   (e) no scored file was added by this PR, so `codeFiles` stays at the 871-file branch-base count.
+//   (e) no scored file was added by this PR, so `codeFiles` stays at the recorded
+//       control count (reconciled by later PRs that add scored files — see the
+//       `controls.note` in the fixture).
 //
 // The recorded envelope lives in `test/fixtures/complexity-baseline-2107.json`.
 //
@@ -194,11 +196,11 @@ describe("complexity refactor #2107 — the cited files", () => {
 // ─── Phase 3: the envelope holds the tree-wide invariants ────────
 
 describe("complexity refactor #2107 — no flag moved", () => {
-	it("adds no scored file, so `codeFiles` is unchanged", () => {
+	it("matches the reconciled `codeFiles` control", () => {
 		const measured = measureComplexity(ROOT);
 		assert.ok(
 			measured.codeFiles === baseline.controls.codeFiles,
-			"the PR must not add a scored file beyond its recorded branch base",
+			"the delivered tree must hold the reconciled codeFiles control (see controls.note)",
 		);
 		assert.ok(measured.files >= baseline.base.files, "the tracked tree never shrinks");
 		// An untracked sibling would not reach `git ls-files` yet, so check the

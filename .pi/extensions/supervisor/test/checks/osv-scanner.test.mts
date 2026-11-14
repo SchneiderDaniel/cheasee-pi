@@ -11,7 +11,7 @@ import {
 	severityFromBaseScore,
 } from "../../checks/osv-scanner.ts";
 
-import type { ExecFn } from "../../checks/shared.ts";
+import { UNPARSEABLE_JSON, CVSS_NUMERIC_BOUNDARY_JSON } from "./osv-scanner-fixtures-b.mts";
 
 import {
 	CLEAN_JSON,
@@ -31,36 +31,6 @@ import {
 	AFFECTED_FOREIGN_ECOSYSTEM_JSON,
 	MALFORMED_VECTOR_JSON,
 } from "./osv-scanner-fixtures.mts";
-
-import { UNPARSEABLE_JSON, CVSS_NUMERIC_BOUNDARY_JSON } from "./osv-scanner-fixtures-b.mts";
-
-interface ExecCall {
-	cmd: string;
-	args: string[];
-	opts?: Record<string, unknown>;
-}
-
-function createMockExec(
-	results: Array<{ code: number; stdout: string; stderr: string }>,
-	calls?: ExecCall[],
-): ExecFn {
-	const callLog = calls || [];
-	let idx = 0;
-	const fn: ExecFn = async (cmd, args, opts) => {
-		callLog.push({ cmd, args: args || [], opts });
-		const r = results[idx] || { code: 0, stdout: "", stderr: "" };
-		idx++;
-		return Promise.resolve(r);
-	};
-	(fn as unknown as { calls: ExecCall[] }).calls = callLog;
-	return fn;
-}
-
-function createRejectingExec(error: unknown): ExecFn {
-	return async (_cmd: string, _args: string[], _opts?: Record<string, unknown>) => {
-		throw error;
-	};
-}
 
 describe("parseOsvJson()", () => {
 	it("valid JSON with vulnerabilities returns vulns_found with correct findings", () => {
