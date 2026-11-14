@@ -1,9 +1,9 @@
 """Transport fake + temp-repo harness for the offline safety-net suite.
 
 Split out of `_common.py` (issue #2034 God Object refactor): the offline
-fetcher and the temp-repo builder live here, so the barrel keeps only the
-`importlib` shim and its re-exports. Imported by the barrel *after* `dec` is
-bound, which is why `from ._common import dec` resolves.
+fetcher and the temp-repo builder live here, so the barrel keeps only
+re-exports. `dec` now comes from the leaf `_loader.py` (issue #2104), so this
+module no longer imports the barrel it is re-exported from.
 """
 
 import contextlib
@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 from typing import cast
 
-from ._common import dec
+from ._loader import dec
 
 
 def run_main(args, fetcher):
