@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // claimLiveSession publishes the live-session claim and returns its release. A
@@ -44,16 +45,30 @@ func prepareLaunch(ctx context.Context, name string) error {
 	return nil
 }
 
+// sessionReapTimeout bounds the post-exec session reap. The reap runs after the
+// interactive exec client is gone, so it cannot wait on user input, and a
+// wedged docker exec must not hang the CLI once pi has exited.
+const sessionReapTimeout = 30 * time.Second
+
 // execPiSession runs the interactive exec and then reaps the session by marker.
 // The docker exec client just exited (user quit or disconnected); on disconnect
 // pi keeps running with PPid=0, invisible to the orphan scan — without this
-// every detached start leaks a pi. ctx is the caller's run ctx: it cancels the
-// exec client, and the reap still runs after a cancel so a torn-down start does
-// not leak the session it launched.
+// every detached start leaks a pi.
+//
+// Two different ctx lifetimes meet here. The exec client runs on the caller's
+// ctx, so a cancel (Ctrl-C, signal handler, parent timeout) tears the interactive
+// docker exec down instead of letting it run on. The reap then runs detached
+// from that cancellation (values preserved, own deadline): the cancel is
+// precisely the case where the session we just launched must still be killed,
+// and a cancelled ctx would fail the reaper's own docker exec immediately,
+// leaking the session the reap exists to remove.
 func execPiSession(ctx context.Context, name string, env map[string]string,
 	target, sessionID string) error {
 	execErr := execPIContainer(ctx, name, env, target)
-	if err := killSessionByMarker(ctx, name, sessionID); err != nil {
+
+	reapCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sessionReapTimeout)
+	defer cancel()
+	if err := killSessionByMarker(reapCtx, name, sessionID); err != nil {
 		fmt.Fprintf(os.Stderr, "  ⚠ session reaper: %v\n", err)
 	}
 	return execErr
