@@ -14,7 +14,7 @@ import {
 	userMessageToRecord,
 	type LogRecord,
 	type TokenUsage,
-} from "./helpers/record-fixtures.ts";
+} from "./helpers/record-fixtures.mts";
 
 // ---------------------------------------------------------------------------
 // Import functions under test

@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
 
-import { extractText, type LogRecord, type TokenUsage } from "./helpers/record-fixtures.ts";
+import { extractText, type LogRecord, type TokenUsage } from "./helpers/record-fixtures.mts";
 
 // ---------------------------------------------------------------------------
 // Import functions under test

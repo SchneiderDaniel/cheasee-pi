@@ -12,7 +12,7 @@ import {
 
 import { CLEAN_JSON, VULNS_JSON, CC_COMMIT_MATCH_JSON } from "./osv-scanner-fixtures.mts";
 
-import { createMockExec, createRejectingExec, type ExecCall } from "../helpers/exec-fakes.ts";
+import { createMockExec, createRejectingExec, type ExecCall } from "../helpers/exec-fakes.mts";
 
 describe("buildVulnContext()", () => {
 	it("clean result returns short message", () => {

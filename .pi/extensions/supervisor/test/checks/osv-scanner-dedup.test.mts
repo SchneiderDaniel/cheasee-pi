@@ -1,7 +1,7 @@
 /**
  * Tests for the shared OSV exec fakes (issue #2105).
  *
- * `../helpers/exec-fakes.ts` owns `ExecCall`, `createMockExec` and
+ * `../helpers/exec-fakes.mts` owns `ExecCall`, `createMockExec` and
  * `createRejectingExec`; the osv-scanner suites import them instead of
  * re-declaring byte-identical local copies.
  *
@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { createMockExec, createRejectingExec, type ExecCall } from "../helpers/exec-fakes.ts";
+import { createMockExec, createRejectingExec, type ExecCall } from "../helpers/exec-fakes.mts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -111,11 +111,11 @@ describe("osv exec fake dedup guards", () => {
 	}
 
 	for (const file of ["../dead-code-part3.test.mts", "../duplicate-code-run.test.mts"]) {
-		it(`${file} imports createMockExec from ./helpers/exec-fakes.ts`, () => {
+		it(`${file} imports createMockExec from ./helpers/exec-fakes.mts`, () => {
 			const importBlock = readSource(file).match(
-				/import\s*\{([^}]*)\}\s*from\s*"\.\/helpers\/exec-fakes\.ts"/,
+				/import\s*\{([^}]*)\}\s*from\s*"\.\/helpers\/exec-fakes\.mts"/,
 			);
-			assert.ok(importBlock, `expected an import from ./helpers/exec-fakes.ts in ${file}`);
+			assert.ok(importBlock, `expected an import from ./helpers/exec-fakes.mts in ${file}`);
 			assert.match(importBlock![1]!, /\bcreateMockExec\b/);
 		});
 	}
@@ -128,12 +128,12 @@ describe("osv exec fake dedup guards", () => {
 		});
 	}
 
-	it("osv-scanner-part2.test.mts imports both fakes from ../helpers/exec-fakes.ts", () => {
+	it("osv-scanner-part2.test.mts imports both fakes from ../helpers/exec-fakes.mts", () => {
 		const source = readSource("osv-scanner-part2.test.mts");
 		const importBlock = source.match(
-			/import\s*\{([^}]*)\}\s*from\s*"\.\.\/helpers\/exec-fakes\.ts"/,
+			/import\s*\{([^}]*)\}\s*from\s*"\.\.\/helpers\/exec-fakes\.mts"/,
 		);
-		assert.ok(importBlock, "expected an import from ../helpers/exec-fakes.ts");
+		assert.ok(importBlock, "expected an import from ../helpers/exec-fakes.mts");
 		assert.match(importBlock![1]!, /\bcreateMockExec\b/);
 		assert.match(importBlock![1]!, /\bcreateRejectingExec\b/);
 	});

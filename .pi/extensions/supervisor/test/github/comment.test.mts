@@ -12,10 +12,6 @@ import { extractStructuredAuditOutput, extractAgentCommentBody } from "../../age
 
 import { filterIssueData } from "../../lib/issue-filter.ts";
 
-function createMockExec(execResult: { code: number; stdout: string; stderr: string }): ExecFn {
-	return async () => ({ ...execResult, killed: false });
-}
-
 describe("comment.ts runtime exports — direct call in assertions", () => {
 	it("filterIssueData directly callable in assert", () => {
 		assert.strictEqual(filterIssueData({ author: { login: "u" }, body: "b" }, ["u"]).body, "b");

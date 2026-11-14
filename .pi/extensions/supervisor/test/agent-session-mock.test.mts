@@ -1,7 +1,7 @@
 /**
  * Tests for the shared in-process agent-session mock (issue #2105).
  *
- * `./helpers/mock-agent-session.ts` owns `MockSessionConfig`, the session
+ * `./helpers/mock-agent-session.mts` owns `MockSessionConfig`, the session
  * factory and the two `mock.module` export builders. The
  * `agent-runner-in-process*.test.mts` suites keep their own `mock.module`
  * registration (module mocks are per-process and must run before the runner
@@ -24,7 +24,7 @@ import {
 	createMockSettingsManager,
 	createProviderMockExports,
 	type MockSessionConfig,
-} from "./helpers/mock-agent-session.ts";
+} from "./helpers/mock-agent-session.mts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -270,7 +270,7 @@ describe("agent-session mock dedup guards", () => {
 		source.split(needle).length - 1;
 
 	it("the helper contains no mock.module( call — registration stays in each test file", () => {
-		const source = readSource("./helpers/mock-agent-session.ts");
+		const source = readSource("./helpers/mock-agent-session.mts");
 		assert.equal(countOccurrences(source, "mock.module("), 0);
 	});
 
@@ -298,11 +298,11 @@ describe("agent-session mock dedup guards", () => {
 		it(`${file} imports both export builders, keeps 2 mock.module calls behind the hasMockModule gate`, () => {
 			const source = readSource(file);
 			// The runner suites live in supervisor/test/, so the helper is a sibling:
-			// "./helpers/mock-agent-session.ts" ("../helpers/" would escape test/).
+			// "./helpers/mock-agent-session.mts" ("../helpers/" would escape test/).
 			const importBlock = source.match(
-				/import\s*\{([^}]*)\}\s*from\s*"\.\/helpers\/mock-agent-session\.ts"/,
+				/import\s*\{([^}]*)\}\s*from\s*"\.\/helpers\/mock-agent-session\.mts"/,
 			);
-			assert.ok(importBlock, `expected an import from ./helpers/mock-agent-session.ts in ${file}`);
+			assert.ok(importBlock, `expected an import from ./helpers/mock-agent-session.mts in ${file}`);
 			assert.match(importBlock![1]!, /\bcreateCodingAgentMockExports\b/);
 			assert.match(importBlock![1]!, /\bcreateProviderMockExports\b/);
 

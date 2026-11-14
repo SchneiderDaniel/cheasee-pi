@@ -18,7 +18,7 @@ import {
 	runDuplicateCheck,
 } from "../checks/duplicate-code.ts";
 import type { ExecFn } from "../checks/shared.ts";
-import { createMockExec, type ExecCall } from "./helpers/exec-fakes.ts";
+import { createMockExec, type ExecCall } from "./helpers/exec-fakes.mts";
 
 // Split from duplicate-code.test.mts (issue #2035 Long File refactor).
 // ═══════════════════════════════════════════════════════════════════════

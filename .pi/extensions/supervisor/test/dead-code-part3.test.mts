@@ -18,7 +18,7 @@ import {
 	runDeadCodeCheck,
 } from "../checks/dead-code.ts";
 import type { ExecFn } from "../checks/shared.ts";
-import { createMockExec, type ExecCall } from "./helpers/exec-fakes.ts";
+import { createMockExec, type ExecCall } from "./helpers/exec-fakes.mts";
 
 // ═══════════════════════════════════════════════════════════════════════
 // Helpers

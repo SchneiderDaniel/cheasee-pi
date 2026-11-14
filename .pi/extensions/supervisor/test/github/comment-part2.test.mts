@@ -2,13 +2,7 @@ import { describe, it } from "node:test";
 
 import assert from "node:assert/strict";
 
-import type { ExecFn } from "../../../lib/port-types.ts";
-
 import { extractStructuredAuditOutput, extractAgentCommentBody } from "../../agent/output.ts";
-
-function createMockExec(execResult: { code: number; stdout: string; stderr: string }): ExecFn {
-	return async () => ({ ...execResult, killed: false });
-}
 
 describe("extractAgentCommentBody()", () => {
 	it("extracts text after COMMENT_BODY marker", () => {

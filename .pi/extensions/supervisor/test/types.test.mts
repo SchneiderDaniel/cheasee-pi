@@ -144,7 +144,9 @@ const TEST_IMPORTERS: Array<[string, string]> = [
 	["supervisor/test/pipeline/empty-worktree-dispatch.test.mts", "../../../lib/port-types.ts"],
 	["supervisor/test/supervisor-github-helpers.test.mts", "../../lib/port-types.ts"],
 	["supervisor/test/github/comment.test.mts", "../../../lib/port-types.ts"],
-	["supervisor/test/github/git.test.mts", "../../../lib/port-types.ts"],
+	// git.test.mts no longer declares an ExecFn: the fakes moved to the shared
+	// harness, which is now the owner of this import (issue #2105).
+	["supervisor/test/helpers/git-harness.mts", "../../../lib/port-types.ts"],
 	["supervisor/test/github/gh-client.test.mts", "../../../lib/port-types.ts"],
 	["supervisor/test/pre-gates.test.mts", "../../lib/port-types.ts"],
 ];

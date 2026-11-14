@@ -1,7 +1,7 @@
 /**
  * Tests for session-logger record fixtures de-duplication (issue #2105).
  *
- * `test/helpers/record-fixtures.ts` is the single owner of `extractText`,
+ * `test/helpers/record-fixtures.mts` is the single owner of `extractText`,
  * `userMessageToRecord`, `LogRecord` and `TokenUsage`. The three
  * `session-logger*.test.mts` suites import them instead of re-declaring
  * byte-identical local copies.
@@ -16,7 +16,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { extractText, userMessageToRecord, type LogRecord } from "./helpers/record-fixtures.ts";
+import { extractText, userMessageToRecord, type LogRecord } from "./helpers/record-fixtures.mts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -114,10 +114,10 @@ describe("session-logger record fixture dedup guards", () => {
 	}
 
 	for (const file of ["session-logger.test.mts", "session-logger-part3.test.mts"]) {
-		it(`${file} imports userMessageToRecord from ./helpers/record-fixtures.ts`, () => {
+		it(`${file} imports userMessageToRecord from ./helpers/record-fixtures.mts`, () => {
 			const source = readSource(join(here, file));
 			assert.ok(
-				/import\s*\{[^}]*\buserMessageToRecord\b[^}]*\}\s*from\s*"\.\/helpers\/record-fixtures\.ts"/.test(
+				/import\s*\{[^}]*\buserMessageToRecord\b[^}]*\}\s*from\s*"\.\/helpers\/record-fixtures\.mts"/.test(
 					source,
 				),
 				`${file} must import userMessageToRecord from the helper`,

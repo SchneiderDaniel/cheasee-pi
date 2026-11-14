@@ -6,7 +6,7 @@ import {
 	createCodingAgentMockExports,
 	createProviderMockExports,
 	type MockSessionConfig,
-} from "./helpers/mock-agent-session.ts";
+} from "./helpers/mock-agent-session.mts";
 
 let currentSessionConfig: MockSessionConfig = {};
 
