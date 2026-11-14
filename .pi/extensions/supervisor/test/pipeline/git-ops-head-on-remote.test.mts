@@ -151,6 +151,30 @@ describe("uncommitDeveloperWork — only an unpushed HEAD is uncommitted (issue 
 		assert.equal(resetCalls(calls).length, 1);
 	});
 
+	it("(use-case) reset exits nonzero → no success claim, the git error reaches the warning and the collector", async () => {
+		const calls: GitCall[] = [];
+		const { ui, notifyCalls } = makeUi();
+		const collector = new ErrorCollector();
+
+		const status = await uncommitDeveloperWork(
+			makeExec({ code: 1 }, calls, { code: 1, stderr: "error: index.lock exists" }),
+			WT,
+			REMOTE,
+			BRANCH,
+			ui,
+			collector,
+		);
+
+		assert.equal(resetCalls(calls).length, 1, "the soft reset was attempted");
+		assert.notEqual(status, "uncommitted", "a failed reset must never report success");
+		const warning = notifyCalls.find((c) => c.level === "warning" && /index\.lock/.test(c.message));
+		assert.ok(warning, "the failed reset is surfaced to the user");
+		assert.ok(
+			collector.all.some((r) => r.message.includes("index.lock")),
+			"collector carries the git error (never log-only)",
+		);
+	});
+
 	it("(use-case) unknown → no reset, the git error reaches the warning and the collector", async () => {
 		const calls: GitCall[] = [];
 		const { ui, notifyCalls } = makeUi();

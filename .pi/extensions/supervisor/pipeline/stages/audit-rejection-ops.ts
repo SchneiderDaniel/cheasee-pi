@@ -444,17 +444,15 @@ export async function recordCiLoopBack(
 }
 
 /** Outcome of the pre-loop-back history check. */
-export type UncommitOutcome = "skipped-on-remote" | "uncommitted" | "unknown" | "no-commit";
+export type UncommitOutcome = "skipped-on-remote" | "uncommitted" | "unknown" | "failed";
 
 /**
  * Uncommit the developer's most recent commit — only while it is unpushed.
  *
- * A gate failure must not produce fresh developer context (only auditor
- * rejections should): `reset --soft HEAD~1` keeps the changes staged. That is
- * safe just for a local-only HEAD; a pushed commit stays put and the developer
- * adds fix commits on top (AC3). An unanswerable probe preserves history, a
- * missing commit is a no-op, and both outcomes are surfaced rather than
- * swallowed.
+ * `reset --soft HEAD~1` keeps the changes staged, which is safe just for a
+ * local-only HEAD; a pushed commit stays put and the developer adds fix commits
+ * on top (AC3). An unanswerable probe or a failed reset preserves history and is
+ * surfaced rather than swallowed.
  */
 export async function uncommitDeveloperWork(
 	exec: ExecFn,
@@ -479,14 +477,17 @@ export async function uncommitDeveloperWork(
 		return head.status === "on-remote" ? "skipped-on-remote" : "unknown";
 	}
 
-	try {
-		await exec("git", ["reset", "--soft", "HEAD~1"], { cwd: worktreePath, timeout: 10_000 });
-		return "uncommitted";
-	} catch (err: unknown) {
-		// No commit to uncommit — the developer may have made no changes, else
-		// detached HEAD / initial commit. The worktree is already as desired.
-		const msg = err instanceof Error ? err.message : String(err);
-		collector?.push("audit", "warn", `Uncommit failed: ${msg}`);
-		return "no-commit";
-	}
+	const reset = await exec("git", ["reset", "--soft", "HEAD~1"], {
+		cwd: worktreePath,
+		timeout: 10_000,
+	}).catch((err: unknown) => ({ code: -1, stdout: "", stderr: errorText(err) }));
+	if (reset.code === 0) return "uncommitted";
+
+	// A non-zero exit (no parent commit, locked index, …) leaves the commit in
+	// place: never report success, surface what git said.
+	const detail = (reset.stderr || reset.stdout).trim() || `git exited with code ${reset.code}`;
+	const msg = `Uncommit failed (git reset --soft HEAD~1 exited ${reset.code}): ${detail}`;
+	ui.notify(`Gate failure: ${msg}`, "warning");
+	collector?.push("audit", "warn", msg);
+	return "failed";
 }
