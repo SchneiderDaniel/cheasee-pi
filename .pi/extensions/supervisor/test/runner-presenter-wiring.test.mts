@@ -21,7 +21,11 @@ import { fileURLToPath } from "node:url";
 import { readFileSync, readdirSync } from "node:fs";
 import { EventEmitter } from "node:events";
 import { readGraph, importersOf } from "../../lib/test/source-graph.ts";
-import { exhaustedBeforeSpawn, prepareSubprocessRun, runSpawnedProcess } from "../agent/runner/spawned-run.ts";
+import {
+	exhaustedBeforeSpawn,
+	prepareSubprocessRun,
+	runSpawnedProcess,
+} from "../agent/runner/spawned-run.ts";
 import { createRunPresenter } from "../agent/runner/ui.ts";
 import type { RunPresenter } from "../agent/runner/presenter.ts";
 import type { ChildHandle } from "../agent/runner/spawn.ts";
@@ -57,9 +61,11 @@ interface FakePresenter {
 
 function createFakePresenter(): FakePresenter {
 	const calls: PresenterCall[] = [];
-	const record = (method: string) => (...args: unknown[]): void => {
-		calls.push({ method, args });
-	};
+	const record =
+		(method: string) =>
+		(...args: unknown[]): void => {
+			calls.push({ method, args });
+		};
 	const presenter: RunPresenter = {
 		scheduleFlush: record("scheduleFlush"),
 		setWorkingMessage: record("setWorkingMessage"),
@@ -179,7 +185,9 @@ describe("Phase 3b: runSpawnedProcess tears down through the port", () => {
 	it("success path → dispose once, clear once, dispose before clear", async () => {
 		const fake = createFakePresenter();
 		const spawn = createFakeSpawn();
-		const promise = runSpawnedProcess(spawnOptions({ presenter: fake.presenter, spawnChild: spawn.spawnChild }));
+		const promise = runSpawnedProcess(
+			spawnOptions({ presenter: fake.presenter, spawnChild: spawn.spawnChild }),
+		);
 
 		spawn.emitStdout(
 			JSON.stringify({ type: "message_update", delta: { type: "text_delta", text_delta: "done" } }),
@@ -197,7 +205,9 @@ describe("Phase 3b: runSpawnedProcess tears down through the port", () => {
 	it("double terminal signal (close then late error) clears exactly once", async () => {
 		const fake = createFakePresenter();
 		const spawn = createFakeSpawn();
-		const promise = runSpawnedProcess(spawnOptions({ presenter: fake.presenter, spawnChild: spawn.spawnChild }));
+		const promise = runSpawnedProcess(
+			spawnOptions({ presenter: fake.presenter, spawnChild: spawn.spawnChild }),
+		);
 
 		spawn.emitClose(0, null);
 		spawn.emitError(new Error("late ENOENT"));
@@ -211,7 +221,9 @@ describe("Phase 3b: runSpawnedProcess tears down through the port", () => {
 	it("spawn error → dispose + clear once, failure result", async () => {
 		const fake = createFakePresenter();
 		const spawn = createFakeSpawn();
-		const promise = runSpawnedProcess(spawnOptions({ presenter: fake.presenter, spawnChild: spawn.spawnChild }));
+		const promise = runSpawnedProcess(
+			spawnOptions({ presenter: fake.presenter, spawnChild: spawn.spawnChild }),
+		);
 
 		spawn.emitError(new Error("ENOENT"));
 
@@ -237,7 +249,11 @@ describe("Phase 3b: runSpawnedProcess tears down through the port", () => {
 		assert.equal(spawn.calls.length, 0, "no child handle was ever created");
 		assert.match(result.output, /Failed to start pi:/);
 		assert.equal(fake.count("clear"), 1, "a failed spawn still tears the presentation down");
-		assert.equal(fake.count("dispose"), 0, "nothing to dispose — no render ever scheduled");
+		// The presenter (and its heartbeat) exists before the spawn attempt, so a
+		// rejection must stop the timers too — otherwise the cleared widget is
+		// re-rendered every 2s for a run that never started.
+		assert.equal(fake.count("dispose"), 1, "the failed spawn stops the presentation timers");
+		assert.ok(fake.indexOf("dispose") < fake.indexOf("clear"), "timers stopped before the clear");
 	});
 
 	it("timed-out close waits for the escalation ladder before teardown", async () => {
@@ -277,7 +293,7 @@ describe("Phase 3c: pre-spawn guards tear down through the port", () => {
 		});
 
 		assert.equal(fake.count("clear"), 1);
-		assert.equal(fake.count("dispose"), 0, "no widget timers were ever created");
+		assert.equal(fake.count("dispose"), 1, "the armed heartbeat is stopped, not leaked");
 		assert.equal(result.timedOut, true);
 		assert.equal(spawn.calls.length, 0, "nothing is spawned");
 	});
@@ -330,6 +346,63 @@ describe("Phase 3c: pre-spawn guards tear down through the port", () => {
 			prepared.result.summaryLine?.startsWith("Worktree missing:"),
 			`summaryLine was ${prepared.result.summaryLine}`,
 		);
+	});
+
+	it("a guard failure disposes the presentation — the cleared widget is never resurrected", async (t) => {
+		// The composition root builds the presenter BEFORE the guards run, so the
+		// 2s heartbeat is already armed when a guard bails out. clear() alone would
+		// leave that interval running and re-render a widget for a run that never
+		// started — guard paths must dispose the presentation, then clear it.
+		const renders: unknown[][] = [];
+		const ctx: any = {
+			cwd: "/tmp/work",
+			ui: {
+				notify: () => {},
+				setStatus: () => {},
+				setWidget: (...args: unknown[]) => renders.push(args),
+				setWorkingMessage: () => {},
+			},
+		};
+		const real = createRunPresenter({
+			ctx,
+			widgetId: "agent-test-agent",
+			agentName: "test-agent",
+			model: "",
+			state: createState(),
+		});
+		// A red run must not leave the heartbeat holding the suite open.
+		t.after(() => real.dispose());
+
+		const calls: string[] = [];
+		const presenter: RunPresenter = {
+			scheduleFlush: () => real.scheduleFlush(),
+			setWorkingMessage: (message?: string) => real.setWorkingMessage(message),
+			announceStart: (agentName: string) => real.announceStart(agentName),
+			clear: () => {
+				calls.push("clear");
+				real.clear();
+			},
+			dispose: () => {
+				calls.push("dispose");
+				real.dispose();
+			},
+		};
+
+		const prepared = prepareSubprocessRun({
+			agent: mockAgent,
+			task: "task",
+			model: "",
+			presenter,
+			effectiveCwd: "/nonexistent-worktree-2106",
+			timeoutMs: 5000,
+			startedAt: Date.now(),
+		});
+
+		assert.equal(prepared.ok, false);
+		assert.deepEqual(calls, ["dispose", "clear"], "the guard stops the timers, then clears");
+		assert.equal(renders.length, 1, "the guard cleared the widget once");
+		await wait(2200);
+		assert.equal(renders.length, 1, "the heartbeat must not re-render a cleared widget");
 	});
 
 	it("successful preparation announces the start through the port", () => {
@@ -397,6 +470,24 @@ describe("Phase 4: the adapter has exactly one consumer", () => {
 		);
 	});
 
+	it("the composition root constructs the adapter and injects it into both use cases", () => {
+		// The wiring lives in runAgentSubprocess: one presenter instance serves the
+		// pre-spawn guards and the spawned run, so a guard failure and a completed
+		// run tear down the SAME presentation.
+		const source = stripComments(readSource("index.ts"));
+		assert.match(source, /createRunPresenter\(\{/, "index.ts builds the adapter");
+		assert.match(
+			source,
+			/prepareSubprocessRun\(\{[\s\S]*?\bpresenter,/,
+			"the pre-spawn guards receive the presenter",
+		);
+		assert.match(
+			source,
+			/runSpawnedProcess\(\{[\s\S]*?\bpresenter,/,
+			"the spawned run receives the presenter",
+		);
+	});
+
 	it("the barrel no longer exposes the old widget-flusher factory", async () => {
 		const mod = await import("../agent/runner.ts");
 		assert.equal("createWidgetFlusher" in mod, false);
@@ -461,9 +552,7 @@ describe("Phase 6: operator journey (announce → render → teardown)", () => {
 			startedAt,
 			log: getDebugLogger(),
 		});
-		spawn.emitStdout(
-			JSON.stringify({ type: "tool_execution_start", toolName: "bash", args: {} }),
-		);
+		spawn.emitStdout(JSON.stringify({ type: "tool_execution_start", toolName: "bash", args: {} }));
 		spawn.emitClose(0, null);
 		const result = await promise;
 

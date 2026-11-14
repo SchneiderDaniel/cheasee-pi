@@ -185,7 +185,7 @@ export function exhaustedBeforeSpawn(opts: {
 	startedAt: number;
 	timeoutMs: number;
 }): AgentRunResult {
-	opts.presenter.clear();
+	endPresentation(opts.presenter);
 	return assembleResult({
 		state: opts.state,
 		agentName: opts.agentName,
@@ -282,7 +282,18 @@ export function prepareSubprocessRun(opts: {
 	return { ok: true, args, tools, skillPaths };
 }
 
-/** Shared guard-failure path: clear the presentation, then assemble the failure result. */
+/**
+ * Tear down the presentation of a run that never spawned (argv/build/cwd
+ * guard failures). The timers go FIRST: the presenter is built before the
+ * guards run, so its heartbeat is already armed — `clear()` alone would leave
+ * it rendering the widget of a run that never started.
+ */
+function endPresentation(presenter: RunPresenter): void {
+	presenter.dispose();
+	presenter.clear();
+}
+
+/** Shared guard-failure path: stop the presentation timers, clear, then assemble the failure result. */
 function failWithCleanup(
 	presenter: RunPresenter,
 	opts: {
@@ -293,7 +304,7 @@ function failWithCleanup(
 		output: string;
 	},
 ): AgentRunResult {
-	presenter.clear();
+	endPresentation(presenter);
 	return failResult(opts);
 }
 

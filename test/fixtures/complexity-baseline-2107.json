@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 872,
+		"codeFiles": 873,
 		"criticalCount": 190,
-		"note": "the branch base is e8d169a35389406d1cddb1f1a8e1e6c15935c077 (after #2081), whose 871 scored files and 190 critical files are measured above. This PR adds no scored file; both cited scorable files were reduced in place and stay above the ceiling, so no flag moved and the #2033 envelope still describes the tree. The earlier 860-file snapshot predates #2081. The codeFiles control was reconciled 871 -> 872 by #2089, which added one scored Go gate file (cmd/cheasee-pi/ui_asset_on_message_liveness_test.go); criticalCount stayed 190, so no flag moved and the #2033 envelope still describes the delivered tree."
+		"note": "the branch base is e8d169a35389406d1cddb1f1a8e1e6c15935c077 (after #2081), whose 871 scored files and 190 critical files are measured above. This PR adds no scored file; both cited scorable files were reduced in place and stay above the ceiling, so no flag moved and the #2033 envelope still describes the tree. The earlier 860-file snapshot predates #2081. The codeFiles control was reconciled 871 -> 872 by #2089, which added one scored Go gate file (cmd/cheasee-pi/ui_asset_on_message_liveness_test.go); criticalCount stayed 190, so no flag moved and the #2033 envelope still describes the delivered tree. It was reconciled 872 -> 873 by #2106, which added one scored production file (.pi/extensions/supervisor/agent/runner/presenter.ts, the RunPresenter port) and dropped .pi/extensions/supervisor/agent/runner/index.ts back under the ceiling, so criticalCount stayed 190 and no flag moved."
 	}
 }

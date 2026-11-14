@@ -252,8 +252,7 @@ describe("runner/ split — module-graph invariants", () => {
 	it("runner/index.ts uses star re-exports only (no TS1205-fragile named re-export)", () => {
 		const graph = readGraph(join(RUNNER_DIR, "index.ts"));
 		assert.deepEqual(graph.namedReExports, [], "index.ts must not use named re-exports");
-		// Issue #2106: ui.ts is the ctx.ui ADAPTER and is intentionally not part of
-		// the barrel surface — the composition root imports it directly.
+		// Issue #2106: ui.ts is the ctx.ui ADAPTER — the barrel stays presentation-free.
 		const expected = MODULES.filter((m) => m !== "index.ts" && m !== "ui.ts")
 			.map((m) => `./${m}`)
 			.sort();
@@ -290,9 +289,9 @@ if (hasMockModule) {
 
 		it("exports all 4 public symbols from the shim", async () => {
 			const mod = await import("../agent/runner.ts");
-			assert.equal(typeof mod.runAgent, "function", "runAgent exported");
-			assert.equal(typeof mod.runAgentSubprocess, "function", "runAgentSubprocess exported");
-			assert.equal(typeof mod.buildSubprocessArgs, "function", "buildSubprocessArgs exported");
+			for (const name of ["runAgent", "runAgentSubprocess", "buildSubprocessArgs"]) {
+				assert.equal(typeof (mod as any)[name], "function", `${name} exported`);
+			}
 			assert.equal(
 				mod.DEFAULT_AGENT_TIMEOUT_MS,
 				CONFIG_TIMEOUT,
@@ -302,16 +301,11 @@ if (hasMockModule) {
 
 		it("exports the shared event-loop handler from the shim", async () => {
 			const mod = await import("../agent/runner.ts");
-			assert.equal(
-				typeof mod.handleNormalizedEvent,
-				"function",
-				"handleNormalizedEvent exported through the barrel",
-			);
+			assert.equal(typeof mod.handleNormalizedEvent, "function", "handleNormalizedEvent exported");
 		});
 
 		it("dedup guard: neither runner inlines the preThinkingText capture", () => {
-			// Issue #2005 moved the line-handler factory to spawned-run.ts; the
-			// guard follows the handleNormalizedEvent call site.
+			// Issue #2005 moved the line-handler factory to spawned-run.ts.
 			const files = [
 				join(__dirname, "../agent/agent-session-runner.ts"),
 				join(RUNNER_DIR, "spawned-run.ts"),

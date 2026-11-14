@@ -382,8 +382,7 @@ if (hasMockModule) {
 	describe("runner/ui.ts — widget cadence", () => {
 		it("300ms debounce fires setWidget during execution", async () => {
 			resetMock();
-			// Issue #2106: the ctx.ui adapter is now `createRunPresenter`, which
-			// implements the RunPresenter port. Cadence is unchanged.
+			// Issue #2106: the ctx.ui adapter is `createRunPresenter` (RunPresenter port).
 			const { createRunPresenter } = await import("../agent/runner/ui.ts");
 			const state = createState();
 			const presenter = createRunPresenter({
@@ -459,9 +458,8 @@ if (hasMockModule) {
 			const { getDebugLogger } = await import("../lib/debug.ts");
 			spawnCalls.length = 0;
 
-			// Issue #2106: the use case takes the presentation port and the spawn
-			// port. A reject-all spawn reproduces the argv rejection without
-			// touching node:child_process.
+			// Issue #2106: the use case takes a presentation port plus a spawn port; a
+			// reject-all spawn reproduces the argv rejection without node:child_process.
 			const cleared: string[] = [];
 			const presenter = {
 				scheduleFlush: () => {},
@@ -490,8 +488,7 @@ if (hasMockModule) {
 				startedAt: Date.now(),
 				log: getDebugLogger(),
 			});
-			assert.deepEqual(cleared, ["clear"], "the failed spawn still tears the presentation down");
-
+			assert.deepEqual(cleared, ["dispose", "clear"], "failed spawn tears the presentation down");
 			assert.strictEqual(result.success, false, "the rejection must not escape the contract");
 			assert.strictEqual(spawnCalls.length, 0, "no child may be spawned");
 			assert.ok(result.output.includes("Failed to start pi:"));

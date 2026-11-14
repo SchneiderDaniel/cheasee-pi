@@ -1,12 +1,11 @@
 // ─── Agent runner orchestrator ────────────────────────────────────
 // runAgent dispatcher + runAgentSubprocess orchestrator. Subprocess
 // lifecycle lives in sibling modules (args/spawn/stream/budget/cleanup/
-// presenter/ui) — dependency direction is index → sub-modules only; no
-// sub-module imports another.
+// presenter/ui); this module is the only one that imports all of them.
 //
-// This file is the COMPOSITION ROOT (issue #2106): it is the only place
-// that knows both the RunPresenter port and the ctx.ui adapter, and it
-// injects the spawn implementation into the use case.
+// This file is the COMPOSITION ROOT (issue #2106): the only place that
+// knows the RunPresenter port plus its ctx.ui adapter; it injects that
+// presenter into the use cases.
 
 export * from "./args.ts";
 export * from "./spawn.ts";
@@ -27,29 +26,47 @@ import { spawnAgentChild } from "./spawn.ts";
 import { exhaustedBeforeSpawn, prepareSubprocessRun, runSpawnedProcess } from "./spawned-run.ts";
 import { createRunPresenter } from "./ui.ts";
 
+// ─── Dispatch window — one owner for the 1× rule ─────────────────
+// `timeoutMs` omitted → the configured default; `null` → no deadline.
+// Both entry points resolve their bound here, so the in-process attempt has
+// the same absolute deadline as its subprocess fallback.
+
+interface DispatchWindow {
+	/** Configured timeout, kept for failure reporting (`null` = no deadline). */
+	timeoutMs: number | null;
+	/** Absolute enforcement bound (`null` = unbounded). */
+	absoluteDeadlineMs: number | null;
+}
+
+function resolveDispatchWindow(opts: AgentRunOptions, startedAt: number): DispatchWindow {
+	const configured = opts.timeoutMs;
+	const timeoutMs = configured === undefined ? DEFAULT_AGENT_TIMEOUT_MS : configured;
+	// Hard 1× rule: `timeoutMs` is the CONFIGURED value (reporting), the deadline
+	// is the enforcement budget. A caller-supplied deadline preserves the
+	// ORIGINAL window on the in-process → subprocess fallback, so that fallback
+	// can never restart the clock (that was the 2× stall).
+	const absoluteDeadlineMs = timeoutMs === null ? null : (opts.deadlineMs ?? startedAt + timeoutMs);
+	return { timeoutMs, absoluteDeadlineMs };
+}
+
 // ─── runAgent — in-process first, subprocess fallback ────────────
 // Dispatcher that tries the in-process SDK runner first.
-// Falls back to subprocess on exception or unsuccessful result — except
-// when the wall-clock deadline already fired, so the configured bound is
-// never silently doubled by the fallback (hard 1× rule).
+// Falls back on a thrown error / an unsuccessful result — but never after
+// the wall-clock deadline fired, so the configured bound is never silently
+// doubled (hard 1× rule).
 
 export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
 	const startedAt = Date.now();
-	const timeoutMs = opts.timeoutMs === undefined ? DEFAULT_AGENT_TIMEOUT_MS : opts.timeoutMs;
-	// Hard 1× bound: both the in-process attempt and the subprocess fallback
-	// share ONE absolute deadline. `timeoutMs` is the CONFIGURED timeout (kept
-	// for reporting); the deadline is the enforcement budget, so the fallback
-	// can never restart the clock (that was the 2× stall).
-	const absoluteDeadlineMs = timeoutMs === null ? null : (opts.deadlineMs ?? startedAt + timeoutMs);
-	// Both runners receive the SAME options object (with the resolved absolute
-	// deadline) — no positional re-listing, so no silent argument drift.
+	const { absoluteDeadlineMs } = resolveDispatchWindow(opts, startedAt);
+	// Both runners receive the SAME options object carrying the resolved
+	// absolute deadline — no positional re-listing, so no argument drift.
 	const dispatchOpts: AgentRunOptions = { ...opts, deadlineMs: absoluteDeadlineMs };
 
 	try {
 		// The in-process runner derives its watchdog from this ABSOLUTE deadline
-		// and arms it before setup, so model resolution / tool resolution / SDK
-		// load / session creation all count against the configured window, and a
-		// deadline already expired before entry fails immediately.
+		// before setup, so model resolution / tool resolution / SDK load /
+		// session creation all count against the configured window; a deadline
+		// already expired before entry fails immediately.
 		const result = await runAgentInProcess(dispatchOpts);
 		// Timeout is terminal: the wall-clock bound already fired in-process.
 		// Returning the timeout result WITHOUT falling back keeps the bound at 1×.
@@ -78,9 +95,6 @@ export async function runAgent(opts: AgentRunOptions): Promise<AgentRunResult> {
 export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRunResult> {
 	const { agent, task, ctx, cwd, maxToolCalls, agentTokenBudget, sessionPath, pi, killGraceSec } =
 		opts;
-	// timeoutMs: omitted → configured default; null → no deadline.
-	const timeoutMs = opts.timeoutMs === undefined ? DEFAULT_AGENT_TIMEOUT_MS : opts.timeoutMs;
-	const deadlineMs = opts.deadlineMs;
 	const log = getDebugLogger();
 	const effectiveCwd = cwd || ctx.cwd || process.cwd();
 	// Pass worktree path to worktree-sandbox extension for path confinement
@@ -90,12 +104,11 @@ export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRu
 	const model = agent.config.model || "";
 	const thinkingLevel = agent.config.thinking?.trim() || undefined;
 	const startedAt = Date.now();
-	// Absolute dispatch deadline: preparation (arg assembly / task-spill /
-	// mkdtemp) also counts against the configured window, so the watchdog
-	// arms with the REMAINDER, not the full timeout. A caller-supplied deadline
-	// preserves the ORIGINAL window when this runs as the in-process fallback;
-	// `timeoutMs` stays the configured value for failure reporting (audit #3).
-	const absoluteDeadlineMs = timeoutMs === null ? null : (deadlineMs ?? startedAt + timeoutMs);
+	// Preparation (arg assembly / task-spill / mkdtemp) also counts against the
+	// configured window, so the watchdog arms with the REMAINDER — never the
+	// full timeout. `timeoutMs` stays the configured value for reporting
+	// (audit #3); the bound itself is resolved in one place.
+	const { timeoutMs, absoluteDeadlineMs } = resolveDispatchWindow(opts, startedAt);
 
 	// Run state + presentation are built here so the guards below (which may
 	// abort before spawning) can report through the same presenter.
@@ -116,7 +129,7 @@ export async function runAgentSubprocess(opts: AgentRunOptions): Promise<AgentRu
 	const { args } = prepared;
 
 	// Preparation may itself have consumed the whole configured window (the
-	// merge-conflict path calls this directly with a resolved per-agent
+	// merge-conflict path calls this directly using a resolved per-agent
 	// timeout). Return a structured timeout failure instead of arming a fresh
 	// full window — otherwise the effective bound is preparation + T.
 	if (timeoutMs !== null && absoluteDeadlineMs !== null && absoluteDeadlineMs - Date.now() <= 0) {

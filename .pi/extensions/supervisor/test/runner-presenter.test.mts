@@ -18,6 +18,7 @@
 
 import { describe, it, after } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readGraph } from "../../lib/test/source-graph.ts";
@@ -35,7 +36,13 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PRESENTER_FILE = join(__dirname, "../agent/runner/presenter.ts");
 
-const MEMBERS = ["scheduleFlush", "setWorkingMessage", "announceStart", "clear", "dispose"] as const;
+const MEMBERS = [
+	"scheduleFlush",
+	"setWorkingMessage",
+	"announceStart",
+	"clear",
+	"dispose",
+] as const;
 
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -109,6 +116,25 @@ describe("Phase 1: RunPresenter is a dependency-free inner port", () => {
 		assert.ok(
 			readGraph(PRESENTER_FILE).declarations.includes("RunPresenter"),
 			"RunPresenter declared in presenter.ts",
+		);
+	});
+
+	it("declares exactly the five documented contract members", () => {
+		// `readGraph` records top-level declarations, not interface members, so the
+		// contract body is checked directly: a stray 6th member or a renamed one
+		// would silently widen the port every adapter has to implement.
+		const source = readFileSync(PRESENTER_FILE, "utf-8")
+			.replace(/\/\*[\s\S]*?\*\//g, "")
+			.replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+		const body = source.match(/interface\s+RunPresenter\s*\{([\s\S]*?)\n\}/)?.[1];
+		assert.ok(body, "RunPresenter interface body found in presenter.ts");
+		const members = [...(body as string).matchAll(/^\s*([A-Za-z_$][\w$]*)\s*\(/gm)].map(
+			(m) => m[1]!,
+		);
+		assert.deepEqual(
+			[...members].sort(),
+			[...MEMBERS].sort(),
+			"the port declares exactly the five members",
 		);
 	});
 
