@@ -9,8 +9,8 @@
 import assert from "node:assert";
 import { execSync } from "node:child_process";
 import { afterEach, describe, it } from "node:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync } from "node:fs";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import {
 	codeflowHostPort,
@@ -312,6 +312,81 @@ describe("codeflowHostPort", () => {
 });
 
 // ── URL shape + purity ──────────────────────────
+
+describe("fixtures — bound partials", () => {
+	it("withEnv binds CODEFLOW_PORT for the duration of fn only", async () => {
+		delete process.env.CODEFLOW_PORT;
+		await withEnv("9711", async () => {
+			assert.strictEqual(process.env.CODEFLOW_PORT, "9711");
+		});
+		assert.strictEqual(process.env.CODEFLOW_PORT, undefined, "restored to pre-call (unset)");
+	});
+
+	it("withEnv touches no other suite's env key", async () => {
+		process.env.PI_UI_PORT = "9999";
+		try {
+			await withEnv("9711", async () => {
+				assert.strictEqual(process.env.PI_UI_PORT, "9999", "ui key untouched during fn");
+			});
+			assert.strictEqual(process.env.PI_UI_PORT, "9999", "ui key untouched after fn");
+		} finally {
+			delete process.env.PI_UI_PORT;
+		}
+	});
+
+	it("withEnv restores the pre-call value even when fn throws (bracket contract survives the partial)", async () => {
+		delete process.env.CODEFLOW_PORT;
+		await assert.rejects(
+			withEnv("9711", async () => {
+				throw new Error("boom");
+			}),
+			/boom/,
+		);
+		assert.strictEqual(process.env.CODEFLOW_PORT, undefined, "unset stays unset after throw");
+
+		process.env.CODEFLOW_PORT = "8888";
+		await assert.rejects(
+			withEnv("9711", async () => {
+				throw new Error("boom");
+			}),
+			/boom/,
+		);
+		assert.strictEqual(process.env.CODEFLOW_PORT, "8888", "prior value restored after throw");
+		delete process.env.CODEFLOW_PORT;
+	});
+
+	it("withEnv(undefined) deletes the key during fn and restores it after", async () => {
+		process.env.CODEFLOW_PORT = "9100";
+		let during: string | undefined = "sentinel";
+		await withEnv(undefined, async () => {
+			during = process.env.CODEFLOW_PORT;
+		});
+		assert.strictEqual(during, undefined, "key absent during fn");
+		assert.strictEqual(process.env.CODEFLOW_PORT, "9100", "prior value restored");
+		delete process.env.CODEFLOW_PORT;
+	});
+
+	it("makeWorkspace binds the codeflow-test- prefix and the ws layout", () => {
+		const { root, parent } = makeWorkspace();
+		assert.ok(
+			basename(parent).startsWith("codeflow-test-"),
+			`temp parent ${basename(parent)} must carry this suite's prefix`,
+		);
+		assert.strictEqual(root, join(parent, "ws"));
+		assert.ok(existsSync(join(root, "cheasee-settings.json")), "marker file present");
+	});
+
+	it("makeWorkspace forwards the settings content unmodified", () => {
+		for (const content of ["{}", `{"docker":{"codeflowPort":"9100"}}`, "{not valid json"]) {
+			const { root } = makeWorkspace(content);
+			assert.strictEqual(
+				readFileSync(join(root, "cheasee-settings.json"), "utf-8"),
+				content,
+				`content forwarded verbatim for ${JSON.stringify(content)}`,
+			);
+		}
+	});
+});
 
 describe("codeflowUrl", () => {
 	it("produces the canonical URL shape with the resolved port interpolated", async () => {

@@ -8,8 +8,8 @@
 
 import assert from "node:assert";
 import { afterEach, describe, it } from "node:test";
-import { mkdirSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync } from "node:fs";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fnv32 } from "../codeflow.ts";
 import { uiHostPort, uiPortFromSlug, uiUrl } from "../ui.ts";
@@ -172,6 +172,92 @@ describe("uiHostPort", () => {
 });
 
 // ── URL shape + purity ──────────────────────────
+
+describe("fixtures — bound partials", () => {
+	it("withEnv binds only PI_UI_PORT", async () => {
+		process.env.CHEASEE_UI_PORT_UNRESOLVED = "pre";
+		try {
+			await withEnv("9713", async () => {
+				assert.strictEqual(process.env.PI_UI_PORT, "9713");
+				assert.strictEqual(
+					process.env.CHEASEE_UI_PORT_UNRESOLVED,
+					"pre",
+					"unresolved flag untouched during fn",
+				);
+			});
+			assert.strictEqual(process.env.PI_UI_PORT, undefined, "restored to pre-call (unset)");
+			assert.strictEqual(process.env.CHEASEE_UI_PORT_UNRESOLVED, "pre");
+		} finally {
+			delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+		}
+	});
+
+	it("withUnresolved binds only CHEASEE_UI_PORT_UNRESOLVED", async () => {
+		process.env.PI_UI_PORT = "9700";
+		try {
+			await withUnresolved("1", async () => {
+				assert.strictEqual(process.env.CHEASEE_UI_PORT_UNRESOLVED, "1");
+				assert.strictEqual(process.env.PI_UI_PORT, "9700", "port key untouched during fn");
+			});
+			assert.strictEqual(process.env.CHEASEE_UI_PORT_UNRESOLVED, undefined, "flag restored");
+			assert.strictEqual(process.env.PI_UI_PORT, "9700", "port key untouched after fn");
+		} finally {
+			delete process.env.PI_UI_PORT;
+		}
+	});
+
+	it("nested withEnv(undefined) + withUnresolved composes and both keys are restored", async () => {
+		process.env.PI_UI_PORT = "9700";
+		process.env.CHEASEE_UI_PORT_UNRESOLVED = "pre";
+		try {
+			await withEnv(undefined, () =>
+				withUnresolved("1", async () => {
+					assert.strictEqual(process.env.PI_UI_PORT, undefined, "outer scope deletes the port key");
+					assert.strictEqual(process.env.CHEASEE_UI_PORT_UNRESOLVED, "1");
+				}),
+			);
+			assert.strictEqual(process.env.PI_UI_PORT, "9700", "outer key restored");
+			assert.strictEqual(process.env.CHEASEE_UI_PORT_UNRESOLVED, "pre", "inner key restored");
+		} finally {
+			delete process.env.PI_UI_PORT;
+			delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+		}
+	});
+
+	it("inner scope throwing unwinds both keys in reverse order", async () => {
+		process.env.PI_UI_PORT = "9700";
+		process.env.CHEASEE_UI_PORT_UNRESOLVED = "pre";
+		try {
+			await assert.rejects(
+				withEnv(undefined, () =>
+					withUnresolved("1", async () => {
+						throw new Error("boom");
+					}),
+				),
+				/boom/,
+			);
+			assert.strictEqual(process.env.PI_UI_PORT, "9700", "outer restored despite inner throw");
+			assert.strictEqual(process.env.CHEASEE_UI_PORT_UNRESOLVED, "pre", "inner restored");
+		} finally {
+			delete process.env.PI_UI_PORT;
+			delete process.env.CHEASEE_UI_PORT_UNRESOLVED;
+		}
+	});
+
+	it("makeWorkspace binds the ui-test- prefix, distinct from the codeflow suite", () => {
+		const { root, parent } = makeWorkspace();
+		assert.ok(
+			basename(parent).startsWith("ui-test-"),
+			`temp parent ${basename(parent)} must carry this suite's prefix`,
+		);
+		assert.ok(
+			!basename(parent).startsWith("codeflow-test-"),
+			"prefix must not collide with the codeflow suite",
+		);
+		assert.strictEqual(root, join(parent, "ws"));
+		assert.ok(existsSync(join(root, "cheasee-settings.json")), "marker file present");
+	});
+});
 
 describe("uiUrl", () => {
 	it("produces http://127.0.0.1:<port> with no trailing slash", async () => {

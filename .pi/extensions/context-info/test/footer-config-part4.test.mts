@@ -49,6 +49,15 @@ interface FooterHarnessOptions {
 	appearance?: "dark" | "light";
 }
 
+/** Double for the pi branch/status API: `onBranchChange` mirrors subscribe → unsubscribe. */
+function createBranchListenerDouble() {
+	return {
+		onBranchChange: (_listener: (branch: string) => void) => () => {},
+		getGitBranch: () => "main",
+		getExtensionStatuses: () => new Map(),
+	};
+}
+
 function createHarness(options: FooterHarnessOptions = {}) {
 	const captured: CapturedFgCall[] = [];
 	const theme: { fg: (color: string, text: string) => string; appearance?: "dark" | "light" } = {
@@ -86,11 +95,7 @@ function createHarness(options: FooterHarnessOptions = {}) {
 							setClearOnShrink: options.setClearOnShrinkSpy ?? (() => {}),
 						},
 						theme,
-						{
-							onBranchChange: () => () => {},
-							getGitBranch: () => "main",
-							getExtensionStatuses: () => new Map(),
-						},
+						createBranchListenerDouble(),
 					);
 				}
 			},
@@ -134,11 +139,7 @@ describe("footer — trust status display", () => {
 							{
 								fg: (_color: string, text: string) => text,
 							},
-							{
-								onBranchChange: () => () => {},
-								getGitBranch: () => "main",
-								getExtensionStatuses: () => new Map(),
-							},
+							createBranchListenerDouble(),
 						);
 					}
 				},
@@ -178,11 +179,7 @@ describe("footer — trust status display", () => {
 							{
 								fg: (_color: string, text: string) => text,
 							},
-							{
-								onBranchChange: () => () => {},
-								getGitBranch: () => "main",
-								getExtensionStatuses: () => new Map(),
-							},
+							createBranchListenerDouble(),
 						);
 					}
 				},
@@ -221,11 +218,7 @@ describe("footer — trust status display", () => {
 							{
 								fg: (_color: string, text: string) => text,
 							},
-							{
-								onBranchChange: () => () => {},
-								getGitBranch: () => "main",
-								getExtensionStatuses: () => new Map(),
-							},
+							createBranchListenerDouble(),
 						);
 					}
 				},
@@ -472,5 +465,24 @@ describe("footer — appearance-adaptive secondary text", () => {
 		const { component } = createHarness({ appearance: "light" });
 		const all = component.render(120).join("");
 		assert.ok(!all.includes("\x1b[38;2;"), "no truecolor SGR should be emitted");
+	});
+});
+
+describe("fixtures — branch listener double mirrors the pi API shape", () => {
+	it("onBranchChange returns an unsubscribe function that is safe to call", () => {
+		const api = createBranchListenerDouble();
+		const off = api.onBranchChange(() => {});
+		assert.strictEqual(typeof off, "function", "subscribe must return the unsubscribe");
+		assert.doesNotThrow(() => off(), "unsubscribe must be safe to call");
+		assert.doesNotThrow(() => off(), "unsubscribe must be idempotent for the harness");
+	});
+	it("reports a stable branch and an empty extension-status map", () => {
+		const api = createBranchListenerDouble();
+		assert.strictEqual(api.getGitBranch(), "main");
+		assert.deepStrictEqual(api.getExtensionStatuses(), new Map());
+	});
+	it("the harness hands this double to the footer renderer", () => {
+		const { component } = createHarness();
+		assert.ok(component, "installFooter consumed the double without throwing");
 	});
 });
