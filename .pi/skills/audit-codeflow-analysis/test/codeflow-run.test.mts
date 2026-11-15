@@ -398,6 +398,179 @@ describe("ensureReport", () => {
 	});
 });
 
+/**
+ * These cases deliberately OMIT `sleepFn`, so the production default
+ * (`defaultSleep`, an abort-aware real timer) is the code under test. Every
+ * other case in this file injects `sleepFn`, which is why the default seam had
+ * no coverage. `defaultSleep` stays module-private: it is exercised only through
+ * the public `ensureReport` contract.
+ */
+describe("ensureReport — default sleep seam", () => {
+	it("polls on the production default sleep when sleepFn is omitted", async () => {
+		let polls = 0;
+		const fetchFn: RunFetchFn = async (_url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			polls++;
+			if (polls < 2) return json(statusBody());
+			return json(
+				statusBody({
+					state: "succeeded",
+					finishedAt: 9,
+					reportAt: 1767225600000,
+					produced: { markdown: true, json: true },
+				}),
+			);
+		};
+
+		const start = Date.now();
+		const res = await ensureReport({
+			fetchFn,
+			base: BASE,
+			pollIntervalMs: 20,
+			timeoutMs: 5000,
+		});
+		const elapsed = Date.now() - start;
+
+		assert.deepStrictEqual(res, { ok: true, reportAt: 1767225600000 });
+		assert.strictEqual(polls, 2, "the default sleep advances the loop to the terminal poll");
+		// Lower bound only: timer jitter may shave a millisecond, and asserting an
+		// upper bound would make the case flaky on a loaded CI box.
+		assert.ok(elapsed >= 20, `default sleep must wait the poll interval (waited ${elapsed}ms)`);
+	});
+
+	it("keeps the loop advancing across several default-sleep iterations", async () => {
+		let polls = 0;
+		const fetchFn: RunFetchFn = async (_url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			polls++;
+			if (polls < 4) return json(statusBody());
+			return json(statusBody({ state: "succeeded", produced: { markdown: true, json: false } }));
+		};
+
+		const res = await ensureReport({
+			fetchFn,
+			base: BASE,
+			pollIntervalMs: 20,
+			timeoutMs: 5000,
+		});
+
+		assert.deepStrictEqual(res, { ok: true, reportAt: null });
+		assert.strictEqual(polls, 4, "three default sleeps then a terminal poll");
+	});
+
+	it("composes the default sleep with an injected clock", async () => {
+		let clock = 0;
+		let polls = 0;
+		const fetchFn: RunFetchFn = async (_url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			polls++;
+			clock += 1; // the harness owns the clock; the real timer still elapses
+			if (polls < 2) return json(statusBody());
+			return json(statusBody({ state: "succeeded", produced: { markdown: true, json: false } }));
+		};
+
+		const res = await ensureReport({
+			fetchFn,
+			base: BASE,
+			nowFn: () => clock,
+			pollIntervalMs: 10,
+			timeoutMs: 60_000,
+		});
+
+		assert.deepStrictEqual(res, { ok: true, reportAt: null });
+		assert.strictEqual(polls, 2, "the default sleep and the injected clock stay decoupled");
+	});
+
+	it("rejects the pending default sleep with the caller's abort reason", async () => {
+		const controller = new AbortController();
+		let polls = 0;
+		const fetchFn: RunFetchFn = async (_url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			polls++;
+			// Abort while the default sleep (5000ms) is pending.
+			setTimeout(() => controller.abort(new Error("cancelled")), 20);
+			return json(statusBody());
+		};
+
+		const start = Date.now();
+		await assert.rejects(
+			() =>
+				ensureReport({
+					fetchFn,
+					base: BASE,
+					signal: controller.signal,
+					pollIntervalMs: 5000,
+					timeoutMs: 20_000,
+				}),
+			/cancelled/,
+		);
+		const elapsed = Date.now() - start;
+
+		assert.ok(elapsed < 1000, `abort must not wait out the 5000ms interval (waited ${elapsed}ms)`);
+		assert.strictEqual(polls, 1, "an aborted default sleep must not poll again");
+	});
+
+	it("surfaces an AbortError when the default sleep is aborted without a reason", async () => {
+		const controller = new AbortController();
+		let polls = 0;
+		const fetchFn: RunFetchFn = async (_url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			polls++;
+			setTimeout(() => controller.abort(), 20);
+			return json(statusBody());
+		};
+
+		await assert.rejects(
+			() =>
+				ensureReport({
+					fetchFn,
+					base: BASE,
+					signal: controller.signal,
+					pollIntervalMs: 5000,
+					timeoutMs: 20_000,
+				}),
+			/abort/i,
+		);
+
+		assert.strictEqual(polls, 1, "a reason-less abort must not resolve silently or poll again");
+	});
+
+	it("clamps the sleep request to the remaining client budget", async () => {
+		let clock = 0;
+		let polls = 0;
+		const slept: number[] = [];
+		const fetchFn: RunFetchFn = async (_url, init) => {
+			if (init?.method === "POST") return json({ runId: "r1", state: "running" }, 202);
+			polls++;
+			clock += 200; // a slow status request eats into the budget
+			return json(statusBody());
+		};
+		const sleepFn: SleepFn = async (ms) => {
+			slept.push(ms);
+			clock += ms;
+		};
+
+		const res = await ensureReport({
+			fetchFn,
+			sleepFn,
+			nowFn: () => clock,
+			base: BASE,
+			timeoutMs: 3100,
+			pollIntervalMs: 3000,
+		});
+
+		assert.strictEqual(polls, 1, "the clamped sleep must not poll again past the deadline");
+		assert.deepStrictEqual(
+			slept,
+			[Math.min(3000, Math.max(0, 3100 - 200))],
+			"sleep must be min(pollIntervalMs, max(0, deadline - now()))",
+		);
+		assert.strictEqual(res.ok, false);
+		if (res.ok) return;
+		assert.strictEqual(res.kind, "timeout");
+	});
+});
+
 describe("parseRunStatus", () => {
 	it("decodes a valid body and rejects unusable shapes", () => {
 		const ok = parseRunStatus({
