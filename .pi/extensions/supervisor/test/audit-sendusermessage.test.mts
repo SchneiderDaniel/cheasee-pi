@@ -47,7 +47,7 @@ if (hasMockModule) {
 	// The pre-gates shell out to jscpd/knip/gh/osv — stub them clean.
 	mock.module("../pipeline/audit/pre-gates.ts", {
 		namedExports: {
-			runCiGate: (async () => ({})) as unknown,
+			runCiGate: (async () => ({ kind: "pass" })) as unknown,
 			runDuplicateGate: (async () => ({
 				dupResult: {
 					status: "no_jscpd",
@@ -158,7 +158,11 @@ describe("pipeline/audit — CI failure path preserves behavior (Phase 2)", () =
 			"pushedcommitsha1",
 		);
 
-		assert.equal(result.failureText, "--- CI Gate (failing: build) ---\nCI build failed");
+		assert.equal(
+			(result as { text: string }).text,
+			"--- CI Gate (failing: build) ---\nCI build failed",
+		);
+		assert.equal(result.kind, "fail", "red checks loop the developer back");
 		assert.equal(notify.mock.callCount(), 1);
 		assert.equal(notify.mock.calls[0]!.arguments[1], "warning");
 		assert.ok(String(notify.mock.calls[0]!.arguments[0]).includes("CI checks failing"));

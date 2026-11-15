@@ -131,6 +131,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 		const runCtx = buildRunCtx({ stageState });
 		const postCiGateRejectionFn = mock.fn(async () => 1);
 		const runAuditFn = mock.fn(async () => ({
+			outcome: "transition",
 			nextStatus: "Implementation",
 			note: CI_NOTE,
 			ciFailureText: CI_NOTE,
@@ -146,7 +147,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			{ runAuditFn: runAuditFn as never, postCiGateRejectionFn: postCiGateRejectionFn as never },
 		);
 
-		assert.deepEqual(outcome, { kind: "next", status: "Implementation" });
+		assert.deepEqual(outcome, { kind: "proceed", status: "Implementation" });
 		assert.equal(postCiGateRejectionFn.mock.callCount(), 1, "the loop-back is counted once");
 		assert.equal(stageState.gateFailureContext, CI_NOTE);
 		assert.deepEqual(stageState.gateFailureHistory, [
@@ -169,6 +170,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			1,
 			{
 				runAuditFn: (async () => ({
+					outcome: "transition",
 					nextStatus: "Implementation",
 					note,
 					ciFailureText: null,
@@ -177,7 +179,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			},
 		);
 
-		assert.deepEqual(outcome, { kind: "next", status: "Implementation" });
+		assert.deepEqual(outcome, { kind: "proceed", status: "Implementation" });
 		assert.equal(postCiGateRejectionFn.mock.callCount(), 0, "a TSC failure adds no reject label");
 		assert.equal(stageState.gateFailureContext, note);
 	});
@@ -195,6 +197,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			1,
 			{
 				runAuditFn: (async () => ({
+					outcome: "transition",
 					nextStatus: "Implementation",
 					note: CI_NOTE,
 					ciFailureText: CI_NOTE,
@@ -205,7 +208,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			},
 		);
 
-		assert.equal(outcome.kind, "stop");
+		assert.equal(outcome.kind, "blocked");
 		assert.match(
 			(outcome as { stopReason: string }).stopReason,
 			/labels unavailable/,
@@ -236,6 +239,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			3,
 			{
 				runAuditFn: (async () => ({
+					outcome: "transition",
 					nextStatus: "Audit",
 					note: "all gates passed",
 					ciFailureText: null,
@@ -244,7 +248,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			},
 		);
 
-		assert.deepEqual(outcome, { kind: "next", status: "Audit" });
+		assert.deepEqual(outcome, { kind: "proceed", status: "Audit" });
 		assert.equal(stageState.gateFailureContext, undefined);
 		assert.equal(postCiGateRejectionFn.mock.callCount(), 0);
 	});
@@ -289,6 +293,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			1,
 			{
 				runAuditFn: (async () => ({
+					outcome: "transition",
 					nextStatus: "Implementation",
 					note: CI_NOTE,
 					ciFailureText: CI_NOTE,
@@ -300,7 +305,7 @@ describe("runPreTransitionHooks — CI loop-back recording (issue #1829)", () =>
 			},
 		);
 
-		assert.deepEqual(outcome, { kind: "next", status: "Implementation" });
+		assert.deepEqual(outcome, { kind: "proceed", status: "Implementation" });
 		assert.ok(
 			runCtx.collector.all.some((r) => r.message.includes("PR API down")),
 			"the refresh failure is collected",

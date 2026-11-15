@@ -425,7 +425,9 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 
 		// Pre-transition hooks (CI, TSC, LSP, duplicate code). A CI block is a
 		// counted loop-back: the helper records it and returns a stop signal when
-		// the counter cannot be written (issue #1829).
+		// the counter cannot be written (issue #1829). An unverifiable CI verdict
+		// stops the pipeline here (issue #1830) — loopStatus is left untouched, so
+		// the issue is never reported Done.
 		const hookOutcome = await runPreTransitionHooks(
 			runCtx,
 			step,
@@ -434,7 +436,7 @@ export async function runAgentLoop(runCtx: RunContext): Promise<void> {
 			loopFilteredData,
 			i + 1,
 		);
-		if (hookOutcome.kind === "stop") {
+		if (hookOutcome.kind === "blocked") {
 			stopReason = hookOutcome.stopReason;
 			ctx.ui.notify(stopReason, "error");
 			break;

@@ -26,6 +26,7 @@
 			"Audit": "auditor"
 		},
 		"maxRejections": 3,
+		"ciGatingTimeoutSec": 1500,
 		"codeowners": ["SchneiderDaniel"],
 		"agentTimeoutsMin": {},
 		"agentTimeoutTierScale": {

@@ -25,6 +25,7 @@ const PACKAGE_FILES = [
 	"agent-loop-steps.ts",
 	"post-pipeline.ts",
 	"pr-gates.ts",
+	"blocker-comment.ts",
 	"shared.ts",
 ];
 
