@@ -268,7 +268,12 @@ function loadPipelineBasics(runCtx: RunContext): void {
 
 // Fetch issue → push footer data → notify + filter. Returns false when
 // the issue is not found (early return, footer-integration semantics).
-async function fetchIssueAndEmit(runCtx: RunContext): Promise<boolean> {
+//
+// Exported (unlike its sibling phases) so the producer side of the footer bus
+// contract can be exercised directly: the payload on `ISSUE_DATA_EVENT` is the
+// only thing the context-info footer ever sees, and a source-text assertion
+// cannot see what the phase really emits.
+export async function fetchIssueAndEmit(runCtx: RunContext): Promise<boolean> {
 	const { ctx, pi, exec, notify, collector, config, issueNum, port } = runCtx;
 
 	if (ctx.hasUI) {
