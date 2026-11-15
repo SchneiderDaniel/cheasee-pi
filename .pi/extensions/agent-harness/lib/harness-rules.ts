@@ -47,12 +47,30 @@ export interface ResolvedHarnessRules {
 }
 
 /**
+ * Copy a tool-meta record one level deep.
+ *
+ * A plain `{ ...source }` only copies the outer map: every entry still aliases
+ * the same `ToolMeta` object, so `mutated.toolMeta.bash.cascadeThreshold = 1`
+ * would rewrite the module-level default for the whole process. Copying each
+ * entry keeps the "callers can mutate without affecting the original" contract.
+ */
+function copyToolMeta(source: Record<string, ToolMeta>): Record<string, ToolMeta> {
+	const copy: Record<string, ToolMeta> = {};
+	for (const [toolName, meta] of Object.entries(source)) {
+		copy[toolName] = { ...meta };
+	}
+	return copy;
+}
+
+/**
  * Factory: returns a fresh copy of the default resolved rules.
- * Creates a shallow copy of TOOL_META so callers can mutate without affecting the original.
+ * The outer map and every individual `ToolMeta` entry are copied, so callers
+ * can mutate the result — including nested fields — without affecting the
+ * module-level `TOOL_META` default.
  */
 export function loadDefaultRules(): ResolvedHarnessRules {
 	return {
-		toolMeta: { ...TOOL_META },
+		toolMeta: copyToolMeta(TOOL_META),
 		cascadeThreshold: CASCADE_THRESHOLD,
 	};
 }

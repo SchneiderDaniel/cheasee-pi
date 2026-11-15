@@ -2,7 +2,9 @@
  * agent-harness — Runtime Tool Call Validation Extension
  *
  * AgentHarness class encapsulates the tool call guard logic and harness state.
- * State is private — the only public methods are handleToolCall() and reset().
+ * State is private — the public surface is `handleToolCall()`, `handleTurnStart()`,
+ * `reset()`, plus the session-start wiring hooks `setRules()` and
+ * `setToolInfoProvider()` (called from `index.ts` on `session_start`).
  * Internal factory createHarnessState() provides fresh state in the constructor.
  *
  * Guard order:
