@@ -1,171 +1,164 @@
 /**
- * Tests for supervisor handler — footer integration (dynamic import)
+ * Tests: supervisor ↔ context-info issue-data bus (issue #2091)
  *
- * Validates that the supervisor pipeline correctly:
- * - Dynamically imports setSupervisorIssueData/clearSupervisorIssueData
- * - Gracefully degrades when context-info is not loaded
- * - Functions are called with correct arguments
+ * The supervisor pipeline used to push footer data through a dynamic import of
+ * `context-info`, which builds a second module instance (jiti vs native ESM) —
+ * so the write silently missed the live state. The shared `pi.events` bus is
+ * the one supported path now, and the topic + payload shape live in a neutral
+ * contract module (`lib/issue-data-event.ts`) imported by both sides.
+ *
+ * These assertions cover the producer side (topic constant, typed payload, no
+ * duplicated wire literal) and the bus round-trip. Consumer behaviour lives in
+ * `context-info/test/issue-data-event.test.mts`.
  *
  * Run with:
  *   node --experimental-strip-types --test .pi/extensions/supervisor/test/supervisor-footer-integration.test.mts
  */
 
-import assert from "node:assert";
+import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
+import { join, relative } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import {
+	ISSUE_DATA_EVENT,
+	parseIssueDataEvent,
+	type IssueDataEvent,
+} from "../../lib/issue-data-event.ts";
 
 // ---------------------------------------------------------------------------
-// Phase 1: Dynamic import graceful degradation
+// Fixtures
 // ---------------------------------------------------------------------------
 
-describe("supervisor footer integration — dynamic import graceful degradation", () => {
-	it("dynamic import of context-info works when extension is loaded", async () => {
-		// This test verifies the import path works.
-		// The context-info extension exports setSupervisorIssueData and
-		// clearSupervisorIssueData.
-		try {
-			const mod = await import("../../context-info/index.ts");
-			assert.ok(
-				typeof mod.setSupervisorIssueData === "function",
-				"setSupervisorIssueData should be exported",
-			);
-			assert.ok(
-				typeof mod.clearSupervisorIssueData === "function",
-				"clearSupervisorIssueData should be exported",
-			);
-		} catch (err: unknown) {
-			// If context-info isn't loaded in this test environment, skip
-			// (graceful degradation scenario)
-			const msg = err instanceof Error ? err.message : String(err);
-			assert.ok(
-				true,
-				`Graceful degradation: context-info import failed (${msg}) — pipeline continues without footer`,
-			);
-		}
+const EXTENSIONS_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+
+const PRODUCER_PREFLIGHT = join(
+	EXTENSIONS_ROOT,
+	"supervisor",
+	"pipeline",
+	"handler",
+	"preflight.ts",
+);
+const PRODUCER_FINALLY = join(EXTENSIONS_ROOT, "supervisor", "pipeline", "handler", "index.ts");
+
+function read(file: string): string {
+	return readFileSync(file, "utf8");
+}
+
+/** Production sources under `.pi/extensions/**`; test dirs excluded. */
+function productionSources(dir: string, acc: string[] = []): string[] {
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		if (entry.name === "test" || entry.name === "node_modules") continue;
+		const full = join(dir, entry.name);
+		if (entry.isDirectory()) productionSources(full, acc);
+		else if (/\.(ts|mts)$/.test(entry.name)) acc.push(full);
+	}
+	return acc;
+}
+
+/** Fake `pi.events` bus: `on` stores handlers, `emit` dispatches to them. */
+function createFakeBus(): {
+	on: (topic: string, handler: (payload: unknown) => void) => () => void;
+	emit: (topic: string, payload: unknown) => void;
+	topics: string[];
+} {
+	const topics: string[] = [];
+	const handlers = new Map<string, Array<(payload: unknown) => void>>();
+	return {
+		topics,
+		on: (topic, handler) => {
+			topics.push(topic);
+			const list = handlers.get(topic) ?? [];
+			list.push(handler);
+			handlers.set(topic, list);
+			return () => {};
+		},
+		emit: (topic, payload) => {
+			for (const handler of handlers.get(topic) ?? []) handler(payload);
+		},
+	};
+}
+
+// ---------------------------------------------------------------------------
+// Bus round-trip
+// ---------------------------------------------------------------------------
+
+describe("issue-data bus — subscriber receives the producer payload", () => {
+	it("emit on the contract topic reaches a subscriber registered on it", () => {
+		const bus = createFakeBus();
+		const received: unknown[] = [];
+		bus.on(ISSUE_DATA_EVENT, (payload) => received.push(payload));
+
+		const payload: IssueDataEvent = {
+			issueNumber: 862,
+			issueRepo: "owner/repo",
+			issueTitle: "Add feature",
+		};
+		bus.emit(ISSUE_DATA_EVENT, payload);
+
+		assert.equal(received.length, 1);
+		assert.deepEqual(received[0], payload);
 	});
 
-	it("dynamic import failure does not crash — try/catch pattern is safe", async () => {
-		// Simulate the pattern used in handler.ts
-		let caught = false;
-		try {
-			// Try importing a non-existent module (use computed string to avoid TS compile error)
-			const badPath = "./non-existent-module-" + "that-will-fail.ts";
-			await import(badPath);
-		} catch {
-			caught = true;
-		}
-		assert.ok(caught, "import failure should be caught without crashing");
+	it("emitting with no listener registered does not throw", () => {
+		const bus = createFakeBus();
+		assert.doesNotThrow(() => bus.emit(ISSUE_DATA_EVENT, null));
+		assert.deepEqual(bus.topics, []);
 	});
 
-	it("setSupervisorIssueData called after successful fetch sets correct values", async () => {
-		try {
-			const mod = await import("../../context-info/index.ts");
-
-			// We can't directly observe the stateRef from outside,
-			// but we can verify the function exists and doesn't throw
-			assert.doesNotThrow(() => {
-				mod.setSupervisorIssueData(862, "owner/repo", "Add feature");
-				mod.clearSupervisorIssueData();
-			});
-		} catch {
-			// Graceful degradation — context-info not loaded
-			assert.ok(true, "context-info not available — graceful degradation");
-		}
-	});
-
-	it("clearSupervisorIssueData is idempotent (multiple calls safe)", async () => {
-		try {
-			const mod = await import("../../context-info/index.ts");
-
-			assert.doesNotThrow(() => {
-				mod.clearSupervisorIssueData();
-				mod.clearSupervisorIssueData();
-				mod.clearSupervisorIssueData();
-			});
-		} catch {
-			assert.ok(true, "context-info not available — graceful degradation");
-		}
-	});
-
-	it("setSupervisorIssueData with different issues overwrites old data", async () => {
-		try {
-			const mod = await import("../../context-info/index.ts");
-
-			assert.doesNotThrow(() => {
-				// First issue
-				mod.setSupervisorIssueData(100, "org/repo1", "First issue");
-				// Second issue — overwrites
-				mod.setSupervisorIssueData(200, "org/repo2", "Second issue");
-				// Clear
-				mod.clearSupervisorIssueData();
-			});
-		} catch {
-			assert.ok(true, "context-info not available — graceful degradation");
-		}
+	it("the clear sentinel and a payload are distinguishable through the guard", () => {
+		assert.equal(parseIssueDataEvent(null), null);
+		assert.deepEqual(parseIssueDataEvent({ issueNumber: 1, issueRepo: "o/r", issueTitle: "t" }), {
+			issueNumber: 1,
+			issueRepo: "o/r",
+			issueTitle: "t",
+		});
 	});
 });
 
 // ---------------------------------------------------------------------------
-// Phase 2: Supervisor pipeline flow patterns
+// Producers reference the contract (adapter, static)
 // ---------------------------------------------------------------------------
 
-describe("supervisor footer integration — pipeline flow patterns", () => {
-	it("setSupervisorIssueData is called only after successful fetch (not before)", () => {
-		// In handler.ts, the setter is called AFTER fetchIssue succeeds.
-		// If fetchIssue returns null (issue not found), the handler returns early
-		// and setSupervisorIssueData is never called.
-		let fetchSuccess = false;
-		let setterCalled = false;
-
-		// Simulate: fetch fails
-		fetchSuccess = false;
-		if (fetchSuccess) {
-			setterCalled = true;
-		}
-		assert.strictEqual(setterCalled, false, "setter should NOT be called when fetch fails");
-
-		// Simulate: fetch succeeds
-		fetchSuccess = true;
-		if (fetchSuccess) {
-			setterCalled = true;
-		}
-		assert.strictEqual(setterCalled, true, "setter should be called when fetch succeeds");
+describe("supervisor producers — typed emit sites", () => {
+	it("preflight emits the issue payload on ISSUE_DATA_EVENT", () => {
+		const source = read(PRODUCER_PREFLIGHT);
+		assert.match(
+			source,
+			/pi\.events\.emit\(\s*ISSUE_DATA_EVENT\s*,/,
+			"preflight must emit on the contract topic",
+		);
+		assert.match(source, /issueNumber:\s*issueNum/, "payload carries the parsed issue number");
+		assert.match(source, /issueRepo:\s*config\.repo/, "payload carries the configured repo");
+		assert.match(source, /issueTitle:\s*runCtx\.issueTitle/, "payload carries the fetched title");
 	});
 
-	it("clearSupervisorIssueData is called in finally (any outcome)", () => {
-		// In handler.ts, clearSupervisorIssueData is called in the finally block
-		// regardless of whether the pipeline succeeded or failed.
-		let finallyCalled = false;
-		let clearCalled = false;
-
-		try {
-			// Simulate pipeline body
-		} finally {
-			finallyCalled = true;
-			clearCalled = true;
-		}
-
-		assert.strictEqual(finallyCalled, true, "finally block should execute");
-		assert.strictEqual(clearCalled, true, "clear should be called in finally");
+	it("preflight payload is annotated IssueDataEvent so a shape change breaks the build", () => {
+		const source = read(PRODUCER_PREFLIGHT);
+		assert.match(
+			source,
+			/:\s*IssueDataEvent\s*=\s*\{/,
+			"payload literal must be typed, `emit` takes `unknown` and cannot check it",
+		);
 	});
 
-	it("old issue data is replaced when new pipeline starts", () => {
-		// When a new pipeline starts, the first thing that happens after
-		// successful fetch is setSupervisorIssueData, which overwrites any
-		// existing issue data in the footer.
+	it("handler finally clears with a typed null on ISSUE_DATA_EVENT", () => {
+		const source = read(PRODUCER_FINALLY);
+		assert.match(source, /pi\.events\.emit\(\s*ISSUE_DATA_EVENT\s*,/, "finally emits the clear");
+		assert.match(source, /:\s*IssueDataEvent\s*=\s*null/, "clear sentinel is typed");
+	});
 
-		// Simulate two pipeline runs
-		const footerData = { issueNumber: undefined as number | undefined };
+	it("no production source repeats the wire literal — only the contract module owns it", () => {
+		const offenders: string[] = [];
+		for (const file of productionSources(EXTENSIONS_ROOT)) {
+			if (read(file).includes('"supervisor:issue-data"'))
+				offenders.push(relative(EXTENSIONS_ROOT, file));
+		}
+		assert.deepEqual(offenders, [join("lib", "issue-data-event.ts")]);
+	});
 
-		// First pipeline
-		footerData.issueNumber = 100;
-		assert.strictEqual(footerData.issueNumber, 100);
-
-		// Second pipeline — overwrites
-		footerData.issueNumber = 200;
-		assert.strictEqual(footerData.issueNumber, 200);
-
-		// Clear on end
-		footerData.issueNumber = undefined;
-		assert.strictEqual(footerData.issueNumber, undefined);
+	it("the context-info consumer subscribes on the constant, not a literal", () => {
+		const source = read(join(EXTENSIONS_ROOT, "context-info", "events.ts"));
+		assert.match(source, /pi\.events\.on\(\s*ISSUE_DATA_EVENT\s*,/, "consumer uses the constant");
 	});
 });

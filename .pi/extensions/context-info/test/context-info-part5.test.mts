@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 
 import { formatCacheStats } from "../formatting.ts";
 
-import { contextInfo } from "../index.ts";
+import contextInfo from "../index.ts";
 
 interface MockCtx {
 	getContextUsage: () => { tokens?: number; contextWindow?: number } | undefined;

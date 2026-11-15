@@ -8,8 +8,8 @@
  *
  * Composition root (issue #2033 split): the session bootstrap lives in
  * session-start.ts, the live event wiring in events.ts, the value probes in
- * lib/. This module owns the command surface and the module-level stateRef
- * the supervisor helpers write through.
+ * lib/. This module owns the command surface and the session lifecycle; the
+ * footer's issue data is written only by the events.ts bus listener.
  */
 
 import type {
@@ -53,46 +53,6 @@ const CASTLE_ART: string[] = [
 	"                      #@*==+**#%@@%#+:.@*%%+-.@*%%=@.@*%%+-. *%%+-==*%%+-. *%%",
 	"                      #@*=%==*%%+-.=+**#%%=@.@*%%+-. *%%+-@@%#+:.@*%%+-.@* *%%",
 ];
-
-// ── Module-level state reference for exported supervisor helpers ───
-// Allows setSupervisorIssueData/clearSupervisorIssueData to access
-// the current FooterState without exposing the state object directly.
-// Updated on session_start, cleared on session_shutdown.
-let stateRef: FooterState | undefined;
-
-/**
- * Set supervisor issue data on the footer config.
- * Called by supervisor pipeline after successful issue fetch.
- * Mutates FooterConfig in-place and triggers immediate re-render.
- * Graceful no-op if state is disposed or not yet initialized.
- */
-export function setSupervisorIssueData(
-	issueNumber: number,
-	issueRepo: string,
-	issueTitle: string,
-): void {
-	const s = stateRef;
-	if (!s || s.disposed) return;
-	s.footerConfig.issueNumber.value = issueNumber;
-	s.footerConfig.issueRepo.value = issueRepo;
-	s.footerConfig.issueTitle.value = issueTitle;
-	s.callInstallFooter();
-}
-
-/**
- * Clear supervisor issue data from the footer config.
- * Called by supervisor pipeline on completion (any outcome).
- * Resets all three fields to undefined and triggers immediate re-render.
- * Idempotent — safe to call when no issue data is set.
- */
-export function clearSupervisorIssueData(): void {
-	const s = stateRef;
-	if (!s || s.disposed) return;
-	s.footerConfig.issueNumber.value = undefined;
-	s.footerConfig.issueRepo.value = undefined;
-	s.footerConfig.issueTitle.value = undefined;
-	s.callInstallFooter();
-}
 
 export default function contextInfo(pi: ExtensionAPI): void {
 	// FooterState — single source of truth for all mutable state
@@ -144,16 +104,11 @@ export default function contextInfo(pi: ExtensionAPI): void {
 			state.dispose();
 		}
 		state = (await startFooterSession(pi, ctx)) ?? undefined;
-		stateRef = state;
 	});
 
 	pi.on("session_shutdown", async () => {
 		if (state) {
 			state.dispose();
 		}
-		stateRef = undefined;
 	});
 }
-
-// Named export alongside default — needed by tests for named import compatibility
-export { contextInfo };

@@ -194,6 +194,54 @@ function declarationNames(src: string): string[] {
 
 const JSON_COPY = <T,>(value: T): any => JSON.parse(JSON.stringify(value));
 
+/** `git show <commit>:<index>`, or null when the path is absent at that commit. */
+function indexAt(commit: string): string | null {
+	try {
+		return execFileSync("git", ["show", `${commit}:${INDEX_REL}`], {
+			cwd: ROOT,
+			encoding: "utf-8",
+			maxBuffer: 1 << 26,
+		});
+	} catch {
+		return null;
+	}
+}
+
+/** True for the split index: it owns the module table and the `wire(load)` loader. */
+function isSplitIndex(src: string): boolean {
+	return /\bMODULES\s*=\s*{/.test(src) && /\bwire\(load\)/.test(src);
+}
+
+/**
+ * The pre-split index, resolved backwards from `base`.
+ *
+ * `merge-base origin/main HEAD` carries the pre-split file only while #2100 is
+ * unmerged; once it lands, that merge base *is* the split index, so the recorded
+ * 91-declaration baseline would measure the wrong file. Walk back over the
+ * commits that touched the index until one still holds the pre-split surface, so
+ * this oracle measures the same file on the branch and after the merge.
+ */
+function preSplitIndex(base: string): string | null {
+	let commit = base;
+	for (let hop = 0; hop < 64; hop += 1) {
+		const source = indexAt(commit);
+		if (source === null) return null;
+		if (!isSplitIndex(source)) return source;
+		let toucher: string;
+		try {
+			toucher = execFileSync("git", ["log", "--format=%H", "-n", "1", commit, "--", INDEX_REL], {
+				cwd: ROOT,
+				encoding: "utf-8",
+			}).trim();
+		} catch {
+			return null;
+		}
+		if (!toucher) return null;
+		commit = `${toucher}^`;
+	}
+	return null;
+}
+
 /** Every `.rs` file under the UI crate, relative to the repo root. */
 function rustFiles(): string[] {
 	const out: string[] = [];
@@ -312,8 +360,8 @@ describe("fp-filter module split #2100 — metric exit", () => {
 	});
 
 	it("conserves the pre-refactor declaration set exactly", (t) => {
-		// The fork point is stable: it is the pre-split index whether this runs on
-		// the branch or after the merge.
+		// The fork point is stable: `preSplitIndex` resolves the pre-split file
+		// whether this runs on the branch or after the merge.
 		let base: string;
 		try {
 			base = execFileSync("git", ["merge-base", "origin/main", "HEAD"], {
@@ -323,17 +371,8 @@ describe("fp-filter module split #2100 — metric exit", () => {
 		} catch {
 			return t.skip("origin/main is not present in this checkout");
 		}
-		let original: string | null = null;
-		try {
-			original = execFileSync("git", ["show", `${base}:${INDEX_REL}`], {
-				cwd: ROOT,
-				encoding: "utf-8",
-				maxBuffer: 1 << 26,
-			});
-		} catch {
-			original = null;
-		}
-		if (!original) return t.skip(`the pre-split index is absent at ${base}`);
+		const original = preSplitIndex(base);
+		if (!original) return t.skip(`the pre-split index is absent at or before ${base}`);
 		const before = declarationNames(original);
 		assert.equal(before.length, 91, "the recorded pre-refactor declaration count");
 		const after = FAMILY.flatMap((rel) => declarationNames(read(rel)));

@@ -33,6 +33,7 @@ import {
 	resolveAutomationLogin,
 } from "../helpers.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
+import { ISSUE_DATA_EVENT, type IssueDataEvent } from "../../../lib/issue-data-event.ts";
 import { withPerChildEnv } from "../../../lib/exec-env.ts";
 import { toExecFn } from "../../../lib/port-adapters.ts";
 import type { NotifyFn } from "../helpers.ts";
@@ -278,17 +279,17 @@ async function fetchIssueAndEmit(runCtx: RunContext): Promise<boolean> {
 	runCtx.issueData = issueData;
 	runCtx.issueTitle = (issueData?.title as string) || `Issue #${issueNum}`;
 
-	// Push issue data to footer (context-info extension)
-	// Uses shared pi.events bus instead of dynamic import. Dynamic import
-	// creates a separate module instance (jiti vs native ESM), so the
-	// module-level stateRef in setSupervisorIssueData was never set there.
-	// Events on pi.events are safe because all extensions share the same
-	// event bus instance, and context-info's listener is registered on it.
-	pi.events.emit("supervisor:issue-data", {
+	// Push issue data to footer (context-info extension).
+	// Uses the shared pi.events bus instead of a dynamic import: a dynamic
+	// import creates a separate module instance (jiti vs native ESM), so a
+	// module-level state reference would never be the live one. Topic and
+	// payload shape come from the neutral contract module both sides import.
+	const issueDataEvent: IssueDataEvent = {
 		issueNumber: issueNum,
 		issueRepo: config.repo,
 		issueTitle: runCtx.issueTitle,
-	});
+	};
+	pi.events.emit(ISSUE_DATA_EVENT, issueDataEvent);
 
 	pi.sendMessage({
 		customType: "supervisor",
