@@ -17,6 +17,7 @@ import type { DecisionRequest } from "../lib/types.ts";
 const REQUEST: DecisionRequest = {
 	file: "src/a.test.mts",
 	name: "suite > b-bad",
+	language: "typescript",
 	startLine: 5,
 	endLine: 7,
 	header: "suite",

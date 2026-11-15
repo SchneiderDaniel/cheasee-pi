@@ -9,13 +9,15 @@
 // Exit codes: 0 complete, 1 halted/precondition failure, 2 usage or inventory
 // failure, 3 incomplete (some tests stayed undecided).
 
-import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, relative } from "node:path";
 
 import { CRITERIA_IDS } from "../lib/decision.ts";
 import { configFingerprint, inventoryFingerprint } from "../lib/fingerprint.ts";
-import { DiscoveryError, discoverTests, sha256Hex } from "../lib/inventory.ts";
+import { DiscoveryError, sha256Hex } from "../lib/inventory.ts";
+import { TEST_LANGUAGES } from "../lib/types.ts";
+import { discoverRepository, runnerGlobsFrom } from "../lib/inventory-repository.ts";
 import { JsonlCheckpointStore } from "../lib/checkpoint.ts";
 import { serializeReport } from "../lib/report.ts";
 import { RunHaltedError, runValidation } from "../lib/run.ts";
@@ -25,12 +27,8 @@ import {
 } from "../lib/adapters/decision-model-pi-ai.ts";
 import { checkGhAuth, createGhIssueFiler, defaultBodyDir } from "../lib/adapters/issue-gh.ts";
 import { spawnArgv } from "../../../extensions/lib/safe-argv.ts";
-import type {
-	ExcludedDefinition,
-	InventoryResult,
-	TestDefinition,
-	ValidatorConfig,
-} from "../lib/types.ts";
+import type { RepositoryInventory } from "../lib/inventory-repository.ts";
+import type { ValidatorConfig } from "../lib/types.ts";
 
 const EXIT_OK = 0;
 const EXIT_FAILED = 1;
@@ -211,82 +209,27 @@ function criteriaIdsFrom(criteriaText: string, path: string): string[] {
 	return ids;
 }
 
-function testGlobs(cwd: string): string[] {
-	const packagePath = join(cwd, "package.json");
-	if (!existsSync(packagePath)) {
-		throw new CliError(
-			`missing ${packagePath}; the audit discovers tests through its npm test script`,
-		);
-	}
-	let scripts: unknown;
-	try {
-		scripts = (JSON.parse(readFileSync(packagePath, "utf8")) as { scripts?: { test?: unknown } })
-			.scripts;
-	} catch (err) {
-		throw new CliError(
-			`cannot parse ${packagePath}: ${err instanceof Error ? err.message : String(err)}`,
-		);
-	}
-	const test = (scripts as { test?: unknown } | undefined)?.test;
-	if (typeof test !== "string") {
-		throw new CliError(
-			`${packagePath}: scripts.test is missing, so the runnable test set is unknown`,
-		);
-	}
-	const globs = [...test.matchAll(/'([^']+)'/g)]
-		.map((match) => match[1])
-		.filter((pattern) => /[*?]/.test(pattern) || /\.[cm]?[jt]s$/.test(pattern));
-	if (globs.length === 0) {
-		throw new CliError(`${packagePath}: scripts.test lists no test patterns`);
-	}
-	return globs;
-}
-
-interface DiscoveredInventory {
-	readonly inventory: InventoryResult;
-	readonly sources: ReadonlyMap<string, string>;
-	readonly files: number;
-	readonly truncated: number;
-}
-
 /**
- * Discover every runnable `node:test` call site under the npm test globs.
+ * Inventory every runnable test in the repository.
+ *
  * A single unresolvable file halts the run: a partial inventory must never reach
  * the completion gate or the cleanup issue.
  */
-function discoverAll(cwd: string, limit: number | undefined): DiscoveredInventory {
-	const files = new Set<string>();
-	for (const pattern of testGlobs(cwd)) {
-		for (const match of globSync(pattern, { cwd })) {
-			const relativePath = match.replace(/^\.\//, "");
-			if (relativePath.split("/").includes("node_modules")) continue;
-			files.add(relativePath);
-		}
-	}
-	const sorted = [...files].sort();
-	if (sorted.length === 0) {
-		throw new CliError("the npm test globs matched no files", EXIT_USAGE);
-	}
+function discoverAll(cwd: string, limit: number | undefined): RepositoryInventory {
+	return discoverRepository({ cwd, runnerGlobs: runnerGlobsFrom(cwd), limit });
+}
 
-	const sources = new Map<string, string>();
-	const tests: TestDefinition[] = [];
-	const excluded: ExcludedDefinition[] = [];
-	for (const file of sorted) {
-		const source = readFileSync(join(cwd, file), "utf8");
-		sources.set(file, source);
-		const result = discoverTests(source, file);
-		tests.push(...result.tests);
-		excluded.push(...result.excluded);
+/** One line naming what the audit found, per language. */
+function inventorySummary(report: RepositoryInventory): string {
+	const parts: string[] = [];
+	for (const language of TEST_LANGUAGES) {
+		const tally = report.byLanguage[language];
+		if (tally.files === 0) continue;
+		const judged = tally.tests;
+		const excluded = tally.excluded === 0 ? "" : `, ${tally.excluded} excluded`;
+		parts.push(`${language}: ${judged} in ${tally.files} file(s)${excluded}`);
 	}
-
-	const truncated = limit === undefined ? 0 : Math.max(0, tests.length - limit);
-	const selected = limit === undefined ? tests : tests.slice(0, limit);
-	return {
-		inventory: { tests: selected, excluded },
-		sources,
-		files: sorted.length,
-		truncated,
-	};
+	return parts.join("; ");
 }
 
 /** Local HEAD, recorded as report metadata. Never fatal: it is a label. */
@@ -366,9 +309,10 @@ async function main(argv: readonly string[]): Promise<number> {
 		const runFingerprint = sha256Hex(`${inventoryFp}\n${configFp}`);
 		err(
 			`test-validator: ${discovered.inventory.tests.length} runnable test(s) in ` +
-				`${discovered.files} file(s), ${discovered.inventory.excluded.length} excluded; ` +
+				`${discovered.files.length} file(s), ${discovered.inventory.excluded.length} excluded; ` +
 				`model ${config.provider}/${config.model}, concurrency ${config.concurrency}`,
 		);
+		err(`test-validator: ${inventorySummary(discovered)}`);
 
 		checkpoint = new JsonlCheckpointStore(checkpointPath);
 		const result = await runValidation(
@@ -395,6 +339,7 @@ async function main(argv: readonly string[]): Promise<number> {
 				sources: discovered.sources,
 				runFingerprint,
 				headSha: readHeadSha(cwd),
+				coverage: { files: discovered.files.length, byLanguage: discovered.byLanguage },
 				restart: options.restart,
 			},
 		);

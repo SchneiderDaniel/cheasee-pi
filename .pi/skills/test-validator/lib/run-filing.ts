@@ -41,6 +41,7 @@ export async function fileCleanupIssue(
 		runFingerprint: input.runFingerprint,
 		badTests,
 		counts: input.draft.counts,
+		coverage: input.draft.coverage,
 	});
 	if (rendered === null) return null;
 

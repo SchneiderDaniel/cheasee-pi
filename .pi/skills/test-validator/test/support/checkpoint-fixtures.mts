@@ -33,6 +33,7 @@ export function def(overrides: Partial<TestDefinition> = {}): TestDefinition {
 	return {
 		file: "src/a.test.mts",
 		name: "keeps total",
+		language: "typescript",
 		startLine: 5,
 		endLine: 8,
 		sourceSha256: "d".repeat(64),

@@ -5,11 +5,11 @@
 // decide which tests to remove. Oversized bodies fail closed instead of being
 // truncated, because a truncated list would silently drop findings.
 
-import type { InventoryResult, Verdict, VerdictDecision } from "./types.ts";
+import type { InventoryResult, TestLanguage, Verdict, VerdictDecision } from "./types.ts";
 import { testKey } from "./types.ts";
 
 /** Bumped when the report shape changes. */
-const REPORT_SCHEMA_VERSION = 1;
+const REPORT_SCHEMA_VERSION = 2;
 
 /** GitHub rejects bodies beyond this; we fail closed well before that. */
 export const MAX_ISSUE_BODY_BYTES = 65_536;
@@ -33,6 +33,14 @@ interface ReportExcludedEntry {
 	readonly reason: string;
 }
 
+/** What the audit enumerated, per language: proof the claim is repository-wide. */
+export interface CoverageSummary {
+	readonly files: number;
+	readonly byLanguage: Readonly<
+		Record<string, { readonly files: number; readonly tests: number; readonly excluded: number }>
+	>;
+}
+
 interface ReportCounts {
 	readonly discovered: number;
 	readonly good: number;
@@ -49,6 +57,8 @@ export interface RunReport {
 	readonly counts: ReportCounts;
 	readonly tests: readonly ReportTestEntry[];
 	readonly excluded: readonly ReportExcludedEntry[];
+	/** Which test files and languages the inventory enumerated. */
+	readonly coverage: CoverageSummary | null;
 	readonly issue: { readonly url: string } | null;
 }
 
@@ -58,6 +68,7 @@ interface BuildReportInput {
 	readonly runFingerprint: string;
 	readonly headSha: string | null;
 	readonly generatedAt: string;
+	readonly coverage?: CoverageSummary | null;
 	readonly issue: { readonly url: string } | null;
 }
 
@@ -127,8 +138,17 @@ export function buildReport(input: BuildReportInput): RunReport {
 		counts,
 		tests,
 		excluded,
+		coverage: input.coverage ?? null,
 		issue: input.issue,
 	};
+}
+
+/** `847 test file(s) — typescript 8824, go 1098, python 98, shell 4`. */
+export function describeCoverage(coverage: CoverageSummary): string {
+	const parts = Object.entries(coverage.byLanguage)
+		.filter(([, tally]) => tally.files > 0)
+		.map(([language, tally]) => `${language} ${tally.tests}`);
+	return `${coverage.files} test file(s) — ${parts.join(", ")}`;
 }
 
 /** Hidden marker that makes a filed issue findable on resume. */
@@ -146,6 +166,8 @@ interface RenderIssueInput {
 	readonly badTests: readonly ReportTestEntry[];
 	/** Decided/excluded totals, for the audit trail at the bottom of the body. */
 	readonly counts?: ReportCounts;
+	/** Enumerated files per language, so the completion claim is checkable. */
+	readonly coverage?: CoverageSummary | null;
 }
 
 /**
@@ -185,9 +207,14 @@ export function renderIssueBody(
 	if (input.counts) {
 		lines.push(
 			`Audit totals: ${input.counts.discovered} judged (${input.counts.good} GOOD, ${input.counts.bad} BAD), ` +
-				`${input.counts.excluded} excluded (skip/todo).`,
+				`${input.counts.excluded} excluded (skip, todo, benchmarks, test-support files).`,
 			"",
 		);
+	}
+
+	const coverage = input.coverage ?? null;
+	if (coverage !== null) {
+		lines.push(`Coverage: ${describeCoverage(coverage)}.`, "");
 	}
 
 	lines.push(

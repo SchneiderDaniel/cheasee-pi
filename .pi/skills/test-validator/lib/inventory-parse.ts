@@ -88,8 +88,3 @@ export function extractImports(source: string, file = "imports.ts"): string {
 	}
 	return lines.join("\n");
 }
-
-/** Describe chain of a definition, derived from its `a > b > title` name. */
-export function describeHeader(def: { readonly name: string }): string {
-	return def.name.split(" > ").slice(0, -1).join(" > ");
-}

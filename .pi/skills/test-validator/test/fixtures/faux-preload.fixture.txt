@@ -24,12 +24,14 @@ function promptText(context) {
 	return parts.join("\n");
 }
 
-/** The judged slice, copied out of the prompt the adapter built. */
+/** The judged slice, copied out of the prompt the adapter built (any fence language). */
 function sliceOf(prompt) {
 	const marker = "## Test source";
 	const after = prompt.slice(prompt.indexOf(marker) + marker.length);
-	const open = after.indexOf("```ts\n");
-	const body = after.slice(open + 6);
+	const open = after.indexOf("```");
+	const fenced = after.slice(open + 3);
+	// Drop the fence's language tag, then read up to the closing fence.
+	const body = fenced.slice(fenced.indexOf("\n") + 1);
 	return body.slice(0, body.indexOf("\n```"));
 }
 

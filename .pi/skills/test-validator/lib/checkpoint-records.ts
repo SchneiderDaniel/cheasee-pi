@@ -5,15 +5,16 @@
 // latest record per test wins, so a re-judged test simply appends. Reading lives
 // in `checkpoint-reader.ts`, replay in `checkpoint-replay.ts`.
 
-import type { VerdictEvidence } from "./types.ts";
+import type { TestLanguage, VerdictEvidence } from "./types.ts";
 
 /** Bumped when the on-disk record shape changes; an old header is refused. */
-export const CHECKPOINT_SCHEMA_VERSION = 1;
+export const CHECKPOINT_SCHEMA_VERSION = 2;
 
 /** Identity fields every per-test record carries. */
 interface TestIdentity {
 	readonly file: string;
 	readonly name: string;
+	readonly language: TestLanguage;
 	readonly startLine: number;
 	readonly endLine: number;
 	readonly sourceSha256: string;
@@ -70,6 +71,15 @@ export type CheckpointRecord =
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+/** The record kinds this schema version knows. */
+export const CHECKPOINT_RECORD_TYPES: readonly CheckpointRecord["type"][] = [
+	"header",
+	"verdict",
+	"pending",
+	"issue-intent",
+	"issue",
+];
 
 /** Per-test records, the only ones that carry an identity. */
 export function isTestRecord(

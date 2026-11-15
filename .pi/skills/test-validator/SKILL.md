@@ -94,11 +94,46 @@ and to sanity-check the verdict quality in the report.
 node --experimental-strip-types .pi/skills/test-validator/scripts/test-validator.mts
 ```
 
-The run discovers every `node:test` call site matched by `scripts.test` in
-`package.json` (`.skip`/`.todo` call sites are recorded as excluded, not judged),
-then judges each one in an isolated, tool-less model call that sees exactly one
-test slice plus its describe header and file imports. Verdicts stream to the
+The run enumerates **every test file this repository runs**, across languages,
+then judges each test unit in an isolated, tool-less model call that sees exactly
+one slice plus its enclosing scope and the file's imports. Verdicts stream to the
 checkpoint; progress goes to stderr.
+
+Discovery covers, in one pass:
+
+| Language   | Files enumerated                                | Unit judged                                          |
+| ---------- | ----------------------------------------------- | ---------------------------------------------------- |
+| TypeScript | the `scripts.test` globs plus every `*.test.*`  | one `node:test` call site (`.skip`/`.todo` excluded) |
+| Go         | every `*_test.go`, when the repo has a `go.mod` | one `func Test*` / `func Fuzz*` / `func Example*`    |
+| Python     | `test_*.py`, `*_test.py`, `*.test.py`           | one `def test_*` function or method                  |
+| Shell      | every `*.test.sh` / `*.test.bash`               | the script as a whole                                |
+
+Three rules keep the completion claim honest:
+
+1. **No file is silently skipped.** A runnable test file that yields no
+   statically enumerable call site becomes **one whole-file definition** (a shell
+   script, a script-style `python3 test/foo.test.py`, a custom node harness).
+2. **Non-tests are named, not dropped.** `.skip`/`.todo` call sites, Go
+   benchmarks (`not-run-by-default`), and `_test.go` files that only carry
+   helpers (`test-support-file`) are listed in the report's `excluded[]`.
+3. **Vendored code is not audited.** `node_modules`, `ignore/`, `vendor`,
+   caches, and nested checkouts under `.pi/git/` are not this project's suite.
+
+An unenumerable or unparsable test file halts the run (exit `2`): a partial
+inventory must never reach the gate.
+
+**What is not audited.** The claim is "every test this repository runs", not
+"every file that mentions a test". The only test files present here outside the
+four families above belong to the Rust/WASM UI crate
+`cmd/cheasee-pi/embedded/docker/ui/`: its `tests/*.rs` integration targets and
+the `#[cfg(test)]` modules beside its sources. No CI job, `npm`/`go`/`bash`/
+`python` script, or documented command compiles or runs them — no Rust toolchain
+ships in the image or an in-gate lane — so they are outside this run's scope.
+`test/inventory-scope.test.mts` enforces that: any test suite appearing in a
+language this audit cannot enumerate fails that guard until an enumerator is
+added. If a Rust (or any other) runner is ever wired into CI, add its enumerator
+before trusting the completion claim; the report's `coverage` field is what makes
+the claim checkable.
 
 Artifacts:
 
@@ -143,6 +178,8 @@ reason.
 - Title `Test quality review: N BAD tests`.
 - One line per BAD test: `file:start-end`, the test name, the cited criteria,
   and the one-sentence reason.
+- The audited coverage (`N test file(s) covering typescript …, go …`), so a
+  maintainer can check the completion claim instead of trusting it.
 - A hidden `<!-- test-validator-run:<fingerprint> -->` marker that makes the
   issue findable on resume.
 - An explicit statement that the audit never removes tests and that removal is
@@ -153,11 +190,18 @@ list would silently drop findings.
 
 ## Evidence, one level down
 
-- **Discovery** (`lib/inventory.ts`): TypeScript AST over each file matched by
-  the npm test globs. Only bindings imported from `node:test` count, so a
-  same-named local helper is not a test. A computed call target
-  (`globalThis["it"](…)`) or an unparsable file throws, halting the run: a
-  partial inventory must never reach the gate.
+- **Enumerating files** (`lib/inventory-repository.ts`): the only discovery
+  module that touches the filesystem. Union of the runner's own globs
+  (`package.json` `scripts.test`), conventional per-language names, and a
+  directory walk that skips dependencies, caches, build output, and nested
+  checkouts.
+- **Per-language discovery** (`lib/inventory-file.ts`, `lib/inventory.ts`,
+  `lib/inventory-go.ts`, `lib/inventory-python.ts`): node files use the
+  TypeScript AST, so only bindings imported from `node:test` count and a
+  same-named local helper is not a test; Go files use brace counting that skips
+  comments and literals; Python files use indentation blocks; shell scripts are
+  whole-file units. A computed call target (`globalThis["it"](…)`), an
+  unparsable file, or an unsupported file kind throws, halting the run.
 - **Judge** (`lib/adapters/decision-model-pi-ai.ts`): one `completeSimple` call
   with a fresh context, no tools, no session. The prompt carries the criteria,
   the slice, the describe header, and the file's imports — never another test's
@@ -165,8 +209,11 @@ list would silently drop findings.
 - **Verdict gate** (`lib/decision.ts`): strict JSON only; any deviation from the
   schema, an unknown criterion, an out-of-range line, or a non-verbatim quote
   yields PENDING.
-- **Checkpoint** (`lib/checkpoint.ts`): append-only JSONL with a fingerprint
-  header, a torn-tail-tolerant reader, and a single-writer lock. Middle-of-file
+- **Checkpoint** (`lib/checkpoint.ts`, `lib/checkpoint-schema.ts`): append-only
+  JSONL with a fingerprint header, a torn-tail-tolerant reader, and a
+  single-writer lock. Every record is schema-validated before it is replayed —
+  a tampered `decision`, an unknown record type, or a header from another schema
+  version halts instead of being reused as a completed verdict. Middle-of-file
   corruption halts; it is not truncation.
 - **Run** (`lib/run.ts`): bounded worker pool, per-test retries, circuit
   breaker, completion gate, and filing idempotency. Only the coordinator

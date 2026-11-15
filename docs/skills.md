@@ -172,7 +172,7 @@ Judge every runnable test against a written quality bar (`criteria.md`) and file
 node --experimental-strip-types .pi/skills/test-validator/scripts/test-validator.mts [--restart] [--limit N]
 ```
 
-It discovers the `node:test` call sites matched by `scripts.test`, appends every decision to `ignore/test-validator/checkpoint.jsonl`, and writes `ignore/test-validator/report.json` only once every discovered test is decided. Exit `0` complete, `1` halted (precondition, model, checkpoint, or filing failure), `2` usage or unresolvable inventory, `3` incomplete (tests stayed pending, so no report and no issue). The skill never removes or edits tests: the cleanup issue asks a maintainer to review.
+It inventories every test file the repository runs — the `node:test` call sites matched by `scripts.test` and conventional `*.test.*` files, every Go `func Test*` when a `go.mod` is present, every Python `test_*` function, and every `*.test.sh` script — appends each decision to `ignore/test-validator/checkpoint.jsonl`, and writes `ignore/test-validator/report.json` only once every discovered test is decided. A runnable test file with no statically enumerable call site becomes one whole-file definition, and every record is schema-validated before a resumed run replays it. Exit `0` complete, `1` halted (precondition, model, checkpoint, or filing failure), `2` usage or unresolvable inventory, `3` incomplete (tests stayed pending, so no report and no issue). The skill never removes or edits tests: the cleanup issue asks a maintainer to review.
 
 - **Mode:** Manual — agent cannot auto-invoke; use `/skill:test-validator`
 - **Skills:** Test-quality judgement, resumable audit, issue filing

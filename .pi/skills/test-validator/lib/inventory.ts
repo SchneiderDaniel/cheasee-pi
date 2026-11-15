@@ -35,7 +35,13 @@ function definitionFor(
 	if (title === null) return null;
 	const startLine = lineOf(ctx.sf, call.getStart(ctx.sf));
 	const endLine = lineOf(ctx.sf, Math.max(call.getStart(ctx.sf), call.end - 1));
-	const def = { file: ctx.file, name: [...chain, title].join(" > "), startLine, endLine };
+	const def = {
+		file: ctx.file,
+		name: [...chain, title].join(" > "),
+		language: "typescript" as const,
+		startLine,
+		endLine,
+	};
 	return { ...def, sourceSha256: sha256Hex(sliceSource(ctx.source, def)) };
 }
 

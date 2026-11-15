@@ -8,22 +8,15 @@
 
 import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import lockfile from "proper-lockfile";
 
 import { archivePrevious } from "./checkpoint-archive.ts";
-import {
-	CheckpointError,
-	CheckpointLockError,
-	CheckpointMismatchError,
-} from "./checkpoint-errors.ts";
-import { readCheckpointRecords } from "./checkpoint-reader.ts";
-import {
-	CHECKPOINT_SCHEMA_VERSION,
-	type CheckpointHeaderRecord,
-	type CheckpointRecord,
-} from "./checkpoint-records.ts";
+import { CheckpointError, CheckpointMismatchError } from "./checkpoint-errors.ts";
+import { acquireCheckpointLock, releaseCheckpointLock, type Unlock } from "./checkpoint-lock.ts";
+import { readCheckpointRecords, terminateTornTail } from "./checkpoint-reader.ts";
+import { CHECKPOINT_SCHEMA_VERSION, type CheckpointRecord } from "./checkpoint-records.ts";
 import { emptyPrior, inventoryDrift, summarize } from "./checkpoint-replay.ts";
 import {
+	headerRecord,
 	issueIntentRecord,
 	issueRecord,
 	pendingRecord,
@@ -38,7 +31,13 @@ import type {
 } from "./ports.ts";
 import type { TestDefinition, Verdict } from "./types.ts";
 
-export { CheckpointLockError, CheckpointMismatchError } from "./checkpoint-errors.ts";
+export {
+	CheckpointError,
+	CheckpointLockError,
+	CheckpointMismatchError,
+	CheckpointSchemaError,
+} from "./checkpoint-errors.ts";
+export { CHECKPOINT_SCHEMA_VERSION } from "./checkpoint-records.ts";
 export { readCheckpointRecords } from "./checkpoint-reader.ts";
 
 /**
@@ -47,7 +46,7 @@ export { readCheckpointRecords } from "./checkpoint-reader.ts";
  */
 export class JsonlCheckpointStore implements CheckpointStore {
 	#path: string | null = null;
-	#unlock: (() => Promise<void>) | null = null;
+	#unlock: Unlock | null = null;
 	#records: CheckpointRecord[] = [];
 	#prior: CheckpointPrior = emptyPrior(null);
 	#closed = false;
@@ -71,13 +70,7 @@ export class JsonlCheckpointStore implements CheckpointStore {
 		const archivePath = options.restart ? archivePrevious(path, now()) : null;
 		if (!existsSync(path)) writeFileSync(path, "", "utf8");
 
-		try {
-			this.#unlock = await lockfile.lock(path, { realpath: false, retries: 0, stale: 120_000 });
-		} catch (err) {
-			throw new CheckpointLockError(
-				`checkpoint is locked by another run: ${path} (${err instanceof Error ? err.message : String(err)})`,
-			);
-		}
+		this.#unlock = await acquireCheckpointLock(path);
 
 		this.#path = path;
 		try {
@@ -97,23 +90,19 @@ export class JsonlCheckpointStore implements CheckpointStore {
 		now: () => Date,
 	): CheckpointPrior {
 		const records = readCheckpointRecords(path);
-		const header = records.find(
-			(record): record is CheckpointHeaderRecord => record.type === "header",
-		);
+		const header = records[0];
 
-		if (!header) {
-			this.#records = [
-				{
-					type: "header",
-					schemaVersion: CHECKPOINT_SCHEMA_VERSION,
-					inventoryFingerprint: options.inventoryFingerprint,
-					configFingerprint: options.configFingerprint,
-					criteriaSha256: options.criteriaSha256,
-					createdAt: now().toISOString(),
-				},
-			];
+		if (header === undefined) {
+			terminateTornTail(path);
+			this.#records = [headerRecord(options, now())];
 			appendFileSync(path, `${JSON.stringify(this.#records[0])}\n`, "utf8");
 			return emptyPrior(archivePath);
+		}
+
+		if (header.type !== "header") {
+			throw new CheckpointError(
+				`checkpoint has no header record at ${path}:1; it cannot be trusted (rerun with --restart to archive it)`,
+			);
 		}
 
 		if (header.inventoryFingerprint !== options.inventoryFingerprint) {
@@ -176,12 +165,6 @@ export class JsonlCheckpointStore implements CheckpointStore {
 	async #release(): Promise<void> {
 		const unlock = this.#unlock;
 		this.#unlock = null;
-		if (!unlock) return;
-		try {
-			await unlock();
-		} catch {
-			// The lock file may already be gone; releasing is best effort and the
-			// caller's error (if any) is the one that matters.
-		}
+		await releaseCheckpointLock(unlock);
 	}
 }

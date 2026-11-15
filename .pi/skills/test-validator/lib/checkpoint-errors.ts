@@ -29,6 +29,22 @@ export class CheckpointLockError extends CheckpointError {
 	}
 }
 
+/**
+ * A record the run cannot trust: a malformed field, an unknown record type, or
+ * a header from another schema version. Replaying it would turn a partial audit
+ * into a completed one, so it halts the run instead.
+ */
+export class CheckpointSchemaError extends CheckpointError {
+	override readonly code: string = "CHECKPOINT_SCHEMA";
+	readonly where: string;
+
+	constructor(where: string, why: string) {
+		super(`invalid checkpoint record at ${where}: ${why}`);
+		this.name = "CheckpointSchemaError";
+		this.where = where;
+	}
+}
+
 /** The checkpoint describes a different audit than the one about to run. */
 export class CheckpointMismatchError extends CheckpointError {
 	override readonly code: string = "CHECKPOINT_MISMATCH";

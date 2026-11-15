@@ -5,15 +5,36 @@
 
 import { CheckpointError } from "./checkpoint-errors.ts";
 import type {
+	CheckpointHeaderRecord,
 	CheckpointIssueIntentRecord,
 	CheckpointIssueRecord,
 	CheckpointPendingRecord,
 	CheckpointVerdictRecord,
 } from "./checkpoint-records.ts";
+import { CHECKPOINT_SCHEMA_VERSION } from "./checkpoint-records.ts";
 import { identityOf } from "./checkpoint-replay.ts";
 import type { IssueIntent, IssueRecord } from "./ports.ts";
 import { testKey } from "./types.ts";
 import type { TestDefinition, Verdict } from "./types.ts";
+
+/** Line 1 of a fresh checkpoint: the fingerprints this run is judged under. */
+export function headerRecord(
+	input: {
+		readonly inventoryFingerprint: string;
+		readonly configFingerprint: string;
+		readonly criteriaSha256: string;
+	},
+	now: Date,
+): CheckpointHeaderRecord {
+	return {
+		type: "header",
+		schemaVersion: CHECKPOINT_SCHEMA_VERSION,
+		inventoryFingerprint: input.inventoryFingerprint,
+		configFingerprint: input.configFingerprint,
+		criteriaSha256: input.criteriaSha256,
+		createdAt: now.toISOString(),
+	};
+}
 
 /** A decided verdict record. Refuses to record a pending verdict as a decision. */
 export function verdictRecord(def: TestDefinition, verdict: Verdict): CheckpointVerdictRecord {

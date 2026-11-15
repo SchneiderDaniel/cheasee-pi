@@ -23,6 +23,15 @@ const PURE_MODULES = [
 	"lib/inventory-scope.ts",
 	"lib/inventory-callee.ts",
 	"lib/inventory-exclusion.ts",
+	"lib/inventory-go.ts",
+	"lib/inventory-go-braces.ts",
+	"lib/inventory-go-literals.ts",
+	"lib/inventory-python.ts",
+	"lib/inventory-file.ts",
+	"lib/inventory-context.ts",
+	"lib/checkpoint-schema.ts",
+	"lib/checkpoint-fields.ts",
+	"lib/checkpoint-record-schema.ts",
 	"lib/decision.ts",
 	"lib/decision-schema.ts",
 	"lib/decision-evidence.ts",
@@ -37,6 +46,16 @@ const PURE_MODULES = [
 
 /** The `node:test` scanner family: the only files allowed to parse code. */
 const INVENTORY_FAMILY = /^lib\/inventory.*\.ts$/;
+
+/** The only modules allowed to touch the filesystem, each owning one seam. */
+const FS_MODULES = [
+	"lib/checkpoint-archive.ts",
+	"lib/checkpoint-reader.ts",
+	"lib/checkpoint.ts",
+	"lib/inventory-file-list.ts",
+	"lib/inventory-file-names.ts",
+	"lib/inventory-repository.ts",
+];
 
 const FORBIDDEN_IN_PURE: Array<{ pattern: RegExp; why: string }> = [
 	{ pattern: /from "node:fs"/, why: "filesystem access" },
@@ -65,6 +84,26 @@ describe("boundaries: pure layers", () => {
 			assert.equal(source.includes('from "typescript"'), false, `${module} must not parse code`);
 		}
 		assert.match(read("lib/inventory-parse.ts"), /from "typescript"/);
+	});
+
+	it("confines filesystem access to the modules that own a seam", () => {
+		assert.deepEqual(
+			readdirSync(LIB_DIR)
+				.filter((name) => name.endsWith(".ts"))
+				.map((name) => `lib/${name}`)
+				.filter((module) => /from "node:fs"/.test(read(module)))
+				.sort(),
+			FS_MODULES,
+		);
+	});
+
+	it("confines the lock adapter to the checkpoint lock seam", () => {
+		const lockers = readdirSync(LIB_DIR)
+			.filter((name) => name.endsWith(".ts"))
+			.map((name) => `lib/${name}`)
+			.filter((module) => /proper-lockfile/.test(read(module)));
+
+		assert.deepEqual(lockers, ["lib/checkpoint-lock.ts"]);
 	});
 
 	it("exports no shell or network call from the domain", () => {

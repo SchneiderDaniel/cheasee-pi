@@ -23,6 +23,7 @@ function def(overrides: Partial<TestDefinition> = {}): TestDefinition {
 	return {
 		file: "src/a.test.mts",
 		name: "outer > keeps total",
+		language: "typescript",
 		startLine: 10,
 		endLine: 14,
 		sourceSha256: "a".repeat(64),
@@ -58,6 +59,7 @@ describe("fingerprint: inventory identity", () => {
 			def({ startLine: 11 }),
 			def({ endLine: 15 }),
 			def({ sourceSha256: "b".repeat(64) }),
+			def({ language: "go" }),
 		];
 		for (const variant of variants) {
 			assert.notEqual(inventoryFingerprint([variant]), baseline, JSON.stringify(variant));

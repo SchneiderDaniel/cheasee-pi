@@ -4,18 +4,32 @@
 // line; that partial JSON is dropped and the test it described is judged again.
 // Any other unparsable line is corruption, not truncation — the accounting is
 // broken, so the read throws and the run halts.
+//
+// Every line that does parse is then validated against the record schema in
+// `checkpoint-schema.ts`: a JSON object that is not a well-formed record must
+// never be replayed as a decision.
 
-import { existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 import { CheckpointError } from "./checkpoint-errors.ts";
-import { isRecord, type CheckpointRecord } from "./checkpoint-records.ts";
+import type { CheckpointRecord } from "./checkpoint-records.ts";
+import { parseCheckpointRecord } from "./checkpoint-schema.ts";
+
+/**
+ * Terminate a torn tail so the next appended line stays its own record.
+ * A crash mid-append leaves the last line unterminated.
+ */
+export function terminateTornTail(path: string): void {
+	const existing = readFileSync(path, "utf8");
+	if (existing !== "" && !existing.endsWith("\n")) appendFileSync(path, "\n", "utf8");
+}
 
 function corrupt(path: string, index: number, why: string): CheckpointError {
 	return new CheckpointError(`corrupt checkpoint record at ${path}:${index + 1}: ${why}`);
 }
 
 /**
- * Read every record of `path`, discarding only a torn final line.
+ * Read and validate every record of `path`, discarding only a torn final line.
  *
  * @param path checkpoint file; a missing file reads as no records
  */
@@ -43,8 +57,7 @@ export function readCheckpointRecords(path: string): CheckpointRecord[] {
 			if (isTornTail) continue;
 			throw corrupt(path, index, "invalid JSON");
 		}
-		if (!isRecord(parsed)) throw corrupt(path, index, "not an object");
-		records.push(parsed as unknown as CheckpointRecord);
+		records.push(parseCheckpointRecord(parsed, `${path}:${index + 1}`));
 	}
 	return records;
 }

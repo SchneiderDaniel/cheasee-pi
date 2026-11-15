@@ -5,6 +5,7 @@
 // file's imports, and the criteria — never another test's body, so a single
 // verdict cannot lean on a neighbour.
 
+import { fenceLanguage } from "./inventory-context.ts";
 import type { DecisionRequest } from "./types.ts";
 
 /**
@@ -32,18 +33,19 @@ export function buildDecisionPrompt(
 		"",
 		`File: ${request.file}`,
 		`Lines: ${request.startLine}-${request.endLine}`,
-		`Describe path: ${request.header === "" ? "(top level)" : request.header}`,
+		`Language: ${request.language}`,
+		`Scope path: ${request.header === "" ? "(file level)" : request.header}`,
 		`Test name: ${request.name}`,
 		"",
-		"## File imports",
+		"## File imports and preamble",
 		"",
-		"```ts",
+		`\`\`\`${fenceLanguage(request.language)}`,
 		request.imports === "" ? "(no imports)" : request.imports,
 		"```",
 		"",
 		"## Test source",
 		"",
-		"```ts",
+		`\`\`\`${fenceLanguage(request.language)}`,
 		request.slice,
 		"```",
 		"",

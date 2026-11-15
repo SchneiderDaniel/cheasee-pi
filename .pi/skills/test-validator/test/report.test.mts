@@ -8,6 +8,7 @@ import {
 	IssueBodyTooLargeError,
 	MAX_ISSUE_BODY_BYTES,
 	buildReport,
+	describeCoverage,
 	issueMarker,
 	renderIssueBody,
 	serializeReport,
@@ -64,8 +65,22 @@ function decidedMap(): Map<string, Verdict> {
 	]);
 }
 
+const COVERAGE = {
+	files: 3,
+	byLanguage: {
+		typescript: { files: 1, tests: 2, excluded: 2 },
+		go: { files: 1, tests: 4, excluded: 1 },
+		python: { files: 1, tests: 3, excluded: 0 },
+		shell: { files: 0, tests: 0, excluded: 0 },
+	},
+};
+
 function build(
-	overrides: { verdicts?: Map<string, Verdict>; issue?: { url: string } | null } = {},
+	overrides: {
+		verdicts?: Map<string, Verdict>;
+		issue?: { url: string } | null;
+		coverage?: typeof COVERAGE | null;
+	} = {},
 ): RunReport {
 	return buildReport({
 		inventory: INVENTORY,
@@ -73,6 +88,7 @@ function build(
 		runFingerprint: RUN_FINGERPRINT,
 		headSha: HEAD_SHA,
 		generatedAt: "2026-01-01T00:00:00.000Z",
+		coverage: overrides.coverage === undefined ? COVERAGE : overrides.coverage,
 		issue: overrides.issue ?? null,
 	});
 }
@@ -136,6 +152,15 @@ describe("report: counts and shape", () => {
 		);
 	});
 
+	it("records which test files the inventory covered", () => {
+		const report = build();
+
+		assert.ok(report.coverage);
+		assert.equal(report.coverage.files, 3);
+		assert.equal(report.coverage.byLanguage.go.tests, 4);
+		assert.equal(build({ coverage: null }).coverage, null);
+	});
+
 	it("round-trips through JSON with no undefined fields", () => {
 		const report = build({ issue: { url: "https://example.test/1" } });
 		const parsed = JSON.parse(serializeReport(report)) as RunReport;
@@ -191,6 +216,20 @@ describe("report: issue body policy", () => {
 		const marker = issueMarker(RUN_FINGERPRINT);
 		assert.equal(rendered.body.split(marker).length - 1, 1);
 		assert.match(marker, /<!-- test-validator-run:[0-9a-f]{64} -->/);
+	});
+
+	it("states the audited coverage so the completion claim is checkable", () => {
+		const rendered = renderIssueBody({
+			runFingerprint: RUN_FINGERPRINT,
+			badTests: badEntries(),
+			coverage: COVERAGE,
+		});
+		assert.ok(rendered);
+
+		assert.match(rendered.body, /Coverage: 3 test file\(s\)/);
+		assert.match(rendered.body, /go 4/);
+		assert.equal(rendered.body.includes("shell"), false, "empty languages are not listed");
+		assert.equal(describeCoverage(COVERAGE), "3 test file(s) — typescript 2, go 4, python 3");
 	});
 
 	it("returns no body when nothing is BAD", () => {

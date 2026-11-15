@@ -2,10 +2,17 @@
 // and no credential on disk.
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { checkpointPath, ghCalls, reportPath, runCli, withRepo } from "./support/cli-fixture.mts";
+import {
+	DEFAULT_CONFIG,
+	checkpointPath,
+	ghCalls,
+	reportPath,
+	runCli,
+	withRepo,
+} from "./support/cli-fixture.mts";
 
 describe("cli: completed audits", () => {
 	it("judges two tests, writes the report, and files exactly one issue", async () => {
@@ -124,6 +131,37 @@ describe("cli: completed audits", () => {
 			assert.equal(readFileSync(join(repo.dir, "config.json"), "utf8").includes(secret), false);
 			assert.equal(readFileSync(checkpointPath(repo), "utf8").includes(secret), false);
 			assert.equal(readFileSync(reportPath(repo), "utf8").includes(secret), false);
+		});
+	});
+
+	it("halts on a tampered checkpoint instead of completing the audit", async () => {
+		await withRepo({ config: { ...DEFAULT_CONFIG, maxAttempts: 1 } }, async (repo) => {
+			const first = runCli(repo, ["--config", "config.json"], { FAUX_MODE: "bad" });
+			assert.equal(first.status, 0, first.stderr);
+			assert.match(first.stdout, /issue: https:/);
+			rmSync(reportPath(repo));
+
+			// One hand-edited decision must never be replayed as a completed audit.
+			const lines = readFileSync(checkpointPath(repo), "utf8").split("\n");
+			const verdictIndex = lines.findIndex((line) => line.includes('"type":"verdict"'));
+			assert.ok(verdictIndex > 0);
+			lines[verdictIndex] = JSON.stringify({
+				...JSON.parse(lines[verdictIndex]),
+				decision: "BOGUS",
+			});
+			writeFileSync(checkpointPath(repo), lines.join("\n"), "utf8");
+
+			const second = runCli(repo, ["--config", "config.json"], { FAUX_MODE: "good" });
+
+			assert.notEqual(second.status, 0);
+			assert.match(second.stderr, /invalid checkpoint record/);
+			assert.match(second.stderr, /decision/);
+			assert.equal(existsSync(reportPath(repo)), false, "no report from a tampered checkpoint");
+			assert.equal(
+				ghCalls(repo).filter((argv) => argv[0] === "issue" && argv[1] === "create").length,
+				1,
+				"the first run's issue is not filed twice",
+			);
 		});
 	});
 });

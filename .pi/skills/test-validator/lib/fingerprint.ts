@@ -13,7 +13,9 @@ import type { TestDefinition, ValidatorConfig } from "./types.ts";
 
 /** Identity of a judged file/range/name plus the hash of its source slice. */
 function identityLine(def: TestDefinition): string {
-	return [def.file, def.startLine, def.endLine, def.name, def.sourceSha256].join("\t");
+	return [def.file, def.startLine, def.endLine, def.name, def.language, def.sourceSha256].join(
+		"\t",
+	);
 }
 
 /**
@@ -23,7 +25,7 @@ function identityLine(def: TestDefinition): string {
  */
 export function inventoryFingerprint(definitions: readonly TestDefinition[]): string {
 	const lines = definitions.map(identityLine).sort();
-	return sha256Hex(["test-validator/inventory/v1", ...lines].join("\n"));
+	return sha256Hex(["test-validator/inventory/v2", ...lines].join("\n"));
 }
 
 /**

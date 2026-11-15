@@ -10,7 +10,7 @@
 
 import { configFingerprint, inventoryFingerprint } from "./fingerprint.ts";
 import type { CheckpointStore, DecisionModel, IssueFiler, IssueRecord } from "./ports.ts";
-import type { RunReport } from "./report.ts";
+import type { CoverageSummary, RunReport } from "./report.ts";
 import { buildReport } from "./report.ts";
 import { fileCleanupIssue } from "./run-filing.ts";
 import { RunHaltedError } from "./run-error.ts";
@@ -44,6 +44,8 @@ interface RunOptions {
 	/** Fingerprint of this audit, embedded in the report and the issue marker. */
 	readonly runFingerprint: string;
 	readonly headSha: string | null;
+	/** Enumerated files per language, recorded in the report and the issue. */
+	readonly coverage?: CoverageSummary | null;
 	/** Archive the previous checkpoint and judge everything again. */
 	readonly restart?: boolean;
 }
@@ -126,6 +128,7 @@ export async function runValidation(deps: RunDeps, options: RunOptions): Promise
 		runFingerprint: options.runFingerprint,
 		headSha: options.headSha,
 		generatedAt: now().toISOString(),
+		coverage: options.coverage ?? null,
 		issue: null,
 	});
 

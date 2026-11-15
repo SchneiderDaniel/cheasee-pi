@@ -6,7 +6,7 @@
 // provider outage must not burn the budget on thousands of doomed calls.
 
 import { isDecided, parseVerdict, verdictTargetFor } from "./decision.ts";
-import { describeHeader, extractImports } from "./inventory-parse.ts";
+import { filePreamble, scopeHeader } from "./inventory-context.ts";
 import type { CheckpointStore, DecisionModel } from "./ports.ts";
 import { RunHaltedError } from "./run-error.ts";
 import type { DecisionRequest, TestDefinition, ValidatorConfig, Verdict } from "./types.ts";
@@ -21,16 +21,17 @@ interface JudgeDeps {
 	readonly criteriaIds: readonly string[];
 }
 
-/** Build the isolated judge request: slice, describe header, file imports. */
+/** Build the isolated judge request: slice, scope header, file preamble. */
 function decisionRequest(def: TestDefinition, source: string): DecisionRequest {
 	const target = verdictTargetFor(def, source);
 	return {
 		file: def.file,
 		name: def.name,
+		language: def.language,
 		startLine: def.startLine,
 		endLine: def.endLine,
-		header: describeHeader(def),
-		imports: extractImports(source, def.file),
+		header: scopeHeader(def),
+		imports: filePreamble(def, source),
 		slice: target.text,
 	};
 }

@@ -7,12 +7,13 @@
 import { isTestRecord, type CheckpointRecord } from "./checkpoint-records.ts";
 import type { CheckpointPrior, IssueIntent, IssueRecord } from "./ports.ts";
 import { testKey } from "./types.ts";
-import type { TestDefinition, Verdict } from "./types.ts";
+import type { TestDefinition, TestLanguage, Verdict } from "./types.ts";
 
 /** Identity of a definition, as every per-test record stores it. */
 export function identityOf(def: TestDefinition): {
 	readonly file: string;
 	readonly name: string;
+	readonly language: TestLanguage;
 	readonly startLine: number;
 	readonly endLine: number;
 	readonly sourceSha256: string;
@@ -20,6 +21,7 @@ export function identityOf(def: TestDefinition): {
 	return {
 		file: def.file,
 		name: def.name,
+		language: def.language,
 		startLine: def.startLine,
 		endLine: def.endLine,
 		sourceSha256: def.sourceSha256,
