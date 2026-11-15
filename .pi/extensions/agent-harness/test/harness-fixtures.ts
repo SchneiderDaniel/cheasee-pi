@@ -33,7 +33,7 @@ export function callNTimes(
 	return results;
 }
 
-export function createMockAPI() {
+export function createMockAPI(overrides: Record<string, unknown> = {}) {
 	const handlers = new Map<string, (...args: any[]) => any>();
 	const api = {
 		handlers,
@@ -46,6 +46,8 @@ export function createMockAPI() {
 		},
 		...commandStubs(),
 		...sessionStubs(),
+		// Per-test ExtensionAPI overrides (e.g. a custom `getAllTools`).
+		...overrides,
 	};
 	return api as typeof api & ExtensionAPI;
 }

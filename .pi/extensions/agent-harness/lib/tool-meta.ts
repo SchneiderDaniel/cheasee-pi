@@ -2,7 +2,8 @@
 // Precedence: explicit config `toolMeta` > hardcoded `TOOL_META` (applied by
 // the rules) > annotation-derived > generic default. Split out of
 // agent-harness.ts (issue #2033): the class keeps the state machine, this keeps
-// the lookup and its fail-open warning flag.
+// the lookup and its fail-open warning flag. The provider dep is non-optional
+// (issue #2093): the port is injected once at construction and never replaced.
 
 import { deriveToolMetaFromAnnotations } from "./tool-annotations.ts";
 import type { ToolInfoProvider } from "./harness-types.ts";
@@ -11,13 +12,11 @@ import type { ResolvedHarnessRules, ToolMeta } from "./harness-rules.ts";
 export interface ToolMetaLookup {
 	/** Effective ToolMeta for a tool name. */
 	get(toolName: string): ToolMeta;
-	/** Re-arm the fail-open warning (called when the provider is replaced). */
-	resetWarning(): void;
 }
 
 export function createToolMetaLookup(deps: {
 	rules: () => ResolvedHarnessRules;
-	provider: () => ToolInfoProvider | undefined;
+	provider: () => ToolInfoProvider;
 }): ToolMetaLookup {
 	let warningEmitted = false;
 
@@ -27,10 +26,11 @@ export function createToolMetaLookup(deps: {
 	 * handler throw as a block). Surfaced once, then silently ignored.
 	 */
 	function derive(toolName: string): ToolMeta | undefined {
-		const provider = deps.provider();
-		if (!provider) return undefined;
 		try {
-			const info = provider().find((t) => t.name === toolName);
+			// `provider` is a thunk (the harness field getter): call it to obtain the
+			// port, then call the port to obtain the current tool list.
+			const tools = deps.provider()();
+			const info = tools.find((t) => t.name === toolName);
 			if (!info) return undefined;
 			return deriveToolMetaFromAnnotations(info.annotations, deps.rules().cascadeThreshold);
 		} catch (e) {
@@ -57,9 +57,6 @@ export function createToolMetaLookup(deps: {
 				trackErrors: true,
 				cascadeThreshold: deps.rules().cascadeThreshold,
 			};
-		},
-		resetWarning(): void {
-			warningEmitted = false;
 		},
 	};
 }
