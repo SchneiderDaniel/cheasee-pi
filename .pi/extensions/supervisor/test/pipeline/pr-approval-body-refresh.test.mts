@@ -79,9 +79,7 @@ const AUDIT_VERDICT: AuditorVerdictSummary = {
 
 const PACKAGE_SAFETY = {
 	status: "safe" as const,
-	results: [
-		{ packageName: "left-pad", ageDays: 3000, safe: true, blocked: false, message: "ok" },
-	],
+	results: [{ packageName: "left-pad", ageDays: 3000, safe: true, blocked: false, message: "ok" }],
 };
 
 function makeCleanInfo(prNumber = 456): PrConflictInfo {
@@ -854,14 +852,29 @@ describe("Phase 4 — vanished-PR rule (pr-gate.ts)", () => {
 			port,
 			undefined,
 			NO_BACKOFF,
-			{ overallStatus: "success", auditVerdict: AUDIT_VERDICT },
+			{
+				overallStatus: "success",
+				gateFailureHistory: [GATE_ENTRY],
+				packageSafetyResult: PACKAGE_SAFETY,
+				auditVerdict: AUDIT_VERDICT,
+			},
 		);
 
 		assert.equal(verdict.ok, true, "the re-published PR passes the gate");
 		assert.equal(verdict.prCreationResult?.prNumber, 555);
+		// One PrBodyInput carried through the retry: no field may be dropped
+		// (pins the `retryCreatePr` undefined drift fix).
 		assert.ok(
 			createdBody.includes("7/9"),
 			`retried body keeps the auditor section: ${createdBody}`,
+		);
+		assert.ok(
+			createdBody.includes(GATE_ENTRY),
+			`retried body keeps the gate failure history: ${createdBody}`,
+		);
+		assert.ok(
+			createdBody.includes("Package safety"),
+			`retried body keeps the package safety result: ${createdBody}`,
 		);
 	});
 });

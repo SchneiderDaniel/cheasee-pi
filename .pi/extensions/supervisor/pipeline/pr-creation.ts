@@ -16,7 +16,6 @@ import { tryRebaseOntoBase } from "./rebase.ts";
 import { buildPipelineSummary, renderAuditorSection } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
-import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 import type { PrBodyInput } from "./output.ts";
 
 // Body-input contract lives with the body renderer (output.ts); re-exported

@@ -187,10 +187,7 @@ export function buildAuditorVerdict(
 	}
 	const score =
 		output.auditScore ??
-		computeAuditScoreFromFindings(
-			findings,
-			getActiveAuditDimensions(stageState.researcherSkipped),
-		);
+		computeAuditScoreFromFindings(findings, getActiveAuditDimensions(stageState.researcherSkipped));
 	const blockers = findings
 		.filter((finding) => finding.severity === "critical" || finding.severity === "warning")
 		.map((finding) => ({
