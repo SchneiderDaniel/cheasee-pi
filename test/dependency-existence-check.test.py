@@ -7,8 +7,9 @@ fails the test instead of silently skipping. The cache/ETag tests exercise the
 real DiskCache/RealFetcher against a fake transport.
 
 Split (issue #2005 Long File refactor): the shared harness lives in
-`test/dependency_existence_check_tests/_common.py` and one scenario module per
-`TestCase` class. This file keeps the historical `python3` invocation path.
+`test/dependency_existence_check_tests/_common.py` (a barrel over `_loader.py`,
+`_routes.py` and `_fakes.py`) and one scenario module per `TestCase` class.
+This file keeps the historical `python3` invocation path.
 
 Run:  python3 test/dependency-existence-check.test.py
 """

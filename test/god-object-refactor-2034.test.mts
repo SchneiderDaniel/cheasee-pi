@@ -26,7 +26,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -160,6 +160,52 @@ const goDecls = (src: string): string[] =>
 const escape = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const GC = "test/dependency_existence_check_tests";
 
+/** `_common.py` -> `_common`: the module name a relative import resolves to. */
+const mod = (rel: string): string => rel.split("/").pop()!.replace(/\.py$/, "");
+
+/** Distinct top-level relative-import edges (`from ._x import ...`) of a module. */
+const pyEdges = (rel: string): string[] => [
+	...new Set([...read(rel).matchAll(/^from \.(\w+) import/gm)].map((m) => m[1]!)),
+];
+
+/** First cycle in a module graph as a closed path (`[...a, a]`), or `[]`.
+ * Colour DFS over every node, including ones no other node reaches: a cycle
+ * cannot hide behind an unreferenced entry point. */
+const findCycle = (graph: Record<string, string[]>): string[] => {
+	const GREY = 1;
+	const BLACK = 2;
+	const colour = new Map<string, number>();
+	const stack: string[] = [];
+	const visit = (node: string): string[] => {
+		colour.set(node, GREY);
+		stack.push(node);
+		for (const next of graph[node] ?? []) {
+			if (colour.get(next) === GREY) return [...stack.slice(stack.indexOf(next)), next];
+			if (colour.get(next) === undefined) {
+				const found = visit(next);
+				if (found.length > 0) return found;
+			}
+		}
+		stack.pop();
+		colour.set(node, BLACK);
+		return [];
+	};
+	for (const node of Object.keys(graph)) {
+		if (colour.get(node) === undefined) {
+			const found = visit(node);
+			if (found.length > 0) return found;
+		}
+	}
+	return [];
+};
+
+/** Every module of the Python harness package, measured from disk. */
+const packageModules = (): string[] =>
+	readdirSync(resolve(ROOT, GC))
+		.filter((n) => n.endsWith(".py"))
+		.sort()
+		.map((n) => `${GC}/${n}`);
+
 // ─── The mirror mirrors the pinned detector ───────────────────────
 
 describe("god-object refactor #2034 — the mirror is the pinned detector", () => {
@@ -292,15 +338,17 @@ describe("god-object refactor #2034 — the partition is explicit", () => {
 	});
 });
 
-// ─── Phase 2: `_common.py` -> barrel + `_routes.py` + `_fakes.py` ─
+// ─── Phase 2: `_common.py` -> barrel + `_loader.py` + `_routes.py` + `_fakes.py` ─
 
 describe("god-object refactor #2034 — the Python harness family", () => {
+	const loader = `${GC}/_loader.py`;
 	const common = `${GC}/_common.py`;
 	const routes = `${GC}/_routes.py`;
 	const fakes = `${GC}/_fakes.py`;
+	const MEMBERS = [loader, common, routes, fakes];
 
 	it("moves whole declarations: the family still counts 16", () => {
-		const sum = [common, routes, fakes].reduce((n, rel) => n + count(rel), 0);
+		const sum = MEMBERS.reduce((n, rel) => n + count(rel), 0);
 		assert.equal(sum, BASE_COUNT[common], `family counts ${sum}`);
 	});
 
@@ -323,7 +371,7 @@ describe("god-object refactor #2034 — the Python harness family", () => {
 			"get",
 			"requested_urls",
 		];
-		const now = [common, routes, fakes].flatMap((rel) => pyDecls(read(rel)));
+		const now = MEMBERS.flatMap((rel) => pyDecls(read(rel)));
 		assert.deepEqual([...now].sort(), [...base].sort());
 		assert.equal(now.length, 16, "_Stats/__init__ appear twice, so 16 decls");
 	});
@@ -355,47 +403,104 @@ describe("god-object refactor #2034 — the Python harness family", () => {
 		}
 	});
 
-	it("re-exports the siblings explicitly — no wildcard propagation", () => {
+	it("re-exports all three leaves explicitly — no wildcard propagation", () => {
 		const src = read(common);
 		assert.doesNotMatch(src, /^from \._\w+ import \*$/m, "no wildcard re-export");
-		assert.match(src, /^from \._routes import /m);
-		assert.match(src, /^from \._fakes import /m);
+		for (const leaf of ["_loader", "_routes", "_fakes"]) {
+			const hits = src.match(new RegExp(`^from \\.${leaf} import `, "gm")) ?? [];
+			assert.equal(hits.length, 1, `the barrel must re-export ${leaf} exactly once`);
+		}
 	});
 
-	it("binds `dec` before the siblings import it back (cycle safety)", () => {
+	it("makes `_common.py` a pure barrel: no shim, no shared fact", () => {
 		const src = read(common);
-		const decAt = src.indexOf('sys.modules["dependency_existence_check"]');
-		const sibAt = Math.min(
-			src.search(/^from \._routes import /m),
-			src.search(/^from \._fakes import /m),
-		);
-		assert.ok(decAt > -1, "the shim must register the production module");
-		assert.ok(sibAt > decAt, "`dec` must exist before a sibling imports it back");
-		assert.ok(src.indexOf("OLD_ISO = ") < sibAt, "`OLD_ISO` must exist before `_routes`");
+		for (const logic of ["spec_from_file_location", "exec_module", "sys\\.modules\\["]) {
+			assert.doesNotMatch(src, new RegExp(logic), `the barrel still runs ${logic}`);
+		}
+		assert.doesNotMatch(src, /^OLD_ISO = /m, "`OLD_ISO` belongs to `_routes`, not the barrel");
+		assert.doesNotMatch(src, /importlib shim lives here/, "stale shim wording in the barrel");
+		assert.deepEqual(pyEdges(common).sort(), ["_fakes", "_loader", "_routes"]);
 	});
 
-	it("keeps `_routes.py` free of the fake and of almost all of the barrel", () => {
+	it("orders the barrel leaf-first: the loader, then the siblings", () => {
+		const src = read(common);
+		const at = (p: string): number => src.search(new RegExp(`^from \\.${p} import `, "m"));
+		assert.ok(at("_loader") > -1, "the barrel must import the leaf");
+		assert.ok(at("_loader") < at("_routes"), "`_loader` must come before `_routes`");
+		assert.ok(at("_loader") < at("_fakes"), "`_loader` must come before `_fakes`");
+	});
+
+	it("keeps `_loader.py` the leaf that owns the production-module load", () => {
+		const src = read(loader);
+		assert.deepEqual(pyEdges(loader), [], "`_loader` must not import a sibling");
+		assert.doesNotMatch(src, /^import \._/m, "`_loader` must not import a sibling");
+		for (const sym of ["dec", "_HERE", "_SCRIPTS"]) {
+			assert.match(src, new RegExp(`^${sym} = `, "m"), `_loader must bind ${sym}`);
+		}
+		assert.match(src, /^_HERE = Path\(__file__\)\.resolve\(\)\.parent\.parent$/m);
+		assert.match(src, /^_SCRIPTS = _HERE\.parent \/ "scripts"$/m);
+		const reg = src.indexOf('sys.modules["dependency_existence_check"] = dec');
+		assert.ok(reg > -1, "`_loader` must register the production module");
+		assert.ok(reg < src.indexOf(".exec_module(dec)"), "register before `exec_module`");
+		for (const guard of [
+			"scripts/dependency-existence-check.py must exist",
+			"must have a loader",
+		]) {
+			assert.ok(src.includes(guard), `_loader lost its guard: ${guard}`);
+		}
+		assert.deepEqual(pyDecls(src), [], "`_loader` declares nothing, so the family stays at 16");
+	});
+
+	it("imports `_loader` standalone in a fresh interpreter", () => {
+		const run = spawnSync(
+			"python3",
+			[
+				"-c",
+				"import dependency_existence_check_tests._loader as L; " +
+					"assert L.dec.main; assert L._SCRIPTS.is_dir(); print('ok')",
+			],
+			{ cwd: ROOT, encoding: "utf-8", env: { ...process.env, PYTHONPATH: "test" } },
+		);
+		assert.equal(run.status, 0, `leaf import failed: ${run.stdout}${run.stderr}`);
+		assert.equal(run.stdout.trim(), "ok");
+	});
+
+	it("keeps `_routes.py` a leaf that owns `OLD_ISO`", () => {
 		const src = read(routes);
+		assert.deepEqual(pyEdges(routes), [], "`_routes` must not import any sibling");
+		assert.match(src, /^OLD_ISO = "2020-01-01T00:00:00Z"/m, "`_routes` owns OLD_ISO");
 		assert.doesNotMatch(src, /\b_fakes\b/, "_routes must not touch the transport fake");
-		const imported = [...src.matchAll(/^from \._common import (.+)$/gm)].flatMap((m) =>
-			m[1]!
-				.replace(/[()]/g, "")
-				.split(",")
-				.map((s) => s.trim()),
-		);
-		assert.deepEqual(imported.sort(), ["OLD_ISO"], "only OLD_ISO comes back from the barrel");
-		assert.doesNotMatch(src, /^from \._routes import /m, "_routes imports itself");
+		const uses = src.match(/\bOLD_ISO\b/g) ?? [];
+		assert.ok(uses.length >= 7, `OLD_ISO must resolve locally, saw ${uses.length} uses`);
 	});
 
-	it("imports `dec` into `_fakes.py` and nothing circular", () => {
+	it("imports `_routes` standalone in a fresh interpreter", () => {
+		const run = spawnSync(
+			"python3",
+			[
+				"-c",
+				"import dependency_existence_check_tests._routes as R; " +
+					"assert R.OLD_ISO == '2020-01-01T00:00:00Z'; " +
+					"assert R.pypi_body().count(R.OLD_ISO) == 1; print('ok')",
+			],
+			{ cwd: ROOT, encoding: "utf-8", env: { ...process.env, PYTHONPATH: "test" } },
+		);
+		assert.equal(run.status, 0, `leaf import failed: ${run.stdout}${run.stderr}`);
+		assert.equal(run.stdout.trim(), "ok");
+	});
+
+	it("imports `dec` into `_fakes.py` from the leaf, not the barrel", () => {
 		const src = read(fakes);
-		assert.match(src, /^from \._common import .*\bdec\b/m);
-		assert.doesNotMatch(src, /^from \._common import \*/m);
-		assert.doesNotMatch(src, /^from \._fakes import /m, "_fakes imports itself");
+		assert.match(src, /^from \._loader import .*\bdec\b/m);
+		assert.doesNotMatch(src, /^from \._common import/m, "`_fakes` must not reach into the barrel");
+		assert.deepEqual(pyEdges(fakes), ["_loader"], "`_fakes` depends on the leaf only");
+		for (const decl of ["FakeFetcher", "run_main", "write_repo"]) {
+			assert.match(src, new RegExp(`^(class|def) ${decl}\\b`, "m"), `_fakes lost ${decl}`);
+		}
 	});
 
 	it("leaves every member of the family under the ceiling", () => {
-		for (const rel of [common, routes, fakes]) {
+		for (const rel of MEMBERS) {
 			assert.ok(count(rel) <= 15, `${rel} counts ${count(rel)}`);
 			assert.equal(flagged(rel), false, `${rel} is still flagged`);
 		}
@@ -416,6 +521,76 @@ describe("god-object refactor #2034 — the Python harness family", () => {
 		assert.equal(run.status, 0, `python suite exited ${run.status}: ${output}`);
 		assert.match(output, /Ran 77 tests/);
 		assert.match(output, /^OK$/m);
+	});
+});
+
+// ─── Phase 2b: the family import graph is acyclic (issue #2104) ───
+// CodeFlow reported `_common ↔ _routes` and `_common ↔ _fakes` as circular
+// dependencies. Both were real module-level edges: the barrel defined `dec`
+// and `OLD_ISO` and then imported the siblings, which imported those facts
+// back. The family is now `_loader` (leaf) <- `_fakes` <- `_common` (barrel)
+// with `_routes` a leaf, and the DFS below is the guard that keeps it so — it
+// replaces the assertions that used to pin the cycle as a contract.
+
+describe("god-object refactor #2034 — the harness import graph is acyclic", () => {
+	const loader = `${GC}/_loader.py`;
+	const common = `${GC}/_common.py`;
+	const routes = `${GC}/_routes.py`;
+	const fakes = `${GC}/_fakes.py`;
+	const bases = `${GC}/_bases.py`;
+
+	it("pins the exact edge map: barrel -> leaves, fakes -> loader", () => {
+		const graph = Object.fromEntries(
+			[loader, routes, fakes, common, bases].map((rel) => [mod(rel), pyEdges(rel).sort()]),
+		);
+		assert.deepEqual(graph, {
+			_loader: [],
+			_routes: [],
+			_fakes: ["_loader"],
+			_common: ["_fakes", "_loader", "_routes"],
+			_bases: ["_common"],
+		});
+	});
+
+	it("reports no cycle anywhere in the package", () => {
+		const graph = Object.fromEntries(packageModules().map((rel) => [mod(rel), pyEdges(rel)]));
+		const cycle = findCycle(graph);
+		assert.deepEqual(cycle, [], `circular dependency: ${cycle.join(" -> ")}`);
+	});
+
+	it("has teeth: the pre-fix graph is detected as circular", () => {
+		const cycle = findCycle({
+			_common: ["_routes", "_fakes"],
+			_routes: ["_common"],
+			_fakes: ["_common"],
+		});
+		assert.ok(cycle.length > 1, "the detector must find a cycle in the pre-fix graph");
+		assert.ok(cycle.includes("_common"), `unexpected cycle: ${cycle.join(" -> ")}`);
+		assert.equal(cycle.at(0), cycle.at(-1), "a reported cycle must be closed");
+	});
+
+	it("keeps both reported cycles structurally impossible", () => {
+		for (const [rel, other] of [
+			[loader, common],
+			[routes, common],
+			[routes, loader],
+		] as const) {
+			assert.equal(pyEdges(rel).includes(mod(other)), false, `${rel} imports ${other}`);
+		}
+	});
+
+	it("keeps scenario modules on the barrel — no leaf imports outside the family", () => {
+		const scenarios = packageModules().filter((rel) => /\/(test_\w+|_bases)\.py$/.test(rel));
+		assert.ok(scenarios.length > 5, `expected the scenario modules, got ${scenarios.length}`);
+		for (const rel of scenarios) {
+			for (const leaf of ["_loader", "_routes", "_fakes"]) {
+				assert.equal(
+					pyEdges(rel).includes(leaf),
+					false,
+					`${rel} must import the barrel, not ${leaf}`,
+				);
+			}
+		}
 	});
 });
 
