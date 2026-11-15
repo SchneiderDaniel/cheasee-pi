@@ -137,6 +137,7 @@ export class FakeCheckpoint implements CheckpointStore {
 		attempts: Map<string, number>;
 		issueIntent: IssueIntent | null;
 		issue: IssueRecord | null;
+		rejected: Array<{ key: string; reason: string }>;
 	};
 	readonly verdictsWritten: Verdict[] = [];
 	openOptions: CheckpointOpenOptions | null = null;
@@ -150,6 +151,7 @@ export class FakeCheckpoint implements CheckpointStore {
 			attempts: new Map(),
 			issueIntent: null,
 			issue: null,
+			rejected: [],
 			...prior,
 		} as FakeCheckpoint["prior"];
 	}

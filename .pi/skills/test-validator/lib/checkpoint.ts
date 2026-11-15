@@ -15,6 +15,7 @@ import { acquireCheckpointLock, releaseCheckpointLock, type Unlock } from "./che
 import { readCheckpointRecords, terminateTornTail } from "./checkpoint-reader.ts";
 import { CHECKPOINT_SCHEMA_VERSION, type CheckpointRecord } from "./checkpoint-records.ts";
 import { emptyPrior, inventoryDrift, summarize } from "./checkpoint-replay.ts";
+import { revalidateStoredVerdicts } from "./checkpoint-verdict-gate.ts";
 import {
 	headerRecord,
 	issueIntentRecord,
@@ -30,6 +31,7 @@ import type {
 	IssueRecord,
 } from "./ports.ts";
 import type { TestDefinition, Verdict } from "./types.ts";
+import { testKey } from "./types.ts";
 
 export {
 	CheckpointError,
@@ -48,6 +50,7 @@ export class JsonlCheckpointStore implements CheckpointStore {
 	#path: string | null = null;
 	#unlock: Unlock | null = null;
 	#records: CheckpointRecord[] = [];
+	#verdicts = new Map<string, Verdict>();
 	#prior: CheckpointPrior = emptyPrior(null);
 	#closed = false;
 
@@ -95,6 +98,7 @@ export class JsonlCheckpointStore implements CheckpointStore {
 		if (header === undefined) {
 			terminateTornTail(path);
 			this.#records = [headerRecord(options, now())];
+			this.#verdicts = new Map();
 			appendFileSync(path, `${JSON.stringify(this.#records[0])}\n`, "utf8");
 			return emptyPrior(archivePath);
 		}
@@ -112,11 +116,29 @@ export class JsonlCheckpointStore implements CheckpointStore {
 			throw new CheckpointMismatchError("config", inventoryDrift(records, options.definitions));
 		}
 		this.#records = records;
-		return { ...summarize(records), resumed: true, archivePath };
+		// Shape validation happens on read (`checkpoint-schema.ts`). Policy is
+		// re-applied here: a stored BAD verdict that no longer satisfies the gate
+		// is refused rather than replayed, so a resume cannot report a false BAD.
+		const summary = summarize(records);
+		const gated = revalidateStoredVerdicts({
+			verdicts: summary.verdicts,
+			definitions: options.definitions,
+			sources: options.sources,
+			badConfidenceThreshold: options.badConfidenceThreshold,
+		});
+		this.#verdicts = gated.verdicts;
+		return {
+			...summary,
+			verdicts: gated.verdicts,
+			rejected: gated.rejected,
+			resumed: true,
+			archivePath,
+		};
 	}
 
 	async appendVerdict(def: TestDefinition, verdict: Verdict): Promise<void> {
 		await this.#append(verdictRecord(def, verdict));
+		this.#verdicts.set(testKey(def), verdict);
 	}
 
 	async appendPending(
@@ -136,7 +158,7 @@ export class JsonlCheckpointStore implements CheckpointStore {
 
 	/** Latest known verdict per test key, including appends made this session. */
 	verdicts(): ReadonlyMap<string, Verdict> {
-		return summarize(this.#records).verdicts;
+		return this.#verdicts;
 	}
 
 	async close(): Promise<void> {

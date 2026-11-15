@@ -53,6 +53,40 @@ export function goodVerdict(overrides: Partial<Verdict> = {}): Verdict {
 	};
 }
 
+/** A BAD verdict that satisfies the gate for the fixture source. */
+export function badVerdict(overrides: Partial<Verdict> = {}): Verdict {
+	return {
+		decision: "BAD",
+		confidence: 0.9,
+		criteria: ["C1"],
+		reason: "restates a literal with no project-owned behaviour",
+		evidence: [{ line: 6, quote: "assert.equal(total, 2);" }],
+		pendingReason: "",
+		...overrides,
+	};
+}
+
+/**
+ * Source text for the two fixture definitions. `def()` judges lines 5–8 and
+ * `def({name: "second", startLine: 9, endLine: 11})` judges lines 9–11, so the
+ * evidence gate has a real slice to check a quote against.
+ */
+export const SOURCE = [
+	'import { it } from "node:test";', // 1
+	'import assert from "node:assert/strict";', // 2
+	"", // 3
+	'it("keeps total", () => {', // 4
+	"\tconst total = 1 + 1;", // 5
+	"\tassert.equal(total, 2);", // 6
+	"});", // 7
+	"", // 8
+	'it("second", () => {', // 9
+	"\tassert.ok(true);", // 10
+	"});", // 11
+].join("\n");
+
+export const SOURCES = new Map([["src/a.test.mts", SOURCE]]);
+
 export interface Ctx {
 	dir: string;
 	path: string;
@@ -77,6 +111,8 @@ export function openOptions(ctx: Ctx, overrides: Record<string, unknown> = {}) {
 		configFingerprint: CONFIG_HASH,
 		criteriaSha256: CRITERIA_HASH,
 		definitions: [def()],
+		sources: SOURCES,
+		badConfidenceThreshold: 0.8,
 		...overrides,
 	};
 }

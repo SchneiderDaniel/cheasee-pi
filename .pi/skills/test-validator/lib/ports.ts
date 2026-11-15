@@ -35,10 +35,12 @@ export interface CheckpointPrior {
 	readonly resumed: boolean;
 	/** Where a `--restart` moved the previous file, or null. */
 	readonly archivePath: string | null;
-	/** Decided verdicts by test key (GOOD/BAD only). */
+	/** Decided verdicts by test key (GOOD/BAD only), all re-checked against the gate. */
 	readonly verdicts: ReadonlyMap<string, Verdict>;
 	/** Attempt counts by test key, from pending records. */
 	readonly attempts: ReadonlyMap<string, number>;
+	/** Stored BAD decisions the gate refused; they must be judged again. */
+	readonly rejected: ReadonlyArray<{ readonly key: string; readonly reason: string }>;
 	readonly issueIntent: IssueIntent | null;
 	readonly issue: IssueRecord | null;
 }
@@ -57,6 +59,13 @@ export interface CheckpointOpenOptions {
 	readonly criteriaSha256: string;
 	/** Current inventory, used to report add/remove/modify counts on refusal. */
 	readonly definitions: readonly TestDefinition[];
+	/**
+	 * Source text by repository-relative path. A stored BAD verdict is re-checked
+	 * against the current judged slice, so the store needs the source it judged.
+	 */
+	readonly sources: ReadonlyMap<string, string>;
+	/** BAD gate threshold a replayed verdict must still meet. */
+	readonly badConfidenceThreshold: number;
 	/** Injectable clock, so archive names and timestamps stay deterministic. */
 	readonly now?: () => Date;
 }

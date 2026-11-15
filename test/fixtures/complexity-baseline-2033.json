@@ -13,7 +13,7 @@
 		"beforeNote": "the filed list is a superset: 93 of the 286 are .mts (never scored by the analyzer), 2 score below the ceiling, and the tree advanced past analyzedAt (7 critical files are not in the filed list). The envelope is therefore measured, not copied.",
 		"driftNote": "`filedBaseline` is the architecture's measurement at e075a867 (198 critical). `before` is the same mirror re-run on the merge base this branch landed on (origin/main 434bcfde, 204 critical). Main's own refactors added and removed flags between the two, so acceptance is the DROP against `before`, not the filed count.",
 		"notScoredNote": "one cited .mts path (.pi/extensions/agent-harness/test/index-cascade.test.mts) no longer exists — renamed since analyzedAt, so 93 of the 94 cited .mts paths are recorded.",
-		"afterNote": "`after` is measured in-gate over the delivered tracked tree; the split adds files, so `after.files`/`after.codeFiles` exceed `before` — the drop is not from deleting files. #2103 adds thirteen scored files; #2106 adds one scored production file (.pi/extensions/supervisor/agent/runner/presenter.ts, the RunPresenter port) and brings .pi/extensions/supervisor/agent/runner/index.ts back under the ceiling; #2104 adds one scored test-support file (test/dependency_existence_check_tests/_loader.py, the leaf that now loads the production module); #1830 adds one scored production file (.pi/extensions/supervisor/pipeline/handler/blocker-comment.ts, the shared CI/PR blocker poster) and keeps .pi/extensions/supervisor/pipeline/audit/index.ts out of the critical set (28). The after/partition counts describe the combined delivered tree. #2125 adds the test-validator skill: twenty-eight scored production modules under .pi/skills/test-validator/lib/ (inventory scanning, verdict gate, checkpoint codec/store, run pool and filing, report policy, pi-ai and gh adapters), scored 888 -> 916. The follow-up on #2125 then splits that skill's discovery and checkpoint codecs into thirteen more scored modules (.pi/skills/test-validator/lib/inventory-file.ts, inventory-file-list.ts, inventory-file-names.ts, inventory-repository.ts, inventory-context.ts, inventory-go.ts, inventory-go-braces.ts, inventory-go-literals.ts, inventory-python.ts, checkpoint-schema.ts, checkpoint-fields.ts, checkpoint-record-schema.ts, checkpoint-lock.ts), so scored rises 916 -> 929 and belowCeiling 726 -> 739 while critical stays 190 and no flag moves — every new module measures at or below the ceiling."
+		"afterNote": "`after` is measured in-gate over the delivered tracked tree; the split adds files, so `after.files`/`after.codeFiles` exceed `before` — the drop is not from deleting files. #2103 adds thirteen scored files; #2106 adds one scored production file (.pi/extensions/supervisor/agent/runner/presenter.ts, the RunPresenter port) and brings .pi/extensions/supervisor/agent/runner/index.ts back under the ceiling; #2104 adds one scored test-support file (test/dependency_existence_check_tests/_loader.py, the leaf that now loads the production module); #1830 adds one scored production file (.pi/extensions/supervisor/pipeline/handler/blocker-comment.ts, the shared CI/PR blocker poster) and keeps .pi/extensions/supervisor/pipeline/audit/index.ts out of the critical set (28). The after/partition counts describe the combined delivered tree. #2125 adds the test-validator skill: twenty-eight scored production modules under .pi/skills/test-validator/lib/ (inventory scanning, verdict gate, checkpoint codec/store, run pool and filing, report policy, pi-ai and gh adapters), scored 888 -> 916. The follow-up on #2125 then splits that skill's discovery and checkpoint codecs into thirteen more scored modules (.pi/skills/test-validator/lib/inventory-file.ts, inventory-file-list.ts, inventory-file-names.ts, inventory-repository.ts, inventory-context.ts, inventory-go.ts, inventory-go-braces.ts, inventory-go-literals.ts, inventory-python.ts, checkpoint-schema.ts, checkpoint-fields.ts, checkpoint-record-schema.ts, checkpoint-lock.ts), so scored rises 916 -> 929 and belowCeiling 726 -> 739 while critical stays 190 and no flag moves — every new module measures at or below the ceiling. The Rust-discovery and checkpoint-gate follow-up on #2125 adds ten scored modules (checkpoint-verdict-gate.ts, inventory-braces.ts, inventory-rust.ts, inventory-rust-literals.ts, inventory-rust-scan.ts, inventory-rust-lex.ts, inventory-rust-code.ts, inventory-rust-modes.ts, inventory-rust-attributes.ts, inventory-rust-modules.ts), so files rise 1750 -> 1762, scored 929 -> 939, and belowCeiling 739 -> 749 while critical stays 190: the two Rust modules that first landed over the ceiling (51 and 39) were split until every sibling measures at or below it, so no flag moved."
 	},
 	"filedBaseline": {
 		"commit": "e075a867b708952176b38e0fc51329c8dcb2c79a",
@@ -30,14 +30,14 @@
 	"after": {
 		"criticalCount": 190,
 		"expectedDrop": 14,
-		"files": 1750,
-		"codeFiles": 929
+		"files": 1762,
+		"codeFiles": 939
 	},
 	"partition": {
-		"scored": 929,
+		"scored": 939,
 		"critical": 190,
 		"notScored": 93,
-		"belowCeiling": 739
+		"belowCeiling": 749
 	},
 	"reducedBy": [
 		{

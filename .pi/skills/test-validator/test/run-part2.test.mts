@@ -11,6 +11,7 @@ import {
 	HEAD_SHA,
 	PENDING_STEP,
 	RUN_FINGERPRINT,
+	config,
 	fixture,
 	harness,
 	testKeyOf,
@@ -237,6 +238,83 @@ describe("run: resume", () => {
 		assert.deepEqual(deps.model.calls.sort(), ["suite > d-good", "suite > e-good"]);
 		assert.equal(result.counts.reused, 3);
 		assert.equal(result.complete, true);
+	});
+
+	it("judges again a stored verdict the gate refused, and says so", async () => {
+		const { inventory, sources } = fixture();
+		const refused = inventory.tests[0];
+		const prior = new Map<string, Verdict>();
+		for (const def of inventory.tests.slice(1)) {
+			prior.set(testKeyOf(def), {
+				decision: "GOOD",
+				confidence: 0.9,
+				criteria: ["C1"],
+				reason: "prior",
+				evidence: [],
+				pendingReason: "",
+			});
+		}
+		const { deps, logs } = harness(ALL_GOOD, {
+			prior: {
+				resumed: true,
+				verdicts: prior,
+				rejected: [{ key: testKeyOf(refused), reason: "criteria: no BAD-qualifying criterion" }],
+			},
+		});
+
+		const result = await runValidation(deps, {
+			inventory,
+			sources,
+			runFingerprint: RUN_FINGERPRINT,
+			headSha: HEAD_SHA,
+		});
+
+		assert.deepEqual(deps.model.calls, [refused.name]);
+		assert.equal(result.counts.reused, 4);
+		assert.ok(
+			logs.some((line) => line.includes("refused 1 stored decision")),
+			`the operator must see the refusal: ${logs.join(" | ")}`,
+		);
+	});
+
+	it("re-judges a refused decision even when its attempts were already spent", async () => {
+		const { inventory, sources } = fixture();
+		const refused = inventory.tests[0];
+		const prior = new Map<string, Verdict>();
+		for (const def of inventory.tests.slice(1)) {
+			prior.set(testKeyOf(def), {
+				decision: "GOOD",
+				confidence: 0.9,
+				criteria: ["C1"],
+				reason: "prior",
+				evidence: [],
+				pendingReason: "",
+			});
+		}
+		// The refused decision was reached on the last permitted attempt, so the
+		// stored budget is exhausted. Re-judging must still happen: otherwise the
+		// test can never be decided and the audit stays incomplete forever.
+		const attempts = new Map([[testKeyOf(refused), config().maxAttempts]]);
+		const { deps, reports } = harness(ALL_GOOD, {
+			prior: {
+				resumed: true,
+				verdicts: prior,
+				attempts,
+				rejected: [{ key: testKeyOf(refused), reason: "criteria: no BAD-qualifying criterion" }],
+			},
+		});
+
+		const result = await runValidation(deps, {
+			inventory,
+			sources,
+			runFingerprint: RUN_FINGERPRINT,
+			headSha: HEAD_SHA,
+		});
+
+		assert.deepEqual(deps.model.calls, [refused.name]);
+		assert.equal(result.complete, true, "a refused decision must not leave the run incomplete");
+		assert.equal(result.counts.pending, 0);
+		assert.equal(reports.length, 1);
 	});
 
 	it("propagates a refused checkpoint without calling the model", async () => {

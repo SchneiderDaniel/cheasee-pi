@@ -13,6 +13,7 @@ export function fenceLanguage(language: TestLanguage): string {
 	if (language === "go") return "go";
 	if (language === "python") return "python";
 	if (language === "shell") return "bash";
+	if (language === "rust") return "rust";
 	return "ts";
 }
 
@@ -68,6 +69,15 @@ function shellPreamble(source: string): string {
 		.join("\n");
 }
 
+/** The leading `use` statements and crate declarations of a Rust file. */
+function rustPreamble(source: string): string {
+	return source
+		.split("\n")
+		.slice(0, PREAMBLE_LINES)
+		.filter((line) => /^(pub\s+)?use\s/.test(line) || /^extern crate\s/.test(line))
+		.join("\n");
+}
+
 /**
  * The file context the judge sees: imports for a node file, the package and
  * import block for Go, the import statements for Python, the directives for a
@@ -81,6 +91,8 @@ export function filePreamble(def: TestDefinition, source: string): string {
 			return pythonPreamble(source);
 		case "shell":
 			return shellPreamble(source);
+		case "rust":
+			return rustPreamble(source);
 		default:
 			return extractImports(source, def.file);
 	}

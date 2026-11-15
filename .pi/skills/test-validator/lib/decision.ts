@@ -60,17 +60,34 @@ function decided(
 	};
 }
 
-/** The BAD gate, in order: confidence, qualifying criterion, admissible quote. */
-function badRefusal(envelope: Envelope, target: VerdictTarget, threshold: number): string | null {
-	if (envelope.confidence < threshold) {
-		return `confidence: ${envelope.confidence} is below badConfidenceThreshold ${threshold}`;
+/**
+ * The fields the BAD gate reads. A freshly parsed envelope and a verdict read
+ * back from the checkpoint both satisfy it, so the same gate judges both.
+ */
+export interface GateInput {
+	readonly confidence: number;
+	readonly criteria: readonly string[];
+	readonly evidence: readonly { readonly line: number; readonly quote: string }[];
+}
+
+/**
+ * The BAD gate, in order: confidence, qualifying criterion, admissible quote.
+ * Returns the reason a BAD claim is refused, or null when it holds.
+ */
+export function badGateRefusal(
+	input: GateInput,
+	target: VerdictTarget,
+	threshold: number,
+): string | null {
+	if (input.confidence < threshold) {
+		return `confidence: ${input.confidence} is below badConfidenceThreshold ${threshold}`;
 	}
-	const qualifying = envelope.criteria.some((id) => BAD_QUALIFYING_CRITERIA.has(id));
+	const qualifying = input.criteria.some((id) => BAD_QUALIFYING_CRITERIA.has(id));
 	if (!qualifying) {
 		return `criteria: no BAD-qualifying criterion (${[...BAD_QUALIFYING_CRITERIA].join(", ")}) present`;
 	}
-	if (envelope.evidence.length === 0) return "evidence: no evidence provided";
-	if (!envelope.evidence.some((entry) => isVerbatim(target, entry))) {
+	if (input.evidence.length === 0) return "evidence: no evidence provided";
+	if (!input.evidence.some((entry) => isVerbatim(target, entry))) {
 		return "evidence: no quote is a verbatim in-range substring of the judged lines";
 	}
 	return null;
@@ -96,7 +113,7 @@ export function parseVerdict(
 	const envelope = parsed.envelope;
 	if (envelope.decision === "GOOD") return decided("GOOD", envelope, envelope.evidence);
 
-	const refusal = badRefusal(envelope, target, cfg.badConfidenceThreshold);
+	const refusal = badGateRefusal(envelope, target, cfg.badConfidenceThreshold);
 	if (refusal !== null) return pending(refusal);
 	return decided("BAD", envelope, envelope.evidence);
 }

@@ -10,6 +10,7 @@
 import { DiscoveryError, sha256Hex, sliceSource } from "./inventory-parse.ts";
 import { discoverGoTests } from "./inventory-go.ts";
 import { discoverPythonTests } from "./inventory-python.ts";
+import { discoverRustTests } from "./inventory-rust.ts";
 import { discoverTests } from "./inventory.ts";
 import type { InventoryResult, TestDefinition, TestLanguage } from "./types.ts";
 
@@ -20,6 +21,7 @@ export function languageOf(file: string): TestLanguage | null {
 	if (file.endsWith("_test.go")) return "go";
 	if (file.endsWith(".py")) return "python";
 	if (file.endsWith(".sh") || file.endsWith(".bash")) return "shell";
+	if (file.endsWith(".rs")) return "rust";
 	if (NODE_EXTENSIONS.some((extension) => file.endsWith(extension))) return "typescript";
 	return null;
 }
@@ -60,11 +62,14 @@ export function discoverInFile(source: string, file: string): InventoryResult {
 		throw new DiscoveryError(
 			file,
 			null,
-			"cannot enumerate tests: unsupported test file kind (supported: node, Go *_test.go, Python, shell)",
+			"cannot enumerate tests: unsupported test file kind (supported: node, Go *_test.go, Python, shell, Rust)",
 		);
 	}
 
 	if (language === "go") return discoverGoTests(source, file);
+	// Rust has no test-file naming convention: the scanner decides both the file
+	// set and the units, and a source file with no test attribute yields nothing.
+	if (language === "rust") return discoverRustTests(source, file);
 	if (language === "python") {
 		const result = discoverPythonTests(source, file);
 		return result.tests.length === 0

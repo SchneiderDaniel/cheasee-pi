@@ -34,10 +34,14 @@ purpose, never by inference.
   review and remove; removal stays a human decision. No branches, no commits, no
   pull requests.
 - **Resume beats restart.** Each completed decision is appended to the
-  checkpoint, so an interrupted run continues where it stopped. A changed
-  inventory or model configuration refuses to resume — the verdicts described a
-  different audit — and demands `--restart`, which archives the old checkpoint
-  instead of deleting it.
+  checkpoint, so an interrupted run continues where it stopped. A stored `BAD`
+  is re-checked against the gate before it is replayed — same confidence
+  threshold, same criterion set, same verbatim-quote rule, judged against the
+  current slice — and a record that no longer holds is judged again instead of
+  being trusted, with a fresh attempt budget so the audit can still finish. A
+  changed inventory or model configuration refuses to resume — the verdicts
+  described a different audit — and demands `--restart`, which archives the old
+  checkpoint instead of deleting it.
 - **Preconditions fail before the first model call.** Missing provider API key,
   unauthenticated `gh`, absent `supervisor.repo`, or an unresolvable test file
   halts with a non-zero exit. None of them is recorded as a per-test verdict.
@@ -107,33 +111,41 @@ Discovery covers, in one pass:
 | Go         | every `*_test.go`, when the repo has a `go.mod` | one `func Test*` / `func Fuzz*` / `func Example*`    |
 | Python     | `test_*.py`, `*_test.py`, `*.test.py`           | one `def test_*` function or method                  |
 | Shell      | every `*.test.sh` / `*.test.bash`               | the script as a whole                                |
+| Rust       | every `.rs` file that declares a test function  | one `#[test]` / `#[tokio::test]` function            |
 
 Three rules keep the completion claim honest:
 
 1. **No file is silently skipped.** A runnable test file that yields no
    statically enumerable call site becomes **one whole-file definition** (a shell
-   script, a script-style `python3 test/foo.test.py`, a custom node harness).
+   script, a script-style `python3 test/foo.test.py`, a custom node harness). A
+   Rust file is the one exception, and in the safe direction: it is enumerated
+   only when it declares a test function, so a plain source file contributes
+   nothing instead of a whole-file pseudo-test.
 2. **Non-tests are named, not dropped.** `.skip`/`.todo` call sites, Go
-   benchmarks (`not-run-by-default`), and `_test.go` files that only carry
-   helpers (`test-support-file`) are listed in the report's `excluded[]`.
+   benchmarks and `#[ignore]` Rust tests (`not-run-by-default`), and `_test.go`
+   files that only carry helpers (`test-support-file`) are listed in the report's
+   `excluded[]`.
 3. **Vendored code is not audited.** `node_modules`, `ignore/`, `vendor`,
-   caches, and nested checkouts under `.pi/git/` are not this project's suite.
+   `target`, caches, and nested checkouts under `.pi/git/` are not this project's
+   suite.
 
 An unenumerable or unparsable test file halts the run (exit `2`): a partial
-inventory must never reach the gate.
+inventory must never reach the gate. That includes a Rust test attribute the
+scanner cannot attribute to a function (the alternative is dropping a runnable
+`cargo test` case without saying so).
 
 **What is not audited.** The claim is "every test this repository runs", not
-"every file that mentions a test". The only test files present here outside the
-four families above belong to the Rust/WASM UI crate
-`cmd/cheasee-pi/embedded/docker/ui/`: its `tests/*.rs` integration targets and
-the `#[cfg(test)]` modules beside its sources. No CI job, `npm`/`go`/`bash`/
-`python` script, or documented command compiles or runs them — no Rust toolchain
-ships in the image or an in-gate lane — so they are outside this run's scope.
-`test/inventory-scope.test.mts` enforces that: any test suite appearing in a
-language this audit cannot enumerate fails that guard until an enumerator is
-added. If a Rust (or any other) runner is ever wired into CI, add its enumerator
-before trusting the completion claim; the report's `coverage` field is what makes
-the claim checkable.
+"every file that mentions a test". The Rust/WASM UI crate
+`cmd/cheasee-pi/embedded/docker/ui/` **is** audited: its
+`cmd/cheasee-pi/embedded/docker/ui/Dockerfile` runs `cargo test` over the crate's
+`#[cfg(test)]` modules and `tests/*.rs` integration targets while the PR smoke
+gate builds that image. Rust is therefore enumerated by content:
+`test/inventory-scope.test.mts` walks every `.rs` file, and any file that declares
+a test function must appear in the inventory or that guard fails. The same guard
+fails for a test suite in any other language this audit cannot enumerate (Ruby,
+Java, Kotlin, C#, PHP), so adding one calls for an enumerator before the
+completion claim is trustworthy; the report's `coverage` field is what makes the
+claim checkable.
 
 Artifacts:
 
@@ -214,7 +226,11 @@ list would silently drop findings.
   single-writer lock. Every record is schema-validated before it is replayed —
   a tampered `decision`, an unknown record type, or a header from another schema
   version halts instead of being reused as a completed verdict. Middle-of-file
-  corruption halts; it is not truncation.
+  corruption halts; it is not truncation. Shape is not policy: a well-formed
+  stored `BAD` is re-gated by `lib/checkpoint-verdict-gate.ts` against the
+  current slice, criteria, and threshold, so a refused record makes its test
+  judged again rather than replayed — and its spent attempts are not held
+  against the new judgement.
 - **Run** (`lib/run.ts`): bounded worker pool, per-test retries, circuit
   breaker, completion gate, and filing idempotency. Only the coordinator
   appends.

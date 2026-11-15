@@ -5,17 +5,23 @@
  * The kind of test file a definition came from. Discovery is language-aware so
  * a repository-wide audit is not silently limited to one runner.
  */
-export type TestLanguage = "typescript" | "go" | "python" | "shell";
+export type TestLanguage = "typescript" | "go" | "python" | "shell" | "rust";
 
 /** Every language the inventory can enumerate. */
-export const TEST_LANGUAGES: readonly TestLanguage[] = ["typescript", "go", "python", "shell"];
+export const TEST_LANGUAGES: readonly TestLanguage[] = [
+	"typescript",
+	"go",
+	"python",
+	"shell",
+	"rust",
+];
 
 /**
  * One runnable test unit. Identity = file + line range + name.
  *
  * The unit is a call site where the language allows static enumeration
- * (`it(...)`, `func TestX`, `def test_x`) and the whole file where it does not
- * (a shell test script, a script-style Python test module).
+ * (`it(...)`, `func TestX`, `def test_x`, `#[test] fn`) and the whole file where
+ * it does not (a shell test script, a script-style Python test module).
  */
 export interface TestDefinition {
 	/** Repository-relative path, echoed verbatim by the discovery step. */

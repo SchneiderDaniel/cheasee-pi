@@ -5,19 +5,37 @@
 // nested checkouts are skipped, so a vendored tree is never audited as this
 // project's tests.
 
-import { existsSync, globSync, readdirSync, statSync } from "node:fs";
+import { existsSync, globSync, readFileSync, readdirSync, statSync } from "node:fs";
 import type { Dirent } from "node:fs";
 import { join, sep } from "node:path";
 
 import { languageOf } from "./inventory-file.ts";
 import { SKIPPED_DIRS, isGoModule, looksLikeTestFile } from "./inventory-file-names.ts";
 import { DiscoveryError } from "./inventory-parse.ts";
+import { declaresRustTest } from "./inventory-rust.ts";
 
 function isFile(cwd: string, relativePath: string): boolean {
 	try {
 		return statSync(join(cwd, relativePath)).isFile();
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * Rust has no test-file naming convention, so its file set is decided by content:
+ * only a `.rs` file that declares a test function is a test file. A Rust source
+ * file that declares none is not a test file and never contributes a definition.
+ */
+function isRustTestFile(dir: string, name: string): boolean {
+	try {
+		return declaresRustTest(readFileSync(join(dir, name), "utf8"));
+	} catch (err) {
+		throw new DiscoveryError(
+			join(dir, name),
+			null,
+			`cannot read Rust source: ${err instanceof Error ? err.message : String(err)}`,
+		);
 	}
 }
 
@@ -47,7 +65,9 @@ export function listTestFiles(cwd: string, runnerGlobs: readonly string[] = []):
 			if (entry.isDirectory() && !SKIPPED_DIRS.has(entry.name))
 				walk(join(dir, entry.name), relativePath);
 			if (!entry.isFile()) continue;
-			if (looksLikeTestFile(entry.name, goModule)) found.add(relativePath);
+			if (!looksLikeTestFile(entry.name, goModule)) continue;
+			if (entry.name.endsWith(".rs") && !isRustTestFile(dir, entry.name)) continue;
+			found.add(relativePath);
 		}
 	};
 	walk(cwd, "");

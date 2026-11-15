@@ -16,6 +16,7 @@ export const SKIPPED_DIRS = new Set([
 	"dist",
 	"build",
 	"vendor",
+	"target",
 	"__pycache__",
 	".venv",
 	"venv",
@@ -31,6 +32,7 @@ const NODE_TEST_NAME = /\.test\.[cm]?[jt]sx?$/;
 const GO_TEST_NAME = /_test\.go$/;
 const PYTHON_TEST_NAME = /^(test_.*\.py|.*_test\.py|.*\.test\.py)$/;
 const SHELL_TEST_NAME = /\.test\.(sh|bash)$/;
+const RUST_NAME = /\.rs$/;
 
 export function isGoModule(cwd: string): boolean {
 	return existsSync(join(cwd, "go.mod"));
@@ -40,7 +42,8 @@ export function looksLikeTestFile(name: string, goModule: boolean): boolean {
 	if (NODE_TEST_NAME.test(name)) return true;
 	if (goModule && GO_TEST_NAME.test(name)) return true;
 	if (PYTHON_TEST_NAME.test(name)) return true;
-	return SHELL_TEST_NAME.test(name);
+	if (SHELL_TEST_NAME.test(name)) return true;
+	return RUST_NAME.test(name);
 }
 
 /** Test-file globs `package.json` `scripts.test` runs, or none when it declares none. */

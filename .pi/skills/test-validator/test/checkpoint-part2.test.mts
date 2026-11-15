@@ -19,9 +19,11 @@ import {
 	readCheckpointRecords,
 } from "../lib/checkpoint.ts";
 import { inventoryFingerprint } from "../lib/fingerprint.ts";
+import { testKey } from "../lib/types.ts";
 import {
 	CONFIG_HASH,
 	CRITERIA_HASH,
+	badVerdict,
 	def,
 	goodVerdict,
 	openOptions,
@@ -43,6 +45,81 @@ describe("checkpoint: resume guard, restart, and locking", () => {
 
 			assert.equal(prior.resumed, true);
 			assert.equal(prior.verdicts.size, 1);
+		});
+	});
+
+	it("replays a stored BAD that still passes the gate", async () => {
+		await withTempDir(async (ctx) => {
+			const seed = new JsonlCheckpointStore();
+			await seed.open(openOptions(ctx));
+			await seed.appendVerdict(def(), badVerdict());
+			await seed.close();
+
+			const reopened = new JsonlCheckpointStore();
+			const prior = await reopened.open(openOptions(ctx));
+			await reopened.close();
+
+			assert.equal(prior.verdicts.size, 1);
+			assert.deepEqual(prior.rejected, []);
+		});
+	});
+
+	it("refuses a stored BAD whose criteria do not qualify, instead of replaying it", async () => {
+		await withTempDir(async (ctx) => {
+			const seed = new JsonlCheckpointStore();
+			await seed.open(openOptions(ctx));
+			// Structurally valid record, policy-invalid verdict: C4 never justifies a BAD.
+			await seed.appendVerdict(def(), badVerdict({ criteria: ["C4"] }));
+			await seed.close();
+			const before = readFileSync(ctx.path, "utf8");
+
+			const reopened = new JsonlCheckpointStore();
+			const prior = await reopened.open(openOptions(ctx));
+			await reopened.close();
+
+			assert.equal(prior.verdicts.size, 0, "a gate-refused BAD must not count as decided");
+			assert.equal(prior.rejected.length, 1);
+			assert.equal(prior.rejected[0].key, testKey(def()));
+			assert.match(prior.rejected[0].reason, /BAD-qualifying/);
+			assert.equal(readFileSync(ctx.path, "utf8"), before, "refusal must not delete the record");
+		});
+	});
+
+	it("refuses a stored BAD whose evidence is outside the judged slice", async () => {
+		await withTempDir(async (ctx) => {
+			const seed = new JsonlCheckpointStore();
+			await seed.open(openOptions(ctx));
+			await seed.appendVerdict(
+				def(),
+				badVerdict({ evidence: [{ line: 99, quote: "assert.equal(total, 2);" }] }),
+			);
+			await seed.close();
+
+			const reopened = new JsonlCheckpointStore();
+			const prior = await reopened.open(openOptions(ctx));
+			await reopened.close();
+
+			assert.equal(prior.verdicts.size, 0);
+			assert.equal(prior.rejected.length, 1);
+			assert.match(prior.rejected[0].reason, /verbatim/);
+		});
+	});
+
+	it("refuses a stored BAD judged below the configured threshold", async () => {
+		await withTempDir(async (ctx) => {
+			const seed = new JsonlCheckpointStore();
+			await seed.open(openOptions(ctx));
+			// Valid under the seeding threshold of 0.8, refused under a stricter 0.95.
+			await seed.appendVerdict(def(), badVerdict({ confidence: 0.9 }));
+			await seed.close();
+
+			const reopened = new JsonlCheckpointStore();
+			const prior = await reopened.open(openOptions(ctx, { badConfidenceThreshold: 0.95 }));
+			await reopened.close();
+
+			assert.equal(prior.verdicts.size, 0);
+			assert.equal(prior.rejected.length, 1);
+			assert.match(prior.rejected[0].reason, /confidence/);
 		});
 	});
 

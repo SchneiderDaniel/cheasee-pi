@@ -98,6 +98,8 @@ export async function runValidation(deps: RunDeps, options: RunOptions): Promise
 		configFingerprint: configFingerprint(config, deps.criteriaSha256),
 		criteriaSha256: deps.criteriaSha256,
 		definitions: options.inventory.tests,
+		sources: options.sources,
+		badConfidenceThreshold: config.badConfidenceThreshold,
 		now,
 	});
 
@@ -111,6 +113,18 @@ export async function runValidation(deps: RunDeps, options: RunOptions): Promise
 	const { queue, reused } = partition(options.inventory.tests, state.verdicts);
 	if (prior.resumed) {
 		log(`resuming: ${reused} decision(s) reused from the checkpoint, ${queue.length} to judge`);
+	}
+	if (prior.rejected.length > 0) {
+		// A stored BAD that no longer passes the gate is judged again, never replayed.
+		// The budget its refused decision consumed cannot count against the new
+		// judgement: with the stored attempts left in place a test whose verdict
+		// landed on its last attempt would never be called again, and the audit
+		// would stay incomplete no matter how often it is resumed.
+		for (const rejection of prior.rejected) state.attempts.delete(rejection.key);
+		log(
+			`checkpoint: refused ${prior.rejected.length} stored decision(s) that fail the BAD gate, ` +
+				`judging them again (first: ${prior.rejected[0].reason})`,
+		);
 	}
 
 	await judgeQueue({ ...deps, sources: options.sources }, queue, state);

@@ -35,6 +35,7 @@ export function emptyPrior(archivePath: string | null): CheckpointPrior {
 		archivePath,
 		verdicts: new Map(),
 		attempts: new Map(),
+		rejected: [],
 		issueIntent: null,
 		issue: null,
 	};
