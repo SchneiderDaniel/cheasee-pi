@@ -145,7 +145,7 @@ describe("loadProjectConfig", () => {
 		assert.deepEqual(rules, defaults);
 	});
 
-	it("getDefaultRules() called directly returns same shape as defaults (verifies factory not mutated by config load)", () => {
+	it("loadDefaultRules() called directly returns same shape as defaults (verifies factory not mutated by config load)", () => {
 		const dir = createTempDir();
 		writeConfig(dir, { cascadeThreshold: 99, toolMeta: { bash: { cascadeThreshold: 50 } } });
 		const before = loadDefaultRules();
