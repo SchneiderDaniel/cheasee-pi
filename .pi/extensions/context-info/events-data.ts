@@ -1,26 +1,32 @@
 // ── Payload → footer state mapping ──────────────────────────────
 // The two event payloads that need more than a field assignment: the shared
-// `supervisor:issue-data` event (which also asks for a re-render) and the
-// assistant usage block behind the cache stats.
+// issue-data bus event (which also asks for a re-render) and the assistant
+// usage block behind the cache stats.
 
 import type { FooterState } from "./footer-state.ts";
+import type { IssueDataEvent } from "../lib/issue-data-event.ts";
 
 /**
  * Mirror a supervisor issue-data event onto the footer. `pi.events` is the bus
  * on purpose: a dynamic import of the supervisor would create a separate
  * module instance (jiti vs native ESM) and its module-level reference would
- * never be this one.
+ * never be this one. The payload shape is declared in the shared contract
+ * module, so producer and consumer cannot drift.
+ *
+ * Runtime tolerance: the bus only ever delivers `unknown`. The listener runs
+ * it through `parseIssueDataEvent` first, so `undefined` here means "not our
+ * payload" — nothing changed, so nothing is rendered. Only `null` clears.
  */
-export function applyIssueDataEvent(state: FooterState, raw: unknown): void {
-	if (raw === null) {
+export function applyIssueDataEvent(state: FooterState, payload: IssueDataEvent | undefined): void {
+	if (payload === undefined) return;
+	if (payload === null) {
 		state.footerConfig.issueNumber.value = undefined;
 		state.footerConfig.issueRepo.value = undefined;
 		state.footerConfig.issueTitle.value = undefined;
-	} else if (typeof raw === "object" && raw !== null) {
-		const data = raw as { issueNumber: number; issueRepo: string; issueTitle: string };
-		state.footerConfig.issueNumber.value = data.issueNumber;
-		state.footerConfig.issueRepo.value = data.issueRepo;
-		state.footerConfig.issueTitle.value = data.issueTitle;
+	} else {
+		state.footerConfig.issueNumber.value = payload.issueNumber;
+		state.footerConfig.issueRepo.value = payload.issueRepo;
+		state.footerConfig.issueTitle.value = payload.issueTitle;
 	}
 	// Re-render through the stored TUI callback when present: re-installing the
 	// whole footer via setFooter() may not render immediately, and the issue data

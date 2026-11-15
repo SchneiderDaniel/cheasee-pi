@@ -9,16 +9,20 @@ import type { FooterState } from "./footer-state.ts";
 import { mirrorThinkingLevel } from "./lib/thinking-level.ts";
 import { applyCacheStats, applyIssueDataEvent, applyTpsSample } from "./events-data.ts";
 import { registerWidgetClearance } from "./events-widgets.ts";
+import { ISSUE_DATA_EVENT, parseIssueDataEvent } from "../lib/issue-data-event.ts";
 
 /** Current footer state, or undefined before session_start / after shutdown. */
 export type GetState = () => FooterState | undefined;
 
 export function registerFooterEvents(pi: ExtensionAPI, getState: GetState): void {
 	// ── Cross-extension event listener (shared pi.events) ──────────
-	pi.events.on("supervisor:issue-data", (raw: unknown) => {
+	// Topic, payload shape come from the neutral contract module both sides
+	// import. `parseIssueDataEvent` turns the bus's `unknown` into the typed
+	// payload, so a foreign emitter can never corrupt the footer.
+	pi.events.on(ISSUE_DATA_EVENT, (raw: unknown) => {
 		const state = getState();
 		if (!state || state.disposed) return;
-		applyIssueDataEvent(state, raw);
+		applyIssueDataEvent(state, parseIssueDataEvent(raw));
 	});
 
 	// ── Widget clearing on user interaction ────────────────────────
