@@ -29,6 +29,7 @@ import {
 	shouldSkipResearcher,
 	inferForwardStatus,
 	buildDuplicateCodeContext,
+	buildAuditorVerdict,
 	computeAuditGateRejection,
 	detectPreservedWork,
 } from "../stages/index.ts";
@@ -452,6 +453,15 @@ export function recordPostDispatch(
 	// This runs BEFORE handlePostAgentSuccess so the gate rejection
 	// comment can replace the normal approval comment.
 	const gateRejected = computeAuditGateRejection(agentName, result, config, stageState, ctx);
+
+	// Capture the auditor verdict for the approval PR body (issue #1831).
+	// Same structured parse as the gate pre-compute above — only the
+	// projection differs. A run without structured audit output leaves the
+	// last known verdict in place (the body then shows no fresh result).
+	if (agentName === "auditor") {
+		const verdict = buildAuditorVerdict(result, stageState);
+		if (verdict) runCtx.auditVerdict = verdict;
+	}
 
 	// Refusal short-circuit (issue #1618): when the agent declined the task
 	// via the documented `refusal` field it owns no post-success side effects.

@@ -24,6 +24,7 @@ import {
 	type PrGateVerdict,
 	type RoundState,
 } from "./pr-gate.ts";
+import type { PrBodyInput } from "./pr-creation.ts";
 
 export async function ensurePrReadyForDone(
 	pi: ExtensionAPI,
@@ -39,6 +40,8 @@ export async function ensurePrReadyForDone(
 	port?: GitHubPort,
 	runner?: AgentRunner,
 	polls?: { attempts: number; backoffMs: number[] },
+	/** Body input for the gate's bounded publish retry (issue #1831). */
+	prBody?: PrBodyInput,
 ): Promise<PrGateVerdict> {
 	const log = getDebugLogger();
 	const branch = worktreeBranch ?? generateBranchName(issueNum, issueTitle, config.branchPrefix!);
@@ -67,6 +70,7 @@ export async function ensurePrReadyForDone(
 			collector,
 			runner,
 			port,
+			prBody,
 		};
 
 		for (let round = 0; round < 3; round++) {

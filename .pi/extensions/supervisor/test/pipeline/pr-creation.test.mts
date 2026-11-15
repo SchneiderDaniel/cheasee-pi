@@ -166,7 +166,6 @@ describe("createPrOnApproval()", () => {
 			"worktree-git-issue-42-test",
 			undefined,
 			undefined,
-			undefined,
 			port,
 		);
 
@@ -220,7 +219,6 @@ describe("createPrOnApproval()", () => {
 			"worktree-git-issue-42-test",
 			undefined,
 			undefined,
-			undefined,
 			port,
 		);
 
@@ -258,7 +256,6 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
-			undefined,
 			undefined,
 			undefined,
 			port,
@@ -305,7 +302,6 @@ describe("createPrOnApproval()", () => {
 			[mockAgentResult],
 			"/worktrees/wt-42",
 			"worktree-git-issue-42-test",
-			undefined,
 			undefined,
 			undefined,
 			port,
@@ -360,7 +356,6 @@ describe("createPrOnApproval()", () => {
 				"worktree-git-issue-42-test",
 				undefined,
 				undefined,
-				undefined,
 				port,
 			),
 		);
@@ -406,7 +401,6 @@ describe("createPrOnApproval()", () => {
 			"worktree-git-issue-42-test",
 			undefined,
 			undefined,
-			undefined,
 			port,
 		);
 
@@ -448,7 +442,6 @@ describe("createPrOnApproval()", () => {
 			"worktree-git-issue-42-test",
 			undefined,
 			undefined,
-			undefined,
 			port,
 		);
 
@@ -474,7 +467,6 @@ describe("createPrOnApproval()", () => {
 			[], // empty agentResults
 			undefined, // no worktreePath — skips Phase 2 and 2.5
 			"worktree-git-issue-42-test",
-			undefined,
 			undefined,
 			undefined,
 			port,

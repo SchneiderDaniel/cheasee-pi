@@ -20,7 +20,12 @@ import type { GitHubPort } from "../../github/ports.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import { ensurePrReadyForDone } from "../merge.ts";
 import { applyStatusTransition } from "../stages/index.ts";
-import { createPrOnApproval } from "../pr-creation.ts";
+import type { PrBodyInput } from "../pr-creation.ts";
+import {
+	buildApprovalBodyInput,
+	publishApprovalPr,
+	refreshBodyForBlockedGate,
+} from "./pr-approval-publish.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
 import { postPipelineBlocker } from "./blocker-comment.ts";
 import type { RunContext } from "./shared.ts";
@@ -38,6 +43,7 @@ async function runPrReadinessGate(
 	collector: ErrorCollector | undefined,
 	port: GitHubPort,
 	runner: AgentRunner | undefined,
+	prBody: PrBodyInput,
 ): Promise<{
 	prCreationResult: PrCreationResult | undefined;
 	blocked: boolean;
@@ -56,6 +62,8 @@ async function runPrReadinessGate(
 		collector,
 		port,
 		runner,
+		undefined,
+		prBody,
 	);
 	const final = verdict.prCreationResult ?? prCreationResult;
 	if (final && !final.success) {
@@ -153,7 +161,6 @@ export async function handlePrApprovalFlow(
 		worktreePath,
 		worktreeBranch,
 		collector,
-		stageState,
 		port,
 		loopItem,
 		projectId,
@@ -161,31 +168,8 @@ export async function handlePrApprovalFlow(
 		statusField,
 	} = runCtx;
 
-	// Debug tracing: agentResults before PR creation (R3 requirement)
-	getDebugLogger().info("handler", "agentResults before PR creation", {
-		length: agentResults.length,
-		entries: agentResults.map((a) => ({
-			name: a.agentName,
-			status: a.status,
-			tokens: a.tokenCount,
-		})),
-	});
-
-	getDebugLogger().info("handler", "Creating PR on approval");
-	const created = await createPrOnApproval(
-		pi,
-		ctx,
-		issueNum,
-		issueTitle,
-		config,
-		agentResults,
-		worktreePath,
-		worktreeBranch,
-		collector,
-		stageState.gateFailureHistory,
-		undefined,
-		port,
-	);
+	const prBody = buildApprovalBodyInput(runCtx);
+	const created = await publishApprovalPr(runCtx, prBody);
 
 	// Pre-Done readiness gate (issue #1472): a rebase-conflict PR creation
 	// failure must NOT complete the pipeline. The gate resolves conflicts
@@ -205,9 +189,16 @@ export async function handlePrApprovalFlow(
 		collector,
 		port,
 		runCtx._runner,
+		prBody,
 	);
 	const prCreationResult = gate.prCreationResult;
 	if (gate.blocked) {
+		const blockerNote =
+			gate.blockerNote ?? "PR not ready for Done — manual intervention required.";
+		// The body was published as "success" before the gate ran. Refresh the
+		// already-published PR with the final status so it is self-describing;
+		// update-only, so a vanished PR can never become a duplicate here.
+		await refreshBodyForBlockedGate(prBody, blockerNote, prCreationResult, runCtx);
 		const stopReason = await blockPipelineOnPrGate(
 			port,
 			ctx,
@@ -219,7 +210,7 @@ export async function handlePrApprovalFlow(
 			statusField,
 			loopStatus,
 			collector,
-			gate.blockerNote ?? "PR not ready for Done — manual intervention required.",
+			blockerNote,
 		);
 		// The issue now sits in a non-Done status — the post-pipeline
 		// phase must not treat it as complete (never COMPLETED w/o PR).

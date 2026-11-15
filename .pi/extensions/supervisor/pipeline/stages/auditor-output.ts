@@ -9,6 +9,7 @@ import type {
 	SupervisorConfig,
 	AgentRunResult,
 	AgentOutput,
+	AuditorVerdictSummary,
 	FilteredIssueData,
 } from "../../config/types.ts";
 import type { ErrorCollector } from "../error-collector.ts";
@@ -158,6 +159,45 @@ async function handleStructuredVerdict(
 			ctx,
 		);
 	}
+}
+
+/**
+ * Bounded summary of the auditor verdict rendered into the approval PR body
+ * (issue #1831). Same parse as `computeAuditGateRejection` — a different
+ * projection of the same verdict, never a second computation: the score plus
+ * the blocking (critical/warning) dimensions. Suggestions never block, so
+ * they are dropped. Returns undefined when the run carries no structured
+ * audit output (text-marker-only runs have no verdict to publish).
+ */
+export function buildAuditorVerdict(
+	result: AgentRunResult,
+	stageState: StageState,
+): AuditorVerdictSummary | undefined {
+	if (!result.success || !result.textOutput) {
+		return undefined;
+	}
+	const parseResult = parseAgentOutput(result.textOutput, new Set(result.toolCalls ?? []));
+	if (!isAgentOutputSuccess(parseResult)) {
+		return undefined;
+	}
+	const output = parseResult as AgentOutput;
+	const findings = output.findings ?? [];
+	if (!output.auditScore && findings.length === 0) {
+		return undefined;
+	}
+	const score =
+		output.auditScore ??
+		computeAuditScoreFromFindings(
+			findings,
+			getActiveAuditDimensions(stageState.researcherSkipped),
+		);
+	const blockers = findings
+		.filter((finding) => finding.severity === "critical" || finding.severity === "warning")
+		.map((finding) => ({
+			severity: finding.severity as "critical" | "warning",
+			dimension: finding.dimension,
+		}));
+	return { score: { passing: score.passing, total: score.total }, blockers };
 }
 
 /**

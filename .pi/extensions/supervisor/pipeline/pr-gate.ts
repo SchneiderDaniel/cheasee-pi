@@ -15,7 +15,7 @@ import type {
 import type { GitHubPort } from "../github/ports.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
-import { createPrOnApproval } from "./pr-creation.ts";
+import { createPrOnApproval, type PrBodyInput } from "./pr-creation.ts";
 import { resolveBranchConflicts } from "./merge-conflicts.ts";
 
 // ─── PR Readiness Gate ───────────────────────────────────────────
@@ -74,7 +74,10 @@ export type MergeabilityClass =
 	| { kind: "clean"; prNumber: number }
 	| { kind: "dirty"; prNumber: number }
 	| { kind: "computing" }
-	| { kind: "no-pr"; mode: "rebase-conflicts" | "creation-failed" | "propagating" };
+	| {
+			kind: "no-pr";
+			mode: "rebase-conflicts" | "creation-failed" | "propagating" | "vanished";
+	  };
 
 export function classifyMergeability(
 	info: PrConflictInfo | null,
@@ -86,6 +89,12 @@ export function classifyMergeability(
 		}
 		if (current && !current.success) {
 			return { kind: "no-pr", mode: "creation-failed" };
+		}
+		// A successful publish that GitHub does not list any more: the PR was
+		// deleted (or is still propagating). Not fail-open — the approval path
+		// must re-publish rather than complete without a PR (issue #1831, AC3).
+		if (current?.success) {
+			return { kind: "no-pr", mode: "vanished" };
 		}
 		return { kind: "no-pr", mode: "propagating" };
 	}
@@ -113,6 +122,8 @@ export interface PrGateDeps {
 	collector?: ErrorCollector;
 	runner?: AgentRunner;
 	port: GitHubPort;
+	/** Body input reused by every gate retry so a re-publish keeps the audit verdict. */
+	prBody?: PrBodyInput;
 }
 
 /** Mutable per-round state shared between the loop and its handlers. */
@@ -136,8 +147,9 @@ async function retryCreatePr(deps: PrGateDeps): Promise<PrCreationResult> {
 		deps.worktreePath,
 		deps.worktreeBranch,
 		deps.collector,
-		undefined,
-		undefined,
+		// Reuse the approval's body input: a retry must not overwrite the PR
+		// body with a bare success summary (drops gate history / audit verdict).
+		deps.prBody,
 		deps.port,
 	);
 }
@@ -148,7 +160,7 @@ export async function handleMissingPr(
 	state: RoundState,
 	branch: string,
 	mergePoll: { attempts: number; backoffMs: number[] },
-	mode: "rebase-conflicts" | "creation-failed" | "propagating",
+	mode: "rebase-conflicts" | "creation-failed" | "propagating" | "vanished",
 ): Promise<RoundOutcome> {
 	const log = getDebugLogger();
 	const { current } = state;
@@ -213,6 +225,49 @@ export async function handleMissingPr(
 		state.retried = true;
 		state.current = await retryCreatePr(deps);
 		return { continue: true };
+	}
+
+	if (mode === "vanished") {
+		// A publish reported success but GitHub no longer lists a PR for the
+		// branch (deleted mid-run, or still propagating). Re-publishing is the
+		// only way to satisfy "never Done without a PR" — bounded to one retry.
+		if (state.retried) {
+			return {
+				verdict: {
+					ok: false,
+					prCreationResult: current,
+					blockerNote:
+						"PR is still not visible after a re-publish attempt — Manual intervention required.",
+				},
+			};
+		}
+		const settled = await awaitPrMergeability(deps.port, branch, deps.config.repo, {
+			attempts: Math.min(mergePoll.attempts, 3),
+			backoffMs: mergePoll.backoffMs,
+		});
+		if (settled) {
+			log.warn("pipeline-merge", "PR reappeared after the propagation poll", {
+				branch,
+				prNumber: settled.number,
+			});
+			return { verdict: { ok: true, prCreationResult: state.current } };
+		}
+		log.warn("pipeline-merge", "Published PR is not visible — re-publishing once", {
+			branch,
+			prNumber: current?.prNumber,
+		});
+		state.retried = true;
+		state.current = await retryCreatePr(deps);
+		if (state.current.success) {
+			return { verdict: { ok: true, prCreationResult: state.current } };
+		}
+		return {
+			verdict: {
+				ok: false,
+				prCreationResult: state.current,
+				blockerNote: `PR is not visible on GitHub and re-publishing failed: ${state.current.error ?? "unknown error"} — Manual intervention required.`,
+			},
+		};
 	}
 
 	// PR created (or no result) but not yet visible — poll for

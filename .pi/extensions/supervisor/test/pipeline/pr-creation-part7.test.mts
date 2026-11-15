@@ -166,7 +166,6 @@ describe("createPrOnApproval()", () => {
 				"worktree-git-issue-42-test",
 				undefined,
 				undefined,
-				undefined,
 				port,
 			);
 

@@ -13,10 +13,15 @@ import type {
 import { generateBranchName } from "../lib/branch-name.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { tryRebaseOntoBase } from "./rebase.ts";
-import { buildPipelineSummary } from "../pipeline/output.ts";
+import { buildPipelineSummary, renderAuditorSection } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
+import type { PrBodyInput } from "./output.ts";
+
+// Body-input contract lives with the body renderer (output.ts); re-exported
+// here so PR call sites keep one import path for the publish surface.
+export type { PrBodyInput } from "./output.ts";
 
 /**
  * Maximum number of retry attempts for gh pr create.
@@ -103,36 +108,42 @@ export type PrNotify = (message: string, level: "info" | "warning" | "error") =>
  * Build the PR title + body for an issue.
  * Single owner of the buildPipelineSummary argument mapping so the early
  * upsert (in-progress) and the approval refresh cannot drift apart.
+ * The auditor section is appended by output.ts — `buildPipelineSummary`
+ * keeps its positional contract unchanged.
  */
 export function buildPrBody(
 	issueNum: number,
 	issueTitle: string,
 	agentResults: PipelineAgentResult[],
 	config: SupervisorConfig | undefined,
-	opts?: {
-		gateFailureHistory?: string[];
-		packageSafetyResult?: PackageSafetyAuditResult | null;
-		overallStatus?: "success" | "in-progress";
-	},
+	input?: PrBodyInput,
 ): { title: string; body: string } {
 	return {
 		title: `feat(#${issueNum}): ${issueTitle}`,
-		body: buildPipelineSummary(
-			agentResults,
-			opts?.overallStatus ?? "in-progress",
-			issueNum,
-			issueTitle,
-			config,
-			undefined,
-			undefined,
-			opts?.gateFailureHistory,
-			opts?.packageSafetyResult,
+		body: withAuditorSection(
+			buildPipelineSummary(
+				agentResults,
+				input?.overallStatus ?? "in-progress",
+				issueNum,
+				issueTitle,
+				config,
+				input?.stopReason,
+				undefined,
+				input?.gateFailureHistory,
+				input?.packageSafetyResult,
+			),
+			input?.auditVerdict,
 		),
 	};
 }
 
+/** Append the auditor verdict block, when the run produced one. */
+function withAuditorSection(summary: string, auditVerdict?: PrBodyInput["auditVerdict"]): string {
+	return auditVerdict ? `${summary}\n\n${renderAuditorSection(auditVerdict)}` : summary;
+}
+
 /** Update an existing PR, mapping failures to a PrCreationResult. */
-async function updateExistingPr(
+export async function updateExistingPr(
 	port: GitHubPort,
 	repo: string,
 	prNumber: number,
@@ -262,7 +273,8 @@ export async function upsertPullRequest(input: {
  * - Push failure stops the flow early (Bug 3 fix)
  * - Retries gh pr create with exponential backoff (Bug 5 fix)
  * - Pre-checks commit count before PR creation (Bug 3 fix)
- * - Accepts gateFailureHistory for PR body gate failure context (R2)
+ * - Accepts a PrBodyInput for PR body gate failures, package safety and the
+ *   auditor verdict (issue #1831 — one body input, no positional drift)
  */
 export async function createPrOnApproval(
 	pi: ExtensionAPI,
@@ -274,19 +286,20 @@ export async function createPrOnApproval(
 	worktreePath: string | undefined,
 	worktreeBranch: string | undefined,
 	collector?: ErrorCollector,
-	gateFailureHistory?: string[],
-	packageSafetyResult?: PackageSafetyAuditResult | null,
+	prBodyInput?: PrBodyInput,
 	port?: GitHubPort,
 ): Promise<PrCreationResult> {
 	const log = getDebugLogger();
 	const headBranch =
 		worktreeBranch ?? generateBranchName(issueNum, issueTitle, config.branchPrefix!);
 
-	const { title: prTitle, body: prBody } = buildPrBody(issueNum, issueTitle, agentResults, config, {
-		gateFailureHistory,
-		packageSafetyResult,
-		overallStatus: "success",
-	});
+	const { title: prTitle, body: prBody } = buildPrBody(
+		issueNum,
+		issueTitle,
+		agentResults,
+		config,
+		prBodyInput ?? { overallStatus: "success" },
+	);
 
 	log.info("pr-creation", `PR body built (${prBody.length} chars)`);
 	log.info("pr-creation", `PR title: ${prTitle}`);
