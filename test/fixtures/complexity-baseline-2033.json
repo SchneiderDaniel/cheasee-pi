@@ -13,7 +13,7 @@
 		"beforeNote": "the filed list is a superset: 93 of the 286 are .mts (never scored by the analyzer), 2 score below the ceiling, and the tree advanced past analyzedAt (7 critical files are not in the filed list). The envelope is therefore measured, not copied.",
 		"driftNote": "`filedBaseline` is the architecture's measurement at e075a867 (198 critical). `before` is the same mirror re-run on the merge base this branch landed on (origin/main 434bcfde, 204 critical). Main's own refactors added and removed flags between the two, so acceptance is the DROP against `before`, not the filed count.",
 		"notScoredNote": "one cited .mts path (.pi/extensions/agent-harness/test/index-cascade.test.mts) no longer exists — renamed since analyzedAt, so 93 of the 94 cited .mts paths are recorded.",
-		"afterNote": "`after` is measured in-gate over the delivered tracked tree; the split adds files, so `after.files`/`after.codeFiles` exceed `before` — the drop is not from deleting files. #2103 adds thirteen scored files; #2106 adds one scored production file (.pi/extensions/supervisor/agent/runner/presenter.ts, the RunPresenter port) and brings .pi/extensions/supervisor/agent/runner/index.ts back under the ceiling; #2104 adds one scored test-support file (test/dependency_existence_check_tests/_loader.py, the leaf that now loads the production module); #1830 adds one scored production file (.pi/extensions/supervisor/pipeline/handler/blocker-comment.ts, the shared CI/PR blocker poster) and keeps .pi/extensions/supervisor/pipeline/audit/index.ts out of the critical set (28). #2100 splits the 764-point codeflow/fp-filter.js into an index over eight policy modules under codeflow/fp-filter/; because this metric counts branch tokens over RAW text, the family is still far above the ceiling in total (the index plus its eight modules), so the delivered tree carries eight NEW critical paths and `after.criticalCount` re-anchors 190 -> 198. That is the cost of clearing the `VBA God Module` declarations metric, which is scored per file and therefore cannot be cleared without new scored files; the eight modules are recorded one by one in `deferred` below. The ratchet still holds: 204 -> 198 is a drop and 198 is exactly `filedBaseline.criticalCount`, so the delivered tree is never above the filed baseline. The after/partition counts describe the combined delivered tree."
+		"afterNote": "`after` is measured in-gate over the delivered tracked tree; the split adds files, so `after.files`/`after.codeFiles` exceed `before` — the drop is not from deleting files. #2103 adds thirteen scored files; #2106 adds one scored production file (.pi/extensions/supervisor/agent/runner/presenter.ts, the RunPresenter port) and brings .pi/extensions/supervisor/agent/runner/index.ts back under the ceiling; #2104 adds one scored test-support file (test/dependency_existence_check_tests/_loader.py, the leaf that now loads the production module); #1830 adds one scored production file (.pi/extensions/supervisor/pipeline/handler/blocker-comment.ts, the shared CI/PR blocker poster) and keeps .pi/extensions/supervisor/pipeline/audit/index.ts out of the critical set (28). #2100 splits the 764-point codeflow/fp-filter.js into an index over eight policy modules under codeflow/fp-filter/; because this metric counts branch tokens over RAW text, the family is still far above the ceiling in total (the index plus its eight modules), so the delivered tree carries eight NEW critical paths and `after.criticalCount` re-anchors 190 -> 198. That is the cost of clearing the `VBA God Module` declarations metric, which is scored per file and therefore cannot be cleared without new scored files; the eight modules are recorded one by one in `deferred` below. The ratchet still holds: 204 -> 198 is a drop and 198 is exactly `filedBaseline.criticalCount`, so the delivered tree is never above the filed baseline. The after/partition counts describe the combined delivered tree. #2125 adds the test-validator skill: fifty-one scored production modules under .pi/skills/test-validator/lib/ (inventory scanning for TypeScript, Go, Python, shell and Rust, the verdict gate, the checkpoint codec/schema/lock, the run pool and filing, the report policy, and the pi-ai and gh adapters). Every one measures at or below the ceiling of 30, so #2125 moves no flag: criticalCount stays 198 and the #2033 envelope still describes the delivered tree. On the combined tree the two concurrent scored-file additions are additive — #2100's eight fp-filter policy modules plus #2125's fifty-one skill modules take scored 888 -> 947 and belowCeiling 698 -> 749, which is the measured `after` recorded here."
 	},
 	"filedBaseline": {
 		"commit": "e075a867b708952176b38e0fc51329c8dcb2c79a",
@@ -30,14 +30,14 @@
 	"after": {
 		"criticalCount": 198,
 		"expectedDrop": 6,
-		"files": 1691,
-		"codeFiles": 896
+		"files": 1776,
+		"codeFiles": 947
 	},
 	"partition": {
-		"scored": 896,
+		"scored": 947,
 		"critical": 198,
 		"notScored": 93,
-		"belowCeiling": 698
+		"belowCeiling": 749
 	},
 	"reducedBy": [
 		{
