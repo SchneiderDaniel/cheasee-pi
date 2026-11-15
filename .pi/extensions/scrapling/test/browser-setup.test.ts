@@ -297,3 +297,153 @@ describe("ensureStealthBrowser", () => {
 		}
 	});
 });
+
+// ══════════════════════════════════════════════════════════════════════
+//  defaultIsWritable — the live production default (no isWritable injected)
+// ══════════════════════════════════════════════════════════════════════
+//
+// Every example above injects `isWritable`, so the module-private default is
+// referenced but never executed. Here the seam is omitted, so the real
+// filesystem probe runs: deleting that default, inlining it, substituting a
+// constant breaks these tests.
+
+describe("ensureStealthBrowser — defaultIsWritable (production default probe)", () => {
+	/** Exec that also writes the expected build dir on install, like a real run. */
+	function makeInstallingExec(cacheRoot: string, rev: string): Mock {
+		const mock = makeExec();
+		const exec: ExecFn = async (cmd, args, opts) => {
+			const res = await mock.exec(cmd, args, opts);
+			if (args.includes("install")) writeBrowser(cacheRoot, rev);
+			return res;
+		};
+		return { exec, calls: mock.calls };
+	}
+
+	it("(adapter) cache root nested in a not-yet-created tree → ancestor walk makes the probe true, one install", async () => {
+		const base = tempCache();
+		const cacheRoot = path.join(base, "x", "y", "z");
+		assert.equal(fs.existsSync(cacheRoot), false, "precondition: no level of cacheRoot exists yet");
+		try {
+			const { exec, calls } = makeInstallingExec(cacheRoot, "1234");
+
+			await ensureStealthBrowser(PY, exec, { cacheRoot });
+
+			const installs = installCalls(calls);
+			assert.equal(
+				installs.length,
+				1,
+				"a writable ancestor must allow exactly one patchright install",
+			);
+			assert.deepEqual(installs[0].args.slice(2), ["install", "chromium"]);
+			assert.equal(fs.existsSync(path.join(cacheRoot, "chromium-1234")), true);
+		} finally {
+			fs.rmSync(base, { recursive: true, force: true });
+		}
+	});
+
+	it("(adapter) existing writable cache root → access(W_OK) passes, the install self-heals", async () => {
+		const cacheRoot = tempCache();
+		assert.equal(fs.existsSync(path.join(cacheRoot, "chromium-1234")), false);
+		try {
+			const { exec, calls } = makeInstallingExec(cacheRoot, "1234");
+
+			await ensureStealthBrowser(PY, exec, { cacheRoot });
+
+			assert.equal(
+				installCalls(calls).length,
+				1,
+				"writable cache must self-heal via patchright install",
+			);
+		} finally {
+			fs.rmSync(cacheRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("(error) non-writable cache root → the default probe fails fast, typed contract, zero installs", async (t) => {
+		if (process.getuid?.() === 0) {
+			t.skip(
+				"root bypasses the POSIX write bits: access(W_OK) still passes on a 0555 directory, so the fail-fast branch stays unreachable",
+			);
+			return;
+		}
+		const cacheRoot = tempCache();
+		fs.chmodSync(cacheRoot, 0o555);
+		try {
+			const { exec, calls } = makeExec();
+
+			await assert.rejects(
+				() => ensureStealthBrowser(PY, exec, { cacheRoot }),
+				(err: unknown) => {
+					assert.ok(
+						err instanceof EnsureBrowserError,
+						"non-writable cache must surface EnsureBrowserError",
+					);
+					const e = err as EnsureBrowserError;
+					assert.equal(
+						e.expectedRevision,
+						"1234",
+						"the resolved revision must be carried by the failure",
+					);
+					assert.equal(e.cacheRoot, cacheRoot, "the probed cache root must be echoed");
+					assert.equal(e.writable, false, "writable must report the probe verdict");
+					return true;
+				},
+			);
+			assert.equal(
+				installCalls(calls).length,
+				0,
+				"fail-fast policy: never attempt a doomed install",
+			);
+		} finally {
+			// Restore write bits so the temp tree can be removed.
+			fs.chmodSync(cacheRoot, 0o755);
+			fs.rmSync(cacheRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("(boundary) expected build already present → no throw, no install, a healthy cache costs one probe", async () => {
+		const cacheRoot = tempCache();
+		writeBrowser(cacheRoot, "1234");
+		try {
+			const { exec, calls } = makeExec();
+
+			await ensureStealthBrowser(PY, exec, { cacheRoot });
+
+			assert.equal(installCalls(calls).length, 0, "present browser must not be reinstalled");
+			assert.equal(calls.length, 1, "only the revision probe runs once the build exists");
+		} finally {
+			fs.rmSync(cacheRoot, { recursive: true, force: true });
+		}
+	});
+
+	it("(boundary) unresolvable revision → typed error before the writability probe, no install", async () => {
+		const cacheRoot = tempCache();
+		try {
+			const { exec, calls } = makeExec({
+				revision: { code: 0, stdout: "", stderr: "", killed: false },
+			});
+
+			await assert.rejects(
+				() => ensureStealthBrowser(PY, exec, { cacheRoot }),
+				(err: unknown) => {
+					assert.ok(err instanceof EnsureBrowserError);
+					assert.equal(
+						(err as EnsureBrowserError).expectedRevision,
+						"",
+						"no revision could be parsed",
+					);
+					return true;
+				},
+			);
+
+			assert.equal(
+				calls.length,
+				1,
+				"revision resolution gates the probe: only one exec call happens",
+			);
+			assert.equal(installCalls(calls).length, 0, "must fail closed, never install blind");
+		} finally {
+			fs.rmSync(cacheRoot, { recursive: true, force: true });
+		}
+	});
+});
