@@ -111,6 +111,19 @@ const TOUCHED: Record<string, string[]> = {
 		"test/dependency_existence_check_tests/test_ignore_mechanism.py",
 		"test/dependency_existence_check_tests/test_end_to_end.py",
 	],
+	// Served asset (issue #2100): one policy module per category, the index keeps
+	// the name the served route, the `piFpFilter` global and the Node `require`
+	// path already use. Each sibling is a UMD factory the index wires up.
+	"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js": [
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/lexical.js",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/hygiene.js",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/layer.js",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/high.js",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/command-exec-policy.js",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/command-exec.js",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/dead-code.js",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/duplicates.js",
+	],
 };
 
 const ALL_FILES = [...Object.keys(TOUCHED), ...Object.values(TOUCHED).flat()];
@@ -193,6 +206,10 @@ describe("long-file refactor #2005 — manifest", () => {
 		assert.ok(families.includes(".pi/extensions/agent-harness/test/index.test.ts"));
 		assert.ok(families.includes("cmd/cheasee-pi/codeflow_run_test.go"));
 		assert.ok(families.includes("test/dependency-existence-check.test.py"));
+		assert.ok(
+			families.includes("cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"),
+			"the served false-positive filter is a split family too",
+		);
 	});
 
 	it("every listed file exists and is listed exactly once", () => {

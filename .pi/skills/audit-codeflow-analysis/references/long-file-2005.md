@@ -91,7 +91,11 @@ had already fallen to 35 on the immutable base, because #2001 (Large Files),
 #2002 (Highly Coupled), #2003 (High Complexity) and #2004 (God Object) split
 overlapping parts of the same file set — the issue itself notes the per-issue
 file isolation is best-effort, not disjoint. Acceptance is the drop on the
-delivered branch: **35 → 16, all 19 non-deferred families cleared**.
+delivered branch: **35 → 16, all 19 non-deferred families cleared**. #2100 then
+retired the last served-asset deferral: `fp-filter.js` became an index barrel
+over eight policy modules under `codeflow/fp-filter/`, every one under 500
+segments, so the delivered tree flags **1** — the `ui/src/session/relay.rs`
+relay that #2036 records in its own register.
 
 ## What actually moved the number
 
@@ -150,8 +154,9 @@ import-graph edge was added.
   Dockerfile `COPY`ed asset served as the single `<script src="fp-filter.js">`
   tag pinned by the Go and bridge suites, so its split belongs to the change
   that owns the served-asset contract. The #2026 dead-code reference rule is what
-  took it past 500. This is the only remaining deferral; #2035 later cleared the
-  Rust set and `server.py` (see `long-file-2035.md`).
+  took it past 500. This deferral was retired by #2100, which owns that contract:
+  the index keeps its name, the module tags load before it, and the served route
+  serves them from a fixed allowlist (see `fp-filter-modules-2100.md`).
 - **Renaming or re-homing code into non-scored extensions to dodge the metric.**
   The oracle guards `reducedBy` against `.mts` paths and against any path that is
   also listed under `deferred`.

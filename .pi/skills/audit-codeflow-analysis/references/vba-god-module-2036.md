@@ -114,10 +114,12 @@ snapshot predates #2006 (the two Python test modules still counted 21 each) and
 already split and two files the issue did not cite (`disk_space_test.go`,
 `fp-filter.js`) newly over the ceiling.
 
-- **`25 → 1`** flagged file: all 23 cited modules that the pinned base flags
+- **`25 → 0`** flagged files: all 23 cited modules that the pinned base flags
   drop under the ceiling, each via verbatim moves into siblings of the same module
   tree (the strings skipper is inlined). #2034 also split the uncited `disk_space_test.go`.
-- The remaining `fp-filter.js` flag is the **uncited leftover** recorded below.
+- The last `fp-filter.js` flag — the **uncited leftover** recorded below — was
+  split by #2100 into an index barrel plus eight policy modules, so no file of the
+  family is flagged on the delivered tree and `deferred` is empty.
 - The 2 cited Python test modules (`test_adapter_extraction.py`,
   `test_registry_transport.py`) were already under the base ceiling — #2006
   split them — and are recorded as `alreadyUnder`, so all 25 filed paths stay
@@ -190,16 +192,18 @@ The first full `cargo check`/build remains the browser (Docker) build.
 
 ## Deferred (measured, never split here)
 
-No cited module is deferred. The delivered tree has one remaining flag for a
-file the issue does **not** cite (`fp-filter.js`); it belongs to the long-file /
-anti-pattern issues that share the same file set. `disk_space_test.go`, which was
-also an uncited flag at the pinned base, was split by #2034 after that base.
+No module is deferred. The delivered tree carries no flag of the family: the
+uncited `fp-filter.js` leftover was split by #2100 (recorded under
+`uncitedReduced`, with its eight policy modules as `splitFamilies` siblings), and
+`disk_space_test.go`, which was also an uncited flag at the pinned base, was
+split by #2034 after that base.
 
-The fixture records both paths: `deferred` holds the still-flagged `fp-filter.js`,
-and `baseAdvance.resolvedFiles` records the `disk_space_test.go` reduction in the
-advanced main branch. Thus the pinned-base accounting is
-`reducedBy` (23) + `deferred` (1) + `baseAdvance.resolvedFiles` (1) = 25; on the
-delivered tree, `after.vbaGodModuleCount` equals the single deferred flag.
+The fixture records every path: `reducedBy` holds the 22 cited reductions,
+`uncitedReduced` holds `fp-filter.js`, and `baseAdvance.resolvedFiles` records
+the `disk_space_test.go` reduction in the advanced main branch. Thus the
+pinned-base accounting is `reducedBy` (22) + `uncitedReduced` (1) + `removed`
+(1) + `baseAdvance.resolvedFiles` (1) = 25; on the delivered tree,
+`after.vbaGodModuleCount` is 0 and `deferred` is empty.
 
 ## Risk
 

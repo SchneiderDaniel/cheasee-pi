@@ -20,8 +20,11 @@ COPY server.py bridge_js.py config.py report_store.py analysis_run.py repo_ident
 COPY config.json /opt/codeflow/config.json
 COPY run-analysis.mjs /opt/codeflow/run-analysis.mjs
 # False-positive policy, shared by the headless runner and the served page
-# (server.py requires it from this same directory).
+# (server.py requires it from this same directory). `fp-filter.js` is the index;
+# the policy modules it is built from live in the `fp-filter/` tree beside it, and
+# server.py serves them from a fixed allowlist (`_FP_FILTER_MODULES`).
 COPY fp-filter.js /opt/codeflow/fp-filter.js
+COPY fp-filter/ /opt/codeflow/fp-filter/
 
 # Fail the build loudly if any shim module is corrupt. A SyntaxError here would
 # otherwise build fine and crash the container silently at startup.

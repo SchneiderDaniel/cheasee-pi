@@ -13,12 +13,76 @@ _API_BASE = re.compile(rb"'https://api\.github\.com/'")
 # The headless runner requires the same module before it builds its exports, so
 # the two paths share one policy. Served from disk next to this file.
 _FP_FILTER_ROUTE = "/fp-filter.js"
-_FP_FILTER_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fp-filter.js")
+_FP_FILTER_DIR = os.path.dirname(os.path.abspath(__file__))
+_FP_FILTER_PATH = os.path.join(_FP_FILTER_DIR, "fp-filter.js")
+
+# The policy modules `fp-filter.js` is built from, in load order: each entry
+# publishes one global the next one (and the index) reads, and the index itself
+# loads last. A path is relative to `fp-filter/`, so it doubles as the served
+# name under `_FP_FILTER_MODULE_ROUTE`. This tuple is the single allowlist: a
+# request tail is looked up in it and never joined to the filesystem, so `..`,
+# an encoded separator or an absolute path can only miss and 404.
+_FP_FILTER_MODULES = (
+    "lexical",
+    "hygiene",
+    "layer",
+    "security/high",
+    "security/command-exec-policy",
+    "security/command-exec",
+    "dead-code",
+    "duplicates",
+)
+_FP_FILTER_MODULE_ROUTE = "/fp-filter/"
+_FP_FILTER_MODULE_DIR = os.path.join(_FP_FILTER_DIR, "fp-filter")
+# Served name -> the concrete file, built once from the allowlist above. A
+# request therefore selects an entry of this table; the path handed to `open` is
+# a value derived from the tuple, never text taken from the request.
+_FP_FILTER_MODULE_PATHS = {
+    name: os.path.join(_FP_FILTER_MODULE_DIR, name + ".js")
+    for name in _FP_FILTER_MODULES
+}
 
 
 def _fp_filter_bytes():
     with open(_FP_FILTER_PATH, "rb") as fh:
         return fh.read()
+
+
+def _fp_filter_module_name(suffix):
+    """The allowlisted module a `/fp-filter/<suffix>` request names, or None.
+
+    `suffix` is the raw request tail, never a path: it must be exactly
+    `<allowlisted name>.js`, so `..`, an encoded separator or an absolute path
+    can only miss the allowlist.
+    """
+    if not suffix.endswith(".js"):
+        return None
+    name = suffix[: -len(".js")]
+    return name if name in _FP_FILTER_MODULES else None
+
+
+def _fp_filter_module_bytes(name):
+    """The bytes of one allowlisted policy module.
+
+    `name` selects an entry of `_FP_FILTER_MODULE_PATHS`, so the opened path is a
+    value built from the allowlist, never request text: an unlisted name has no
+    entry at all. The selected path is then confined to `fp-filter/` exactly like
+    `server._serve_ui_file` confines UI paths, so even an entry that pointed
+    outside the directory could only fail, never read.
+    """
+    selected = _FP_FILTER_MODULE_PATHS.get(name)
+    if selected is None:
+        raise KeyError("not an fp-filter module: %r" % (name,))
+    root = os.path.realpath(_FP_FILTER_MODULE_DIR)
+    target = os.path.realpath(selected)
+    if not target.startswith(root + os.sep):
+        raise OSError("fp-filter module escapes its directory: %r" % (name + ".js",))
+    if not os.path.isfile(target):
+        raise OSError("fp-filter module is not a file under fp-filter/: %r" % (name + ".js",))
+    with open(target, "rb") as fh:
+        return fh.read()
+
+
 # Rewrites applied to the served index.html. The vendored UI only knows the
 # GitHub API; these raise its analysis size limits (upstream guards exist
 # because the API is slow and rate-limited — the shim serves files from disk)
@@ -134,9 +198,17 @@ def _fp_rewrite():
     )
 
 
-# Injected before </body> by the entry below; the two files are served from this
-# same directory (fp-filter.js from disk, the bridge from `_BRIDGE_JS`).
-_BRIDGE_SCRIPT = b'<script src="fp-filter.js" defer></script><script src="codeflow-bridge.js" defer></script>'
+# Injected before </body> by the entry below; every file is served from this same
+# directory tree (the modules and `fp-filter.js` from disk, the bridge from
+# `_BRIDGE_JS`). Tags follow `_FP_FILTER_MODULES` order and the index comes last,
+# because the index reads the globals the module tags publish.
+_BRIDGE_SCRIPT = (
+    b"".join(
+        b'<script src="fp-filter/%s.js" defer></script>' % name.encode()
+        for name in _FP_FILTER_MODULES
+    )
+    + b'<script src="fp-filter.js" defer></script><script src="codeflow-bridge.js" defer></script>'
+)
 
 _UI_REWRITES = (
     # Browser parity for the headless false-positive filter. A silent no-op when

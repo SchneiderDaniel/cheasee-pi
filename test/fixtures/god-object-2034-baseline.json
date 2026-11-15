@@ -98,8 +98,11 @@
 	],
 	"laterReduced": {
 		"issue": 2035,
-		"reason": "#2035 split the long files still over 500 segments. `ui/tests/session_controls.rs` was 708 segments and 17 functions; its AC1/AC2/AC3 journey moved into `ui/tests/session_controls/journey.rs`, which lands both halves at 15 and 2 functions, so it stops flagging without a #2034 follow-up. The other 20 deferred paths still flag, so `after.godObjectCount` and the ledger are unchanged.",
-		"files": ["cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs"]
+		"reason": "#2035 split the long files still over 500 segments. `ui/tests/session_controls.rs` was 708 segments and 17 functions; its AC1/AC2/AC3 journey moved into `ui/tests/session_controls/journey.rs`, which lands both halves at 15 and 2 functions, so it stops flagging without a #2034 follow-up. The other 20 deferred paths still flag, so `after.godObjectCount` and the ledger are unchanged. #2100 split the `fp-filter` served asset the same way: `fp-filter.js` became an index barrel over eight policy modules under `codeflow/fp-filter/`, so it drops out of the live flagged set below while the historical envelope and the deferral ledger stay as filed.",
+		"files": [
+			"cmd/cheasee-pi/embedded/docker/ui/tests/session_controls.rs",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"
+		]
 	},
 	"notScored": [
 		{
