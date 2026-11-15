@@ -39,7 +39,7 @@ const FN_HEAD = /\bfn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[<(]/;
  */
 const UNMODELLED_TEST_MACROS = new Set(["rstest", "test_case", "test_case_name"]);
 
-function definition(
+function rustDefinition(
 	source: string,
 	file: string,
 	name: string,
@@ -122,7 +122,7 @@ export function discoverRustTests(source: string, file: string): InventoryResult
 		const startLine = Math.min(...attached.map((attribute) => attribute.line));
 		for (const attribute of attached) claimed.add(attribute.line);
 		const name = [...moduleChain(scopeList, fnLine), head[1]].join(" > ");
-		const def = definition(source, file, name, startLine, endLine);
+		const def = rustDefinition(source, file, name, startLine, endLine);
 		if (attached.some((attribute) => isIgnoreAttribute(attribute.path))) {
 			excluded.push({ ...def, reason: "not-run-by-default" });
 		} else {

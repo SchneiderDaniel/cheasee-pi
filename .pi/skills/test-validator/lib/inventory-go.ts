@@ -34,7 +34,7 @@ function isBenchmarkName(name: string): boolean {
 	return suffixIsRunnable(name, BENCHMARK_PREFIX);
 }
 
-function definition(
+function goDefinition(
 	source: string,
 	file: string,
 	name: string,
@@ -80,7 +80,7 @@ export function discoverGoTests(source: string, file: string): InventoryResult {
 		if (endLine === null) {
 			throw new DiscoveryError(file, startLine, `unterminated function body: func ${name}`);
 		}
-		const def = definition(source, file, name, startLine, endLine);
+		const def = goDefinition(source, file, name, startLine, endLine);
 		if (isRunnableGoTestName(name)) tests.push(def);
 		else if (isBenchmarkName(name)) excluded.push({ ...def, reason: "not-run-by-default" });
 	}
@@ -89,7 +89,7 @@ export function discoverGoTests(source: string, file: string): InventoryResult {
 		const endLine = lastContentLine(lines);
 		const name = file.split("/").at(-1) ?? file;
 		excluded.push({
-			...definition(source, file, name, 1, endLine),
+			...goDefinition(source, file, name, 1, endLine),
 			reason: "test-support-file",
 		});
 	}

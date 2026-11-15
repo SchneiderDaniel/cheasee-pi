@@ -52,7 +52,7 @@ function decoratorStart(lines: readonly string[], index: number, indent: number)
 	return start;
 }
 
-function definition(
+function pythonDefinition(
 	source: string,
 	file: string,
 	name: string,
@@ -85,7 +85,7 @@ export function discoverPythonTests(source: string, file: string): InventoryResu
 
 	const close = (frame: Frame): void => {
 		if (frame.startLine === null) return;
-		tests.push(definition(source, file, frame.name, frame.startLine, frame.lastBody));
+		tests.push(pythonDefinition(source, file, frame.name, frame.startLine, frame.lastBody));
 	};
 
 	for (let index = 0; index < lines.length; index += 1) {
