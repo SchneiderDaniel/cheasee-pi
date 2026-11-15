@@ -339,17 +339,26 @@ describe("ensurePrReadyForDone() — additive seam coverage", () => {
 			"initial fetch + 1 propagation poll",
 		);
 	});
-	it("no-PR + current success, PR stays invisible → propagation poll capped at min(attempts, 3), { ok: true } fail-open", async () => {
+	it("no-PR + current success, PR stays invisible → poll capped at min(attempts, 3), one bounded re-publish → { ok: false }", async () => {
 		const calls: PortCall[] = [];
-		const port = createSequencedPort(
-			[
-				null,
-				makeUnknownInfo(),
-				makeUnknownInfo(),
-				makeUnknownInfo(),
-				makeUnknownInfo(),
-				makeUnknownInfo(),
-			],
+		const listValues: Array<PrConflictInfo | null> = [
+			null, // initial readiness read
+			makeUnknownInfo(),
+			makeUnknownInfo(),
+			makeUnknownInfo(), // 3 capped propagation polls
+			null, // re-publish upsert list
+			null, // re-list after the "already exists" create error
+		];
+		let listIdx = 0;
+		const port = createMockGitHubPort(
+			{
+				compareBranches: async () => 3,
+				listPullRequestsForBranch: async () => listValues[listIdx++] ?? null,
+				createPullRequest: async () => {
+					// GitHub still holds the branch claim although the PR is gone.
+					throw new Error("Validation Failed: A pull request already exists for branch");
+				},
+			},
 			calls,
 		);
 		const execCalls: ExecCall[] = [];
@@ -374,12 +383,23 @@ describe("ensurePrReadyForDone() — additive seam coverage", () => {
 			NO_BACKOFF,
 		);
 
-		assert.equal(verdict.ok, true, "no PR after propagation poll fails open");
+		assert.equal(verdict.ok, false, "a vanished PR that cannot be re-published blocks Done");
+		assert.ok(
+			verdict.blockerNote!.includes("Manual intervention"),
+			"blockerNote asks for manual intervention",
+		);
 		assert.equal(
 			calls.filter((c) => c.method === "listPullRequestsForBranch").length,
-			4,
-			"1 initial + 3 propagation polls (capped at min(attempts, 3), not 5)",
+			6,
+			"1 initial + 3 capped polls + upsert list + re-list",
 		);
+		assert.equal(
+			calls.filter((c) => c.method === "createPullRequest").length,
+			1,
+			"exactly one bounded re-publish attempt",
+		);
+		assert.equal(execCalls.length, 0, "no worktree → no git work");
+		assert.equal(runner.mock.callCount(), 0, "no developer dispatch for a vanished PR");
 	});
 	it("3 rounds all dirty with auto-merge success each round → loop exhausts → { ok: false } + 'did not settle'", async () => {
 		const calls: PortCall[] = [];

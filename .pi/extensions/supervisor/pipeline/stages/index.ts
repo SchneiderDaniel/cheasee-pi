@@ -25,6 +25,7 @@ export type { StageState, AuditGateContext, GateRejected } from "./core.ts";
 export {
 	buildApprovalCommentFromOutput,
 	buildRejectionCommentFromOutput,
+	buildAuditorVerdict,
 	computeAuditGateRejection,
 } from "./auditor-output.ts";
 export {

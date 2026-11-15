@@ -12,6 +12,7 @@ import type {
 	ProjectField,
 	ProjectItem,
 	AgentRunner,
+	AuditorVerdictSummary,
 } from "../../config/types.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ExecFn } from "../../../lib/port-types.ts";
@@ -67,6 +68,13 @@ export interface RunContext {
 	crashCleanup: CrashCleanup | undefined;
 	stopReason: string | undefined;
 	agentResults: PipelineAgentResult[];
+
+	/**
+	 * Latest auditor verdict, captured at post-dispatch bookkeeping. Appended to
+	 * the approval PR body (issue #1831) so the PR states the audit result
+	 * without a second PR. Stays undefined until structured audit output lands.
+	 */
+	auditVerdict?: AuditorVerdictSummary;
 
 	/**
 	 * Set by reportTimedOutAgent when timeout work preservation failed (e.g. the
