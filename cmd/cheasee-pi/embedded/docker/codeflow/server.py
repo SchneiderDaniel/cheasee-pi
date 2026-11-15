@@ -17,10 +17,14 @@ hooks `URL.createObjectURL` and POSTs the captured exports back here:
   GET|POST /api/analysis/report.json  -> structured JSON report (single slot)
   GET /codeflow-bridge.js             -> the injected bridge script
   GET /fp-filter.js                   -> the injected false-positive filter
+  GET /fp-filter/<module>.js          -> one policy module the filter is built from
 
 The served page also runs the same false-positive filter the headless runner
 applies (`fp-filter.js`), wrapped around `generateReport` at serve time, so the
-UI's health score and exports agree with the report pi reads.
+UI's health score and exports agree with the report pi reads. The filter is an
+index over the policy modules under `fp-filter/` (issue #2100); the page loads
+each one as its own script tag before the index, and this server serves them
+from a fixed allowlist.
 
 Headless producer (Option B): the shim can also fill both report slots without a
 browser, so a fresh session or rebuilt container no longer blocks the audit on a
@@ -109,10 +113,14 @@ from report_store import (
 from ui_rewrites import (
     _API_BASE,
     _BRIDGE_SCRIPT,
+    _FP_FILTER_MODULES,
+    _FP_FILTER_MODULE_ROUTE,
     _FP_FILTER_PATH,
     _FP_FILTER_ROUTE,
     _UI_REWRITES,
     _fp_filter_bytes,
+    _fp_filter_module_bytes,
+    _fp_filter_module_name,
     _mime,
 )
 
@@ -174,6 +182,21 @@ class Handler(RepoRoutes, BaseHTTPRequestHandler):
                 self._serve_bytes(_fp_filter_bytes(), "text/javascript; charset=utf-8")
             except OSError as exc:
                 self._error(500, "fp-filter.js unavailable: %s" % exc)
+            return
+        # One route for the policy modules the served filter is built from. The
+        # allowlist is the only thing that turns a request into a path, so an
+        # unlisted or climbing name is a miss (404), never a filesystem read.
+        if path.startswith(_FP_FILTER_MODULE_ROUTE):
+            module = _fp_filter_module_name(path[len(_FP_FILTER_MODULE_ROUTE) :])
+            if module is None:
+                self._error(404, "not found")
+                return
+            try:
+                self._serve_bytes(
+                    _fp_filter_module_bytes(module), "text/javascript; charset=utf-8"
+                )
+            except OSError as exc:
+                self._error(500, "fp-filter module unavailable: %s" % exc)
             return
         if path == "/codeflow-bridge.js":
             self._serve_bytes(_BRIDGE_JS, "text/javascript; charset=utf-8")

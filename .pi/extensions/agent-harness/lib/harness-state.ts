@@ -11,11 +11,15 @@
  * Used by:
  *  - agent-harness extension handlers (pi.on("tool_call"))
  *
- * Exports HarnessState (the only outward contract) plus value-type interfaces
- * ReadCacheEntry, ErrorEntry, ConsecutiveInfo.  The readCache/errorTracker/
- * callCounter fields are inline anonymous object types — no standalone
- * ReadCache/ErrorTracker/CallCounter interfaces.
+ * Exports HarnessState (the only outward contract) plus the value-type
+ * interfaces ReadCacheEntry, ErrorEntry, ConsecutiveInfo and CallIdEntry, and
+ * the CACHE_TTL_MS constant.  The readCache/errorTracker/callCounter fields are
+ * inline anonymous object types — no standalone ReadCache/ErrorTracker/
+ * CallCounter interfaces.
  */
+
+import { CACHE_TTL_TURNS } from "./harness-rules.ts";
+import { TimedMap } from "./timed-map.ts";
 
 // ── Types ──
 
@@ -137,8 +141,6 @@ export interface HarnessState {
 
 // ── Constants ──
 
-import { CACHE_TTL_TURNS } from "./harness-rules.ts";
-import { TimedMap } from "./timed-map.ts";
 const MAX_ERRORS_PER_TOOL = 3;
 
 /** Time-based TTL for cache entries (in ms). 30 seconds. */

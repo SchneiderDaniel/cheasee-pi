@@ -73,9 +73,13 @@ var codeflowShimModules = []string{
 	"handler_api.py",
 }
 
-// stageCodeflowShim writes the embedded shim modules (plus the fp-filter.js the
-// server serves from its own directory) into dir and returns the staged
-// server.py path.
+// stageCodeflowShim writes the embedded shim modules (plus the `fp-filter.js`
+// index and the whole `fp-filter/` module tree the server serves from its own
+// directory) into dir and returns the staged server.py path. The module tree is
+// walked rather than listed, so a new policy module cannot ship embedded but
+// unstageable — the served allowlist (`_FP_FILTER_MODULES`) is checked against
+// the staged bytes by TestCodeFlowServer_FpFilterModulesServed in
+// codeflow_shim_fp_filter_test.go.
 func stageCodeflowShim(t *testing.T, dir string) string {
 	t.Helper()
 	for _, name := range append(append([]string{}, codeflowShimModules...), "fp-filter.js") {
@@ -87,6 +91,7 @@ func stageCodeflowShim(t *testing.T, dir string) string {
 			t.Fatalf("write codeflow/%s: %v", name, err)
 		}
 	}
+	stageFPFilterModules(t, dir)
 	return filepath.Join(dir, "server.py")
 }
 
@@ -105,11 +110,18 @@ func writeUIDir(t *testing.T) string {
 // traceback at cleanup. extraEnv overrides/extends the server environment.
 func startShim(t *testing.T, repoRoot, uiDir string, extraEnv ...string) string {
 	t.Helper()
+	return startShimAt(t, stageCodeflowShim(t, t.TempDir()), repoRoot, uiDir, extraEnv...)
+}
+
+// startShimAt boots the already-staged server at serverPath, so a test can edit
+// the staged tree between staging and boot (e.g. drop one file to prove the serve
+// path fails closed). Kill/log handling is the same as startShim's.
+func startShimAt(t *testing.T, serverPath, repoRoot, uiDir string, extraEnv ...string) string {
+	t.Helper()
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 not available")
 	}
-	serverPath := stageCodeflowShim(t, t.TempDir())
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("reserve port: %v", err)
@@ -222,3 +234,45 @@ func freshFingerprint(t *testing.T, base string) string {
 
 // waitPastTTL sleeps past the FP_TTL=0.05 override so the next request rescans.
 func waitPastTTL() { time.Sleep(300 * time.Millisecond) }
+
+// TestCodeFlowServer_FpFilterModuleMissingIsServerError pins the fail-closed serve
+// path of issue #2100: a name the allowlist accepts but that is absent from the
+// staged tree is an operator-visible 500 naming the failure, never an empty 200
+// that would leave the page with a silently incomplete filter. It lives with the
+// staging helpers because it proves their contract — `stageCodeflowShim` copies
+// every module — and the index still serves, so the error stays scoped to the
+// missing module.
+func TestCodeFlowServer_FpFilterModuleMissingIsServerError(t *testing.T) {
+	dir := t.TempDir()
+	serverPath := stageCodeflowShim(t, dir)
+	// Drop one allowlisted module from the staged tree between staging and boot.
+	missing := filepath.Join(dir, "fp-filter", "hygiene.js")
+	if err := os.Remove(missing); err != nil {
+		t.Fatalf("remove staged module %s: %v", missing, err)
+	}
+	base := startShimAt(t, serverPath, t.TempDir(), writeUIDir(t))
+
+	resp, body := getStatus(t, newNoRedirectClient(), base+"/fp-filter/hygiene.js")
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("GET /fp-filter/hygiene.js status = %d, want 500\nbody: %s", resp.StatusCode, body)
+	}
+	if !bytes.Contains(body, []byte("fp-filter module unavailable")) {
+		t.Errorf("the 500 body must name the failure, got: %s", body)
+	}
+	if !bytes.Contains(body, []byte("hygiene.js")) {
+		t.Errorf("the 500 body must name the missing module, got: %s", body)
+	}
+
+	// The failure is scoped: the index route is untouched and still serves.
+	resp, body = getStatus(t, newNoRedirectClient(), base+"/fp-filter.js")
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /fp-filter.js status = %d, want 200\nbody: %s", resp.StatusCode, body)
+	}
+	want, err := fs.ReadFile(embeddedFS, "embedded/docker/codeflow/fp-filter.js")
+	if err != nil {
+		t.Fatalf("read embedded fp-filter.js: %v", err)
+	}
+	if !bytes.Equal(body, want) {
+		t.Errorf("served /fp-filter.js is not byte-verbatim while a module is missing")
+	}
+}

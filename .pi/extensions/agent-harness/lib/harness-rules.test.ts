@@ -251,6 +251,54 @@ describe("loadDefaultRules", () => {
 		assert.notEqual(a, b);
 		assert.notEqual(a.toolMeta, b.toolMeta);
 	});
+
+	it("copies each ToolMeta entry — mutating one does not change TOOL_META", () => {
+		const rules = loadDefaultRules();
+		assert.notEqual(
+			rules.toolMeta.bash,
+			TOOL_META.bash,
+			"toolMeta.bash must be a copy, not the shared TOOL_META entry",
+		);
+
+		rules.toolMeta.bash.cascadeThreshold = 1;
+		rules.toolMeta.ask_user.passThrough = false;
+
+		assert.equal(
+			TOOL_META.bash.cascadeThreshold,
+			CASCADE_THRESHOLD,
+			"mutating a returned ToolMeta must not affect the TOOL_META default",
+		);
+		assert.equal(
+			TOOL_META.ask_user.passThrough,
+			true,
+			"mutating a returned ToolMeta must not affect the TOOL_META default",
+		);
+	});
+
+	it("mutations do not leak into later loadDefaultRules() calls", () => {
+		loadDefaultRules().toolMeta.bash.cascadeThreshold = 1;
+		assert.equal(
+			loadDefaultRules().toolMeta.bash.cascadeThreshold,
+			CASCADE_THRESHOLD,
+			"a later loadDefaultRules() must return the pristine default",
+		);
+	});
+
+	it("every TOOL_META entry is copied, not shared", () => {
+		const rules = loadDefaultRules();
+		for (const toolName of Object.keys(TOOL_META)) {
+			assert.notEqual(
+				rules.toolMeta[toolName],
+				TOOL_META[toolName],
+				`toolMeta.${toolName} must be a copy of the TOOL_META entry`,
+			);
+			assert.deepEqual(
+				rules.toolMeta[toolName],
+				TOOL_META[toolName],
+				`toolMeta.${toolName} must have the same field values as TOOL_META`,
+			);
+		}
+	});
 });
 
 // ── SEARCH_TOOLS removal (#1282) ──

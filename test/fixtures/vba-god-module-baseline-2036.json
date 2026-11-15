@@ -12,7 +12,7 @@
 		"filedAnalyzedAt": 1791804971015,
 		"filedCount": 25,
 		"filedNote": "the issue was filed with 25 files at analyzedAt 1791804971015 against the then-main. That snapshot predates #2006 (the two Python test modules still counted 21 each) and #2057. The pinned base re-measures 25 as well, but with those two Python modules already split (`alreadyUnder`) and two files the issue did not cite (disk_space_test.go, fp-filter.js) newly over the ceiling (`deferred`).",
-		"afterNote": "`after` is the delivered working tree after #2034 advanced main beyond the pinned base. Every one of the 25 filed files is either reduced (23) or was already under the ceiling at the pinned base (2); the 17 modules a prior attempt deferred — the 16 `.rs` files and `server.py` — are now split too, each into siblings of the same module tree, so no cited module is left flagged. #2034 also reduced the uncited `disk_space_test.go`; only `fp-filter.js` remains flagged."
+		"afterNote": "`after` is the delivered working tree after #2034 advanced main beyond the pinned base. Every one of the 25 filed files is either reduced (23) or was already under the ceiling at the pinned base (2); the 17 modules a prior attempt deferred — the 16 `.rs` files and `server.py` — are now split too, each into siblings of the same module tree, so no cited module is left flagged. #2034 also reduced the uncited `disk_space_test.go`; #2100 then split the last uncited leftover, `fp-filter.js`, into an index barrel plus eight policy modules, so the delivered tree carries no flagged file at all and `deferred` is empty."
 	},
 	"threshold": 20,
 	"godObjectThreshold": 15,
@@ -24,9 +24,9 @@
 		"godObjectCount": 36
 	},
 	"after": {
-		"ref": "worktree-git-issue-2036-refactor-break-up-the-25-vba-god-module-files-flag",
-		"codeFiles": 801,
-		"vbaGodModuleCount": 1,
+		"ref": "worktree-git-issue-2100-refactor-vba-god-module",
+		"codeFiles": 809,
+		"vbaGodModuleCount": 0,
 		"godObjectCount": 26
 	},
 	"baseAdvance": {
@@ -36,11 +36,11 @@
 		"resolvedFiles": ["cmd/cheasee-pi/disk_space_test.go"]
 	},
 	"tradeoffs": {
-		"vbaGodModule": "25 -> 1 flagged file (-24): every cited module now lands at or below the 20-declaration ceiling. The reduced modules carried object-literal stubs, JSON-kind extractors, dialog helpers, a 93-declaration ExtensionAPI mock and whole Rust test suites the parser counts as declarations; cohesive blocks moved verbatim into siblings of the same module tree, and each reduced module keeps its public surface (spread/merge/re-export barrels in TS, `mod`/`pub use` in Rust, sibling imports in Python), so no importer changed. The main branch also includes #2034's split siblings.",
+		"vbaGodModule": "25 -> 0 flagged files (-25): every cited module now lands at or below the 20-declaration ceiling. The reduced modules carried object-literal stubs, JSON-kind extractors, dialog helpers, a 93-declaration ExtensionAPI mock and whole Rust test suites the parser counts as declarations; cohesive blocks moved verbatim into siblings of the same module tree, and each reduced module keeps its public surface (spread/merge/re-export barrels in TS, `mod`/`pub use` in Rust, sibling imports in Python), so no importer changed. The main branch also includes #2034's split siblings.",
 		"godObject": "the expected co-benefit (VBA God Module is a strict subset of God Object): 36 -> 27 in the delivered tree. Ten of the new `.rs` test siblings land at 16-20 — they are cohesive test groups split out of a God Object parent, so the family total is unchanged — and the in-gate oracle measures the delivered tree against the pinned base.",
 		"functions": "No test was added, removed or renamed: the suites still run the same tests, `mock-pi.ts` composes the same stub object, the Rust module trees still hold the same declarations (the oracle checks the per-family declaration total is conserved), and every public export keeps its name.",
 		"approach": "verbatim moves plus re-export barrels: TS modules spread/merge factories and kind tables and re-export the moved types; the Rust modules move impl/fn blocks into child modules declared with `mod` (integration-test children reached through `#[path]`) and re-export the public items; `server.py` became five sibling modules (`config`, `report_store`, `analysis_run`, `repo_identity`, `ui_rewrites`) whose imports keep the served contract, with the Dockerfile `COPY`/`py_compile` set updated. `npm test`, `npm run tsc:extensions`, `go test ./cmd/cheasee-pi/` and `rustfmt --check` are the verification burden.",
-		"notDone": "one file flagged on the delivered tree but NOT cited by #2036 (`fp-filter.js`) stays flagged; it is owned by the long-file / anti-pattern issues that share the same file set.",
+		"notDone": "nothing: the one file that was still flagged on the delivered tree but NOT cited by #2036 (`fp-filter.js`) is split under #2100, which owns the served-asset boundary this fixture deferred. It moved from `deferred` to `reducedBy`, and `deferred` is now empty.",
 		"rustVerification": "the pipeline image has no C linker, so `cargo check` cannot run even though a `rustc` toolchain is present. The split was verified with a module-tree resolver over every `mod` declaration plus `rustfmt --check` over all crate roots (which parses every reachable module); the browser build remains the first full type-check."
 	},
 	"reducedBy": [
@@ -66,6 +66,13 @@
 		"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs",
 		"cmd/cheasee-pi/embedded/docker/ui/tests/rpc_protocol.rs",
 		"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs"
+	],
+	"uncitedReduced": [
+		{
+			"path": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+			"issue": 2100,
+			"reason": "#2036 did not cite this file — it crossed the ceiling after the pinned base and was recorded as the one deferred leftover. #2100 split it into an index barrel plus eight policy modules under `codeflow/fp-filter/`, so the leftover is cleared rather than hidden: the file stops flagging and every sibling lands under the ceiling."
+		}
 	],
 	"removed": [
 		{
@@ -206,14 +213,19 @@
 		],
 		"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly.rs": [
 			"cmd/cheasee-pi/embedded/docker/ui/tests/stream_assembly/replay.rs"
+		],
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js": [
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/lexical.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/hygiene.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/layer.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/high.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/command-exec-policy.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/command-exec.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/dead-code.js",
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/duplicates.js"
 		]
 	},
-	"deferred": [
-		{
-			"reason": "still flagged on the delivered tree but NOT cited by #2036; owned by the long-file / anti-pattern issues that share the same file set, not by this reduction.",
-			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]
-		}
-	],
+	"deferred": [],
 	"laterReduced": {
 		"issue": 2031,
 		"reason": "#2031 moved server.py's `/api/repos/*` routes into `handler_api.py` (16 -> 13 functions), which also drops it out of the > 15 set this fixture measures live (`after.godObjectCount` 27 -> 26). The vba count is unaffected: server.py was never in the > 20 set here.",

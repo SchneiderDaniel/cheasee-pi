@@ -6,12 +6,14 @@
 // analyzer's parser path line-for-line; this oracle adds no detector literal of
 // its own, so a re-pin moves one file.
 //
-// The issue files 43 paths, but the residue at delivery is 20 → 19 flagged
-// files. Only `server.py` is both cited and verifiable in-gate: the 19 Rust
-// paths need a compiler no workflow provides, and `fp-filter.js` is a delivered
-// artifact, not a module seam. This oracle pins the whole partition —
-// `reducedBy` / `deferred` / `unfiledFlagged` / `notScored` — so nothing is
-// silently dropped, and re-measures the live tree against it.
+// The issue files 43 paths, but the residue at delivery is 20 → 18 flagged
+// files. Only `server.py` and `fp-filter.js` are both cited and verifiable
+// in-gate: the 19 Rust paths need a compiler no workflow provides. This oracle
+// pins the whole partition — `reducedBy` / `deferred` / `unfiledFlagged` /
+// `notScored` — so nothing is silently dropped, and re-measures the live tree
+// against it. #2100 split `fp-filter.js` after this branch, so it moved from
+// `deferred` to `reducedBy` and its nine family files are recorded in
+// `fpFilterModules`.
 //
 // Run: node --experimental-strip-types --test test/large-refactor-2031.test.mts
 
@@ -66,6 +68,8 @@ type Baseline = {
 	after: { ref: string; count: number; note: string };
 	reducedBy: string[];
 	modules: Record<string, number>;
+	/** The `fp-filter` family #2100 split: the index plus its policy modules. */
+	fpFilterModules: Record<string, number>;
 	/** Ledger paths the tree no longer carries (overlay: the filed set keeps them). */
 	removed: { path: string; issue: number; reason: string }[];
 	deferred: Group[];
@@ -232,9 +236,13 @@ describe("large-files refactor #2031 — the partition is explicit", () => {
 			assert.equal(notScored.has(rel), false, `${rel} is reduced and notScored`);
 		}
 		for (const rel of deferred) assert.equal(notScored.has(rel), false, `${rel} is listed twice`);
-		assert.deepEqual(b.reducedBy, [SERVER], "this change splits exactly server.py");
-		assert.equal(deferred.size, 9, "the filed residue is 8 Rust sources + fp-filter.js");
-		assert.equal(notScored.size, 32, "43 - 1 reduced - 9 deferred - 1 removed");
+		assert.deepEqual(
+			b.reducedBy,
+			[SERVER, `${SHIM}/fp-filter.js`],
+			"server.py here, fp-filter.js by #2100",
+		);
+		assert.equal(deferred.size, 8, "the filed residue is the 8 Rust sources");
+		assert.equal(notScored.size, 32, "43 - 2 reduced - 8 deferred - 1 removed");
 		assert.equal(b.removed.length, 1, "the caveman suite is the one removed ledger path");
 	});
 
@@ -296,7 +304,7 @@ describe("large-files refactor #2031 — the metric falls", () => {
 	it("after == before - reducedBy", () => {
 		const b = baseline();
 		assert.equal(b.after.count, b.before.count - b.reducedBy.length);
-		assert.equal(b.after.count, 19);
+		assert.equal(b.after.count, 18);
 	});
 
 	it("actually reduced every `reducedBy` file", () => {
@@ -313,7 +321,8 @@ describe("large-files refactor #2031 — the metric falls", () => {
 		assert.deepEqual(live.slice().sort(), recorded, "the live flagged set drifted from the ledger");
 		assert.equal(live.length, b.after.count, "after.count != live flagged count");
 		assert.equal(live.includes(SERVER), false, "server.py is still flagged in the live tree");
-		assert.equal(flagged(`${SHIM}/fp-filter.js`), true, "fp-filter.js is still flagged");
+		// #2100 split the served filter, so it left the flagged set with its modules.
+		assert.equal(flagged(`${SHIM}/fp-filter.js`), false, "fp-filter.js left the flagged set");
 		for (const rel of flat(b.deferred)) {
 			assert.equal(flagged(rel), true, `${rel} is deferred but no longer flagged — re-pin it`);
 		}
@@ -342,6 +351,18 @@ describe("large-files refactor #2031 — the shim package", () => {
 			assert.equal(count(rel), n, `${rel} drifted from the recorded count`);
 		}
 		assert.equal(Object.keys(recorded).length, 2, "this change adds server.py + handler_api.py");
+	});
+
+	it("records the fp-filter family #2100 split, and every member stays under both ceilings", () => {
+		const family = baseline().fpFilterModules;
+		assert.equal(Object.keys(family).length, 9, "the index plus eight policy modules");
+		for (const [rel, n] of Object.entries(family)) {
+			assert.ok(exists(rel), `missing family file: ${rel}`);
+			assert.equal(count(rel), n, `${rel} drifted from the recorded count`);
+			assert.ok(count(rel) <= 15, `${rel} counts ${count(rel)} (ceiling 15)`);
+			assert.equal(flagged(rel), false, `${rel} is flagged`);
+			assert.equal(longFileFlagged(read(rel), rel), false, `${rel} is over 500 segments`);
+		}
 	});
 
 	it("keeps one entrypoint: server.py imports the routes, nothing imports server", () => {
