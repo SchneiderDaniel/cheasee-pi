@@ -51,8 +51,16 @@ interface FooterHarnessOptions {
 
 /** Double for the pi branch/status API: `onBranchChange` mirrors subscribe → unsubscribe. */
 function createBranchListenerDouble() {
+	const listeners: Array<(branch: string) => void> = [];
 	return {
-		onBranchChange: (_listener: (branch: string) => void) => () => {},
+		listeners,
+		onBranchChange: (listener: (branch: string) => void) => {
+			listeners.push(listener);
+			return () => {
+				const at = listeners.indexOf(listener);
+				if (at >= 0) listeners.splice(at, 1);
+			};
+		},
 		getGitBranch: () => "main",
 		getExtensionStatuses: () => new Map(),
 	};
@@ -469,20 +477,21 @@ describe("footer — appearance-adaptive secondary text", () => {
 });
 
 describe("fixtures — branch listener double mirrors the pi API shape", () => {
-	it("onBranchChange returns an unsubscribe function that is safe to call", () => {
+	it("onBranchChange returns an unsubscribe that drops exactly its own listener", () => {
 		const api = createBranchListenerDouble();
 		const off = api.onBranchChange(() => {});
 		assert.strictEqual(typeof off, "function", "subscribe must return the unsubscribe");
-		assert.doesNotThrow(() => off(), "unsubscribe must be safe to call");
-		assert.doesNotThrow(() => off(), "unsubscribe must be idempotent for the harness");
+		assert.strictEqual(api.listeners.length, 1, "listener registered on subscribe");
+		api.onBranchChange(() => {});
+		off();
+		assert.strictEqual(api.listeners.length, 1, "only the unsubscribed listener is dropped");
+		assert.doesNotThrow(() => off(), "unsubscribe must be safe to call twice");
+		assert.strictEqual(api.listeners.length, 1, "second unsubscribe is a no-op");
 	});
+
 	it("reports a stable branch and an empty extension-status map", () => {
 		const api = createBranchListenerDouble();
 		assert.strictEqual(api.getGitBranch(), "main");
 		assert.deepStrictEqual(api.getExtensionStatuses(), new Map());
-	});
-	it("the harness hands this double to the footer renderer", () => {
-		const { component } = createHarness();
-		assert.ok(component, "installFooter consumed the double without throwing");
 	});
 });

@@ -90,8 +90,11 @@ function createMockAPI(): {
 }
 
 /** Double for the pi theme: `fg(color)` curried, `bold` a single-arg passthrough. */
-function createThemeDouble() {
-	return { fg: () => (s: string) => s, bold: (s: string) => s };
+function createThemeDouble(): {
+	fg: (color: string) => (text: string) => string;
+	bold: (text: string) => string;
+} {
+	return { fg: (_color: string) => (s: string) => s, bold: (s: string) => s };
 }
 
 async function runHandler(
@@ -483,14 +486,11 @@ describe("EslintLinter — flat-config fallback (useEslintrc removed)", () => {
 });
 
 describe("fixtures — theme double mirrors the pi API shape", () => {
-	it("fg is curried: fg(color) returns a text transformer", () => {
+	it("fg is curried and bold is a single-argument passthrough", () => {
 		const theme = createThemeDouble();
 		assert.strictEqual(typeof theme.fg("red"), "function", "fg(color) must return a function");
-		assert.strictEqual(theme.fg("red")("t"), "t");
-		assert.strictEqual(theme.fg("success")("64.0K/128.0K"), "64.0K/128.0K", "passthrough");
-	});
-	it("bold is a single-argument passthrough", () => {
-		const theme = createThemeDouble();
-		assert.strictEqual(theme.bold("t"), "t");
+		assert.strictEqual(theme.fg("red")("t"), "t", "fg passthrough");
+		assert.strictEqual(theme.fg("success")("64.0K/128.0K"), "64.0K/128.0K", "fg passthrough");
+		assert.strictEqual(theme.bold("t"), "t", "bold passthrough");
 	});
 });

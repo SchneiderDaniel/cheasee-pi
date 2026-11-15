@@ -386,6 +386,17 @@ describe("fixtures — bound partials", () => {
 			);
 		}
 	});
+
+	it('makeWorkspace() defaults to the same literal {} as makeWorkspace("{}")', () => {
+		const { root: defaultRoot } = makeWorkspace();
+		const { root: explicitRoot } = makeWorkspace("{}");
+		const defaultContent = readFileSync(join(defaultRoot, "cheasee-settings.json"), "utf-8");
+		assert.strictEqual(defaultContent, "{}");
+		assert.strictEqual(
+			defaultContent,
+			readFileSync(join(explicitRoot, "cheasee-settings.json"), "utf-8"),
+		);
+	});
 });
 
 describe("codeflowUrl", () => {
