@@ -134,40 +134,21 @@ function makeRenderContext(cwd: string): Record<string, unknown> {
 	};
 }
 
-// ponytail: permissive type — each factory returns a full ToolDefinition with
-// typed renderCall. We only need the runtime dispatch, so cast at the boundary.
-const toolDefFactories: Record<
-	string,
-	(cwd: string) => { renderCall?: (...args: unknown[]) => { render: (width: number) => string[] } }
-> = {
-	bash: (cwd: string) =>
-		createBashToolDefinition(cwd) as unknown as {
-			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
-		},
-	read: (cwd: string) =>
-		createReadToolDefinition(cwd) as unknown as {
-			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
-		},
-	edit: (cwd: string) =>
-		createEditToolDefinition(cwd) as unknown as {
-			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
-		},
-	write: (cwd: string) =>
-		createWriteToolDefinition(cwd) as unknown as {
-			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
-		},
-	grep: (cwd: string) =>
-		createGrepToolDefinition(cwd) as unknown as {
-			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
-		},
-	find: (cwd: string) =>
-		createFindToolDefinition(cwd) as unknown as {
-			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
-		},
-	ls: (cwd: string) =>
-		createLsToolDefinition(cwd) as unknown as {
-			renderCall?: (...args: unknown[]) => { render: (width: number) => string[] };
-		},
+/** The only method `renderToolCallText` needs from a pi tool definition. */
+type RenderCall = (...args: unknown[]) => { render: (width: number) => string[] };
+
+// pi's factories each return a differently-typed ToolDefinition (different
+// input schema and render state). Only the runtime `renderCall` dispatch is
+// needed here, so the table stores untyped factories and the cast happens once
+// at the dispatch site instead of once per entry.
+const toolDefFactories: Record<string, (cwd: string) => unknown> = {
+	bash: createBashToolDefinition,
+	read: createReadToolDefinition,
+	edit: createEditToolDefinition,
+	write: createWriteToolDefinition,
+	grep: createGrepToolDefinition,
+	find: createFindToolDefinition,
+	ls: createLsToolDefinition,
 };
 
 const EXTENSION_TOOL_NAMES = new Set([
@@ -177,6 +158,16 @@ const EXTENSION_TOOL_NAMES = new Set([
 	"structural_search",
 	"ask_user",
 ]);
+
+// Lazy-init guard: pi's formatBashCall uses a global theme singleton that must
+// be initialized once before the first render.
+let _themeInitialized = false;
+function ensureTheme(): void {
+	if (!_themeInitialized) {
+		initTheme();
+		_themeInitialized = true;
+	}
+}
 
 /**
  * Render a tool call as plain text, matching pi's native renderer format.
@@ -190,15 +181,6 @@ const EXTENSION_TOOL_NAMES = new Set([
  * @param cwd  - Working directory for relative-path display
  * @returns Plain-text tool-call line as pi would render it
  */
-// Lazy-init guard: pi's formatBashCall uses a global theme singleton that must be initialized.
-let _themeInitialized = false;
-function ensureTheme(): void {
-	if (!_themeInitialized) {
-		initTheme();
-		_themeInitialized = true;
-	}
-}
-
 export function renderToolCallText(name: string, args: unknown, cwd: string): string {
 	ensureTheme();
 	// Extension tools: JSON-preview fallback (no native pi renderCall)
@@ -209,9 +191,9 @@ export function renderToolCallText(name: string, args: unknown, cwd: string): st
 	// Built-in tools: delegate to pi's renderCall
 	const factory = toolDefFactories[name];
 	if (factory) {
-		const def = factory(cwd);
-		if (def.renderCall) {
-			const component = def.renderCall(args ?? {}, identityTheme, makeRenderContext(cwd));
+		const toolDef = factory(cwd) as { renderCall?: RenderCall };
+		if (toolDef.renderCall) {
+			const component = toolDef.renderCall(args ?? {}, identityTheme, makeRenderContext(cwd));
 			// Render at large width to avoid wrapping, then strip ANSI.
 			// Different tool renderCalls return different component types
 			// (Text, Container, Box, etc.), so we use the shared render() API.

@@ -19,6 +19,7 @@ import {
 	extractProjectItemFields,
 	isNotFound,
 	mapRestPrToConflictInfo,
+	mapPrToClosingRef,
 } from "./parsers.ts";
 import {
 	PROJECT_FIELDS_QUERY,
@@ -56,11 +57,21 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 		});
 	}
 
+	/**
+	 * Split an `owner/name` slug once, for every REST/GraphQL method that takes
+	 * one. Adapter-private: use cases never see the split. A missing segment is
+	 * a caller bug, so it fails fast before any request is issued.
+	 */
+	private parseRepo(repo: string): { owner: string; name: string } {
+		const [owner, name] = repo.split("/");
+		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		return { owner, name };
+	}
+
 	// ─── REST Operations ────────────────────────────────────────
 
 	async getIssue(issueNum: number, repo: string): Promise<RawIssueData | null> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `getIssue #${issueNum}`);
 		try {
@@ -83,8 +94,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	}
 
 	async getIssueWithComments(issueNum: number, repo: string): Promise<RawIssueData | null> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `getIssueWithComments #${issueNum}`);
 		try {
@@ -107,8 +117,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	}
 
 	async closeIssue(issueNum: number, repo: string): Promise<void> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `closeIssue #${issueNum}`);
 		await this.octokit.issues.update({
@@ -120,8 +129,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	}
 
 	async postIssueComment(issueNum: number, repo: string, body: string): Promise<void> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		const truncated = normalizeAndTruncateComment(body);
 		this.log.debug("octokit", `postIssueComment #${issueNum}`, { bodyLen: truncated.length });
@@ -134,8 +142,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	}
 
 	async compareBranches(base: string, head: string, repo: string): Promise<number> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `compareBranches ${base}...${head}`);
 		const resp = await this.octokit.repos.compareCommits({
@@ -148,8 +155,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	}
 
 	async listPullRequestsForBranch(branch: string, repo: string): Promise<PrConflictInfo | null> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `listPullRequestsForBranch ${branch}`);
 		const resp = await this.octokit.pulls.list({
@@ -172,9 +178,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 		title: string;
 		body?: string;
 	}): Promise<{ number: number }> {
-		const [owner, name] = input.repo.split("/");
-		if (!owner || !name)
-			throw new Error(`Invalid repo format: ${input.repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(input.repo);
 
 		this.log.debug("octokit", `createPullRequest ${input.head} → ${input.base}`);
 		const resp = await this.octokit.pulls.create({
@@ -194,8 +198,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 		body: string,
 		title?: string,
 	): Promise<void> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `updatePullRequest #${prNumber}`);
 		await this.octokit.pulls.update({
@@ -284,8 +287,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	}
 
 	async checkBlockedByDependencies(issueNum: number, repo: string): Promise<DepsResult> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `checkBlockedByDependencies #${issueNum}`);
 		const resp = await this.graphqlQuery<DepsTimelineResponse>(
@@ -302,8 +304,7 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 	}
 
 	async getClosingPrsForIssue(issueNum: number, repo: string): Promise<ClosingPrRef[]> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `getClosingPrsForIssue #${issueNum}`);
 
@@ -330,23 +331,9 @@ export class OctokitClient extends IssueOpsBase implements GitHubPort {
 						pull_number: item.number,
 					});
 					const pr = prResp.data;
-					const sha = pr.merge_commit_sha || (pr.head as { sha?: string })?.sha || "";
-					const branch = (pr.head as { ref?: string })?.ref || "";
-					const state = pr.merged_at
-						? ("merged" as const)
-						: pr.state === "closed"
-							? ("closed" as const)
-							: ("open" as const);
-
-					// Determine source: check if PR body contains closing keywords
-					const body = pr.body || "";
-					const closingPattern = new RegExp(
-						`(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\\s*#${issueNum}\\b`,
-						"i",
-					);
-					const source = closingPattern.test(body) ? "closing-keyword" : "branch-head";
-
-					refs.push({ number: item.number, sha, source, branch, state });
+					// Response → domain translation lives in the pure mapper so the
+					// merged/closed/open + closing-keyword rules stay unit-testable.
+					refs.push(mapPrToClosingRef(pr, issueNum));
 				} catch {
 					// If we can't get PR details, still include with empty sha/branch
 					refs.push({
