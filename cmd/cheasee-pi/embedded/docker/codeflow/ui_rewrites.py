@@ -19,8 +19,8 @@ _FP_FILTER_PATH = os.path.join(_FP_FILTER_DIR, "fp-filter.js")
 # The policy modules `fp-filter.js` is built from, in load order: each entry
 # publishes one global the next one (and the index) reads, and the index itself
 # loads last. A path is relative to `fp-filter/`, so it doubles as the served
-# name under `_FP_FILTER_MODULE_ROUTE`. This tuple is the single allowlist: the
-# request path is looked up in it and never joined to the filesystem, so `..`,
+# name under `_FP_FILTER_MODULE_ROUTE`. This tuple is the single allowlist: a
+# request tail is looked up in it and never joined to the filesystem, so `..`,
 # an encoded separator or an absolute path can only miss and 404.
 _FP_FILTER_MODULES = (
     "lexical",
@@ -33,6 +33,14 @@ _FP_FILTER_MODULES = (
     "duplicates",
 )
 _FP_FILTER_MODULE_ROUTE = "/fp-filter/"
+_FP_FILTER_MODULE_DIR = os.path.join(_FP_FILTER_DIR, "fp-filter")
+# Served name -> the concrete file, built once from the allowlist above. A
+# request therefore selects an entry of this table; the path handed to `open` is
+# a value derived from the tuple, never text taken from the request.
+_FP_FILTER_MODULE_PATHS = {
+    name: os.path.join(_FP_FILTER_MODULE_DIR, name + ".js")
+    for name in _FP_FILTER_MODULES
+}
 
 
 def _fp_filter_bytes():
@@ -56,12 +64,22 @@ def _fp_filter_module_name(suffix):
 def _fp_filter_module_bytes(name):
     """The bytes of one allowlisted policy module.
 
-    `name` is one of `_FP_FILTER_MODULES` byte-for-byte; anything else raises a
-    KeyError, so no request text ever becomes a filesystem path.
+    `name` selects an entry of `_FP_FILTER_MODULE_PATHS`, so the opened path is a
+    value built from the allowlist, never request text: an unlisted name has no
+    entry at all. The selected path is then confined to `fp-filter/` exactly like
+    `server._serve_ui_file` confines UI paths, so even an entry that pointed
+    outside the directory could only fail, never read.
     """
-    if name not in _FP_FILTER_MODULES:
+    selected = _FP_FILTER_MODULE_PATHS.get(name)
+    if selected is None:
         raise KeyError("not an fp-filter module: %r" % (name,))
-    with open(os.path.join(_FP_FILTER_DIR, "fp-filter", name + ".js"), "rb") as fh:
+    root = os.path.realpath(_FP_FILTER_MODULE_DIR)
+    target = os.path.realpath(selected)
+    if not target.startswith(root + os.sep):
+        raise OSError("fp-filter module escapes its directory: %r" % (name + ".js",))
+    if not os.path.isfile(target):
+        raise OSError("fp-filter module is not a file under fp-filter/: %r" % (name + ".js",))
+    with open(target, "rb") as fh:
         return fh.read()
 
 

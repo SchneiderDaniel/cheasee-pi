@@ -49,7 +49,7 @@ modules, each a UMD factory that takes its dependencies as an argument:
 | `codeflow/fp-filter/hygiene.js`                      | 6            | 91    | LOW hygiene class rule, test/doc path classes           |
 | `codeflow/fp-filter/layer.js`                        | 4            | 102   | layer taxonomy, `REPO_LAYERS`, violation rule           |
 | `codeflow/fp-filter/security/high.js`                | 10           | 162   | HIGH security rule                                      |
-| `codeflow/fp-filter/security/command-exec-policy.js` | 12           | 347   | pinned `safe-argv` provenance, `sha256Hex`              |
+| `codeflow/fp-filter/security/command-exec-policy.js` | 12           | 348   | pinned `safe-argv` provenance, `sha256Hex`              |
 | `codeflow/fp-filter/security/command-exec.js`        | 14           | 428   | MEDIUM command-execution proof                          |
 | `codeflow/fp-filter/dead-code.js`                    | 14           | 282   | `stripNoise`, reference index, dead-function rule       |
 | `codeflow/fp-filter/duplicates.js`                   | 5            | 114   | duplicate-group rules                                   |
@@ -70,8 +70,11 @@ a policy that silently keeps or suppresses findings.
 The served page loads one tag per module in dependency order and the index last.
 `ui_rewrites.py` emits those tags from `_FP_FILTER_MODULES`, and `server.py`
 serves them from that same tuple as a fixed allowlist, so request text never
-becomes a filesystem path. The Dockerfile copies the module tree next to the
-index, and the Go harness stages it by walking the embedded directory.
+becomes a filesystem path. The resolved module path is then `realpath`-confined to
+`fp-filter/` exactly like the UI route confines its paths, so even an allowlist
+entry that pointed outside the directory could only fail closed. The Dockerfile
+copies the module tree next to the index, and the Go harness stages it by walking
+the embedded directory.
 
 The policy core is pure: no module requires a builtin, reads the filesystem or
 holds cross-module state. `readFile` stays injected at the index seam, and the
@@ -96,13 +99,21 @@ has no synchronous `node:crypto`.
 
 `test/fp-filter-module-split-2100.test.mts` pins the metric exit, the conserved
 declaration set, the Node surface, the purity rules, the browser globals and their
-order, the parity of the served page against the headless runner on the recorded
-pinned-analyzer output, and the register arithmetic.
+order, the served adapters (module-path containment, `_BRIDGE_SCRIPT` tag order,
+Dockerfile COPY set), the parity of the served page against the headless runner on
+the recorded pinned-analyzer output, and the register arithmetic.
 `cmd/cheasee-pi/codeflow_shim_fp_filter_test.go` pins the served routes, the
-allowlist misses and the harness copy set, and
-`.pi/skills/audit-codeflow-analysis/test/bridge.test.mts` pins the tag order and
-the browser contract. `test/codeflow-fp-filter.test.mts` stays byte-identical:
-the existing suite is the behaviour-preservation oracle for the move.
+verbatim module bytes, the allowlist misses and the harness copy set; the
+fail-closed 500 for a module missing from the staged tree is pinned beside the
+staging helpers in `codeflow_shim_harness_test.go`.
+`.pi/skills/audit-codeflow-analysis/test/bridge.test.mts` pins the browser
+contract. `test/codeflow-fp-filter.test.mts` stays byte-identical: the existing
+suite is the behaviour-preservation oracle for the move.
+
+Two ledgers record the additions instead of absorbing them silently: `#2004`'s
+per-family declaration ledger moves 33 -> 35 for the fail-closed serve test and the
+boot-from-staged-tree helper it needs (`startShimAt`), and the served module path
+is `realpath`-confined to `fp-filter/` so the allowlist is never the only barrier.
 
 ## Rejected approaches
 

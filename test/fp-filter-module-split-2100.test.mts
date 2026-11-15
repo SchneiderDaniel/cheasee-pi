@@ -22,11 +22,11 @@
 //   * the register ledgers re-anchored, so the metric is cleared rather than
 //     hidden.
 //
-// The served adapters (Python route, tag order, Dockerfile COPY set, Go harness
-// copy set) are pinned in `cmd/cheasee-pi/codeflow_shim_fp_filter_test.go` and
-// `.pi/skills/audit-codeflow-analysis/test/bridge.test.mts`; the behaviour of the
-// whole policy is pinned by `test/codeflow-fp-filter.test.mts`, which stays
-// byte-identical.
+// The served adapters are pinned here (module-path containment, `_BRIDGE_SCRIPT`
+// tag order, Dockerfile COPY set) and in
+// `cmd/cheasee-pi/codeflow_shim_fp_filter_test.go` (HTTP route, verbatim bytes,
+// Go harness copy set); the behaviour of the whole policy is pinned by
+// `test/codeflow-fp-filter.test.mts`, which stays byte-identical.
 //
 // Run: node --experimental-strip-types --test test/fp-filter-module-split-2100.test.mts
 
@@ -43,6 +43,7 @@ import * as acorn from "acorn";
 
 import { countAcornBabelFunctions } from "./fixtures/acorn-babel-mirror.mts";
 import { calcComplexity } from "./fixtures/complexity-mirror.mts";
+import { countFunctions } from "./fixtures/function-count-mirror.mts";
 import { CODE_EXTS, isFlagged, lineCount } from "./fixtures/long-file-mirror.mts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -664,6 +665,131 @@ describe("fp-filter module split #2100 — browser load path", () => {
 	});
 });
 
+// ─── Phase 4: the served adapters ──────────────────────────────────
+
+describe("fp-filter module split #2100 — served adapters", () => {
+	const DOCKERFILE = resolve(ROOT, CODEFLOW, "Dockerfile");
+	const UI_REWRITES_PY = resolve(ROOT, CODEFLOW, "ui_rewrites.py");
+
+	/** Run a python snippet against a shim module; null when python3 is absent. */
+	function python(snippet: string[], module = serverPy()): string | null {
+		try {
+			return execFileSync("python3", ["-c", snippet.join("\n"), module], {
+				encoding: "utf-8",
+			});
+		} catch {
+			return null;
+		}
+	}
+
+	function serverPy(): string {
+		return resolve(ROOT, CODEFLOW, "server.py");
+	}
+
+	it("ships the module tree with the index and tags it in load order", () => {
+		// The index cannot run without its modules: the image must COPY the tree
+		// beside it (one COPY, not a hand list a new module could miss), and the
+		// emitted tags must follow the load dependency, index last.
+		const dockerfile = readFileSync(DOCKERFILE, "utf-8");
+		assert.match(dockerfile, /COPY fp-filter\.js \/opt\/codeflow\/fp-filter\.js/);
+		assert.match(dockerfile, /COPY fp-filter\/ \/opt\/codeflow\/fp-filter\//);
+
+		const script = python([
+			"import runpy, sys",
+			"m = runpy.run_path(sys.argv[1])",
+			"sys.stdout.write(m['_BRIDGE_SCRIPT'].decode())",
+		]);
+		if (script === null) return; // python3 absent: the Go suite pins the same order.
+		const tagged = [
+			...script.matchAll(/<script src="fp-filter\/([\w/-]+)\.js" defer><\/script>/g),
+		].map((m) => m[1]);
+		assert.deepStrictEqual(tagged, MODULES, "one tag per module, in load order");
+		const indexTag = '<script src="fp-filter.js" defer></script>';
+		assert.equal(script.split(indexTag).length - 1, 1, "exactly one index tag");
+		const indexAt = script.indexOf(indexTag);
+		for (const name of tagged) {
+			assert.ok(
+				script.indexOf(`src="fp-filter/${name}.js"`) < indexAt,
+				`${name} must load before the index tag`,
+			);
+		}
+		assert.ok(
+			script.lastIndexOf('src="codeflow-bridge.js"') > indexAt,
+			"the bridge tag must follow the index",
+		);
+		// The served index name stays unique: `fp-filter/<name>.js` cannot match it.
+		assert.equal(
+			script.split('src="fp-filter.js"').length - 1,
+			1,
+			"the index is referenced exactly once",
+		);
+	});
+
+	it("serves a module only from the allowlist table, never from request text", () => {
+		// The path handed to `open` is a value of `_FP_FILTER_MODULE_PATHS`, built
+		// once from the allowlist — so the table, not the request, decides what can
+		// be read. Driven through python so the served code itself runs. `runpy`
+		// returns a copy of the globals, so the tampering goes through the function's
+		// own `__globals__`.
+		const out = python(
+			[
+				"import runpy, sys",
+				"m = runpy.run_path(sys.argv[1])",
+				"module = m['_fp_filter_module_bytes']",
+				"globals_ = module.__globals__",
+				"out = []",
+				// 1. an allowlisted name reads its own file;
+				"out.append('read' if module('lexical') else 'empty')",
+				// 2. a name the table does not carry cannot resolve, even when the
+				//    allowlist tuple is widened to include it;
+				"globals_['_FP_FILTER_MODULES'] += ('../server',)",
+				"try:",
+				"    module('../server')",
+				"except KeyError:",
+				"    out.append('unlisted')",
+				"else:",
+				"    out.append('read')",
+				// 3. and an entry that resolved outside `fp-filter/` still fails closed.
+				"globals_['_FP_FILTER_MODULE_PATHS']['hygiene'] = '../server'",
+				"try:",
+				"    module('hygiene')",
+				"except OSError as exc:",
+				"    out.append('confined' if 'escapes' in str(exc) else 'OSError')",
+				"else:",
+				"    out.append('read')",
+				"print(','.join(out))",
+			],
+			UI_REWRITES_PY,
+		);
+		if (out === null) return; // python3 absent: the Go suite pins the route behaviour.
+		assert.equal(
+			out.trim(),
+			"read,unlisted,confined",
+			"only an allowlisted name reads, and even a table entry that escapes fails closed",
+		);
+	});
+
+	it("reads a served module only under the allowlisted route prefix", () => {
+		// `_fp_filter_module_name` turns the request tail into a name or a miss; the
+		// route handler only serves a name that survived it, so `..`, an encoded
+		// separator and an absolute path are 404s before any filesystem call.
+		const out = python([
+			"import runpy, sys",
+			"m = runpy.run_path(sys.argv[1])",
+			"cases = ('lexical.js', 'security/high.js', '../server.py', '..%2Fserver.py',",
+			"         '%2e%2e%2e/server.py', 'security/../../server.py', '', 'lexical',",
+			"         'hygiene.js/../server.py')",
+			"print(','.join(repr(m['_fp_filter_module_name'](c)) for c in cases))",
+		]);
+		if (out === null) return; // python3 absent: the Go suite pins the route behaviour.
+		assert.equal(
+			out.trim(),
+			["'lexical'", "'security/high'", ...Array(7).fill("None")].join(","),
+			"only `<allowlisted name>.js` may resolve; nothing is stripped or normalised",
+		);
+	});
+});
+
 // ─── Phase 5: the served page and the headless runner agree ────────
 
 describe("fp-filter module split #2100 — served page parity", () => {
@@ -839,8 +965,16 @@ describe("fp-filter module split #2100 — register ledgers", () => {
 		const largeDeferred = (large.deferred ?? []).flatMap((entry: any) => entry.files ?? []);
 		assert.equal(largeDeferred.includes(INDEX_REL), false, "the index is no longer a large file");
 		assert.equal(Object.keys(large.fpFilterModules).length, 9, "the family is recorded");
+		// That register records the raw-text `countFunctions` branch (the mirror its
+		// own oracle applies), not the acorn-babel branch this issue is filed on; the
+		// acorn counts are pinned by the family conservation test above.
 		for (const [rel, n] of Object.entries(large.fpFilterModules as Record<string, number>)) {
-			assert.ok(declarations(rel) <= 15, `${rel} counts ${declarations(rel)}, recorded ${n}`);
+			assert.equal(
+				countFunctions(read(rel), "js"),
+				n,
+				`${rel} drifted from the recorded raw-text count`,
+			);
+			assert.ok(declarations(rel) <= 15, `${rel} is over the acorn-babel God Object ceiling`);
 		}
 		// Complexity: the file stays a critical-complexity path (the family is still
 		// above 30), so the register keeps the entry and re-anchors its score.
@@ -850,5 +984,49 @@ describe("fp-filter module split #2100 — register ledgers", () => {
 		assert.ok(cited.after < cited.before, "the split lowered the recorded score");
 		assert.equal(calcComplexity(read(INDEX_REL)).score, cited.after, "the recorded score drifted");
 		assert.match(complexity.deferred[INDEX_REL].reason, /#2100/, "the deferral names the split");
+	});
+
+	it("records the new critical-complexity paths instead of hiding them", () => {
+		// The two metrics pull against each other: `VBA God Module` counts
+		// declarations per file, so clearing it adds scored files, and the
+		// complexity metric sums RAW-text branch tokens, so the family always sums
+		// higher than the one file it replaced. The split must therefore be booked
+		// in the #2033 envelope — one path at a time, never as a silent regression.
+		const envelope2033 = JSON.parse(read("test/fixtures/complexity-baseline-2033.json"));
+		for (const rel of FAMILY) {
+			const entry = envelope2033.deferred[rel];
+			assert.ok(entry, `${rel} is a measured critical path but not deferred in #2033`);
+			assert.ok(entry.reason.length > 0, `${rel} states no reason`);
+			assert.ok(entry.requires.length > 0, `${rel} states no requires pointer`);
+			assert.ok(
+				calcComplexity(read(rel)).score > 30,
+				`${rel} sank under the ceiling — drop the stale #2033 deferral`,
+			);
+		}
+		assert.equal(
+			envelope2033.after.criticalCount,
+			Object.keys(envelope2033.deferred).length,
+			"the #2033 after count is the deferral list",
+		);
+		assert.equal(
+			envelope2033.after.criticalCount,
+			envelope2033.before.criticalCount - envelope2033.after.expectedDrop,
+			"#2033 after must still be before minus the recorded drop",
+		);
+		assert.ok(
+			envelope2033.after.criticalCount < envelope2033.before.criticalCount,
+			"the ratchet still falls",
+		);
+		assert.ok(
+			envelope2033.after.criticalCount <= envelope2033.filedBaseline.criticalCount,
+			"never above the filed baseline",
+		);
+		// #2107 replays the same tree-wide count; the two registers may not drift.
+		const complexity2107 = JSON.parse(read("test/fixtures/complexity-baseline-2107.json"));
+		assert.equal(
+			complexity2107.controls.criticalCount,
+			envelope2033.after.criticalCount,
+			"#2107 controls.criticalCount drifted from the #2033 envelope",
+		);
 	});
 });
