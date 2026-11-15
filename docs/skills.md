@@ -164,6 +164,20 @@ Apply the repository's stored writing voice before drafting user-facing prose. T
 - **Input:** Sample text (URL, file path, or paste)
 - **Output:** Structured voice style guide
 
+### test-validator
+
+Judge every runnable test against a written quality bar (`criteria.md`) and file one GitHub issue listing the tests that carry no project-specific regression or contract signal. Each test gets one isolated, tool-less model call; verdicts are `GOOD`, `BAD`, or `PENDING`, and `BAD` requires the full evidence gate (confidence, a verbatim in-range quote, and a BAD-qualifying criterion). Decisions are checkpointed, so an interrupted audit resumes instead of restarting, and a changed inventory or model configuration refuses to resume.
+
+```bash
+node --experimental-strip-types .pi/skills/test-validator/scripts/test-validator.mts [--restart] [--limit N]
+```
+
+It discovers the `node:test` call sites matched by `scripts.test`, appends every decision to `ignore/test-validator/checkpoint.jsonl`, and writes `ignore/test-validator/report.json` only once every discovered test is decided. Exit `0` complete, `1` halted (precondition, model, checkpoint, or filing failure), `2` usage or unresolvable inventory, `3` incomplete (tests stayed pending, so no report and no issue). The skill never removes or edits tests: the cleanup issue asks a maintainer to review.
+
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:test-validator`
+- **Skills:** Test-quality judgement, resumable audit, issue filing
+- **Dependency:** Provider API key in the environment, authenticated `gh` CLI, `supervisor.repo` in `.pi/settings.json`
+
 ## Usage
 
 Invoke a skill during a session:
