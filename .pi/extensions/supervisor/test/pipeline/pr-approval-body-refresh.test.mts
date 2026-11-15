@@ -547,13 +547,12 @@ describe("Phase 3 — handlePrApprovalFlow sequences publish → gate → refres
 		const calls: PortCall[] = [];
 		const { pi } = createMockPi([...REBASE_OK_ROUND, ...REBASE_OK_ROUND]);
 		let created = 0;
-		const port = createMockGitHubPort(
-			{
-				compareBranches: async () => 3,
-				listPullRequestsForBranch: async () => null,
-				createPullRequest: async () => ({ number: 900 + ++created }),
-			},
+		// Invisible through the whole publish/re-publish window, then the
+		// replacement PR settles clean on the gate's next round.
+		const port = createSequencedPort(
+			[null, null, null, null, makeCleanInfo(902), makeCleanInfo(902)],
 			calls,
+			{ createPullRequest: async () => ({ number: 900 + ++created }) },
 		);
 		const runCtx = buildRunContext(port, pi);
 
@@ -598,6 +597,73 @@ describe("Phase 3 — handlePrApprovalFlow sequences publish → gate → refres
 		assert.ok(
 			comments.some((b) => b.includes("PR Readiness Blocked")),
 			"blocker comment posted",
+		);
+		const transitions = calls
+			.filter((c) => c.method === "setItemStatusField")
+			.map((c) => c.args[3] as string);
+		assert.ok(!transitions.includes("opt-done"), "never transitions to Done");
+	});
+
+	it("approval publish fails but an earlier PR is clean → body rewritten, then { stop: false }", async () => {
+		const calls: PortCall[] = [];
+		const { pi } = createMockPi([...REBASE_OK_ROUND]);
+		let updates = 0;
+		const port = createSequencedPort(
+			[makeCleanInfo(), makeCleanInfo(), makeCleanInfo(), makeCleanInfo()],
+			calls,
+			{
+				updatePullRequest: async () => {
+					updates++;
+					if (updates === 1) throw new Error("gh: secondary rate limit");
+				},
+			},
+		);
+		const runCtx = buildRunContext(port, pi);
+
+		const outcome = await handlePrApprovalFlow(runCtx, "Audit");
+
+		// Audit finding: a failed approval publish must never complete with the
+		// in-progress body — the body is republished before Done.
+		assert.equal(outcome.stop, false);
+		assert.equal(calls.filter((c) => c.method === "createPullRequest").length, 0);
+		const bodyWrites = calls.filter((c) => c.method === "updatePullRequest");
+		assert.equal(bodyWrites.length, 2, "failed publish + one body re-publish");
+		const finalBody = bodyOf(bodyWrites[bodyWrites.length - 1]);
+		assert.ok(finalBody.includes("## ✅ Pipeline Complete"), `final body: ${finalBody}`);
+		assert.ok(finalBody.includes("7/9"), "auditor verdict present in the republished body");
+	});
+
+	it("approval body cannot be published at all → { stop: true }, no Done, blocker posted", async () => {
+		const calls: PortCall[] = [];
+		const { pi } = createMockPi([...REBASE_OK_ROUND]);
+		const port = createSequencedPort(
+			[makeCleanInfo(), makeCleanInfo(), makeCleanInfo(), makeCleanInfo()],
+			calls,
+			{
+				updatePullRequest: async () => {
+					throw new Error("gh: 500 Internal Server Error");
+				},
+			},
+		);
+		const runCtx = buildRunContext(port, pi);
+
+		const outcome = await handlePrApprovalFlow(runCtx, "Audit");
+
+		assert.equal(outcome.stop, true, "no confirmed body → never Done");
+		if (outcome.stop) assert.equal(outcome.loopStatus, "Implementation");
+		assert.equal(
+			calls.filter((c) => c.method === "createPullRequest").length,
+			0,
+			"no duplicate PR",
+		);
+		const comments = calls
+			.filter((c) => c.method === "postIssueComment")
+			.map((c) => c.args[2] as string);
+		assert.ok(
+			comments.some(
+				(b) => b.includes("PR Readiness Blocked") && b.includes("body could not be published"),
+			),
+			"blocker comment names the body failure",
 		);
 		const transitions = calls
 			.filter((c) => c.method === "setItemStatusField")
@@ -739,7 +805,7 @@ describe("Phase 4 — vanished-PR rule (pr-gate.ts)", () => {
 		assert.equal(state.retried, false, "no retry needed when the PR reappears");
 	});
 
-	it("vanished: PR stays invisible → exactly one bounded re-publish, ok with the new PR number", async () => {
+	it("vanished: PR stays invisible → one bounded re-publish, then back to the gate rounds", async () => {
 		const calls: PortCall[] = [];
 		const { pi } = createMockPi([
 			{ code: 0, stdout: "fetch ok", stderr: "" },
@@ -761,10 +827,47 @@ describe("Phase 4 — vanished-PR rule (pr-gate.ts)", () => {
 			"vanished",
 		);
 
-		assert.ok("verdict" in outcome && outcome.verdict.ok, "re-published PR passes the gate");
-		assert.equal(outcome.verdict.prCreationResult?.prNumber, 777);
+		// The replacement PR is NOT trusted yet: the gate must re-poll its
+		// mergeability instead of passing on the bare create response (audit #1).
+		assert.ok("continue" in outcome, "the gate rounds continue to verify the new PR");
+		assert.equal(state.current?.prNumber, 777, "re-published PR owns the new number");
 		assert.equal(calls.filter((c) => c.method === "createPullRequest").length, 1);
 		assert.equal(state.retried, true, "the retry is recorded as used");
+	});
+
+	it("vanished: re-published PR must settle clean before the gate passes", async () => {
+		const calls: PortCall[] = [];
+		const { pi } = createMockPi([]);
+		// round 0: list → null → vanished; poll → null; the re-publish's own
+		// list → null → create #777; round 1: the replacement PR is dirty.
+		const port = createSequencedPort(
+			[null, null, null, makeDirtyInfo(777), makeDirtyInfo(777)],
+			calls,
+			{ createPullRequest: async () => ({ number: 777 }) },
+		);
+
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			createMockCtx(),
+			42,
+			"Test issue",
+			mockConfig as never,
+			agentResults,
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 456 },
+			undefined,
+			port,
+			undefined,
+			NO_BACKOFF,
+			{ overallStatus: "success", auditVerdict: AUDIT_VERDICT },
+		);
+
+		assert.equal(verdict.ok, false, "a dirty replacement PR never passes the Done gate");
+		assert.ok(
+			verdict.blockerNote?.includes("manual intervention"),
+			`blockerNote explains the block: ${verdict.blockerNote}`,
+		);
 	});
 
 	it("vanished: re-publish fails → { ok: false } with a manual-intervention blocker", async () => {
@@ -826,16 +929,16 @@ describe("Phase 4 — vanished-PR rule (pr-gate.ts)", () => {
 		const calls: PortCall[] = [];
 		const { pi } = createMockPi([]);
 		let createdBody = "";
-		const port = createMockGitHubPort(
+		const port = createSequencedPort(
+			// The re-published PR (#555) is visible and clean on the next round.
+			[null, null, null, makeCleanInfo(555), makeCleanInfo(555)],
+			calls,
 			{
-				compareBranches: async () => 3,
-				listPullRequestsForBranch: async () => null,
 				createPullRequest: async (input: { body?: string }) => {
 					createdBody = String(input.body ?? "");
 					return { number: 555 };
 				},
 			},
-			calls,
 		);
 
 		const verdict = await ensurePrReadyForDone(
@@ -956,6 +1059,39 @@ describe("Phase 5 — audit verdict captured at post-dispatch (agent-loop-steps.
 		});
 
 		recordPostDispatch(runCtx, "auditor", textOnly, 1);
+
+		assert.equal(runCtx.auditVerdict, undefined);
+	});
+
+	it("text-only audit after a structured audit clears the stale verdict", () => {
+		const runCtx = buildRunContext(createMockGitHubPort(), createMockPi([]).pi, {
+			stageState: createStageState("Audit"),
+			auditVerdict: undefined,
+		});
+		recordPostDispatch(runCtx, "auditor", auditorResult(), 1);
+		assert.ok(runCtx.auditVerdict, "first structured audit captured");
+
+		const textOnly = auditorResult({
+			output: "Audit done\nAUDIT_SCORE: 8/9",
+			textOutput: "Audit done\nAUDIT_SCORE: 8/9",
+			textOnly: "Audit done\nAUDIT_SCORE: 8/9",
+		});
+		recordPostDispatch(runCtx, "auditor", textOnly, 2);
+
+		// A dispatch without a structured verdict must not leave the previous
+		// dispatch's findings in the PR body as if they were current (audit #3).
+		assert.equal(runCtx.auditVerdict, undefined);
+	});
+
+	it("failed auditor dispatch after a structured audit clears the verdict too", () => {
+		const runCtx = buildRunContext(createMockGitHubPort(), createMockPi([]).pi, {
+			stageState: createStageState("Audit"),
+			auditVerdict: undefined,
+		});
+		recordPostDispatch(runCtx, "auditor", auditorResult(), 1);
+		assert.ok(runCtx.auditVerdict, "first structured audit captured");
+
+		recordPostDispatch(runCtx, "auditor", auditorResult({ success: false }), 2);
 
 		assert.equal(runCtx.auditVerdict, undefined);
 	});

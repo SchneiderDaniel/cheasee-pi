@@ -456,11 +456,11 @@ export function recordPostDispatch(
 
 	// Capture the auditor verdict for the approval PR body (issue #1831).
 	// Same structured parse as the gate pre-compute above — only the
-	// projection differs. A run without structured audit output leaves the
-	// last known verdict in place (the body then shows no fresh result).
+	// projection differs. The slot is CLEARED per auditor dispatch: a dispatch
+	// without structured audit output must leave no verdict rather than let the
+	// previous dispatch's findings pose as the current result in the PR body.
 	if (agentName === "auditor") {
-		const verdict = buildAuditorVerdict(result, stageState);
-		if (verdict) runCtx.auditVerdict = verdict;
+		runCtx.auditVerdict = buildAuditorVerdict(result, stageState);
 	}
 
 	// Refusal short-circuit (issue #1618): when the agent declined the task

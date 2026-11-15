@@ -13,7 +13,7 @@ import type {
 import { generateBranchName } from "../lib/branch-name.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { tryRebaseOntoBase } from "./rebase.ts";
-import { buildPipelineSummary, renderAuditorSection } from "../pipeline/output.ts";
+import { buildPrBody } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 import type { PrBodyInput } from "./output.ts";
@@ -103,43 +103,10 @@ async function verifyAhead(
 /** Level-carrying notify hook handed to upsertPullRequest by its callers. */
 export type PrNotify = (message: string, level: "info" | "warning" | "error") => void;
 
-/**
- * Build the PR title + body for an issue.
- * Single owner of the buildPipelineSummary argument mapping so the early
- * upsert (in-progress) and the approval refresh cannot drift apart.
- * The auditor section is appended by output.ts — `buildPipelineSummary`
- * keeps its positional contract unchanged.
- */
-export function buildPrBody(
-	issueNum: number,
-	issueTitle: string,
-	agentResults: PipelineAgentResult[],
-	config: SupervisorConfig | undefined,
-	input?: PrBodyInput,
-): { title: string; body: string } {
-	return {
-		title: `feat(#${issueNum}): ${issueTitle}`,
-		body: withAuditorSection(
-			buildPipelineSummary(
-				agentResults,
-				input?.overallStatus ?? "in-progress",
-				issueNum,
-				issueTitle,
-				config,
-				input?.stopReason,
-				undefined,
-				input?.gateFailureHistory,
-				input?.packageSafetyResult,
-			),
-			input?.auditVerdict,
-		),
-	};
-}
-
-/** Append the auditor verdict block, when the run produced one. */
-function withAuditorSection(summary: string, auditVerdict?: PrBodyInput["auditVerdict"]): string {
-	return auditVerdict ? `${summary}\n\n${renderAuditorSection(auditVerdict)}` : summary;
-}
+// The title + body builder lives with the body renderer (output.ts, issue
+// #1831: body text has one owner); re-exported so publish call sites keep one
+// import path.
+export { buildPrBody };
 
 /** Update an existing PR, mapping failures to a PrCreationResult. */
 export async function updateExistingPr(
@@ -260,6 +227,52 @@ export async function upsertPullRequest(input: {
 	log.error("pr-creation", `All ${MAX_PR_CREATE_RETRIES} attempts failed: ${errorMsg}`);
 	notify?.(`Failed to create PR after ${MAX_PR_CREATE_RETRIES} attempts: ${errorMsg}`, "error");
 	return { success: false, error: errorMsg, source: "pr-creation" };
+}
+
+/**
+ * Write a body onto an already-published PR — update-only, so a body refresh
+ * can never open a second PR. The PR comes from `prNumber`, else the head
+ * branch; no PR is a failure result, never a create (issue #1831).
+ */
+export async function publishPrBody(input: {
+	repo: string;
+	head: string;
+	issueNum: number;
+	issueTitle: string;
+	agentResults: PipelineAgentResult[];
+	config: SupervisorConfig | undefined;
+	body: PrBodyInput;
+	port?: GitHubPort;
+	prNumber?: number;
+	notify?: PrNotify;
+}): Promise<PrCreationResult> {
+	const { repo, head, port, notify } = input;
+	if (!port) {
+		notify?.("GitHubPort not available for PR body refresh", "error");
+		return {
+			success: false,
+			error: "GitHubPort not available for PR body refresh",
+			source: "pr-creation",
+		};
+	}
+	let prNumber = input.prNumber;
+	if (!prNumber) {
+		try {
+			prNumber = (await port.listPullRequestsForBranch(head, repo))?.number;
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			return { success: false, error: `PR lookup failed: ${msg}`, source: "pr-creation" };
+		}
+	}
+	if (!prNumber) return { success: false, error: `No PR found for ${head}`, source: "pr-creation" };
+	const { title, body } = buildPrBody(
+		input.issueNum,
+		input.issueTitle,
+		input.agentResults,
+		input.config,
+		input.body,
+	);
+	return await updateExistingPr(port, repo, prNumber, title, body, notify);
 }
 
 /**

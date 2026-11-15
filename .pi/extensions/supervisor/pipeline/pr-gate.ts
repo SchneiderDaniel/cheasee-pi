@@ -259,7 +259,10 @@ export async function handleMissingPr(
 		state.retried = true;
 		state.current = await retryCreatePr(deps);
 		if (state.current.success) {
-			return { verdict: { ok: true, prCreationResult: state.current } };
+			// The replacement PR is not trusted on the create response alone:
+			// hand control back to the round loop so it polls the new PR's
+			// mergeability and only passes on a settled, clean PR (audit #1).
+			return { continue: true };
 		}
 		return {
 			verdict: {
