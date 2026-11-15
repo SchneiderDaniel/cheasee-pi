@@ -340,10 +340,9 @@ describe("codeflow bridge capture", () => {
 	});
 	it("serves the false-positive filter the headless runner applies", () => {
 		const py = readShim();
-		const tag = /_BRIDGE_SCRIPT = b(['"])([\s\S]*?)\1/.exec(py)?.[2];
-		assert.ok(tag, "_BRIDGE_SCRIPT not found in the shim modules");
-		assert.strictEqual((tag.match(/fp-filter\.js/g) ?? []).length, 1, "one fp-filter tag");
-		assert.strictEqual((tag.match(/codeflow-bridge\.js/g) ?? []).length, 1, "one bridge tag");
+		const tuple = /_FP_FILTER_MODULES = \(([\s\S]*?)\n\)/.exec(py)?.[1] ?? "";
+		const modules = [...tuple.matchAll(/"([\w/-]+)"/g)].map((m) => m[1]);
+		assert.equal(modules.length, 8, "_FP_FILTER_MODULES must pin the eight policy modules");
 		assert.match(py, /_FP_FILTER_ROUTE = "\/fp-filter\.js"/);
 		assert.match(py, /_fp_rewrite\(\)/);
 		// The wrapper reports a sanitizer failure through the bridge's visible banner.
@@ -378,9 +377,14 @@ describe("codeflow bridge capture", () => {
 			/COPY fp-filter\.js \/opt\/codeflow\/fp-filter\.js/,
 		);
 
-		// Browser contract: loaded as a plain script it must publish piFpFilter.
+		// Browser contract: the page loads every module tag, then the index, which
+		// publishes piFpFilter from the globals they publish.
 		const sandbox: Record<string, any> = {};
 		vm.createContext(sandbox);
+		for (const m of modules) {
+			const path = resolve(SERVER_PY, "..", "fp-filter", `${m}.js`);
+			vm.runInContext(readFileSync(path, "utf-8"), sandbox);
+		}
 		vm.runInContext(readFileSync(filterPath, "utf-8"), sandbox);
 		assert.strictEqual(typeof sandbox.piFpFilter?.sanitizeAnalysisData, "function");
 		assert.strictEqual(typeof sandbox.piFpFilter?.readFileFrom, "function");

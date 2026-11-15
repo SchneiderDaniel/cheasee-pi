@@ -35,14 +35,14 @@
 		{
 			"path": "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
 			"citedAs": "fp-filter.js",
-			"lines": 1750,
+			"lines": 462,
 			"before": 764,
-			"after": 725,
+			"after": 139,
 			"verdict": "reduced",
 			"finding": "applies, major — one UMD closure mixing six false-positive categories, a hand-rolled SHA-256 and two scanner pairs",
-			"change": "skipQuoted deleted (`skipString` is the same scanner, now the only copy); the require/import child-process binding scans merged into one pass behind addReceiver(); argvCarriesCodeToken + argvNamesInterpreter collapsed into one argvFacts() pass; parseName() is the one alias parser for import clauses and destructuring (childProcessBindings + safeArgvPolicyNames); QUOTED_LITERAL is the one literal-shape owner for programs and argv elements; hasShellExecution() is a construct table; the three suppression loops share partitionList(); the two aggregate rewriters share mapIssues(); the four stats reconcilers share one keptCounts table; isTestArtifact/isDocArtifact share hasDirSegment()",
+			"change": "skipQuoted deleted (`skipString` is the same scanner, now the only copy); the require/import child-process binding scans merged into one pass behind addReceiver(); argvCarriesCodeToken + argvNamesInterpreter collapsed into one argvFacts() pass; parseName() is the one alias parser for import clauses and destructuring (childProcessBindings + safeArgvPolicyNames); QUOTED_LITERAL is the one literal-shape owner for programs and argv elements; hasShellExecution() is a construct table; the three suppression loops share partitionList(); the two aggregate rewriters share mapIssues(); the four stats reconcilers share one keptCounts table; isTestArtifact/isDocArtifact share hasDirSegment(); #2100 then split the 462-line index plus its eight policy modules out of the one closure (the `VBA God Module` work this deferral named), which is what carries the score from 725 to 139",
 			"evidence": "201 behavioural tests (test/codeflow-fp-filter.test.mts, -part6, test/codeflow-fp-acceptance.test.mts) plus the shim/bridge contracts pin the public surface — green before and after; the exported API is unchanged",
-			"deferred": "the 1750-line single file itself"
+			"deferred": "none: #2100 delivered the sibling-module split under `codeflow/fp-filter/`; the index plus eight modules still score above 30 together, so the file stays a critical-complexity path and the #2033 flag set is unchanged"
 		},
 		{
 			"path": "cmd/cheasee-pi/embedded/docker/entrypoint.sh",
@@ -80,7 +80,7 @@
 	],
 	"deferred": {
 		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js": {
-			"reason": "the remaining score is six policy categories plus the shared lexical scanners in one UMD closure; splitting them into siblings is the only way under the ceiling",
+			"reason": "the remaining score is six policy categories plus the shared lexical scanners in one UMD closure; splitting them into siblings is the only way under the ceiling #2100 delivered that split (index over eight policy modules under `codeflow/fp-filter/`), but the family still scores above the 30 ceiling in total, so the file remains a critical-complexity path.",
 			"requires": "a sibling-module split under codeflow/ that keeps the single-script UMD loading contract — loader changes in run-analysis.mjs (require), ui_rewrites.py (one served route), the Go embed list, the Dockerfile COPY, and the byte-verbatim serve test in codeflow_shim_fp_filter_test.go"
 		},
 		".pi/extensions/supervisor/pipeline/stages/agent-comment.ts": {

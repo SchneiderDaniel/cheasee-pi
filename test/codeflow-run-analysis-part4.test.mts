@@ -325,6 +325,8 @@ const VBA_GOD_2036_BASELINE = JSON.parse(
 	after: { ref: string; codeFiles: number; vbaGodModuleCount: number };
 	baseAdvance: { resolvedFiles: string[] };
 	reducedBy: string[];
+	/** Split here but NOT cited by the issue: the one uncited leftover flag. */
+	uncitedReduced: { path: string; issue: number; reason: string }[];
 	/** Ledger paths the tree no longer carries (overlay: the filed count keeps them). */
 	removed: { path: string; issue: number; reason: string }[];
 	deferred: { reason: string; files?: string[] }[];
@@ -368,13 +370,15 @@ describe("vba god module metric oracle (issue #2036)", () => {
 
 	it("accounts for every leftover flag (no silent omission)", () => {
 		const files = VBA_GOD_2036_BASELINE.deferred.flatMap((d) => d.files ?? []);
+		const uncited = VBA_GOD_2036_BASELINE.uncitedReduced.map((entry) => entry.path);
 		assert.strictEqual(
 			VBA_GOD_2036_BASELINE.before.vbaGodModuleCount,
 			VBA_GOD_2036_BASELINE.reducedBy.length +
+				uncited.length +
 				files.length +
 				VBA_GOD_2036_BASELINE.removed.length +
 				VBA_GOD_2036_BASELINE.baseAdvance.resolvedFiles.length,
-			"the base count must equal reduced + deferred + since-removed + resolved after the pinned base",
+			"the base count must equal reduced + uncited-reduced + deferred + since-removed + resolved after the pinned base",
 		);
 		assert.strictEqual(
 			VBA_GOD_2036_BASELINE.after.vbaGodModuleCount,

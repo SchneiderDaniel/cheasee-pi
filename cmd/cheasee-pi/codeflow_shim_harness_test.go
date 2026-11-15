@@ -73,9 +73,13 @@ var codeflowShimModules = []string{
 	"handler_api.py",
 }
 
-// stageCodeflowShim writes the embedded shim modules (plus the fp-filter.js the
-// server serves from its own directory) into dir and returns the staged
-// server.py path.
+// stageCodeflowShim writes the embedded shim modules (plus the `fp-filter.js`
+// index and the whole `fp-filter/` module tree the server serves from its own
+// directory) into dir and returns the staged server.py path. The module tree is
+// walked rather than listed, so a new policy module cannot ship embedded but
+// unstageable — the served allowlist (`_FP_FILTER_MODULES`) is checked against
+// the staged bytes by TestCodeFlowServer_FpFilterModulesServed in
+// codeflow_shim_fp_filter_test.go.
 func stageCodeflowShim(t *testing.T, dir string) string {
 	t.Helper()
 	for _, name := range append(append([]string{}, codeflowShimModules...), "fp-filter.js") {
@@ -87,6 +91,7 @@ func stageCodeflowShim(t *testing.T, dir string) string {
 			t.Fatalf("write codeflow/%s: %v", name, err)
 		}
 	}
+	stageFPFilterModules(t, dir)
 	return filepath.Join(dir, "server.py")
 }
 

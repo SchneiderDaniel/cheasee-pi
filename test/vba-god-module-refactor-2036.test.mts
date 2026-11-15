@@ -157,6 +157,11 @@ const B = JSON.parse(read("test/fixtures/vba-god-module-baseline-2036.json")) as
 	baseAdvance: { issue: number; reason: string; scoredFilesAdded: number; resolvedFiles: string[] };
 	reducedBy: string[];
 	filedFiles: string[];
+	/**
+	 * Files this change split that the issue did NOT cite — a leftover flag the
+	 * ledger records instead of hiding (the #2034 `UNCITED_REDUCED` precedent).
+	 */
+	uncitedReduced: { path: string; issue: number; reason: string }[];
 	/** Ledger paths the tree no longer carries (overlay: `filedFiles` keeps the count). */
 	removed: { path: string; issue: number; reason: string }[];
 	alreadyUnder: { reason: string; files: string[] };
@@ -173,7 +178,8 @@ const ADDITIONAL_SCORED_FILES = [
 	"cmd/cheasee-pi/embedded/docker/codeflow/handler_api.py",
 ];
 const DEFERRED = B.deferred.flatMap((d) => d.files ?? []);
-const BASE_UNCITED = [...DEFERRED, ...B.baseAdvance.resolvedFiles];
+const UNCITED_REDUCED = B.uncitedReduced.map((entry) => entry.path);
+const BASE_UNCITED = [...DEFERRED, ...UNCITED_REDUCED, ...B.baseAdvance.resolvedFiles];
 const ALREADY_UNDER = B.alreadyUnder.files;
 
 // ─── Manifest ─────────────────────────────────────────────────────
@@ -187,10 +193,21 @@ describe("vba god module refactor #2036 — manifest", () => {
 		assert.equal(B.godObjectThreshold, 15, "the God Object ceiling");
 	});
 
-	it("cites the 22 live reduced modules and their 56 siblings", () => {
-		assert.deepStrictEqual(Object.keys(B.splitFamilies).sort(), [...B.reducedBy].sort());
-		assert.equal(SIBLINGS.length, 56, "fifty-six live siblings for the twenty-two families");
+	it("cites the 22 filed reductions and their 64 siblings, plus the one uncited leftover", () => {
+		assert.deepStrictEqual(
+			Object.keys(B.splitFamilies).sort(),
+			[...B.reducedBy, ...UNCITED_REDUCED].sort(),
+		);
+		assert.equal(SIBLINGS.length, 64, "sixty-four live siblings for the twenty-three families");
 		assert.equal(new Set(SIBLINGS).size, SIBLINGS.length, "a sibling is listed twice");
+		assert.deepStrictEqual(UNCITED_REDUCED, [
+			"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js",
+		]);
+		for (const entry of B.uncitedReduced) {
+			assert.equal(entry.issue, 2100, `${entry.path} records the issue that split it`);
+			assert.ok(entry.reason.trim().length > 0, `${entry.path} records a reason`);
+			assert.equal(B.filedFiles.includes(entry.path), false, `${entry.path} is cited, not uncited`);
+		}
 	});
 
 	it("accounts for every filed file: reduced, already under, removed, or uncited-deferred", () => {
@@ -224,7 +241,7 @@ describe("vba god module refactor #2036 — manifest", () => {
 	});
 
 	it("every reduced module and every sibling exists and is a scored extension", () => {
-		for (const mod of [...B.reducedBy, ...SIBLINGS]) {
+		for (const mod of [...B.reducedBy, ...UNCITED_REDUCED, ...SIBLINGS]) {
 			assert.ok(existsSync(resolve(ROOT, mod)), `missing manifest module: ${mod}`);
 			assert.ok(scored(mod), `${mod} is never scored by the analyzer`);
 		}
@@ -232,8 +249,11 @@ describe("vba god module refactor #2036 — manifest", () => {
 
 	it("no sibling is itself a reduction source or a deferral", () => {
 		assert.deepStrictEqual(overlap(SIBLINGS, B.reducedBy), []);
+		assert.deepStrictEqual(overlap(SIBLINGS, UNCITED_REDUCED), []);
 		assert.deepStrictEqual(overlap(SIBLINGS, DEFERRED), []);
 		assert.deepStrictEqual(overlap(B.reducedBy, DEFERRED), []);
+		assert.deepStrictEqual(overlap(UNCITED_REDUCED, B.reducedBy), []);
+		assert.deepStrictEqual(overlap(UNCITED_REDUCED, DEFERRED), []);
 	});
 });
 
@@ -452,7 +472,7 @@ describe("vba god module refactor #2036 — live detector over the current tree"
 
 	it("every cited module was flagged at the base and is under the ceiling now", (t) => {
 		const dir = base();
-		for (const rel of B.reducedBy) {
+		for (const rel of [...B.reducedBy, ...UNCITED_REDUCED]) {
 			if (dir) {
 				assert.ok(
 					countIn(dir, rel) > B.threshold,

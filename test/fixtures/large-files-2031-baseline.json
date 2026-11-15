@@ -36,10 +36,13 @@
 	},
 	"after": {
 		"ref": "worktree-git-issue-2031-refactor-split-the-43-large-files-flagged-by-codef",
-		"count": 19,
-		"note": "20 - 1: `server.py` fell from 16 to 13 functions when its `/api/repos/*` routes moved to `handler_api.py`. The 19 survivors are the same files, so `after.count` is `deferred` + `unfiledFlagged`."
+		"count": 18,
+		"note": "20 - 2: `server.py` fell from 16 to 13 functions when its `/api/repos/*` routes moved to `handler_api.py`, and #2100 split `fp-filter.js` into an index over eight policy modules under `codeflow/fp-filter/` (every one at or below 15). The 18 survivors are the same files, so `after.count` is `deferred` + `unfiledFlagged`."
 	},
-	"reducedBy": ["cmd/cheasee-pi/embedded/docker/codeflow/server.py"],
+	"reducedBy": [
+		"cmd/cheasee-pi/embedded/docker/codeflow/server.py",
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"
+	],
 	"removed": [
 		{
 			"path": ".pi/extensions/caveman/test/config-ui.test.ts",
@@ -65,11 +68,6 @@
 				"cmd/cheasee-pi/embedded/docker/ui/tests/extension_ui.rs",
 				"cmd/cheasee-pi/embedded/docker/ui/tests/reconnect.rs"
 			]
-		},
-		{
-			"reason": "`fp-filter.js` is served byte-verbatim at `/fp-filter.js` and COPYed into the image as one artifact: it is a deliberate dual-consumer UMD (`<script src>` in the served page, CJS `require` in `run-analysis.mjs`), so its boundary is a delivery contract, not a module seam",
-			"requires": "3 COPY lines, 3 serve routes and a third `_BRIDGE_SCRIPT` tag to keep the split serving byte-identically — a delivery redesign, not a refactor",
-			"files": ["cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js"]
 		}
 	],
 	"unfiledFlagged": [
@@ -133,5 +131,16 @@
 				"test/dependency_existence_check_tests/test_registry_transport.py"
 			]
 		}
-	]
+	],
+	"fpFilterModules": {
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter.js": 8,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/lexical.js": 15,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/hygiene.js": 6,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/layer.js": 4,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/high.js": 10,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/command-exec-policy.js": 12,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/security/command-exec.js": 14,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/dead-code.js": 13,
+		"cmd/cheasee-pi/embedded/docker/codeflow/fp-filter/duplicates.js": 5
+	}
 }
