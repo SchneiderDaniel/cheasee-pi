@@ -2,8 +2,9 @@
 
 Split out of `_common.py` (issue #2034 God Object refactor): the URL/body table
 the offline fetchers answer with lives here, so the barrel and the transport
-fake each stay under the raw-text function-count ceiling. Imports only
-`OLD_ISO` back from the barrel, so the barrel can import this module.
+fake each stay under the raw-text function-count ceiling. This module owns
+`OLD_ISO` (moved here by issue #2104) and imports no sibling, so it is a leaf
+of the family's now-acyclic import graph.
 """
 
 import json
@@ -11,7 +12,7 @@ import re
 import urllib.parse
 from datetime import datetime as _dt, timedelta, timezone
 
-from ._common import OLD_ISO
+OLD_ISO = "2020-01-01T00:00:00Z"  # ancient: always passes the 14-day guard
 
 
 def iso_days_ago(days):
