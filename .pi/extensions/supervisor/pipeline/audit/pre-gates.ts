@@ -1,10 +1,10 @@
 // ─── Pipeline Audit: Pre-Gates ────────────────────────────────────
 // The six checks that run before the TSC/LSP gates: CI gating,
 // duplicate code, dead code, package safety, OSV scan and requirements
-// traceability. Each returns { failureText, ...results } so the
-// orchestrator aggregates failures in today's push order. Check runners
-// are injectable via deps (tests substitute fakes; production uses the
-// real implementations).
+// traceability. Each returns `failureText` (the CI gate returns a three-way
+// `CiGateOutcome` instead) so the orchestrator aggregates failures in today's
+// push order. Check runners are injectable via deps (tests substitute fakes;
+// production uses the real implementations).
 
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";

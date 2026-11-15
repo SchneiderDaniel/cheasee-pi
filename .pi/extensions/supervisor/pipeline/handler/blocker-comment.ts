@@ -16,10 +16,10 @@ import type { upsertDeveloperPr } from "../stages/git-ops.ts";
 import type { RunContext } from "./shared.ts";
 
 /** Header for a run stopped because CI could not be verified (AC3). */
-export const CI_BLOCKER_TITLE = "## 🔴 CI Verification Blocked — Pipeline Stopped";
+const CI_BLOCKER_TITLE = "## 🔴 CI Verification Blocked — Pipeline Stopped";
 
 /** Footer for a CI blocker: the issue is not Done and stays where it was. */
-export const CI_BLOCKER_FOOTER =
+const CI_BLOCKER_FOOTER =
 	"The issue is **not** Done. Its status is unchanged — CI could not be verified, so the pipeline stopped instead of re-dispatching the developer.\n\nRe-run the pipeline once CI is reachable and green.";
 
 /**

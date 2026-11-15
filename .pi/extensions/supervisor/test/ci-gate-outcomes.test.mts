@@ -226,6 +226,29 @@ describe("runCiGate — three-way outcome (issue #1830 Phase 2)", () => {
 		assert.equal(notifyCalls[0]![1], "warning");
 	});
 
+	it("(use-case) no open PR for the branch → unverifiable, never a developer loop", async () => {
+		const notifyCalls: NotifyCall[] = [];
+		const detail =
+			"No open pull request found for branch 'feat/issue-1830'. CI gating requires a PR head SHA.";
+		const deps = makeDeps({
+			ui: notifySpy(notifyCalls),
+			pollCiChecksFn: async () => ciResult("error", detail),
+		});
+
+		// The developer PR is upserted before Implementation → Audit
+		// (stages/post-agent-success.ts), so a missing PR means the pushed state
+		// is unverifiable: stop with a blocker instead of looping the developer.
+		const outcome = await runCiGate(deps, makeConfig(), PUSHED_SHA);
+
+		assert.equal(outcome.kind, "unverifiable");
+		assert.ok(
+			(outcome as { reason: string }).reason.includes("No open pull request found"),
+			(outcome as { reason: string }).reason,
+		);
+		assert.equal(notifyCalls.length, 1);
+		assert.equal(notifyCalls[0]![1], "warning");
+	});
+
 	it("(use-case) pending at timeout → unverifiable naming the checks, ciGatingTimeoutSec hint (AC2)", async () => {
 		const notifyCalls: NotifyCall[] = [];
 		const deps = makeDeps({
