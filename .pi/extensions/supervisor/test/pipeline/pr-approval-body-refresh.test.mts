@@ -631,6 +631,10 @@ describe("Phase 3 — handlePrApprovalFlow sequences publish → gate → refres
 		const finalBody = bodyOf(bodyWrites[bodyWrites.length - 1]);
 		assert.ok(finalBody.includes("## ✅ Pipeline Complete"), `final body: ${finalBody}`);
 		assert.ok(finalBody.includes("7/9"), "auditor verdict present in the republished body");
+		// The confirmed re-publish owns the result: the completion summary must
+		// not report "PR creation failed" for a PR that now carries the body.
+		assert.equal(outcome.prCreationResult?.success, true, "confirmed publish is the result");
+		assert.equal(outcome.prCreationResult?.prNumber, 456, "confirmed publish names the PR");
 	});
 
 	it("approval body cannot be published at all → { stop: true }, no Done, blocker posted", async () => {
@@ -833,6 +837,26 @@ describe("Phase 4 — vanished-PR rule (pr-gate.ts)", () => {
 		assert.equal(state.current?.prNumber, 777, "re-published PR owns the new number");
 		assert.equal(calls.filter((c) => c.method === "createPullRequest").length, 1);
 		assert.equal(state.retried, true, "the retry is recorded as used");
+	});
+
+	it("vanished: a conflicting PR that reappears during the poll never passes the gate", async () => {
+		const calls: PortCall[] = [];
+		const port = createSequencedPort([makeDirtyInfo(456)], calls);
+		const { pi } = createMockPi([]);
+		const state: RoundState = { current: { success: true, prNumber: 456 }, retried: false };
+
+		const outcome = await handleMissingPr(
+			makeGateDeps(port, pi),
+			state,
+			BRANCH,
+			NO_BACKOFF,
+			"vanished",
+		);
+
+		// "Visible again" is not "ready": a conflicting PR must go through the
+		// dirty handling in the round loop, never straight to Done (audit #1).
+		assert.ok("continue" in outcome, `conflicting PR must not pass: ${JSON.stringify(outcome)}`);
+		assert.equal(state.retried, false, "no re-publish budget spent on a conflicting PR");
 	});
 
 	it("vanished: re-published PR must settle clean before the gate passes", async () => {

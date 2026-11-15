@@ -250,6 +250,15 @@ export async function handleMissingPr(
 				branch,
 				prNumber: settled.number,
 			});
+			// Reappearing is not readiness: a conflicting PR must go through the
+			// dirty handling (auto-merge → developer dispatch → retry) in the
+			// round loop, never straight to Done (audit #1).
+			if (settled.hasConflict) {
+				return { continue: true };
+			}
+			// Clean: adopt the live PR number so downstream reporting names the
+			// PR that actually exists, not the one GitHub dropped.
+			if (state.current) state.current = { ...state.current, prNumber: settled.number };
 			return { verdict: { ok: true, prCreationResult: state.current } };
 		}
 		log.warn("pipeline-merge", "Published PR is not visible — re-publishing once", {

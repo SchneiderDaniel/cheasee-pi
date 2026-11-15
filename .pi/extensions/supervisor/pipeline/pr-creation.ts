@@ -108,8 +108,12 @@ export type PrNotify = (message: string, level: "info" | "warning" | "error") =>
 // import path.
 export { buildPrBody };
 
-/** Update an existing PR, mapping failures to a PrCreationResult. */
-export async function updateExistingPr(
+/**
+ * Update an existing PR, mapping failures to a PrCreationResult. Module-local:
+ * `upsertPullRequest` and `publishPrBody` are the only ways into it, so every
+ * PR write stays inside this module (issue #1831 boundary).
+ */
+async function updateExistingPr(
 	port: GitHubPort,
 	repo: string,
 	prNumber: number,

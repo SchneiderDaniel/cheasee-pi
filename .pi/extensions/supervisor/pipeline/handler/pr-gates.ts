@@ -91,9 +91,8 @@ async function refreshBodyForBlockedGate(
 }
 
 /** Blocker note for a body that could not be published, error detail included. */
-function bodyPublishFailureNote(published: PrCreationResult | undefined): string {
-	const detail = published?.error ?? "no error reported";
-	return `Approval PR body could not be published: ${detail} — manual intervention required.`;
+function bodyPublishFailureNote(detail: string | undefined): string {
+	return `Approval PR body could not be published: ${detail ?? "no error reported"} — manual intervention required.`;
 }
 
 /**
@@ -102,24 +101,26 @@ function bodyPublishFailureNote(published: PrCreationResult | undefined): string
  * followed by a passing gate on an earlier, still-visible PR — Done would then
  * leave the in-progress body without the auditor result (issue #1831, audit
  * #2). One bounded re-publish; no PR to write to blocks Done.
+ *
+ * The returned `result` is the publish that actually carries the body, so the
+ * completion summary reports the real PR instead of the failed attempt.
  */
 async function ensureApprovalBodyPublished(
 	runCtx: RunContext,
 	prBody: PrBodyInput,
 	published: PrCreationResult | undefined,
-): Promise<{ confirmed: boolean; prNumber?: number }> {
+): Promise<{ result?: PrCreationResult; error?: string }> {
 	// A publish this run already wrote this exact input (the gate's bounded
 	// retry reuses the same PrBodyInput) — no second write needed.
-	if (published?.success) return { confirmed: true, prNumber: published.prNumber };
+	if (published?.success) return { result: published };
 	const refreshed = await writeApprovalBody(runCtx, prBody);
-	if (!refreshed.success) {
-		runCtx.collector?.push(
-			"handler",
-			"error",
-			`Approval PR body could not be published: ${refreshed.error}`,
-		);
-	}
-	return { confirmed: refreshed.success, prNumber: refreshed.prNumber ?? published?.prNumber };
+	if (refreshed.success) return { result: refreshed };
+	runCtx.collector?.push(
+		"handler",
+		"error",
+		`Approval PR body could not be published: ${refreshed.error}`,
+	);
+	return { error: refreshed.error };
 }
 
 async function runPrReadinessGate(
@@ -244,18 +245,20 @@ export async function handlePrApprovalFlow(
 	// comment instead of Done.
 	const gate = await runPrReadinessGate(runCtx, created, prBody);
 	const prCreationResult = gate.prCreationResult;
-	let prNumber = prCreationResult?.prNumber;
+	const prNumber = prCreationResult?.prNumber;
+	let bodyFailure: string | undefined;
 	if (!gate.blocked) {
 		// Done requires the PR to carry this run's approval body: a failed
 		// publish leaves the earlier, still-visible PR clean, so a passing gate
 		// would complete the issue on the in-progress body (issue #1831, audit
 		// #2).
 		const body = await ensureApprovalBodyPublished(runCtx, prBody, prCreationResult);
-		if (body.confirmed) return { stop: false, prCreationResult };
-		prNumber = body.prNumber ?? prNumber;
+		if (body.result) return { stop: false, prCreationResult: body.result };
+		bodyFailure = body.error ?? prCreationResult?.error;
 	}
 
-	const blockerNote = gate.blockerNote ?? bodyPublishFailureNote(prCreationResult);
+	const blockerNote =
+		gate.blockerNote ?? bodyPublishFailureNote(bodyFailure ?? prCreationResult?.error);
 	// The body was published as "success" before the gate ran. Refresh the
 	// already-published PR to the final status so it is self-describing;
 	// update-only, so a vanished PR can never become a duplicate here.
