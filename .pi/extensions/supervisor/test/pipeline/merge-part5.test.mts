@@ -316,13 +316,13 @@ describe("classifyMergeability() — mergeability verdict vocabulary", () => {
 		});
 	});
 
-	it("info=null + current success → no-pr propagating", async () => {
+	it("info=null + current success → no-pr vanished (published PR is gone)", async () => {
 		const { classifyMergeability } = await import("../../pipeline/merge.ts");
 		assert.deepEqual(
 			classifyMergeability(null, { success: true, prNumber: 123, source: "pr-creation" }),
 			{
 				kind: "no-pr",
-				mode: "propagating",
+				mode: "vanished",
 			},
 		);
 	});

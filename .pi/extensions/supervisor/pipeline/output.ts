@@ -4,6 +4,7 @@
 
 import type {
 	AgentRunResult,
+	AuditorVerdictSummary,
 	PipelineAgentResult,
 	SupervisorConfig,
 	PrCreationResult,
@@ -11,7 +12,6 @@ import type {
 import type { PackageSafetyAuditResult } from "../checks/package-safety.ts";
 import { formatDuration } from "../lib/formatting.ts";
 import { formatTokens } from "../../lib/format-tokens.ts";
-
 // ─── Status display mapping ──────────────────────────────────────────
 
 type EffectiveStatus = "success" | "pr-failed" | "failed" | "stopped" | "in-progress";
@@ -36,6 +36,45 @@ export function validateAgentResult(result: AgentRunResult): void {
 		const existingError = result.errorOutput ? result.errorOutput + "\n" : "";
 		result.errorOutput = `${existingError}Sanity check failed: success=true with tokenCount=0 and toolCount=${result.toolCount}. This indicates a timeout or abort before completion.`;
 	}
+}
+
+// ─── Auditor verdict section ────────────────────────────────────────
+
+/**
+ * Everything a PR body needs beyond the agent results. Built ONCE by the
+ * caller so the early in-progress upsert, the approval publish and the
+ * pre-Done gate retry cannot drift apart field by field (issue #1831).
+ */
+export interface PrBodyInput {
+	overallStatus: "success" | "in-progress" | "stopped";
+	/** Rendered as `**Stopped at:**` for non-success statuses. */
+	stopReason?: string;
+	gateFailureHistory?: string[];
+	packageSafetyResult?: PackageSafetyAuditResult | null;
+	/** Auditor verdict — present only once the auditor has run. */
+	auditVerdict?: AuditorVerdictSummary;
+}
+
+/**
+ * Render the auditor verdict block appended to the approval PR body.
+ * Summary only — the score plus the failing critical/warning dimensions;
+ * the full findings stay on the issue comment so the body stays bounded.
+ * `suggestion` blockers are filtered out: they never fail a dimension.
+ */
+export function renderAuditorSection(verdict: AuditorVerdictSummary): string {
+	const blockers = verdict.blockers.filter(
+		(b) => b.severity === "critical" || b.severity === "warning",
+	);
+	const lines: string[] = [
+		`## 🔍 Auditor Verdict — ${verdict.score.passing}/${verdict.score.total} dimensions passing`,
+	];
+	if (blockers.length > 0) {
+		lines.push("");
+		for (const blocker of blockers) {
+			lines.push(`- **${blocker.severity}** — ${blocker.dimension}`);
+		}
+	}
+	return lines.join("\n");
 }
 
 // ─── Pipeline summary builder ───────────────────────────────────────

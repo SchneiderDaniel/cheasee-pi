@@ -258,6 +258,19 @@ export interface PrCreationResult {
 	rebaseSkipped?: boolean;
 }
 
+// ─── Auditor verdict summary ─────────────────────────────────────────
+
+/**
+ * Bounded summary of the auditor verdict rendered into the PR body.
+ * Full findings stay on the issue comment; only the score and the
+ * blocking dimensions travel with the PR (issue #1831).
+ */
+export interface AuditorVerdictSummary {
+	score: { passing: number; total: number };
+	/** Only critical/warning findings fail a dimension — suggestions never block. */
+	blockers: Array<{ severity: "critical" | "warning"; dimension: string }>;
+}
+
 // ─── Merge result ────────────────────────────────────────────────────
 
 /** Track per-agent outcome for final summary */

@@ -24,8 +24,8 @@
 	"after": {
 		"ref": "worktree-git-issue-2032-refactor-reduce-coupling-in-the-199-highly-coupled",
 		"commit": null,
-		"commitNote": "The pipeline commits after this record is written, so the delivered tree is stamped by `reducedFilesDigest` instead: sha1 over the sorted `reducedBy` paths, each followed by the sha1 of its content. Recomputing it from the branch reproduces the measurement.",
-		"reducedFilesDigest": "071d3b309a5f1b39a70ef0efa9fbba8688fea8f0",
+		"commitNote": "The pipeline commits after this record is written, so the delivered tree is stamped by `reducedFilesDigest` instead: sha1 over the sorted `reducedBy` paths, each followed by the sha1 of its content. Recomputing it from the branch reproduces the measurement. The stamp was refreshed by issue #1831, which threaded one type import through `merge-gate.ts` (the PR body input the pre-Done gate retry reuses): the six reduced files still carry none of the removed tokens, but the connection/coupled counts were NOT re-measured — the pinned analyzer needs the CodeFlow checkout, which this image does not carry.",
+		"reducedFilesDigest": "15259ed2775b7877bfdfd30e3dd6fa7d145c1c0b",
 		"files": 1126,
 		"functions": 3898,
 		"connections": 4360,

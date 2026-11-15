@@ -49,9 +49,26 @@ import type { DraftGroup, FileResolution } from "./dry-run-lib.mts";
 import { parseArgs, selfCheck, jsonNote, coverageReport } from "./dry-run-args.mts";
 export { slugifyFinding } from "./dry-run-lib.mts";
 
+/**
+ * Exit only once every queued stdout/stderr write has flushed.
+ *
+ * `process.stdout` is asynchronous on a pipe, so a bare `process.exit()` right
+ * after a large listing can drop the tail — the run's own summary lines — and a
+ * caller then sees a truncated listing that looks like a missing count. Waiting
+ * for both streams to drain makes the exit deterministic on every runner.
+ */
+async function exitAfterFlush(code: number): Promise<never> {
+	await Promise.all(
+		[process.stdout, process.stderr].map(
+			(stream) => new Promise<void>((flushed) => stream.write("", () => flushed())),
+		),
+	);
+	process.exit(code);
+}
+
 async function main(): Promise<void> {
 	const args = parseArgs(process.argv.slice(2));
-	if (args.selfCheck) process.exit(selfCheck());
+	if (args.selfCheck) await exitAfterFlush(selfCheck());
 
 	const repoRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
 		cwd: HERE,
@@ -62,7 +79,7 @@ async function main(): Promise<void> {
 		process.stderr.write(
 			`report not found: ${reportPath}\nRun an analysis in the CodeFlow UI first.\n`,
 		);
-		process.exit(2);
+		await exitAfterFlush(2);
 	}
 	const jsonPath = args.json
 		? resolve(repoRoot, args.json)
@@ -76,7 +93,7 @@ async function main(): Promise<void> {
 	const facts = parseBestReport(markdown, json);
 	if (facts.length === 0) {
 		process.stderr.write(`no findings parsed from ${reportPath}\n`);
-		process.exit(2);
+		await exitAfterFlush(2);
 	}
 
 	// Guardrail: a section that emitted `###` items but parsed to zero candidates
@@ -132,7 +149,7 @@ async function main(): Promise<void> {
 				(!json ? `\n${jsonNote()}` : "") +
 				`\nNo issues created.\n`,
 		);
-		process.exit(0);
+		await exitAfterFlush(0);
 	}
 
 	if (args.emitIssues) {
@@ -155,7 +172,7 @@ async function main(): Promise<void> {
 				(!json ? `\n${jsonNote()}` : "") +
 				`\nNo issues created.\n`,
 		);
-		process.exit(0);
+		await exitAfterFlush(0);
 	}
 
 	if (args.listOnly) {
@@ -180,7 +197,7 @@ async function main(): Promise<void> {
 				`dispositions: ${dispositionSummary(candidates)}\n` +
 				`No issues created.\n`,
 		);
-		process.exit(0);
+		await exitAfterFlush(0);
 	}
 
 	// The default preview is the filing set, so derived facts are left out of it and
@@ -227,12 +244,12 @@ async function main(): Promise<void> {
 			`${unresolved.length > 0 ? `; unresolved: ${unresolved.map((r) => r.path).join(", ")}` : ""}.\n` +
 			`No issues created (dry run).\n`,
 	);
-	process.exit(0);
+	await exitAfterFlush(0);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-	main().catch((err: unknown) => {
+	main().catch(async (err: unknown) => {
 		process.stderr.write(`dry run failed: ${err instanceof Error ? err.message : String(err)}\n`);
-		process.exit(2);
+		await exitAfterFlush(2);
 	});
 }

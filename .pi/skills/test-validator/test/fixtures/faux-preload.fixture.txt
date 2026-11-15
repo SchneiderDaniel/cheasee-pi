@@ -1,0 +1,72 @@
+// Faux decision-model provider for the CLI subprocess tests.
+//
+// Loaded with `node --import` so the real composition root, its preconditions,
+// and its adapters run unchanged — only the model call is faked. No network.
+// Copied into the fixture repo by the test (never executed by the npm glob).
+import { fauxAssistantMessage, getModel, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+
+const provider = process.env.FAUX_PROVIDER ?? "openai";
+const modelId = process.env.FAUX_MODEL ?? "gpt-4";
+const mode = process.env.FAUX_MODE ?? "good";
+
+const model = getModel(provider, modelId);
+const registration = registerFauxProvider({ api: model.api });
+
+/** Concatenated text blocks of the transcript. */
+function promptText(context) {
+	const parts = [];
+	for (const message of context?.messages ?? []) {
+		if (!Array.isArray(message.content)) continue;
+		for (const block of message.content) {
+			if (block.type === "text" && typeof block.text === "string") parts.push(block.text);
+		}
+	}
+	return parts.join("\n");
+}
+
+/** The judged slice, copied out of the prompt the adapter built (any fence language). */
+function sliceOf(prompt) {
+	const marker = "## Test source";
+	const after = prompt.slice(prompt.indexOf(marker) + marker.length);
+	const open = after.indexOf("```");
+	const fenced = after.slice(open + 3);
+	// Drop the fence's language tag, then read up to the closing fence.
+	const body = fenced.slice(fenced.indexOf("\n") + 1);
+	return body.slice(0, body.indexOf("\n```"));
+}
+
+function startLineOf(prompt) {
+	const match = prompt.match(/^Lines: (\d+)-(\d+)$/m);
+	return match ? Number(match[1]) : 1;
+}
+
+function answer(context) {
+	const prompt = promptText(context);
+	if (mode === "pending") {
+		return fauxAssistantMessage(
+			JSON.stringify({ decision: "AMBIGUOUS", confidence: 0.3, criteria: [], reason: "", evidence: [] }),
+		);
+	}
+	if (mode === "bad") {
+		return fauxAssistantMessage(
+			JSON.stringify({
+				decision: "BAD",
+				confidence: 0.95,
+				criteria: ["C2"],
+				reason: "the assertion only restates an input literal",
+				evidence: [{ line: startLineOf(prompt), quote: sliceOf(prompt) }],
+			}),
+		);
+	}
+	return fauxAssistantMessage(
+		JSON.stringify({
+			decision: "GOOD",
+			confidence: 0.92,
+			criteria: ["C1", "C2"],
+			reason: "asserts project-owned observable behaviour",
+			evidence: [],
+		}),
+	);
+}
+
+registration.setResponses(Array.from({ length: 64 }, () => answer));

@@ -368,7 +368,6 @@ describe("createPrOnApproval() — pins preserved by the extraction", () => {
 			"worktree-git-issue-42-test",
 			undefined,
 			undefined,
-			undefined,
 			port,
 		);
 
@@ -404,7 +403,6 @@ describe("createPrOnApproval() — pins preserved by the extraction", () => {
 			"worktree-git-issue-42-test",
 			undefined,
 			undefined,
-			undefined,
 			port,
 		);
 
@@ -422,6 +420,7 @@ const GATE_ENTRY = "CI Gate (failing: build) gate failed on run 2 — developer 
 describe("buildPrBody() — gate failure history (issue #1829)", () => {
 	it("(entity) renders the gate-history entry verbatim", () => {
 		const { body } = buildPrBody(42, "Test issue", agentResults, mockConfig, {
+			overallStatus: "success",
 			gateFailureHistory: [GATE_ENTRY],
 		});
 
@@ -431,6 +430,7 @@ describe("buildPrBody() — gate failure history (issue #1829)", () => {
 	it("(entity) empty and undefined history add no gate-history section", () => {
 		const none = buildPrBody(42, "Test issue", agentResults, mockConfig);
 		const empty = buildPrBody(42, "Test issue", agentResults, mockConfig, {
+			overallStatus: "success",
 			gateFailureHistory: [],
 		});
 

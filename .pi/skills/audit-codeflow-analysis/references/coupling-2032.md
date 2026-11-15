@@ -79,7 +79,11 @@ second; the counts below are reproducible from those two commands alone.
 | Ref           | commit / stamp                             | files | functions | connections | coupled | coupling term |
 | ------------- | ------------------------------------------ | ----- | --------- | ----------- | ------- | ------------- |
 | `origin/main` | `31634233732a4721ab8db85f6c1a737582f1c5e1` | 1124  | 3898      | 4368        | 163     | 1.772         |
-| this branch   | `071d3b309a5f1b39a70ef0efa9fbba8688fea8f0` | 1126  | 3898      | 4360        | **157** | 1.744         |
+| this branch   | `15259ed2775b7877bfdfd30e3dd6fa7d145c1c0b` | 1126  | 3898      | 4360        | **157** | 1.744         |
+
+The `this branch` column carries the delivered-tree stamp, which issue #1831
+re-took after adding one type import to `merge-gate.ts`; files, functions,
+connections and coupled are the #2005-era measurement and were not re-run.
 
 The issue was filed with **199** at `analyzedAt` 1791804971015; the immutable
 base commit measures **163** because main advanced past filing and
@@ -119,6 +123,13 @@ the reduced files, asserts no `reducedBy` token survives in its file (the
 analyzer cannot resolve a name the file no longer contains), asserts no file
 became newly flagged, and asserts the producer carries no second
 implementation of the metric.
+
+The digest is the record's only live tie to the tree, so a later change to one
+of the six reduced files re-stamps it. Issue #1831 did exactly that: it threaded
+one type import through `merge-gate.ts` (the PR body input the pre-Done gate
+retry reuses). No removed token came back, but the connection/coupled counts
+were not re-measured — that needs the CodeFlow checkout, which the image does
+not carry — so the stamp, not the counts, moved.
 
 ## The prune seam that was tried and removed
 
