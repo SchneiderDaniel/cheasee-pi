@@ -87,7 +87,7 @@ export function extractProjectItemFields(
 // One GraphQL `items` page into domain items plus the cursor state the
 // pagination loop needs. Pure: no I/O, no network, no adapter state.
 
-export interface ProjectItemsPageNode {
+interface ProjectItemsPageNode {
 	id: string;
 	content?: { url?: string; number?: number } | null;
 	fieldValues?: { nodes?: ProjectFieldValueNode[] | null } | null;

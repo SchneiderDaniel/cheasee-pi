@@ -24,7 +24,7 @@ export interface GitHubTransport {
 	setToken(token: string): void;
 }
 
-export class OctokitTransport implements GitHubTransport {
+class OctokitTransport implements GitHubTransport {
 	octokit!: Octokit;
 	graphql!: typeof graphql;
 

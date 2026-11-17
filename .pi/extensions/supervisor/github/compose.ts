@@ -4,6 +4,13 @@
 //
 // `createGitHubPort` used to live in ports.ts, which forced the port module to
 // import the adapter it was meant to abstract.
+//
+// Delegation is `adapter.method.bind(adapter)` rather than a re-declared arrow
+// per member: it keeps the exact signature of the adapter method (no chance of
+// transposing parameters in a hand-written pass-through) and it keeps this
+// module a wiring table instead of a second god object — CodeFlow counts
+// function literals per file, so twenty-two forwarding arrows would flag the
+// composition root itself.
 
 import type { GitHubPort } from "./ports.ts";
 import { createGitHubTransport, type GitHubTransport } from "./github-transport.ts";
@@ -25,31 +32,35 @@ export function composeGitHubPort(transport: GitHubTransport): GitHubPort {
 	const projects = new OctokitProjects(transport, log);
 
 	return {
-		getIssue: (issueNum, repo) => issues.getIssue(issueNum, repo),
-		getIssueWithComments: (issueNum, repo) => issues.getIssueWithComments(issueNum, repo),
-		listComments: (issueNum, repo) => issues.listComments(issueNum, repo),
-		getAuthenticatedLogin: () => issues.getAuthenticatedLogin(),
-		closeIssue: (issueNum, repo) => issues.closeIssue(issueNum, repo),
-		postIssueComment: (issueNum, repo, body) => issues.postIssueComment(issueNum, repo, body),
-		updateIssueComment: (commentId, repo, body) => issues.updateIssueComment(commentId, repo, body),
-		getIssueLabels: (issueNum, repo) => issues.getIssueLabels(issueNum, repo),
-		addIssueLabel: (issueNum, repo, label) => issues.addIssueLabel(issueNum, repo, label),
-		removeIssueLabel: (issueNum, repo, label) => issues.removeIssueLabel(issueNum, repo, label),
-		deleteIssueComment: (commentId, repo) => issues.deleteIssueComment(commentId, repo),
-		compareBranches: (base, head, repo) => pulls.compareBranches(base, head, repo),
-		listPullRequestsForBranch: (branch, repo) => pulls.listPullRequestsForBranch(branch, repo),
-		createPullRequest: (input) => pulls.createPullRequest(input),
-		updatePullRequest: (prNumber, repo, body, title) =>
-			pulls.updatePullRequest(prNumber, repo, body, title),
-		getProjectFields: (projectNumber) => projects.getProjectFields(projectNumber),
-		getProjectItems: (projectNumber) => projects.getProjectItems(projectNumber),
-		getProjectId: (projectNumber) => projects.getProjectId(projectNumber),
-		setItemStatusField: (itemId, projectId, fieldId, optionId) =>
-			projects.setItemStatusField(itemId, projectId, fieldId, optionId),
-		checkBlockedByDependencies: (issueNum, repo) =>
-			pulls.checkBlockedByDependencies(issueNum, repo),
-		getClosingPrsForIssue: (issueNum, repo) => pulls.getClosingPrsForIssue(issueNum, repo),
-		setToken: (token) => transport.setToken(token),
+		// Issue REST + comment/label ops.
+		getIssue: issues.getIssue.bind(issues),
+		getIssueWithComments: issues.getIssueWithComments.bind(issues),
+		listComments: issues.listComments.bind(issues),
+		getAuthenticatedLogin: issues.getAuthenticatedLogin.bind(issues),
+		closeIssue: issues.closeIssue.bind(issues),
+		postIssueComment: issues.postIssueComment.bind(issues),
+		updateIssueComment: issues.updateIssueComment.bind(issues),
+		getIssueLabels: issues.getIssueLabels.bind(issues),
+		addIssueLabel: issues.addIssueLabel.bind(issues),
+		removeIssueLabel: issues.removeIssueLabel.bind(issues),
+		deleteIssueComment: issues.deleteIssueComment.bind(issues),
+
+		// Pull request + dependency ops.
+		compareBranches: pulls.compareBranches.bind(pulls),
+		listPullRequestsForBranch: pulls.listPullRequestsForBranch.bind(pulls),
+		createPullRequest: pulls.createPullRequest.bind(pulls),
+		updatePullRequest: pulls.updatePullRequest.bind(pulls),
+		checkBlockedByDependencies: pulls.checkBlockedByDependencies.bind(pulls),
+		getClosingPrsForIssue: pulls.getClosingPrsForIssue.bind(pulls),
+
+		// Project v2 GraphQL ops.
+		getProjectFields: projects.getProjectFields.bind(projects),
+		getProjectItems: projects.getProjectItems.bind(projects),
+		getProjectId: projects.getProjectId.bind(projects),
+		setItemStatusField: projects.setItemStatusField.bind(projects),
+
+		// Auth stays on the transport so both handles swap together.
+		setToken: transport.setToken.bind(transport),
 	};
 }
 
