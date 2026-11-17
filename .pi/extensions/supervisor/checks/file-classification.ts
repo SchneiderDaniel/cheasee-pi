@@ -2,6 +2,13 @@
 // Shared utilities for classifying files as test/source, extracted
 // from the former tdd-gate.ts. Consumed by checks/requirements/parity.ts,
 // re-exported via checks/requirements/index.ts.
+//
+// Module shape: plain functions. The public surface is one pure predicate
+// over one private constant, with no instance state, no I/O and no
+// framework coupling, so there is nothing for a class wrapper to protect —
+// wrapping it would only add construction and pass-through indirection.
+// Statelessness is deliberate and enforced by
+// test/file-classification-module-shape.test.mts (AST-based).
 
 // ─── Constants ──────────────────────────────────────────────────────
 
@@ -58,8 +65,6 @@ export function isTestableFile(filePath: string): boolean {
 	const dotIdx = filePath.lastIndexOf(".");
 	if (dotIdx === -1) return false;
 	const extension = filePath.slice(dotIdx);
-	// Handle .d.ts special case (already handled above)
-	if (extension === ".ts" && filePath.endsWith(".d.ts")) return false;
 	if (SOURCE_EXTENSIONS.has(extension)) return true;
 
 	return false;
