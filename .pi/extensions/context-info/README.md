@@ -37,12 +37,12 @@ Plus `/explain-extensions`, `/explain-prompts`, `/explain-skills` commands listi
 
 ### Status widgets
 
-| Widget                   | Shows                             | Updates                                    |
-| ------------------------ | --------------------------------- | ------------------------------------------ |
-| `contextUsage`           | Token usage with color thresholds | On every message_end                       |
+| Widget                   | Shows                               | Updates                                    |
+| ------------------------ | ----------------------------------- | ------------------------------------------ |
+| `contextUsage`           | Token usage with color thresholds   | On every message_end                       |
 | `contextCache`           | Cache read/write + `Cache Hit Rate` | On message_end (when cache data available) |
-| `contextFooter`          | Full footer bar                   | On any relevant event                      |
-| Themed working indicator | Animated dot pulse                | During agent execution                     |
+| `contextFooter`          | Full footer bar                     | On any relevant event                      |
+| Themed working indicator | Animated dot pulse                  | During agent execution                     |
 
 ### Configuration (optional)
 
@@ -130,7 +130,7 @@ Each segment is a reactive Widget that updates when its backing `Reactive` value
 - **FooterState lifecycle** — Created on `session_start`, disposed on `session_shutdown`. Previous disposed before new to prevent stale `ctx` closures.
 - **Working indicator** — Custom dot pulse (`·` `•` `●` `•`) instead of standard spinner.
 - **TPS sampling** — On `message_update`, `estimateStreamedTokens` counts the characters of the streamed text, thinking and tool-call arguments, divides by 4 and rounds up. The count is monotonic within a response, so the rolling 30s estimator always has a positive delta. It deliberately ignores provider `usage.output`: providers that only populate output usage at completion left the sampler stuck at 0 and the footer showed `-- t/s` for the whole stream. Because the number is derived from content rather than from a tokenizer, the footer renders it as `~42.5 t/s` — the `~` is the estimate marker. `message_start` for an assistant message calls `FooterState.beginResponse()`, the single response-scoped reset; there is no decrease-based reset.
-- **Cache hit rate** — `cacheRead / (input + cacheRead + cacheWrite) * 100` from one `message_end` usage record, written atomically with the counts (a record that cannot produce a rate mutates nothing). `input` is in the denominator so a provider reporting zero `cacheWrite` cannot saturate the metric at 100%: 100% is only reachable when `input` is 0, i.e. a fully cached prompt. The displayed percentage is therefore the cache-read share of *reported* prompt tokens, not a guarantee that every cache-eligible token was a hit — which is why the counts stay visible next to it. When the denominator is zero the footer shows `Cache Hit Rate: --`. `model_select` clears the counts and the rate together.
+- **Cache hit rate** — `cacheRead / (input + cacheRead + cacheWrite) * 100` from one `message_end` usage record, written atomically with the counts (a record that cannot produce a rate mutates nothing). `input` is in the denominator so a provider reporting zero `cacheWrite` cannot saturate the metric at 100%: 100% is only reachable when `input` is 0, i.e. a fully cached prompt. The displayed percentage is therefore the cache-read share of _reported_ prompt tokens, not a guarantee that every cache-eligible token was a hit — which is why the counts stay visible next to it. When the denominator is zero the footer shows `Cache Hit Rate: --`. `model_select` clears the counts and the rate together.
 - **Not session totals** — both metrics describe the last assistant message. Aggregating across a session needs reset semantics for compaction and model switches, which is out of scope here.
 - **Quiet startup** — `quietStartup: true` suppresses startup hint and working indicator.
 - **Explain commands** — Widgets auto-cleared on first `input`/`before_agent_start`/`user_bash` event.

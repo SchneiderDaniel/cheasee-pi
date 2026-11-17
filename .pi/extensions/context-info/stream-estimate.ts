@@ -52,7 +52,12 @@ export function estimateStreamedTokens(message: StreamedMessage | null | undefin
 /** Characters contributed by one content block; 0 for anything unreadable. */
 function countBlockChars(block: unknown): number {
 	if (block === null || typeof block !== "object") return 0;
-	const candidate = block as { type?: unknown; text?: unknown; thinking?: unknown; arguments?: unknown };
+	const candidate = block as {
+		type?: unknown;
+		text?: unknown;
+		thinking?: unknown;
+		arguments?: unknown;
+	};
 
 	switch (candidate.type) {
 		case "text":

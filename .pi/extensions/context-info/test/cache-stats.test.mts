@@ -104,7 +104,10 @@ describe("computeCacheHitRate — unavailable cases", () => {
 	});
 
 	it("negative or non-finite counts → undefined (never a bogus percentage)", () => {
-		assert.strictEqual(computeCacheHitRate({ input: -100, cacheRead: 50, cacheWrite: 0 }), undefined);
+		assert.strictEqual(
+			computeCacheHitRate({ input: -100, cacheRead: 50, cacheWrite: 0 }),
+			undefined,
+		);
 		assert.strictEqual(
 			computeCacheHitRate({ input: 100, cacheRead: Number.POSITIVE_INFINITY, cacheWrite: 0 }),
 			undefined,
