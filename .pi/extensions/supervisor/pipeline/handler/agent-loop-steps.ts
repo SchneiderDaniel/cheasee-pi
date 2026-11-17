@@ -455,14 +455,11 @@ export function recordPostDispatch(
 	const gateRejected = computeAuditGateRejection(agentName, result, config, stageState, ctx);
 
 	// Capture the auditor verdict for the approval PR body (issue #1831).
-	// Same structured parse as the gate pre-compute above — only the
-	// projection differs. The slot is CLEARED per auditor dispatch: a dispatch
-	// without structured audit output must leave no verdict rather than let the
-	// previous dispatch's findings pose as the current result in the PR body.
+	// Same structured parse as the gate pre-compute above — only the projection
+	// differs. Cleared BEFORE parsing so a dispatch that carries no structured
+	// verdict cannot leave the previous dispatch's findings posing as the
+	// current result in the PR body (audit #3).
 	if (agentName === "auditor") {
-		// Clear BEFORE parsing: a dispatch that carries no structured verdict (or
-		// throws while parsing) must leave the slot empty, never the previous
-		// dispatch's findings posing as the current result in the PR body.
 		runCtx.auditVerdict = undefined;
 		runCtx.auditVerdict = buildAuditorVerdict(result, stageState);
 	}

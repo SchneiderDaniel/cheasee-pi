@@ -102,9 +102,10 @@ export async function ensurePrReadyForDone(
 			const settled = await awaitPrMergeability(port, branch, config.repo, mergePoll);
 			if (!settled) {
 				// A PR this run re-published is never trusted on the create response
-				// alone: failing open here would let a dirty or conflicting
-				// replacement PR reach Done unverified (issue #1831, AC3). Only the
-				// pre-existing no-retry case keeps its documented false-Done window.
+				// alone: proceeding without blocking here would let a dirty or
+				// conflicting replacement PR reach Done unverified (issue #1831,
+				// AC3). Only the pre-existing no-retry case keeps its documented
+				// false-Done window.
 				if (state.retried) {
 					log.warn(
 						"pipeline-merge",
