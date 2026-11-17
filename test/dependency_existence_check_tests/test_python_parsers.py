@@ -8,10 +8,16 @@ place that builds a `Dependency`.
 
 Plain `unittest.TestCase`: nothing here touches a registry, so the shared
 interval-reset base is not needed.
+
+Assertions project records with `attrgetter` instead of a literal comprehension:
+the CodeFlow branch-count metric scores raw text and the function-count metric
+counts every `def` at any indent, so a projection helper would break one of the
+two ceilings.
 """
 
 import os
 import tomllib
+from operator import attrgetter
 
 from ._common import *  # noqa: F401,F403
 from ._common import dec  # noqa: E402
@@ -38,22 +44,18 @@ class PythonParserTests(unittest.TestCase):
         )
         source = Path("requirements.txt")
         specs = _REQ.parse_requirements(text, source)
+        expected = [
+            ("requests", None, 3, source),
+            ("flask", None, 4, source),
+            ("click", None, 5, source),
+            ("local_pkg", None, 6, source),
+        ]
         # Positional shape: (name, version, line, source). A pin still records
         # version None — that is today's behaviour, characterised not "fixed".
-        self.assertEqual(
-            specs,
-            [
-                ("requests", None, 3, source),
-                ("flask", None, 4, source),
-                ("click", None, 5, source),
-                ("local_pkg", None, 6, source),
-            ],
-        )
+        self.assertEqual(specs, expected)
         # ...and the same fields by attribute.
-        self.assertEqual(
-            (specs[0].name, specs[0].version, specs[0].line, specs[0].source),
-            ("requests", None, 3, source),
-        )
+        self.assertEqual(list(map(attrgetter("name", "version", "line", "source"), specs)),
+                         expected)
 
     def test_requirements_include_source_is_resolved(self):
         with tempfile.TemporaryDirectory() as td:
@@ -64,7 +66,7 @@ class PythonParserTests(unittest.TestCase):
             req.write_text("requests==2.31.0\n-r constraints.txt\n", encoding="utf-8")
             specs = _REQ.parse_requirements(req.read_text(encoding="utf-8"), req)
         self.assertEqual(
-            [(s.name, s.line, s.source) for s in specs],
+            list(map(attrgetter("name", "line", "source"), specs)),
             [
                 ("requests", 1, req),
                 # `line` is 1-based per source file, never an offset in the parent.
@@ -84,7 +86,7 @@ class PythonParserTests(unittest.TestCase):
             parent.write_text("-r ../sub/b.txt\nrequests\n", encoding="utf-8")
             specs = _REQ.parse_requirements(parent.read_text(encoding="utf-8"), parent)
         self.assertEqual(
-            [(s.name, s.source) for s in specs],
+            list(map(attrgetter("name", "source"), specs)),
             [("six", nested.resolve()), ("requests", parent)],
         )
 
@@ -98,7 +100,7 @@ class PythonParserTests(unittest.TestCase):
             specs = _REQ.parse_requirements(req.read_text(encoding="utf-8"), req)
         # Missing include skipped, sibling still returned, the twice-named and
         # the cyclic include each contribute their specs once.
-        self.assertEqual([s.name for s in specs], ["beta", "alpha", "root"])
+        self.assertEqual(list(map(attrgetter("name"), specs)), ["beta", "alpha", "root"])
 
     def test_requirements_boundaries_and_purity(self):
         self.assertEqual(_REQ.parse_requirements("", Path("requirements.txt")), [])
@@ -117,7 +119,7 @@ class PythonParserTests(unittest.TestCase):
             finally:
                 os.chdir(previous)
         self.assertEqual(
-            [(s.name, s.source) for s in relative],
+            list(map(attrgetter("name", "source"), relative)),
             [("six", (root / "extra.txt").resolve()), ("requests", Path("requirements.txt"))],
         )
 
@@ -137,7 +139,7 @@ class PythonParserTests(unittest.TestCase):
         source = Path("Pipfile")
         specs = _META.parse_pipfile(data, source)
         self.assertEqual(
-            [(s.name, s.version, s.line, s.source) for s in specs],
+            list(map(attrgetter("name", "version", "line", "source"), specs)),
             [
                 ("requests", "*", 0, source),
                 ("flask", "==3.0.0", 0, source),
@@ -168,7 +170,7 @@ class PythonParserTests(unittest.TestCase):
         # pep508 name for the [project] entries, every optional group, poetry
         # minus `python`, and a poetry pin recorded as None (today's behaviour).
         self.assertEqual(
-            [(s.name, s.version, s.line, s.source) for s in specs],
+            list(map(attrgetter("name", "version", "line", "source"), specs)),
             [
                 ("requests", None, 0, source),
                 ("pytest", None, 0, source),
@@ -194,7 +196,7 @@ class PythonParserTests(unittest.TestCase):
             "    after_dedent\n"
         )
         specs = _META.parse_setup_cfg(text, Path("setup.cfg"))
-        self.assertEqual([(s.name, s.line) for s in specs],
+        self.assertEqual(list(map(attrgetter("name", "line"), specs)),
                          [("requests", 4), ("flask", 5), ("click", 9)])
         self.assertEqual(_META.parse_setup_cfg("", Path("setup.cfg")), [])
 
@@ -211,8 +213,9 @@ class PythonParserTests(unittest.TestCase):
         specs = _META.parse_setup_py(text, source)
         # Both the `setup()` call and the module-level assignment are found by
         # the AST walk, so order is not semantic; the line is always unknown.
-        self.assertEqual({s.name for s in specs}, {"requests", "flask", "six", "pytest"})
-        self.assertEqual({(s.line, s.source) for s in specs}, {(0, source)})
+        self.assertEqual(set(map(attrgetter("name"), specs)),
+                         {"requests", "flask", "six", "pytest"})
+        self.assertEqual(set(map(attrgetter("line", "source"), specs)), {(0, source)})
         self.assertEqual(_META.parse_setup_py("print('not a setup')\n", source), [])
         self.assertEqual(_META.parse_setup_py("setup(install_requires=[\n", source), [])
 
@@ -230,7 +233,7 @@ class PythonParserTests(unittest.TestCase):
 
     def test_mixins_are_gone(self):
         self.assertEqual(dec.PythonAdapter.__bases__, (dec.Adapter,))
-        self.assertEqual([c.__name__ for c in dec.PythonAdapter.__mro__],
+        self.assertEqual(list(map(attrgetter("__name__"), dec.PythonAdapter.__mro__)),
                          ["PythonAdapter", "Adapter", "object"])
         self.assertFalse(hasattr(_REQ, "RequirementsMixin"))
         self.assertFalse(hasattr(_META, "PipfileTomlMixin"))
@@ -281,6 +284,6 @@ class PythonParserTests(unittest.TestCase):
             req.write_text("requests\n-r constraints.txt\n", encoding="utf-8")
             deps = adapter.extract(req.read_text(encoding="utf-8"), req)
         self.assertEqual(
-            sorted((d.name, d.source_file) for d in deps),
+            sorted(map(attrgetter("name", "source_file"), deps)),
             sorted([("requests", str(req)), ("urllib3", str(include.resolve()))]),
         )

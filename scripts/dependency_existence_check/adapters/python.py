@@ -60,4 +60,4 @@ class PythonAdapter(Adapter):
 
     def _deps(self, specs: list[ParsedSpec]) -> list[Dependency]:
         """Wrap parser output in domain records; adapter defaults apply."""
-        return [self._dep(s.name, s.version, s.line, False, s.source) for s in specs]
+        return [self._dep(s.name, s.version, s.line, path=s.source) for s in specs]
