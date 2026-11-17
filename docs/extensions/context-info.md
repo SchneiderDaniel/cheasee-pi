@@ -21,7 +21,7 @@ Registers three `/explain-*` commands for listing discovery:
 - `/explain-prompts` — Lists all available prompt templates
 - `/explain-skills` — Lists all available skills
 
-Also provides `setSupervisorIssueData` / `clearSupervisorIssueData` exported API for the supervisor pipeline to display current issue number/title/repo in the TUI footer.
+Also subscribes to the shared `supervisor:issue-data` bus event to display the current issue number/title/repo in the TUI footer. Topic and payload type live in the neutral contract module `.pi/extensions/lib/issue-data-event.ts`; there is no exported setter.
 
 **Location:** `.pi/extensions/context-info/`
 
@@ -87,7 +87,7 @@ Each segment is implemented as a reactive `Widget` that updates when its backing
 - **Cache hit rate** — Computed from `cacheRead / (cacheRead + cacheWrite)` on each `message_end`. Rounded to integer percentage. Reset on model change (provider/model-specific cache keys).
 - **Quiet startup** — When `quietStartup: true` in config, startup hint and working indicator are suppressed.
 - **Explain commands** — `/explain-extensions`, `/explain-prompts`, `/explain-skills` render inline lists. Widgets auto-cleared on first `input`/`before_agent_start`/`user_bash` event.
-- **Supervisor integration** — Exported `setSupervisorIssueData`/`clearSupervisorIssueData` allow supervisor pipeline to display current issue number/title/repo in the TUI footer. Uses function reference (`stateRef`) set on session_start.
+- **Supervisor integration** — Subscribes to the shared `supervisor:issue-data` bus event, so the supervisor pipeline's issue number/title/repo appear in the TUI footer. Topic and payload type are declared in the neutral contract module `lib/issue-data-event.ts`, imported by both extensions; the footer has a single write path.
 - **Timer** — `startTimer()` sets a `setInterval` at 1s. `stopTimer()` clears it. Timer updates `FooterConfig.timer` value and triggers re-render.
 
 ### Event → Footer Update Map
@@ -101,6 +101,7 @@ Each segment is implemented as a reactive `Widget` that updates when its backing
 | `message_end`           | tokensUsed, tokensMax, cacheRead, cacheWrite, cacheHitRate       |
 | `message_update`        | TPS samples                                                      |
 | `tool_execution_end`    | toolCallCount                                                    |
+| `supervisor:issue-data` | issueNumber, issueRepo, issueTitle (shared bus event)            |
 | `session_shutdown`      | Timer stopped, state disposed                                    |
 
 ### Testing

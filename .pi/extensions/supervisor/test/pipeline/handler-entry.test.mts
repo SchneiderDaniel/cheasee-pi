@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { handleSupervisorCommand } from "../../pipeline/handler.ts";
 import { getDebugLogger, resetDebugLogger } from "../../lib/debug.ts";
+import { ISSUE_DATA_EVENT } from "../../../lib/issue-data-event.ts";
 
 // Real repo dir — the run lock is written to cwd/.pi, which a fake "/repo"
 // cannot (permissions), so the lock acquire would fail and early-return.
@@ -62,10 +63,13 @@ function createMockPi(
 	pi: ExtensionAPI;
 	sendMessages: Array<{ customType: string; content: string }>;
 	emitted: unknown[];
+	/** Topic of every emit, in order — proves producers use the contract. */
+	emittedTopics: string[];
 	execCalls: string[][];
 } {
 	const sendMessages: Array<{ customType: string; content: string }> = [];
 	const emitted: unknown[] = [];
+	const emittedTopics: string[] = [];
 	const execCalls: string[][] = [];
 	let emitThrown = false;
 	const pi = {
@@ -79,16 +83,17 @@ function createMockPi(
 			sendMessages.push(m);
 		},
 		events: {
-			emit: (_name: string, payload: unknown) => {
+			emit: (name: string, payload: unknown) => {
 				if (opts.throwOnFirstEmit && !emitThrown && payload !== null) {
 					emitThrown = true;
 					throw new Error("mock emit failure");
 				}
+				emittedTopics.push(name);
 				emitted.push(payload);
 			},
 		},
 	} as unknown as ExtensionAPI;
-	return { pi, sendMessages, emitted, execCalls };
+	return { pi, sendMessages, emitted, emittedTopics, execCalls };
 }
 
 beforeEach(() => {
@@ -198,7 +203,7 @@ describe("handler entry — top-level catch + finally", () => {
 		const { ctx, notifyCalls } = createMockCtx();
 		// A thrown pi.events.emit after fetchIssue simulates a preflight error.
 		// (Without a GitHub token, createGitHubPort throws earlier — same funnel.)
-		const { pi, sendMessages, emitted } = createMockPi({ throwOnFirstEmit: true });
+		const { pi, sendMessages, emitted, emittedTopics } = createMockPi({ throwOnFirstEmit: true });
 
 		await handleSupervisorCommand("42", ctx, pi);
 
@@ -210,16 +215,20 @@ describe("handler entry — top-level catch + finally", () => {
 		// finally: issue-data cleared with null
 		assert.equal(emitted.length, 1);
 		assert.equal(emitted[0], null);
+		assert.deepEqual(emittedTopics, [ISSUE_DATA_EVENT], "clear goes out on the contract topic");
 	});
 
 	it("finally always emits supervisor:issue-data null (normal early-return path)", async () => {
 		const { ctx } = createMockCtx();
-		const { pi, emitted } = createMockPi({ execResult: new Error("mock gh failure") });
+		const { pi, emitted, emittedTopics } = createMockPi({
+			execResult: new Error("mock gh failure"),
+		});
 
 		await handleSupervisorCommand("42", ctx, pi);
 
 		assert.equal(emitted.length, 1, "finally emits once");
 		assert.equal(emitted[0], null);
+		assert.deepEqual(emittedTopics, [ISSUE_DATA_EVENT], "topic comes from the shared contract");
 	});
 
 	it("finally suppresses the null footer-clear when another issue's pipeline is live", async () => {

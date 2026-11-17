@@ -49,6 +49,23 @@ interface FooterHarnessOptions {
 	appearance?: "dark" | "light";
 }
 
+/** Double for the pi branch/status API: `onBranchChange` mirrors subscribe → unsubscribe. */
+function createBranchListenerDouble() {
+	const listeners: Array<(branch: string) => void> = [];
+	return {
+		listeners,
+		onBranchChange: (listener: (branch: string) => void) => {
+			listeners.push(listener);
+			return () => {
+				const at = listeners.indexOf(listener);
+				if (at >= 0) listeners.splice(at, 1);
+			};
+		},
+		getGitBranch: () => "main",
+		getExtensionStatuses: () => new Map(),
+	};
+}
+
 function createHarness(options: FooterHarnessOptions = {}) {
 	const captured: CapturedFgCall[] = [];
 	const theme: { fg: (color: string, text: string) => string; appearance?: "dark" | "light" } = {
@@ -86,11 +103,7 @@ function createHarness(options: FooterHarnessOptions = {}) {
 							setClearOnShrink: options.setClearOnShrinkSpy ?? (() => {}),
 						},
 						theme,
-						{
-							onBranchChange: () => () => {},
-							getGitBranch: () => "main",
-							getExtensionStatuses: () => new Map(),
-						},
+						createBranchListenerDouble(),
 					);
 				}
 			},
@@ -134,11 +147,7 @@ describe("footer — trust status display", () => {
 							{
 								fg: (_color: string, text: string) => text,
 							},
-							{
-								onBranchChange: () => () => {},
-								getGitBranch: () => "main",
-								getExtensionStatuses: () => new Map(),
-							},
+							createBranchListenerDouble(),
 						);
 					}
 				},
@@ -178,11 +187,7 @@ describe("footer — trust status display", () => {
 							{
 								fg: (_color: string, text: string) => text,
 							},
-							{
-								onBranchChange: () => () => {},
-								getGitBranch: () => "main",
-								getExtensionStatuses: () => new Map(),
-							},
+							createBranchListenerDouble(),
 						);
 					}
 				},
@@ -221,11 +226,7 @@ describe("footer — trust status display", () => {
 							{
 								fg: (_color: string, text: string) => text,
 							},
-							{
-								onBranchChange: () => () => {},
-								getGitBranch: () => "main",
-								getExtensionStatuses: () => new Map(),
-							},
+							createBranchListenerDouble(),
 						);
 					}
 				},
@@ -472,5 +473,25 @@ describe("footer — appearance-adaptive secondary text", () => {
 		const { component } = createHarness({ appearance: "light" });
 		const all = component.render(120).join("");
 		assert.ok(!all.includes("\x1b[38;2;"), "no truecolor SGR should be emitted");
+	});
+});
+
+describe("fixtures — branch listener double mirrors the pi API shape", () => {
+	it("onBranchChange returns an unsubscribe that drops exactly its own listener", () => {
+		const api = createBranchListenerDouble();
+		const off = api.onBranchChange(() => {});
+		assert.strictEqual(typeof off, "function", "subscribe must return the unsubscribe");
+		assert.strictEqual(api.listeners.length, 1, "listener registered on subscribe");
+		api.onBranchChange(() => {});
+		off();
+		assert.strictEqual(api.listeners.length, 1, "only the unsubscribed listener is dropped");
+		assert.doesNotThrow(() => off(), "unsubscribe must be safe to call twice");
+		assert.strictEqual(api.listeners.length, 1, "second unsubscribe is a no-op");
+	});
+
+	it("reports a stable branch and an empty extension-status map", () => {
+		const api = createBranchListenerDouble();
+		assert.strictEqual(api.getGitBranch(), "main");
+		assert.deepStrictEqual(api.getExtensionStatuses(), new Map());
 	});
 });

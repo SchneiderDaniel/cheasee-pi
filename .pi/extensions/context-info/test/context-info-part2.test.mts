@@ -2,7 +2,7 @@ import assert from "node:assert";
 
 import { describe, it, beforeEach, afterEach } from "node:test";
 
-import { contextInfo } from "../index.ts";
+import contextInfo from "../index.ts";
 
 import { promptsLocator, promptsNameOf } from "../prompts.ts";
 

@@ -89,6 +89,14 @@ function createMockAPI(): {
 	return { pi, events, sendUserMessages };
 }
 
+/** Double for the pi theme: `fg(color)` curried, `bold` a single-arg passthrough. */
+function createThemeDouble(): {
+	fg: (color: string) => (text: string) => string;
+	bold: (text: string) => string;
+} {
+	return { fg: (_color: string) => (s: string) => s, bold: (s: string) => s };
+}
+
 async function runHandler(
 	overrides: {
 		mockFormatter?: Formatter;
@@ -136,7 +144,7 @@ async function runHandler(
 					notifyCalls.push(message);
 				},
 				setStatus: () => {},
-				theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				theme: createThemeDouble(),
 			} as unknown as ExtensionUIContext,
 			sessionManager: { getEntries: () => [] as unknown[] },
 			mode: "tui",
@@ -206,7 +214,7 @@ async function runHandlerWithMocks(
 					notifyCalls.push(message);
 				},
 				setStatus: () => {},
-				theme: { fg: () => (s: string) => s, bold: (s: string) => s },
+				theme: createThemeDouble(),
 			} as unknown as ExtensionUIContext,
 			sessionManager: { getEntries: () => [] as unknown[] },
 			mode: "tui",
@@ -474,5 +482,15 @@ describe("EslintLinter — flat-config fallback (useEslintrc removed)", () => {
 		const tsEntry = withParser[1]!;
 		assert.ok(tsEntry.files![0]!.includes("ts"), "parser entry targets ts/tsx");
 		assert.ok(tsEntry.languageOptions?.parser, "parser wired into the config");
+	});
+});
+
+describe("fixtures — theme double mirrors the pi API shape", () => {
+	it("fg is curried and bold is a single-argument passthrough", () => {
+		const theme = createThemeDouble();
+		assert.strictEqual(typeof theme.fg("red"), "function", "fg(color) must return a function");
+		assert.strictEqual(theme.fg("red")("t"), "t", "fg passthrough");
+		assert.strictEqual(theme.fg("success")("64.0K/128.0K"), "64.0K/128.0K", "fg passthrough");
+		assert.strictEqual(theme.bold("t"), "t", "bold passthrough");
 	});
 });

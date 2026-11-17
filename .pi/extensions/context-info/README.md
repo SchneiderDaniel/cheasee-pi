@@ -129,7 +129,7 @@ Each segment is a reactive Widget that updates when its backing `Reactive` value
 - **Cache hit rate** — `cacheRead / (cacheRead + cacheWrite)` on each `message_end`. Reset on model change.
 - **Quiet startup** — `quietStartup: true` suppresses startup hint and working indicator.
 - **Explain commands** — Widgets auto-cleared on first `input`/`before_agent_start`/`user_bash` event.
-- **Supervisor integration** — Exported `setSupervisorIssueData`/`clearSupervisorIssueData` for TUI footer display.
+- **Supervisor integration** — Subscribes to the shared `supervisor:issue-data` bus event (topic and payload type in `lib/issue-data-event.ts`) to display the current issue number/title/repo in the TUI footer. Single write path — no exported setters.
 - **Timer** — `setInterval` at 1s, cleared on shutdown.
 
 ### Event to Footer Update Map
@@ -143,6 +143,7 @@ Each segment is a reactive Widget that updates when its backing `Reactive` value
 | `message_end`           | tokensUsed, tokensMax, cacheRead/Write, hitRate   |
 | `message_update`        | TPS samples                                       |
 | `tool_execution_end`    | toolCallCount                                     |
+| `supervisor:issue-data` | issueNumber, issueRepo, issueTitle (bus event)    |
 
 ## License
 

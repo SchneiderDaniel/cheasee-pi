@@ -18,6 +18,7 @@ import {
 } from "../state-checkpoint.ts";
 import { sendPipelineError } from "../notifications.ts";
 import { getDebugLogger, resetDebugLogger } from "../../lib/debug.ts";
+import { ISSUE_DATA_EVENT, type IssueDataEvent } from "../../../lib/issue-data-event.ts";
 
 /**
  * Main supervisor handler — processes a GitHub issue through the full Kanban pipeline.
@@ -112,9 +113,11 @@ async function runSupervisorPipeline(
 		// Clear supervisor issue data from footer (any outcome) — but only
 		// when no OTHER pipeline is live: with two same-host terminals, the
 		// first finisher must not clear the second run's footer.
-		// Uses shared pi.events bus instead of dynamic import.
+		// Uses the shared pi.events bus and the same neutral contract module as
+		// the producer in preflight.ts.
 		if (!isAnyOtherPipelineLive(runCtx.ctx.cwd, runCtx.issueNum)) {
-			pi.events.emit("supervisor:issue-data", null);
+			const clearEvent: IssueDataEvent = null;
+			pi.events.emit(ISSUE_DATA_EVENT, clearEvent);
 		}
 
 		// Teardown signal handlers so they don't leak beyond pipeline
