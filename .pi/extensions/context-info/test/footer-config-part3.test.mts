@@ -107,8 +107,8 @@ const TEST_DIR = dirname(fileURLToPath(import.meta.url));
 
 const readSource = (rel: string) => readFileSync(joinPath(TEST_DIR, rel), "utf-8");
 
-describe("footer — CH display", () => {
-	it("render output includes CH string when showCache=true and cacheHitRate is a number", () => {
+describe("footer — cache hit rate display", () => {
+	it("render output includes the Cache Hit Rate label when showCache=true and the rate is a number", () => {
 		const config: ContextStatusBarConfig = {
 			enabled: true,
 			thresholds: [{ maxTokens: null }],
@@ -151,10 +151,13 @@ describe("footer — CH display", () => {
 		installFooter(ctx as any, config, footerConfig as any);
 		const result = footerComponent!.render(80);
 		const allRows = result.join(" ");
-		assert.ok(allRows.includes("CH: 99%"), `render output should include CH: 99%, got: ${allRows}`);
+		assert.ok(
+			allRows.includes("Cache Hit Rate: 99%"),
+			`render output should include the explicit label, got: ${allRows}`,
+		);
 	});
 
-	it("render output omits CH when showCache=false", () => {
+	it("render output omits the cache rate when showCache=false", () => {
 		const config: ContextStatusBarConfig = {
 			enabled: true,
 			thresholds: [{ maxTokens: null }],
@@ -197,10 +200,13 @@ describe("footer — CH display", () => {
 		installFooter(ctx as any, config, footerConfig as any);
 		const result = footerComponent!.render(80);
 		const allRows = result.join(" ");
-		assert.ok(!allRows.includes("CH:"), "render output should not include CH when showCache=false");
+		assert.ok(
+			!allRows.includes("Cache Hit Rate"),
+			"render output should not include the cache rate when showCache=false",
+		);
 	});
 
-	it("render output omits CH when cacheHitRate is undefined", () => {
+	it("render output keeps the label but shows -- when cacheHitRate is undefined", () => {
 		const config: ContextStatusBarConfig = {
 			enabled: true,
 			thresholds: [{ maxTokens: null }],
@@ -241,9 +247,10 @@ describe("footer — CH display", () => {
 		const result = footerComponent!.render(80);
 		const allRows = result.join(" ");
 		assert.ok(
-			!allRows.includes("CH:"),
-			"render output should not include CH when cacheHitRate is undefined",
+			allRows.includes("Cache Hit Rate: --"),
+			`unavailable rate must stay labelled, got: ${allRows}`,
 		);
+		assert.ok(!allRows.includes("CH:"), "the opaque CH abbreviation is gone");
 	});
 });
 describe("footer — session name display", () => {

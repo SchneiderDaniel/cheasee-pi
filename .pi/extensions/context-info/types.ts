@@ -44,7 +44,10 @@ export interface FooterConfig {
 	toolCallCount: { value: number };
 	cacheRead: number | undefined;
 	cacheWrite: number | undefined;
-	/** Cache hit rate percentage: cacheRead/(cacheRead+cacheWrite)*100 */
+	/** Cache hit rate, as a percentage of reported prompt tokens:
+	 *  `cacheRead / (input + cacheRead + cacheWrite) * 100`. `undefined` when the
+	 *  record cannot support a rate (missing field, zero denominator). See
+	 *  `cache-stats.ts`. */
 	cacheHitRate: number | undefined;
 	/** User-assigned session name from pi.getSessionName() */
 	sessionName: string | undefined;

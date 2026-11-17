@@ -45,8 +45,9 @@ export function registerFooterEvents(pi: ExtensionAPI, getState: GetState): void
 		if (typeof cw === "number" && cw > 0) {
 			state.footerConfig.lastContextWindow.value = cw;
 		}
-		// Reset cache hit rate on model change (cache keys are provider/model-specific)
-		state.footerConfig.cacheHitRate = undefined;
+		// Reset cache stats on model change (cache keys are provider/model-specific).
+		// Counts go with the rate: they describe the previous model's records.
+		state.resetCacheStats();
 		// Re-read session name (in case setSessionName was called mid-session)
 		state.footerConfig.sessionName = pi.getSessionName();
 		// Model switch re-clamps the thinking level — resync the mirror
@@ -72,10 +73,20 @@ export function registerFooterEvents(pi: ExtensionAPI, getState: GetState): void
 		applyCacheStats(state, msg.usage);
 	});
 
+	pi.on("message_start", async (event, _ctx: ExtensionContext) => {
+		const state = getState();
+		if (!state || state.disposed) return;
+		const msg = event.message;
+		if (!msg || msg.role !== "assistant") return;
+		// A new assistant message starts a new streaming window. Only the role
+		// filter keeps user/tool messages from wiping an in-flight estimate.
+		state.beginResponse();
+	});
+
 	pi.on("message_update", async (event: any, _ctx: ExtensionContext) => {
 		const state = getState();
 		if (!state || state.disposed) return;
-		// Sample streaming output tokens for TPS estimation
+		// Sample the streamed content for TPS estimation
 		applyTpsSample(state, event);
 	});
 

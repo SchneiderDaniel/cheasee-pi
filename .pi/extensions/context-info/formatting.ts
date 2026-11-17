@@ -81,6 +81,18 @@ export function formatTps(tps: number | null): string {
 	return `${tps.toFixed(1)} t/s`;
 }
 
+/**
+ * Format the streaming rate, marking it as an estimate.
+ *
+ * The value is derived from streamed character counts / 4, so it is a rough
+ * proxy rather than a provider-reported token count. The `~` says so; a
+ * `null` rate keeps the unmarked `-- t/s` because there is nothing to qualify.
+ */
+export function formatEstimatedTps(tps: number | null | undefined): string {
+	if (tps === null || tps === undefined || Number.isNaN(tps)) return "-- t/s";
+	return `~${formatTps(tps)}`;
+}
+
 /** Format cache stats: 📦 cacheRead/cacheWrite */
 export function formatCacheStats(
 	cacheRead: number | undefined | null,
@@ -97,10 +109,17 @@ export function formatCacheStats(
 	return `\u{1F4E6} ${formatTokens(cacheRead)}/${formatTokens(cacheWrite)}`;
 }
 
-/** Format cache hit rate: 75 → "CH: 75%", undefined → "" */
-export function formatCacheHitRate(rate: number | undefined): string {
-	if (rate === undefined || rate === null || Number.isNaN(rate)) return "";
-	return `CH: ${Math.round(rate)}%`;
+/**
+ * Format the cache hit rate: 75 → "Cache Hit Rate: 75%".
+ *
+ * The label is spelled out — the old two-letter abbreviation explained nothing —
+ * and stays visible when the rate is unavailable, so the reader can tell "no
+ * data" apart from "segment not rendered". The percentage is the cache-read
+ * share of reported prompt tokens; see `cache-stats.ts` for the denominator.
+ */
+export function formatCacheHitRate(rate: number | undefined | null): string {
+	if (rate === undefined || rate === null || Number.isNaN(rate)) return "Cache Hit Rate: --";
+	return `Cache Hit Rate: ${Math.round(rate)}%`;
 }
 
 /** Format container CPU percentage for footer display */

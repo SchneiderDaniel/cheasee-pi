@@ -209,32 +209,32 @@ describe("FooterConfig", () => {
 	});
 });
 describe("formatCacheHitRate", () => {
-	it("formatCacheHitRate(75) → CH: 75%", () => {
-		assert.strictEqual(formatCacheHitRate(75), "CH: 75%");
+	it("formatCacheHitRate(75) → Cache Hit Rate: 75%", () => {
+		assert.strictEqual(formatCacheHitRate(75), "Cache Hit Rate: 75%");
 	});
 
-	it("formatCacheHitRate(0) → CH: 0%", () => {
-		assert.strictEqual(formatCacheHitRate(0), "CH: 0%");
+	it("formatCacheHitRate(0) → Cache Hit Rate: 0%", () => {
+		assert.strictEqual(formatCacheHitRate(0), "Cache Hit Rate: 0%");
 	});
 
-	it("formatCacheHitRate(100) → CH: 100%", () => {
-		assert.strictEqual(formatCacheHitRate(100), "CH: 100%");
+	it("formatCacheHitRate(100) → Cache Hit Rate: 100%", () => {
+		assert.strictEqual(formatCacheHitRate(100), "Cache Hit Rate: 100%");
 	});
 
-	it("formatCacheHitRate(33.333) → CH: 33% (rounded integer)", () => {
-		assert.strictEqual(formatCacheHitRate(33.333), "CH: 33%");
+	it("formatCacheHitRate(33.333) → Cache Hit Rate: 33% (rounded integer)", () => {
+		assert.strictEqual(formatCacheHitRate(33.333), "Cache Hit Rate: 33%");
 	});
 
-	it("formatCacheHitRate(undefined) → empty string", () => {
-		assert.strictEqual(formatCacheHitRate(undefined), "");
+	it("formatCacheHitRate(undefined) → label stays visible as unavailable", () => {
+		assert.strictEqual(formatCacheHitRate(undefined), "Cache Hit Rate: --");
 	});
 
-	it("formatCacheHitRate(null) → empty string", () => {
-		assert.strictEqual(formatCacheHitRate(null as any), "");
+	it("formatCacheHitRate(null) → label stays visible as unavailable", () => {
+		assert.strictEqual(formatCacheHitRate(null as any), "Cache Hit Rate: --");
 	});
 
-	it("formatCacheHitRate(NaN) → empty string", () => {
-		assert.strictEqual(formatCacheHitRate(NaN), "");
+	it("formatCacheHitRate(NaN) → label stays visible as unavailable", () => {
+		assert.strictEqual(formatCacheHitRate(NaN), "Cache Hit Rate: --");
 	});
 });
 describe("installFooter — mode guard", () => {

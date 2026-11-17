@@ -12,7 +12,7 @@ import type { ContextStatusBarConfig, FooterConfig } from "./types.js";
 import {
 	formatSessionTimer,
 	pickThresholdColor,
-	formatTps,
+	formatEstimatedTps,
 	formatCacheStats,
 	formatCacheHitRate,
 	computeTps,
@@ -282,17 +282,16 @@ export function installFooter(
 				const left2 = extStr || "";
 				const rightParts: string[] = [];
 				if (config.showTps) {
-					const tpsDisplay = formatTps(footerConfig.lastComputedTps.value);
+					const tpsDisplay = formatEstimatedTps(footerConfig.lastComputedTps.value);
 					rightParts.push(theme.fg(subtle, tpsDisplay));
 				}
 				if (config.showCache) {
 					const cacheStr = formatCacheStats(footerConfig.cacheRead, footerConfig.cacheWrite);
 					rightParts.push(theme.fg(subtle, cacheStr));
-					// ── CH display (Improvement #1) ────────────
-					const chStr = formatCacheHitRate(footerConfig.cacheHitRate);
-					if (chStr) {
-						rightParts.push(theme.fg(subtle, chStr));
-					}
+					// Formatting only — the ratio is computed by `applyCacheStats`.
+					// The label stays visible when unavailable so "no data" reads
+					// differently from "segment not rendered".
+					rightParts.push(theme.fg(subtle, formatCacheHitRate(footerConfig.cacheHitRate)));
 				}
 				const right2 = rightParts.join(" " + sep + " ");
 

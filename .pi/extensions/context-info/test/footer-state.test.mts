@@ -113,7 +113,7 @@ describe("FooterState — construction & defaults", () => {
 		assert.strictEqual(state.timerInterval, null);
 		assert.deepStrictEqual(state.footerConfig.tpsSamples, []);
 		assert.strictEqual(state.footerConfig.lastComputedTps.value, null);
-		assert.strictEqual(state.lastSampledOutput, undefined);
+		assert.strictEqual("lastSampledOutput" in state, false, "decrease-based reset was removed");
 		assert.strictEqual(state.footerConfig.toolCallCount.value, 0);
 		assert.strictEqual(state.footerConfig.cacheRead, undefined);
 		assert.strictEqual(state.footerConfig.cacheWrite, undefined);
@@ -177,22 +177,37 @@ describe("FooterState — sampleTps", () => {
 		);
 	});
 
-	it("sets lastSampledOutput after sampling", () => {
+	it("does not track a last sampled output value", () => {
 		const state = new FooterState(createMockCtx());
 		state.sampleTps(100);
-		assert.strictEqual(state.lastSampledOutput, 100);
+		assert.strictEqual((state as unknown as Record<string, unknown>).lastSampledOutput, undefined);
 	});
 
-	it("detects reset between responses (new response starts from 0)", () => {
+	it("does not reset on a decreasing sample (beginResponse owns the reset)", () => {
 		const state = new FooterState(createMockCtx());
 		state.sampleTps(100);
 		state.sampleTps(200);
 		assert.strictEqual(state.footerConfig.tpsSamples.length, 2);
 
-		// Next response starts from 0 again
-		state.sampleTps(50); // 50 < 200, should reset
-		assert.strictEqual(state.footerConfig.tpsSamples.length, 1); // buffer cleared and new sample added
-		assert.strictEqual(state.footerConfig.tpsSamples[0]!.cumulativeTokens, 50);
+		// A dip is not a response boundary: the buffer keeps every entry.
+		state.sampleTps(50);
+		assert.strictEqual(state.footerConfig.tpsSamples.length, 3);
+		assert.deepStrictEqual(
+			state.footerConfig.tpsSamples.map((s) => s.cumulativeTokens),
+			[100, 200, 50],
+		);
+	});
+
+	it("beginResponse clears the buffer and the last computed rate", () => {
+		const state = new FooterState(createMockCtx());
+		state.sampleTps(100);
+		state.sampleTps(200);
+		state.footerConfig.lastComputedTps.value = 42;
+
+		state.beginResponse();
+
+		assert.strictEqual(state.footerConfig.tpsSamples.length, 0);
+		assert.strictEqual(state.footerConfig.lastComputedTps.value, null);
 	});
 
 	it("prunes samples older than 30s", () => {
@@ -303,7 +318,6 @@ describe("FooterState — reset", () => {
 		state.footerConfig.worktreeName = "my-branch";
 		state.footerConfig.tpsSamples = [{ time: Date.now(), cumulativeTokens: 100 }];
 		state.footerConfig.lastComputedTps.value = 50;
-		state.lastSampledOutput = 100;
 		state.footerConfig.toolCallCount.value = 5;
 		state.footerConfig.cacheRead = 76288;
 		state.footerConfig.cacheWrite = 0;
@@ -320,7 +334,6 @@ describe("FooterState — reset", () => {
 		assert.strictEqual(state.footerConfig.worktreeName, null);
 		assert.deepStrictEqual(state.footerConfig.tpsSamples, []);
 		assert.strictEqual(state.footerConfig.lastComputedTps.value, null);
-		assert.strictEqual(state.lastSampledOutput, undefined);
 		assert.strictEqual(state.footerConfig.toolCallCount.value, 0);
 		assert.strictEqual(state.footerConfig.cacheRead, undefined);
 		assert.strictEqual(state.footerConfig.cacheWrite, undefined);
