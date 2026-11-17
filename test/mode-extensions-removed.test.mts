@@ -96,6 +96,13 @@ const PACKAGE_CONFIG_FILES = [
 /** Production roots swept for the package source (tests and fixtures excluded). */
 const PACKAGE_SOURCE_ROOTS = [".pi", "cmd", "scripts", ".github"];
 
+/** The one production source that must name the package source: the migration
+ *  that retires a stale registration cannot match what it removes without
+ *  spelling it out. The exemption is an exact path, so any other file naming the
+ *  source still fails the sweep — and the pin below asserts the file really
+ *  carries it, so a rename cannot turn the exemption into a free pass. */
+const PACKAGE_SOURCE_MIGRATION = "cmd/cheasee-pi/retire_packages.go";
+
 /** Repo-relative directory prefixes that are operator state, not repository
  *  content: `.pi/git` holds installed package clones (including a stale
  *  Ponytail checkout in existing workspaces) and `.pi/sessions` transcripts. */
@@ -337,8 +344,34 @@ describe("response modes #2072 — no config can reinstall the Ponytail package"
 	it("no production source names the package source", () => {
 		const files = PACKAGE_SOURCE_ROOTS.flatMap(productionSources);
 		assert.ok(files.length > 50, `package source sweep found only ${files.length} files`);
-		const hits = sweep([PONYTAIL_SOURCE], samples(files));
+		// One exact file is exempt: the removal-only migration. It may delete the
+		// registration; it may never install it (asserted next).
+		const hits = sweep(
+			[PONYTAIL_SOURCE],
+			samples(files.filter((p) => p !== PACKAGE_SOURCE_MIGRATION)),
+		);
 		assert.deepEqual(hits, [], `${PONYTAIL_SOURCE} is still recorded in production source`);
+	});
+
+	it("the migration exemption is one exact, removal-only source", () => {
+		assert.ok(
+			isFile(PACKAGE_SOURCE_MIGRATION),
+			`${PACKAGE_SOURCE_MIGRATION} must exist — a missing file makes the exemption vacuous`,
+		);
+		// The exemption is load-bearing: the migration does name the source, so
+		// the sweep above would fire without it.
+		assert.deepEqual(
+			sweep([PONYTAIL_SOURCE], samples([PACKAGE_SOURCE_MIGRATION])),
+			[`${PACKAGE_SOURCE_MIGRATION} carries ${PONYTAIL_SOURCE}`],
+			"the exemption no longer covers anything — drop it",
+		);
+		// Removal only: the migration edits files on the host. It never shells
+		// out, so it can never hand the source to an installer.
+		assert.equal(
+			/runCommandContext|exec\.Command|os\/exec/.test(read(PACKAGE_SOURCE_MIGRATION)),
+			false,
+			"the migration must not shell out — it removes a registration, it never installs one",
+		);
 	});
 
 	it("the sweep matches the source, not the bare word", () => {

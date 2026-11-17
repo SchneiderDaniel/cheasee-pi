@@ -80,6 +80,16 @@ func startSession(ctx context.Context, opts startOptions) error {
 		return nil
 	}
 
+	// Phase 4b: reconcile the persistent workspace before the container starts.
+	// The mount survives image rebuilds, so a workspace from an older release
+	// still registers a package this one no longer ships — plus the entrypoint
+	// reinstalls every skillRepos spec on start, which is why the cleanup belongs
+	// here, ahead of ensureContainerReady. A live session holds the workspace: the
+	// refusal aborts the start.
+	if err := retireStage(root); err != nil {
+		return err
+	}
+
 	// Phases 5-6: extract the version-keyed compose cache, start the stack
 	// (existing containers as they are, missing ones created, absent images
 	// built only with --build) and wait for the entrypoint ready marker before
