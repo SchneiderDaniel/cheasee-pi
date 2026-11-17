@@ -894,6 +894,55 @@ describe("Phase 4 — vanished-PR rule (pr-gate.ts)", () => {
 		);
 	});
 
+	it("vanished: re-published PR whose mergeability never settles → gate blocks (no fail-open)", async () => {
+		const calls: PortCall[] = [];
+		const { pi } = createMockPi([]);
+		// round 0: list → null → vanished; poll → null; the re-publish's own
+		// list → null → create #777; round 1: the replacement PR is visible but
+		// GitHub never settles its mergeability (UNKNOWN on every poll).
+		const port = createSequencedPort(
+			[
+				null,
+				null,
+				null,
+				makeUnknownInfo(777),
+				makeUnknownInfo(777),
+				makeUnknownInfo(777),
+				makeUnknownInfo(777),
+				makeUnknownInfo(777),
+				makeUnknownInfo(777),
+			],
+			calls,
+			{ createPullRequest: async () => ({ number: 777 }) },
+		);
+
+		const verdict = await ensurePrReadyForDone(
+			pi,
+			createMockCtx(),
+			42,
+			"Test issue",
+			mockConfig as never,
+			agentResults,
+			undefined,
+			BRANCH,
+			{ success: true, prNumber: 456 },
+			undefined,
+			port,
+			undefined,
+			NO_BACKOFF,
+			{ overallStatus: "success", auditVerdict: AUDIT_VERDICT },
+		);
+
+		// An unsettled replacement PR is not a verified PR: the documented
+		// fail-open window only covers the pre-existing (no re-publish) case.
+		assert.equal(verdict.ok, false, "unsettled replacement PR never passes the gate");
+		assert.ok(
+			verdict.blockerNote?.includes("did not settle"),
+			`blockerNote explains the block: ${verdict.blockerNote}`,
+		);
+		assert.equal(calls.filter((c) => c.method === "createPullRequest").length, 1);
+	});
+
 	it("vanished: re-publish fails → { ok: false } with a manual-intervention blocker", async () => {
 		const calls: PortCall[] = [];
 		const { pi } = createMockPi([

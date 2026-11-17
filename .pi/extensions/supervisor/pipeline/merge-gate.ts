@@ -101,6 +101,23 @@ export async function ensurePrReadyForDone(
 			// Non-no-pr kinds guarantee info is present.
 			const settled = await awaitPrMergeability(port, branch, config.repo, mergePoll);
 			if (!settled) {
+				// A PR this run re-published is never trusted on the create response
+				// alone: failing open here would let a dirty or conflicting
+				// replacement PR reach Done unverified (issue #1831, AC3). Only the
+				// pre-existing no-retry case keeps its documented false-Done window.
+				if (state.retried) {
+					log.warn(
+						"pipeline-merge",
+						"Re-published PR mergeability did not settle — blocking Done",
+						{ prNumber: info!.number },
+					);
+					return {
+						ok: false,
+						prCreationResult: state.current,
+						blockerNote:
+							"Re-published PR mergeability did not settle — manual intervention required.",
+					};
+				}
 				log.warn(
 					"pipeline-merge",
 					"Mergeability poll exhausted — proceeding without blocking (post-Done backstop covers)",

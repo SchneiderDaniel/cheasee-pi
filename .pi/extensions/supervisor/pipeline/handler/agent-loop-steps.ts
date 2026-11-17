@@ -460,6 +460,10 @@ export function recordPostDispatch(
 	// without structured audit output must leave no verdict rather than let the
 	// previous dispatch's findings pose as the current result in the PR body.
 	if (agentName === "auditor") {
+		// Clear BEFORE parsing: a dispatch that carries no structured verdict (or
+		// throws while parsing) must leave the slot empty, never the previous
+		// dispatch's findings posing as the current result in the PR body.
+		runCtx.auditVerdict = undefined;
 		runCtx.auditVerdict = buildAuditorVerdict(result, stageState);
 	}
 
