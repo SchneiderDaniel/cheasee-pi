@@ -62,6 +62,11 @@ from dependency_existence_check_tests.test_verify_stage import (  # noqa: E402,F
     CheckDependencyTests,
     VerifyStageTests,
 )
+from dependency_existence_check_tests.test_models_immutability import (  # noqa: E402,F401
+    RecordImmutabilityTests,
+    ResolutionPipelineParityTests,
+    ResolutionTransitionTests,
+)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
