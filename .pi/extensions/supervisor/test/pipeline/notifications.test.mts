@@ -10,6 +10,7 @@ import type {
 	PrCreationResult,
 } from "../../config/types.ts";
 import { sendPipelineSummary, sendPipelineError } from "../../pipeline/notifications.ts";
+import { ErrorCollector } from "../../pipeline/error-collector.ts";
 
 // ─── Shared State ──────────────────────────────────────────────────
 
@@ -453,6 +454,42 @@ describe("buildFailedStatusLine — extracted helper", () => {
 	});
 });
 
-// ─── Tests: status-line count noun — "runs" not "agents" (issue #1495) ──
-// Each PipelineAgentResult entry is one dispatch (retries push their own row),
-// so the status lines label the count as runs.
+// ─── Integration: collector → summary warnings block (issue #2098) ──
+// Collector/panel and notification tests are otherwise isolated: a long record
+// through the real wiring pins the panel prefix and the single warnings message.
+describe("sendPipelineSummary() — ErrorCollector wiring (issue #2098)", () => {
+	const LONG_MESSAGE = `git push failed: ${"y".repeat(300)}`;
+
+	it("prefixes the summary with the warnings panel and sends exactly one supervisor-warnings message", () => {
+		const collector = new ErrorCollector();
+		collector.push("git", "error", LONG_MESSAGE);
+		const block = collector.toNotificationBlock();
+		assert.ok(block.startsWith("## ⚠️ Warnings"), "collector must render a warnings panel");
+
+		const pi = createMockPi();
+		sendPipelineSummary(
+			pi,
+			createMockCtx(),
+			mockAgentResults,
+			"success",
+			2098,
+			"Refactor God Object",
+			mockConfig as any,
+			undefined,
+			undefined,
+			collector,
+		);
+
+		const summaries = sentMessages.filter((m) => m.customType === "supervisor-summary");
+		const warnings = sentMessages.filter((m) => m.customType === "supervisor-warnings");
+		assert.equal(summaries.length, 1, "exactly one supervisor-summary message");
+		assert.ok(summaries[0]!.content.startsWith(block), "the warnings block prefixes the summary");
+		assert.ok(summaries[0]!.content.includes("Pipeline Complete"), "summary body still follows");
+		assert.deepEqual(
+			warnings.map((m) => m.content),
+			[block],
+			"exactly one separate supervisor-warnings message, carrying the panel verbatim",
+		);
+		assert.equal(collector.size, 1, "rendering must not drop the record");
+	});
+});
