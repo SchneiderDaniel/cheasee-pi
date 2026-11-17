@@ -1,10 +1,11 @@
 /**
  * agent-harness — Runtime Tool Call Validation Extension
  *
- * AgentHarness class encapsulates the tool call guard logic and harness state.
- * State is private — the public surface is `handleToolCall()`, `handleTurnStart()`,
- * `reset()`, plus the session-start wiring hooks `setRules()` and
- * `setToolInfoProvider()` (called from `index.ts` on `session_start`).
+ * AgentHarness class encapsulates the tool call guard logic plus harness state.
+ * The public surface is `handleToolCall()`, `handleTurnStart()`, `reset()`,
+ * `setRules()`. The tool-info port (`ToolInfoProvider`) is injected through the
+ * constructor, so annotation-derived metadata exists from the very first
+ * `tool_call`: no setter, no `undefined` provider window.
  * Internal factory createHarnessState() provides fresh state in the constructor.
  *
  * Guard order:
@@ -53,9 +54,13 @@ export { getBashSubKey } from "./lib/bash-subkey.ts";
 /**
  * AgentHarness — Runtime tool call validation with private state.
  *
- * Construct with `new AgentHarness()` to get a fresh harness.
+ * Construct with `new AgentHarness()` for built-in rules plus an empty tool-info
+ * port; `new AgentHarness(rules, toolInfo)` supplies resolved rules plus the
+ * pi-backed port. Injected once at construction: `reset()` clears harness state,
+ * not the provider.
  * Call `handleToolCall(event, ctx)` to validate each tool call.
  * Call `handleTurnStart()` on each turn boundary (resets cascade, decays errors).
+ * Call `setRules()` once a session loads project config.
  * Call `reset()` to create fresh state (new session).
  */
 export class AgentHarness {
@@ -64,15 +69,18 @@ export class AgentHarness {
 	#hasUI: boolean = true;
 	/** Resolved harness rules (defaults or merged with project config). */
 	#resolvedRules: ResolvedHarnessRules;
-	/** Lazily-consulted tool-info port (annotations source). */
-	#toolInfoProvider?: ToolInfoProvider;
+	/** Tool-info port (annotations source), injected at construction. */
+	#toolInfoProvider: ToolInfoProvider;
 	/** Metadata resolution: config > annotations > default, with its warning flag. */
 	#meta: ReturnType<typeof createToolMetaLookup>;
 
-	constructor(rules?: ResolvedHarnessRules) {
+	constructor(rules?: ResolvedHarnessRules, toolInfo: ToolInfoProvider = () => []) {
 		this.state = createHarnessState();
 		this.#resolvedRules = rules ?? loadDefaultRules();
+		this.#toolInfoProvider = toolInfo;
 		this.#meta = createToolMetaLookup({
+			// Thunks, not snapshots: the lookup reads the live fields (`setRules()`
+			// replaces `#resolvedRules` after a session loads project config).
 			rules: () => this.#resolvedRules,
 			provider: () => this.#toolInfoProvider,
 		});
@@ -83,15 +91,6 @@ export class AgentHarness {
 	 */
 	setRules(rules: ResolvedHarnessRules): void {
 		this.#resolvedRules = rules;
-	}
-
-	/**
-	 * Inject the tool-info port (called on session_start). Resolved lazily —
-	 * no snapshot is taken here.
-	 */
-	setToolInfoProvider(provider?: ToolInfoProvider): void {
-		this.#toolInfoProvider = provider;
-		this.#meta.resetWarning();
 	}
 
 	/** Resolve the effective ToolMeta for a tool. */
@@ -114,14 +113,14 @@ export class AgentHarness {
 	 *  6. Tool mismatch (bash) → block with redirect
 	 *  7. Record if not blocked (blocked calls don't inflate cascade counter)
 	 */
-	handleToolCall(event: ToolCallEvent, _ctx: ToolCallContext): ToolCallResult | null {
+	handleToolCall(event: ToolCallEvent, ctx: ToolCallContext): ToolCallResult | null {
 		const toolCallIndex = this.state.toolCallIndex;
 		const sessionTurn = this.state.sessionTurn;
 		const toolCallId = event.toolCallId;
 		const parentToolCallId = event.parentToolCallId;
 
-		// ── Extract hasUI from context (backward-compatible cast) ──
-		this.#hasUI = (_ctx as any).hasUI !== false;
+		// ── Extract hasUI from the typed context (absent → interactive default) ──
+		this.#hasUI = ctx.hasUI !== false;
 
 		const { toolName, args, bashCommand, bashSubKey, force } = normalizeCall(event);
 

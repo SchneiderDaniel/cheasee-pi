@@ -1,6 +1,7 @@
 /**
- * AgentHarness — issue #1799 annotation-derived defaults, nested-call
- * attribution and tool-info provider wiring.
+ * AgentHarness — issue #1799 annotation-derived defaults plus nested-call
+ * attribution (issue #2093: the tool-info port is construction-injected;
+ * adapter wiring lives in index-provider-wiring.test.ts).
  *
  * Split from index.test.ts (issue #2005 Long File refactor).
  */
@@ -8,17 +9,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { AgentHarness } from "../index.ts";
 import type { ToolCallResult, ResolvedHarnessRules } from "../index.ts";
-import agentHarness from "../index.ts";
 import { DESTRUCTIVE_CASCADE_THRESHOLD } from "../lib/harness-rules.ts";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
-import {
-	makeEvent,
-	makeCtx,
-	callNTimes,
-	createMockAPI,
-	makeConfigCtx,
-} from "./harness-fixtures.ts";
+import { makeEvent, makeCtx, callNTimes } from "./harness-fixtures.ts";
 
 // ══════════════════════════════════════════════════════════════════
 // Issue #1799: annotation-derived defaults + nested-call attribution
@@ -26,8 +19,9 @@ import {
 
 describe("AgentHarness — annotation-derived defaults", () => {
 	it("read-only annotated tool is not error-tracked", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "read", annotations: { readOnlyHint: true } }]);
+		const h = new AgentHarness(undefined, () => [
+			{ name: "read", annotations: { readOnlyHint: true } },
+		]);
 		assert.equal(h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx()), null);
 		assert.equal(h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx()), null);
 		assert.equal(
@@ -38,19 +32,19 @@ describe("AgentHarness — annotation-derived defaults", () => {
 	});
 
 	it("explicit config trackErrors:true overrides the read-only annotation", () => {
-		const h = new AgentHarness({
-			toolMeta: { read: { trackErrors: true } },
-			cascadeThreshold: 8,
-		});
-		h.setToolInfoProvider(() => [{ name: "read", annotations: { readOnlyHint: true } }]);
+		const h = new AgentHarness(
+			{ toolMeta: { read: { trackErrors: true } }, cascadeThreshold: 8 },
+			() => [{ name: "read", annotations: { readOnlyHint: true } }],
+		);
 		h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx());
 		h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx());
 		assert.ok(h.handleToolCall(makeEvent("read", { path: "c.ts" }), makeCtx())?.block);
 	});
 
 	it("destructive annotated tool escalates (tightens) the cascade threshold", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "danger", annotations: { destructiveHint: true } }]);
+		const h = new AgentHarness(undefined, () => [
+			{ name: "danger", annotations: { destructiveHint: true } },
+		]);
 		const results = callNTimes(h, "danger", DESTRUCTIVE_CASCADE_THRESHOLD, {});
 		for (let i = 0; i < DESTRUCTIVE_CASCADE_THRESHOLD - 1; i++) {
 			assert.equal(results[i], null, `call ${i + 1} passes`);
@@ -59,8 +53,9 @@ describe("AgentHarness — annotation-derived defaults", () => {
 	});
 
 	it("open-world annotated tool never loosens past the configured threshold", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "net", annotations: { openWorldHint: true } }]);
+		const h = new AgentHarness(undefined, () => [
+			{ name: "net", annotations: { openWorldHint: true } },
+		]);
 		const results = callNTimes(h, "net", 8, {});
 		for (let i = 0; i < DESTRUCTIVE_CASCADE_THRESHOLD - 1; i++) {
 			assert.equal(results[i], null, `call ${i + 1} passes`);
@@ -72,16 +67,18 @@ describe("AgentHarness — annotation-derived defaults", () => {
 	});
 
 	it("configured threshold stricter than the derived default is preserved", () => {
-		const h = new AgentHarness({ toolMeta: {}, cascadeThreshold: 2 });
-		h.setToolInfoProvider(() => [{ name: "danger", annotations: { destructiveHint: true } }]);
+		const h = new AgentHarness({ toolMeta: {}, cascadeThreshold: 2 }, () => [
+			{ name: "danger", annotations: { destructiveHint: true } },
+		]);
 		const results = callNTimes(h, "danger", 2, {});
 		assert.equal(results[0], null, "first call passes");
 		assert.ok(results[1]?.block, "blocks at the configured 2, not the derived 4");
 	});
 
 	it("configured threshold looser than the derived default is tightened by min", () => {
-		const h = new AgentHarness({ toolMeta: {}, cascadeThreshold: 12 });
-		h.setToolInfoProvider(() => [{ name: "danger", annotations: { destructiveHint: true } }]);
+		const h = new AgentHarness({ toolMeta: {}, cascadeThreshold: 12 }, () => [
+			{ name: "danger", annotations: { destructiveHint: true } },
+		]);
 		const results = callNTimes(h, "danger", DESTRUCTIVE_CASCADE_THRESHOLD, {});
 		for (let i = 0; i < DESTRUCTIVE_CASCADE_THRESHOLD - 1; i++) {
 			assert.equal(results[i], null, `call ${i + 1} passes`);
@@ -90,15 +87,14 @@ describe("AgentHarness — annotation-derived defaults", () => {
 	});
 
 	it("explicit config toolMeta wins and the provider is not consulted", () => {
-		const h = new AgentHarness({
-			toolMeta: { net: { cascadeThreshold: 10 } },
-			cascadeThreshold: 8,
-		});
 		let consulted = 0;
-		h.setToolInfoProvider(() => {
-			consulted++;
-			return [{ name: "net", annotations: { destructiveHint: true } }];
-		});
+		const h = new AgentHarness(
+			{ toolMeta: { net: { cascadeThreshold: 10 } }, cascadeThreshold: 8 },
+			() => {
+				consulted++;
+				return [{ name: "net", annotations: { destructiveHint: true } }];
+			},
+		);
 		const results = callNTimes(h, "net", 10, {});
 		assert.equal(results[8], null, "9th call passes");
 		assert.ok(results[9]?.block, "explicit cascadeThreshold 10 wins");
@@ -106,16 +102,16 @@ describe("AgentHarness — annotation-derived defaults", () => {
 	});
 
 	it("hardcoded TOOL_META wins over provider annotations (web_crawl)", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "web_crawl", annotations: { openWorldHint: true } }]);
+		const h = new AgentHarness(undefined, () => [
+			{ name: "web_crawl", annotations: { openWorldHint: true } },
+		]);
 		const results = callNTimes(h, "web_crawl", 20, { url: "https://x" });
 		assert.equal(results[18], null, "19th call passes");
 		assert.ok(results[19]?.block, "hardcoded cascadeThreshold 20 wins");
 	});
 
 	it("empty annotations escalate to the MCP destructive default (min(8,4)=4)", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "mystery", annotations: {} }]);
+		const h = new AgentHarness(undefined, () => [{ name: "mystery", annotations: {} }]);
 		const results = callNTimes(h, "mystery", DESTRUCTIVE_CASCADE_THRESHOLD, {});
 		for (let i = 0; i < DESTRUCTIVE_CASCADE_THRESHOLD - 1; i++) {
 			assert.equal(results[i], null, `call ${i + 1} passes`);
@@ -124,16 +120,16 @@ describe("AgentHarness — annotation-derived defaults", () => {
 	});
 
 	it("hardcoded passThrough is retained despite destructive annotations", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "ask_user", annotations: { destructiveHint: true } }]);
+		const h = new AgentHarness(undefined, () => [
+			{ name: "ask_user", annotations: { destructiveHint: true } },
+		]);
 		for (let i = 0; i < 15; i++) {
 			assert.equal(h.handleToolCall(makeEvent("ask_user", { question: `Q${i}` }), makeCtx()), null);
 		}
 	});
 
 	it("unannotated provider tool keeps the conservative global threshold", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "mystery" }]);
+		const h = new AgentHarness(undefined, () => [{ name: "mystery" }]);
 		const results = callNTimes(h, "mystery", 8, {});
 		for (let i = 0; i < 7; i++) assert.equal(results[i], null);
 		assert.ok(results[7]?.block);
@@ -141,12 +137,11 @@ describe("AgentHarness — annotation-derived defaults", () => {
 
 	it("provider is consulted lazily on tool_call, not eagerly", () => {
 		let calls = 0;
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => {
+		const h = new AgentHarness(undefined, () => {
 			calls++;
 			return [{ name: "mystery" }];
 		});
-		assert.equal(calls, 0, "setting a provider performs no lookup");
+		assert.equal(calls, 0, "constructing with a provider performs no lookup");
 		h.handleToolCall(makeEvent("ask_user", {}), makeCtx());
 		assert.equal(calls, 0, "explicitly-configured tools skip the provider");
 		h.handleToolCall(makeEvent("mystery", {}), makeCtx());
@@ -160,8 +155,7 @@ describe("AgentHarness — annotation-derived defaults", () => {
 			errors.push(a);
 		};
 		try {
-			const h = new AgentHarness();
-			h.setToolInfoProvider(() => {
+			const h = new AgentHarness(undefined, () => {
 				throw new Error("annotation boom");
 			});
 			assert.equal(h.handleToolCall(makeEvent("mystery", {}), makeCtx()), null);
@@ -173,9 +167,68 @@ describe("AgentHarness — annotation-derived defaults", () => {
 		assert.ok(String(errors[0][0]).includes("annotation boom"));
 	});
 
-	it("provider absent → legacy behaviour unchanged", () => {
+	it("no provider arg → default empty provider (legacy behaviour)", () => {
 		const results = callNTimes(new AgentHarness(), "write", 8, { path: "f.ts", content: "" });
 		assert.ok(results[7]?.block);
+	});
+});
+
+describe("AgentHarness — provider injected at construction", () => {
+	const readOnly = () => [{ name: "read", annotations: { readOnlyHint: true } }];
+
+	it("annotations are active before any session_start or reset", () => {
+		const h = new AgentHarness(undefined, readOnly);
+		h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx());
+		h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx());
+		assert.equal(
+			h.handleToolCall(makeEvent("read", { path: "c.ts" }), makeCtx()),
+			null,
+			"no injection step is required before the first tool_call",
+		);
+	});
+
+	it("provider survives reset()", () => {
+		const h = new AgentHarness(undefined, readOnly);
+		h.reset();
+		h.handleToolCall(makeEvent("read", { path: "a.ts" }, true), makeCtx());
+		h.handleToolCall(makeEvent("read", { path: "b.ts" }, true), makeCtx());
+		assert.equal(
+			h.handleToolCall(makeEvent("read", { path: "c.ts" }), makeCtx()),
+			null,
+			"reset() clears state, not the port",
+		);
+	});
+
+	it("provider survives setRules()", () => {
+		const h = new AgentHarness(undefined, () => [
+			{ name: "danger", annotations: { destructiveHint: true } },
+		]);
+		h.setRules({ toolMeta: {}, cascadeThreshold: 8 });
+		const results = callNTimes(h, "danger", DESTRUCTIVE_CASCADE_THRESHOLD, {});
+		assert.equal(results[DESTRUCTIVE_CASCADE_THRESHOLD - 2], null, "3rd call passes");
+		assert.ok(
+			results[DESTRUCTIVE_CASCADE_THRESHOLD - 1]?.block,
+			"blocks at the derived 4, not the re-set 8",
+		);
+	});
+
+	it("typed ctx.hasUI governs the read-cache block", () => {
+		const h = new AgentHarness();
+		h.handleToolCall(makeEvent("read", { path: "x.ts" }), makeCtx());
+		h.handleTurnStart();
+		assert.equal(
+			h.handleToolCall(makeEvent("read", { path: "x.ts" }), { hasUI: false }),
+			null,
+			"hasUI:false passes through the cache hit",
+		);
+		assert.ok(
+			h.handleToolCall(makeEvent("read", { path: "x.ts" }), {})?.block,
+			"absent hasUI keeps the TUI blocking behaviour",
+		);
+		assert.ok(
+			h.handleToolCall(makeEvent("read", { path: "x.ts" }), { hasUI: undefined })?.block,
+			"explicit undefined hasUI keeps the TUI blocking behaviour",
+		);
 	});
 });
 
@@ -255,8 +308,9 @@ describe("AgentHarness — nested call attribution", () => {
 	});
 
 	it("nested errors under a read-only parent are not tracked (no error block)", () => {
-		const h = new AgentHarness();
-		h.setToolInfoProvider(() => [{ name: "read", annotations: { readOnlyHint: true } }]);
+		const h = new AgentHarness(undefined, () => [
+			{ name: "read", annotations: { readOnlyHint: true } },
+		]);
 		h.handleToolCall({ toolName: "read", input: { path: "a.ts" }, toolCallId: "p1" }, makeCtx());
 		h.handleToolCall(nested("read", "p1/1", "p1", {}, true), makeCtx());
 		h.handleToolCall(nested("read", "p1/2", "p1", {}, true), makeCtx());
@@ -265,11 +319,10 @@ describe("AgentHarness — nested call attribution", () => {
 	});
 
 	it("explicit config trackErrors:true restores nested error attribution for a read-only tool", () => {
-		const h = new AgentHarness({
-			toolMeta: { read: { trackErrors: true } },
-			cascadeThreshold: 8,
-		});
-		h.setToolInfoProvider(() => [{ name: "read", annotations: { readOnlyHint: true } }]);
+		const h = new AgentHarness(
+			{ toolMeta: { read: { trackErrors: true } }, cascadeThreshold: 8 },
+			() => [{ name: "read", annotations: { readOnlyHint: true } }],
+		);
 		h.handleToolCall({ toolName: "read", input: { path: "a.ts" }, toolCallId: "p1" }, makeCtx());
 		h.handleToolCall(nested("read", "p1/1", "p1", {}, true), makeCtx());
 		h.handleToolCall(nested("read", "p1/2", "p1", {}, true), makeCtx());
@@ -337,89 +390,5 @@ describe("AgentHarness — nested call attribution", () => {
 			null,
 			"the same-named 'read' counter is not polluted by foreign nested errors",
 		);
-	});
-});
-
-describe("AgentHarness — tool-info provider wiring", () => {
-	it("session_start injects a provider; lookup stays lazy until tool_call", async () => {
-		const api = createMockAPI();
-		let calls = 0;
-		(api as any).getAllTools = () => {
-			calls++;
-			return [];
-		};
-		agentHarness(api);
-		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx());
-		assert.equal(calls, 0, "no eager snapshot on session_start");
-		await api.fire("tool_call", { toolName: "mystery", input: {} }, makeConfigCtx());
-		assert.ok(calls >= 1, "provider consulted on tool_call");
-	});
-
-	it("feature-detect: pi.getAllTools missing → no throw, legacy behaviour", async () => {
-		const api = createMockAPI();
-		delete (api as any).getAllTools;
-		agentHarness(api);
-		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx());
-		const results = [];
-		for (let i = 0; i < 8; i++) {
-			results.push(
-				await api.fire(
-					"tool_call",
-					{ toolName: "write", input: { path: "f.ts", content: "" } },
-					makeConfigCtx(),
-				),
-			);
-		}
-		assert.ok(results[7]?.block, "default threshold still applies");
-	});
-
-	it("read-only annotation flows through dispatch — no error block", async () => {
-		const api = createMockAPI();
-		(api as any).getAllTools = () => [{ name: "read", annotations: { readOnlyHint: true } }];
-		agentHarness(api);
-		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx());
-		await api.fire(
-			"tool_call",
-			{ toolName: "read", input: { path: "a.ts" }, isError: true },
-			makeConfigCtx(),
-		);
-		await api.fire(
-			"tool_call",
-			{ toolName: "read", input: { path: "b.ts" }, isError: true },
-			makeConfigCtx(),
-		);
-		const r = await api.fire(
-			"tool_call",
-			{ toolName: "read", input: { path: "c.ts" } },
-			makeConfigCtx(),
-		);
-		assert.equal(r, undefined, "third read passes");
-	});
-
-	it("nested calls flow through dispatch with parentToolCallId", async () => {
-		const api = createMockAPI();
-		agentHarness(api);
-		await api.fire("session_start", { type: "session_start", reason: "new" }, makeConfigCtx());
-		await api.fire(
-			"tool_call",
-			{ toolName: "write", input: { path: "a.ts", content: "" }, toolCallId: "p1" },
-			makeConfigCtx(),
-		);
-		await api.fire(
-			"tool_call",
-			{ toolName: "read", input: {}, isError: true, toolCallId: "p1/1", parentToolCallId: "p1" },
-			makeConfigCtx(),
-		);
-		await api.fire(
-			"tool_call",
-			{ toolName: "read", input: {}, isError: true, toolCallId: "p1/2", parentToolCallId: "p1" },
-			makeConfigCtx(),
-		);
-		const r = await api.fire(
-			"tool_call",
-			{ toolName: "write", input: { path: "b.ts", content: "" } },
-			makeConfigCtx(),
-		);
-		assert.ok(r?.block, "parent write blocked by rolled-up nested errors");
 	});
 });
