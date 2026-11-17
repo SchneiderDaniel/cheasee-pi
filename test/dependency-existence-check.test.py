@@ -64,8 +64,15 @@ from dependency_existence_check_tests.test_verify_stage import (  # noqa: E402,F
 )
 from dependency_existence_check_tests.test_models_immutability import (  # noqa: E402,F401
     RecordImmutabilityTests,
-    ResolutionPipelineParityTests,
+)
+from dependency_existence_check_tests.test_resolution_transition import (  # noqa: E402,F401
     ResolutionTransitionTests,
+)
+from dependency_existence_check_tests.test_resolution_markers import (  # noqa: E402,F401
+    ResolutionMarkerTests,
+)
+from dependency_existence_check_tests.test_resolution_pipeline import (  # noqa: E402,F401
+    ResolutionPipelineParityTests,
 )
 
 if __name__ == "__main__":
