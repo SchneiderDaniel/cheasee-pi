@@ -16,6 +16,21 @@ export function resolveSubtleColor(appearance: "dark" | "light" | undefined): Su
 	return appearance === "light" ? "muted" : "dim";
 }
 
+// ─── Availability guard ─────────────────────────────────────────
+
+/**
+ * The value itself for a usable number, `undefined` otherwise.
+ *
+ * Provider metrics arrive as `number | null | undefined`; some report `NaN` too.
+ * Collapsing each "no value" shape here keeps the formatters down to one
+ * availability check apiece.
+ */
+function usableNumber(value: number | null | undefined): number | undefined {
+	if (typeof value !== "number") return undefined;
+	if (Number.isNaN(value)) return undefined;
+	return value;
+}
+
 // ─── Semantic tokens for threshold levels ────────────────────────
 
 const THRESHOLD_TOKENS: UsageColorToken[] = ["success", "warning", "error"];
@@ -89,8 +104,9 @@ export function formatTps(tps: number | null): string {
  * `null` rate keeps the unmarked `-- t/s` because there is nothing to qualify.
  */
 export function formatEstimatedTps(tps: number | null | undefined): string {
-	if (tps === null || tps === undefined || Number.isNaN(tps)) return "-- t/s";
-	return `~${formatTps(tps)}`;
+	const rate = usableNumber(tps);
+	if (rate === undefined) return "-- t/s";
+	return `~${formatTps(rate)}`;
 }
 
 /** Format cache stats: 📦 cacheRead/cacheWrite */
@@ -98,28 +114,24 @@ export function formatCacheStats(
 	cacheRead: number | undefined | null,
 	cacheWrite: number | undefined | null,
 ): string {
-	if (
-		cacheRead === undefined ||
-		cacheRead === null ||
-		cacheWrite === undefined ||
-		cacheWrite === null
-	) {
-		return "\u{1F4E6} --/--";
-	}
-	return `\u{1F4E6} ${formatTokens(cacheRead)}/${formatTokens(cacheWrite)}`;
+	const read = usableNumber(cacheRead);
+	const write = usableNumber(cacheWrite);
+	if (read === undefined || write === undefined) return "\u{1F4E6} --/--";
+	return `\u{1F4E6} ${formatTokens(read)}/${formatTokens(write)}`;
 }
 
 /**
  * Format the cache hit rate: 75 → "Cache Hit Rate: 75%".
  *
  * The label is spelled out — the old two-letter abbreviation explained nothing —
- * and stays visible when the rate is unavailable, so the reader can tell "no
- * data" apart from "segment not rendered". The percentage is the cache-read
- * share of reported prompt tokens; see `cache-stats.ts` for the denominator.
+ * keeping it visible for an unavailable rate, so a reader can tell "no data"
+ * apart from "segment not rendered". The percentage is the cache-read share of
+ * reported prompt tokens; see `cache-stats.ts` for the denominator.
  */
 export function formatCacheHitRate(rate: number | undefined | null): string {
-	if (rate === undefined || rate === null || Number.isNaN(rate)) return "Cache Hit Rate: --";
-	return `Cache Hit Rate: ${Math.round(rate)}%`;
+	const pct = usableNumber(rate);
+	if (pct === undefined) return "Cache Hit Rate: --";
+	return `Cache Hit Rate: ${Math.round(pct)}%`;
 }
 
 /** Format container CPU percentage for footer display */

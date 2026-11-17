@@ -30,14 +30,14 @@
 	"after": {
 		"criticalCount": 198,
 		"expectedDrop": 6,
-		"files": 1775,
-		"codeFiles": 948
+		"files": 1781,
+		"codeFiles": 950
 	},
 	"partition": {
-		"scored": 948,
+		"scored": 950,
 		"critical": 198,
 		"notScored": 93,
-		"belowCeiling": 750
+		"belowCeiling": 752
 	},
 	"reducedBy": [
 		{
