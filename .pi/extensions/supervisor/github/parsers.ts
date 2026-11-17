@@ -7,6 +7,7 @@ import type {
 	GhTimelineNode,
 	PrConflictInfo,
 	ProjectFieldValueNode,
+	ProjectItem,
 } from "../config/types.ts";
 import type { ClosingPrRef } from "./ports.ts";
 
@@ -79,6 +80,49 @@ export function extractProjectItemFields(
 	return {
 		status,
 		fieldValues: fv.length > 0 ? fv : undefined,
+	};
+}
+
+// ─── Project Items Page → Domain Mapping (issue #2098) ──────────
+// One GraphQL `items` page into domain items plus the cursor state the
+// pagination loop needs. Pure: no I/O, no network, no adapter state.
+
+export interface ProjectItemsPageNode {
+	id: string;
+	content?: { url?: string; number?: number } | null;
+	fieldValues?: { nodes?: ProjectFieldValueNode[] | null } | null;
+}
+
+export interface ProjectItemsPage {
+	pageInfo?: { hasNextPage?: boolean; endCursor?: string | null } | null;
+	nodes?: ProjectItemsPageNode[] | null;
+}
+
+export interface ProjectItemsPageResult {
+	items: ProjectItem[];
+	hasNextPage: boolean;
+	endCursor: string | null;
+}
+
+export function mapProjectItemsPage(
+	page: ProjectItemsPage | null | undefined,
+): ProjectItemsPageResult {
+	const items: ProjectItem[] = [];
+
+	for (const node of page?.nodes || []) {
+		const { status, fieldValues } = extractProjectItemFields(node.fieldValues?.nodes);
+		items.push({
+			id: node.id,
+			status,
+			content: node.content ? { url: node.content.url, number: node.content.number } : undefined,
+			fieldValues,
+		});
+	}
+
+	return {
+		items,
+		hasNextPage: page?.pageInfo?.hasNextPage ?? false,
+		endCursor: page?.pageInfo?.endCursor ?? null,
 	};
 }
 

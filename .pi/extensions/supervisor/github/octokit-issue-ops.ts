@@ -1,14 +1,13 @@
 // ─── Issue comment + label operations (issue #2044) ──────────────
-// Split out of octokit-client.ts so the adapter stays within its
-// 15-function CodeFlow ceiling. OctokitClient extends IssueOpsBase; the
-// base reads the octokit/graphql handles it injects and the subclass owns.
+// Split out of the old god-object adapter (issue #2001) and de-abstracted for
+// the port split (issue #2098): the base reads the shared `GitHubTransport`
+// from RepoAdapterBase instead of owning Octokit/GraphQL handles and an
+// abstract `graphqlQuery` hook.
 
-import type { Octokit } from "@octokit/rest";
-import type { graphql } from "@octokit/graphql";
-import type { DebugLogger } from "../lib/debug.ts";
 import { normalizeEscapes } from "../agent/output.ts";
 import { isNotFound } from "./parsers.ts";
 import { UPDATE_ISSUE_COMMENT_MUTATION } from "./octokit-queries.ts";
+import { RepoAdapterBase } from "./adapter-base.ts";
 
 const MAX_COMMENT_CHARS = 50_000;
 
@@ -26,28 +25,20 @@ export function normalizeAndTruncateComment(body: string): string {
 }
 
 /**
- * Issue comment + label operations mixed into OctokitClient. The subclass
- * assigns the protected handles in its constructor.
+ * Issue comment + label operations shared by the issue adapter. Constructed
+ * with the transport by the composition root; subclasses inherit it.
  */
-export abstract class IssueOpsBase {
-	protected octokit!: Octokit;
-	protected _graphql!: typeof graphql;
-	protected log!: DebugLogger;
-
-	/** Provided by the concrete adapter (OctokitClient.graphqlQuery). */
-	protected abstract graphqlQuery<T>(query: string): Promise<T>;
-
+export abstract class IssueOpsBase extends RepoAdapterBase {
 	// Update an audit rejection in place (issue #2044). The comment id handle
 	// from gh-CLI JSON may be a GraphQL node id (`IC_…`) or the REST database
 	// id — dispatch on the representation so either source works.
 	async updateIssueComment(commentId: string, repo: string, body: string): Promise<void> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		const truncated = normalizeAndTruncateComment(body);
 		this.log.debug("octokit", `updateIssueComment ${commentId}`, { bodyLen: truncated.length });
 		if (/^\d+$/.test(commentId)) {
-			await this.octokit.issues.updateComment({
+			await this.transport.octokit.issues.updateComment({
 				owner,
 				repo: name,
 				comment_id: Number(commentId),
@@ -55,7 +46,7 @@ export abstract class IssueOpsBase {
 			});
 			return;
 		}
-		await this.graphqlQuery(UPDATE_ISSUE_COMMENT_MUTATION(commentId, truncated));
+		await this.transport.query(UPDATE_ISSUE_COMMENT_MUTATION(commentId, truncated));
 	}
 
 	// List every comment, auto-paginated (issue #2044 audit finding #4): the
@@ -64,13 +55,12 @@ export abstract class IssueOpsBase {
 		issueNum: number,
 		repo: string,
 	): Promise<Array<{ id?: string; author?: { login: string }; body?: string }>> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `listComments #${issueNum}`);
 		const comments: Array<{ id?: string; author?: { login: string }; body?: string }> = [];
 		for (let page = 1; ; page++) {
-			const resp = await this.octokit.issues.listComments({
+			const resp = await this.transport.octokit.issues.listComments({
 				owner,
 				repo: name,
 				issue_number: issueNum,
@@ -92,18 +82,17 @@ export abstract class IssueOpsBase {
 	// Login of the authenticated token owner — used to verify that a
 	// marker-tagged rejection was authored by this automation account.
 	async getAuthenticatedLogin(): Promise<string> {
-		const resp = await this.octokit.users.getAuthenticated();
+		const resp = await this.transport.octokit.users.getAuthenticated();
 		return resp.data.login;
 	}
 
 	async getIssueLabels(issueNum: number, repo: string): Promise<string[]> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `getIssueLabels #${issueNum}`);
 		const labels: string[] = [];
 		for (let page = 1; ; page++) {
-			const resp = await this.octokit.issues.listLabelsOnIssue({
+			const resp = await this.transport.octokit.issues.listLabelsOnIssue({
 				owner,
 				repo: name,
 				issue_number: issueNum,
@@ -117,11 +106,10 @@ export abstract class IssueOpsBase {
 	}
 
 	async addIssueLabel(issueNum: number, repo: string, label: string): Promise<void> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `addIssueLabel #${issueNum} ${label}`);
-		await this.octokit.issues.addLabels({
+		await this.transport.octokit.issues.addLabels({
 			owner,
 			repo: name,
 			issue_number: issueNum,
@@ -130,12 +118,11 @@ export abstract class IssueOpsBase {
 	}
 
 	async removeIssueLabel(issueNum: number, repo: string, label: string): Promise<void> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `removeIssueLabel #${issueNum} ${label}`);
 		try {
-			await this.octokit.issues.removeLabel({
+			await this.transport.octokit.issues.removeLabel({
 				owner,
 				repo: name,
 				issue_number: issueNum,
@@ -151,12 +138,11 @@ export abstract class IssueOpsBase {
 	// Delete a superseded supervisor rejection comment (issue #2044). Used to
 	// collapse the many rejections an older issue accumulated into one.
 	async deleteIssueComment(commentId: string, repo: string): Promise<void> {
-		const [owner, name] = repo.split("/");
-		if (!owner || !name) throw new Error(`Invalid repo format: ${repo} (expected owner/name)`);
+		const { owner, name } = this.parseRepo(repo);
 
 		this.log.debug("octokit", `deleteIssueComment ${commentId}`);
 		try {
-			await this.octokit.issues.deleteComment({
+			await this.transport.octokit.issues.deleteComment({
 				owner,
 				repo: name,
 				comment_id: Number(commentId),

@@ -1,5 +1,6 @@
 // ─── Octokit GraphQL Queries ─────────────────────────────────────
-// GraphQL query builders + response shapes for OctokitClient. Split out of
+// GraphQL query builders + response shapes for the GitHub sub-adapters
+// (octokit-pulls / octokit-projects). Split out of the former god object in
 // octokit-client.ts (issue #2001); queries are adapter-local and no Octokit
 // types leak inward.
 

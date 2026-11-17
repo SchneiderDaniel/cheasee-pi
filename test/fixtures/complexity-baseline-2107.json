@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 957,
-		"criticalCount": 198,
-		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, which added three below-ceiling agent-harness test modules, from 951 to 953 by #2136, which added two below-ceiling context-info policy modules (cache-stats.ts and stream-estimate.ts), and from 953 to 957 by #2096, which added four below-ceiling scenario modules under test/dependency_existence_check_tests/ for the frozen `Dependency`/`PackageRecord` records (record immutability, the resolution transition, inline-marker gating and pipeline parity). CriticalCount remains 198; no complexity flags moved."
+		"codeFiles": 965,
+		"criticalCount": 196,
+		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, which added three below-ceiling agent-harness test modules, from 951 to 953 by #2136, which added two below-ceiling context-info policy modules (cache-stats.ts and stream-estimate.ts), from 953 to 957 by #2096, which added four below-ceiling scenario modules under test/dependency_existence_check_tests/ for the frozen `Dependency`/`PackageRecord` records (record immutability, the resolution transition, inline-marker gating and pipeline parity), and from 957 to 965 by #2098, which added eight below-ceiling GitHub adapter/presentation modules. #2098 also re-anchors criticalCount from 198 to 196 by moving both former critical paths below the ceiling. No flag moved in this change's own citations."
 	}
 }

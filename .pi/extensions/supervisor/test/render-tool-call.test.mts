@@ -4,7 +4,8 @@
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { renderToolCallText, getBuiltinToolLabels } from "../lib/render-helpers.ts";
+import { renderToolCallText } from "../lib/tool-call-text.ts";
+import { getBuiltinToolLabels } from "../lib/tool-line.ts";
 import { isToolLine } from "../lib/tool-line.ts";
 
 const CWD = "/repo";

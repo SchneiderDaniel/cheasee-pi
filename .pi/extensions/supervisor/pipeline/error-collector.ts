@@ -4,13 +4,15 @@
 // structured records to the collector. At transition points, render
 // a user-visible warnings panel.
 //
-// Architecture:
-//   - ErrorCollector class with push/flush/hasErrors/toNotificationBlock
+// Architecture (issue #2098 split):
+//   - STORAGE + ingestion logging live here (push/flush/hasErrors)
+//   - PANEL RENDERING lives in pipeline/error-panel.ts (pure, logger-free)
+//   - `enabled: false` disables collection entirely (the default singleton)
 //   - Module-level singleton accessor (getErrorCollector/setErrorCollector)
-//   - NoopErrorCollector default singleton (collects nothing)
 //   - resetErrorCollector() for test isolation
 
 import { getDebugLogger } from "../lib/debug.ts";
+import { MAX_MESSAGE_LENGTH, renderErrorPanel } from "./error-panel.ts";
 
 /** A single structured error/warning record */
 export interface ErrorRecord {
@@ -20,35 +22,10 @@ export interface ErrorRecord {
 	timestamp: number;
 }
 
-/** Maximum message length before truncation in toNotificationBlock */
-const MAX_MESSAGE_LENGTH = 200;
-
-/**
- * Summarize a record message for the compact panel — never head-truncate
- * the actionable tail:
- * 1. Keep from the `remediation:` marker onward (pushBranch stamps it;
- *    action-first so the panel shows what to do, not the truncated head).
- * 2. Else keep the trailing parenthesized clause (e.g. the remote-rejected
- *    reason, which lands past the 200-char cut for long branch names).
- * 3. Else head-truncate at MAX_MESSAGE_LENGTH.
- * Full messages beyond MAX_MESSAGE_LENGTH are persisted to the debug log.
- */
-function summarizeForPanel(message: string): string {
-	const remediationIdx = message.indexOf("remediation:");
-	if (remediationIdx >= 0) {
-		return message.slice(remediationIdx);
-	}
-	if (message.length <= MAX_MESSAGE_LENGTH) {
-		return message;
-	}
-	const tail = message.match(/\([^()]*\)\s*$/);
-	if (tail) {
-		const clause = tail[0].trim();
-		return clause.length <= MAX_MESSAGE_LENGTH
-			? clause
-			: clause.slice(0, MAX_MESSAGE_LENGTH) + "...";
-	}
-	return message.slice(0, MAX_MESSAGE_LENGTH) + "...";
+/** Options bag for the collector. */
+export interface ErrorCollectorOptions {
+	/** When false the collector stores nothing and logs nothing. Default true. */
+	enabled?: boolean;
 }
 
 /**
@@ -61,17 +38,34 @@ function summarizeForPanel(message: string): string {
  */
 export class ErrorCollector {
 	private records: ErrorRecord[] = [];
+	private readonly enabled: boolean;
+
+	constructor(opts: ErrorCollectorOptions = {}) {
+		this.enabled = opts.enabled ?? true;
+	}
 
 	/**
 	 * Push a new error/warning record.
+	 *
+	 * The full message is persisted to the debug log here — at ingestion, once
+	 * per record — because the rendered panel only shows a summary and the real
+	 * failure reason must survive for diagnosis. Rendering is side-effect free,
+	 * so repeated renders cannot duplicate this entry.
 	 */
 	push(source: string, severity: "warn" | "error", message: string): void {
+		if (!this.enabled) return;
 		this.records.push({
 			source,
 			severity,
 			message,
 			timestamp: Date.now(),
 		});
+		if (message.length > MAX_MESSAGE_LENGTH) {
+			getDebugLogger().warn("error-collector", "notification message truncated", {
+				source,
+				message,
+			});
+		}
 	}
 
 	/**
@@ -79,6 +73,7 @@ export class ErrorCollector {
 	 * Returns empty array if no records match.
 	 */
 	flush(source: string): ErrorRecord[] {
+		if (!this.enabled) return [];
 		const matched: ErrorRecord[] = [];
 		const remaining: ErrorRecord[] = [];
 		for (const record of this.records) {
@@ -96,79 +91,22 @@ export class ErrorCollector {
 	 * Returns true if any records have been collected.
 	 */
 	hasErrors(): boolean {
-		return this.records.length > 0;
+		return this.enabled && this.records.length > 0;
 	}
 
 	/**
-	 * Build a user-visible markdown warnings panel.
-	 * Groups records by source, with errors before warnings within each group.
-	 * Messages are truncated to MAX_MESSAGE_LENGTH characters.
-	 * Returns empty string if no records.
+	 * Build a user-visible markdown warnings panel from the collected records.
+	 * Pure delegation to renderErrorPanel — safe to call repeatedly.
 	 */
 	toNotificationBlock(): string {
-		if (this.records.length === 0) return "";
-
-		const lines: string[] = [];
-		lines.push("## ⚠️ Warnings");
-		lines.push("");
-
-		// Group by source
-		const groups = new Map<string, ErrorRecord[]>();
-		for (const record of this.records) {
-			const group = groups.get(record.source);
-			if (group) {
-				group.push(record);
-			} else {
-				groups.set(record.source, [record]);
-			}
-		}
-
-		// Render each source group: errors first, then warnings
-		for (const [source, records] of groups) {
-			lines.push(`### ${source}`);
-			lines.push("");
-
-			// Sort: errors before warnings
-			const sorted = [...records].sort((a, b) => {
-				if (a.severity !== b.severity) {
-					return a.severity === "error" ? -1 : 1;
-				}
-				return a.timestamp - b.timestamp;
-			});
-
-			for (const record of sorted) {
-				const severityLabel = record.severity === "error" ? "ERROR" : "WARN";
-				const summarized = summarizeForPanel(record.message);
-				if (record.message.length > MAX_MESSAGE_LENGTH) {
-					// The panel shows a compact view — persist the full message so
-					// the real failure reason survives for diagnosis.
-					getDebugLogger().warn("error-collector", "notification message truncated", {
-						source: record.source,
-						message: record.message,
-					});
-				}
-				lines.push(`- **\`[${severityLabel}]\`** ${summarized}`);
-			}
-
-			lines.push("");
-		}
-
-		// Summary line
-		const errorCount = this.records.filter((r) => r.severity === "error").length;
-		const warnCount = this.records.filter((r) => r.severity === "warn").length;
-		const parts: string[] = [];
-		if (errorCount > 0) parts.push(`${errorCount} error(s)`);
-		if (warnCount > 0) parts.push(`${warnCount} warning(s)`);
-		lines.push(`**${parts.join(", ")}** — see above for details.`);
-
-		return lines.join("\n");
+		return renderErrorPanel(this.records);
 	}
 
 	/**
 	 * Return total record count.
 	 */
 	get size(): number {
-		return this.records.length;
+		return this.enabled ? this.records.length : 0;
 	}
 
 	/**
@@ -181,35 +119,13 @@ export class ErrorCollector {
 
 // ─── Singleton ─────────────────────────────────────────────────────
 
-/** Default no-op singleton — collects nothing, all methods are no-ops */
-class NoopErrorCollector extends ErrorCollector {
-	override push(_source: string, _severity: "warn" | "error", _message: string): void {
-		// no-op
-	}
-
-	override flush(_source: string): ErrorRecord[] {
-		return [];
-	}
-
-	override hasErrors(): boolean {
-		return false;
-	}
-
-	override toNotificationBlock(): string {
-		return "";
-	}
-
-	override get size(): number {
-		return 0;
-	}
-
-	override get all(): ErrorRecord[] {
-		return [];
-	}
+/** A collector that collects nothing — the default until a pipeline installs one. */
+function createDisabledErrorCollector(): ErrorCollector {
+	return new ErrorCollector({ enabled: false });
 }
 
 /** The current singleton instance */
-let currentCollector: ErrorCollector = new NoopErrorCollector();
+let currentCollector: ErrorCollector = createDisabledErrorCollector();
 
 /**
  * Get the current global ErrorCollector instance.
@@ -232,5 +148,5 @@ export function setErrorCollector(collector: ErrorCollector): void {
  * Useful for test isolation.
  */
 export function resetErrorCollector(): void {
-	currentCollector = new NoopErrorCollector();
+	currentCollector = createDisabledErrorCollector();
 }

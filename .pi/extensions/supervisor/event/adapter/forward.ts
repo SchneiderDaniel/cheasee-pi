@@ -7,7 +7,7 @@
 
 import type { AgentRunState } from "../../config/types.ts";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { renderToolCallText } from "../../lib/render-helpers.ts";
+import { renderToolCallText } from "../../lib/tool-call-text.ts";
 import { extractTextFromContent } from "../../lib/formatting.ts";
 import type { NormalizedEvent } from "./normalize.ts";
 

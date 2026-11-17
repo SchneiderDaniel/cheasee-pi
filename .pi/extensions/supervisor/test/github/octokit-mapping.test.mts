@@ -12,22 +12,17 @@ import { describe, it, mock } from "node:test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { OctokitClient, mapRestPrToConflictInfo } from "../../github/octokit-client.ts";
-import { mapPrToClosingRef } from "../../github/parsers.ts";
+import { OctokitPulls } from "../../github/octokit-pulls.ts";
+import { mapRestPrToConflictInfo, mapPrToClosingRef } from "../../github/parsers.ts";
+import { fakeTransport, createMockLogger } from "./fake-transport.mts";
 
 const githubDir = dirname(fileURLToPath(import.meta.url));
 const parsersPath = join(githubDir, "..", "..", "github", "parsers.ts");
 
 // ─── Mock Logger ──────────────────────────────────────────────────
 
-function createMockLogger() {
-	return {
-		debug: () => {},
-		info: () => {},
-		warn: () => {},
-		error: () => {},
-		child: () => createMockLogger(),
-	};
+function pullsAdapter(octokit: Record<string, unknown>): OctokitPulls {
+	return new OctokitPulls(fakeTransport({ octokit }), createMockLogger());
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -121,10 +116,9 @@ describe("mapRestPrToConflictInfo — REST → domain mapping", () => {
 // listPullRequestsForBranch — integration with mocked octokit
 // ═══════════════════════════════════════════════════════════════════
 
-describe("OctokitClient.listPullRequestsForBranch — REST adapter", () => {
+describe("OctokitPulls.listPullRequestsForBranch — REST adapter", () => {
 	it("maps a REST-shaped pulls.list response to domain PrConflictInfo", async () => {
-		const client = new OctokitClient("fake-token", createMockLogger() as any);
-		(client as any).octokit = {
+		const client = pullsAdapter({
 			pulls: {
 				list: mock.fn(async () => ({
 					data: [
@@ -138,7 +132,7 @@ describe("OctokitClient.listPullRequestsForBranch — REST adapter", () => {
 					],
 				})),
 			},
-		};
+		});
 
 		const info = await client.listPullRequestsForBranch("worktree-git-issue-42-foo", "owner/repo");
 		assert.ok(info, "should find the PR");
@@ -151,20 +145,18 @@ describe("OctokitClient.listPullRequestsForBranch — REST adapter", () => {
 	});
 
 	it("returns null for an empty pulls.list result", async () => {
-		const client = new OctokitClient("fake-token", createMockLogger() as any);
-		(client as any).octokit = {
+		const client = pullsAdapter({
 			pulls: {
 				list: mock.fn(async () => ({ data: [] })),
 			},
-		};
+		});
 		const info = await client.listPullRequestsForBranch("branch", "owner/repo");
 		assert.equal(info, null);
 	});
 
 	it("queries with head=owner:branch and state=open", async () => {
-		const client = new OctokitClient("fake-token", createMockLogger() as any);
 		const listMock = mock.fn(async (_opts: Record<string, unknown>) => ({ data: [] }));
-		(client as any).octokit = { pulls: { list: listMock } };
+		const client = pullsAdapter({ pulls: { list: listMock } });
 
 		await client.listPullRequestsForBranch("worktree-git-issue-42", "owner/repo");
 		const args = listMock.mock.calls[0]?.arguments[0] as Record<string, unknown>;
@@ -174,7 +166,7 @@ describe("OctokitClient.listPullRequestsForBranch — REST adapter", () => {
 	});
 
 	it("invalid repo format throws", async () => {
-		const client = new OctokitClient("fake-token", createMockLogger() as any);
+		const client = pullsAdapter({});
 		await assert.rejects(
 			async () => await client.listPullRequestsForBranch("branch", "invalid-repo"),
 			/Invalid repo format/,
