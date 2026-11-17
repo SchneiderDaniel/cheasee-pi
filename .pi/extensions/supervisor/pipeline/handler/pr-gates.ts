@@ -3,29 +3,15 @@
 // runPrReadinessGate: pre-Done PR verification — clean-and-existing PR
 // passes; rebase conflicts / dirty PR are resolved by the gate itself
 // (auto-merge → developer dispatch → bounded 1× retry) with re-poll.
-// blockPipelineOnPrGate: on a blocked verdict, post the blocker comment
-// and move the issue to a non-Done status so it is never closed
-// COMPLETED without a PR. Returns the stop reason for the loop.
+// The blocked branch posts its blocker (with the status move) through
+// `blockPrReadinessGate`, so the issue is never closed COMPLETED w/o PR.
 
-import type {
-	PrCreationResult,
-	ProjectField,
-	ProjectItem,
-	SupervisorConfig,
-} from "../../config/types.ts";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import type { GitHubPort } from "../../github/ports.ts";
-import type { ErrorCollector } from "../error-collector.ts";
+import type { PrCreationResult } from "../../config/types.ts";
 import { ensurePrReadyForDone } from "../merge.ts";
-import { applyStatusTransition } from "../stages/index.ts";
-import {
-	buildPrBody,
-	createPrOnApproval,
-	updateExistingPr,
-	type PrBodyInput,
-} from "../pr-creation.ts";
+import { generateBranchName } from "../../lib/branch-name.ts";
+import { createPrOnApproval, publishPrBody, type PrBodyInput } from "../pr-creation.ts";
 import { getDebugLogger } from "../../lib/debug.ts";
-import { postPipelineBlocker } from "./blocker-comment.ts";
+import { blockPrReadinessGate } from "./blocker-comment.ts";
 import type { RunContext } from "./shared.ts";
 
 /**
@@ -46,43 +32,95 @@ function buildApprovalBodyInput(runCtx: RunContext): PrBodyInput {
 	};
 }
 
+/** Head branch the approval PR lives on (same derivation the gate uses). */
+function approvalBranch(runCtx: RunContext): string {
+	const { issueNum, issueTitle, config, worktreeBranch } = runCtx;
+	return worktreeBranch ?? generateBranchName(issueNum, issueTitle, config.branchPrefix!);
+}
+
+/** One update-only body write through the single publisher (pr-creation.ts). */
+function writeApprovalBody(
+	runCtx: RunContext,
+	prBody: PrBodyInput,
+	prNumber?: number,
+): Promise<PrCreationResult> {
+	const { ctx, config, issueNum, issueTitle, agentResults, port } = runCtx;
+	return publishPrBody({
+		repo: config.repo,
+		head: approvalBranch(runCtx),
+		issueNum,
+		issueTitle,
+		agentResults,
+		config,
+		body: prBody,
+		port,
+		prNumber,
+		notify: (message, level) => ctx.ui.notify(message, level),
+	});
+}
+
 /**
  * Refresh the published PR body to the final (blocked) status. Update-only, so
- * this can never open a second PR. A failure is surfaced to the operator
- * (collector + notify); the gate verdict stands, the issue stays out of Done.
+ * this can never open a second PR. A failure reaches the operator (collector +
+ * notify); the gate verdict stands, the issue stays out of Done.
  */
 async function refreshBodyForBlockedGate(
 	runCtx: RunContext,
 	prBody: PrBodyInput,
 	blockerNote: string,
-	prCreationResult: PrCreationResult | undefined,
+	prNumber?: number,
 ): Promise<void> {
-	const { ctx, config, issueNum, issueTitle, agentResults, collector, port } = runCtx;
-	const prNumber = prCreationResult?.prNumber;
 	if (!prNumber) {
-		getDebugLogger().info("handler", "No PR to refresh — final status skipped", { issueNum });
+		getDebugLogger().info("handler", "No PR to refresh for the final status", {
+			issueNum: runCtx.issueNum,
+		});
 		return;
 	}
-	const { title, body } = buildPrBody(issueNum, issueTitle, agentResults, config, {
-		...prBody,
-		overallStatus: "stopped",
-		stopReason: blockerNote,
-	});
-	const refreshed = await updateExistingPr(
-		port,
-		config.repo,
+	const refreshed = await writeApprovalBody(
+		runCtx,
+		{ ...prBody, overallStatus: "stopped", stopReason: blockerNote },
 		prNumber,
-		title,
-		body,
-		(message, level) => ctx.ui.notify(message, level),
 	);
 	if (refreshed.success) return;
-	ctx.ui.notify(`Failed to refresh PR #${prNumber} to the final status`, "error");
-	collector?.push(
+	runCtx.ctx.ui.notify(`Failed to refresh PR #${prNumber} for the final status`, "error");
+	runCtx.collector?.push(
 		"handler",
 		"error",
 		`PR #${prNumber} final-status refresh failed: ${refreshed.error}`,
 	);
+}
+
+/** Blocker note for a body that could not be published, error detail included. */
+function bodyPublishFailureNote(detail: string | undefined): string {
+	return `Approval PR body could not be published: ${detail ?? "no error reported"} — manual intervention required.`;
+}
+
+/**
+ * Confirm the approval body is on the PR before the issue may reach Done.
+ * `createPrOnApproval` normally published it, but a failed write can still be
+ * followed by a passing gate on an earlier, still-visible PR — Done would then
+ * leave the in-progress body without the auditor result (issue #1831, audit
+ * #2). One bounded re-publish; no PR to write to blocks Done.
+ *
+ * The returned `result` is the publish that actually carries the body, so the
+ * completion summary reports the real PR instead of the failed attempt.
+ */
+async function ensureApprovalBodyPublished(
+	runCtx: RunContext,
+	prBody: PrBodyInput,
+	published: PrCreationResult | undefined,
+): Promise<{ result?: PrCreationResult; error?: string }> {
+	// A publish this run already wrote this exact input (the gate's bounded
+	// retry reuses the same PrBodyInput) — no second write needed.
+	if (published?.success) return { result: published };
+	const refreshed = await writeApprovalBody(runCtx, prBody);
+	if (refreshed.success) return { result: refreshed };
+	runCtx.collector?.push(
+		"handler",
+		"error",
+		`Approval PR body could not be published: ${refreshed.error}`,
+	);
+	return { error: refreshed.error };
 }
 
 async function runPrReadinessGate(
@@ -126,54 +164,6 @@ async function runPrReadinessGate(
 		return { prCreationResult: final, blocked: true, blockerNote };
 	}
 	return { prCreationResult: final, blocked: false };
-}
-
-async function blockPipelineOnPrGate(
-	port: GitHubPort,
-	ctx: ExtensionCommandContext,
-	config: SupervisorConfig,
-	issueNum: number,
-	loopItem: ProjectItem,
-	projectId: string,
-	fields: ProjectField[],
-	statusField: ProjectField,
-	loopStatus: string,
-	collector: ErrorCollector | undefined,
-	blockerNote: string,
-): Promise<string> {
-	// Comment text pinned by handler-part5/pr-approval-flow tests.
-	await postPipelineBlocker(
-		port,
-		ctx,
-		config,
-		issueNum,
-		"## 🔴 PR Readiness Blocked — Manual Intervention Required",
-		`${blockerNote}\n\nThe issue stays open in **Implementation**. The next pipeline run re-dispatches the developer with this blocker in context.`,
-		collector,
-	);
-	ctx.ui.notify(`PR readiness blocked for #${issueNum}: ${blockerNote}`, "error");
-	try {
-		await applyStatusTransition(
-			port,
-			loopItem.id,
-			projectId,
-			fields,
-			statusField.id,
-			"Implementation",
-		);
-		ctx.ui.notify(
-			`Issue #${issueNum} moved: ${loopStatus} → Implementation (PR blocked)`,
-			"warning",
-		);
-		getDebugLogger().info("handler", "PR blocked — issue moved to Implementation", {
-			loopStatus,
-		});
-	} catch (err: unknown) {
-		const errMsg = err instanceof Error ? err.message : String(err);
-		ctx.ui.notify(`Failed to move issue to Implementation: ${errMsg}`, "error");
-		collector?.push("handler", "error", `Status transition to Implementation failed: ${errMsg}`);
-	}
-	return `PR readiness gate blocked: ${blockerNote}`;
 }
 
 /**
@@ -243,8 +233,6 @@ export async function handlePrApprovalFlow(
 	  }
 	| { stop: false; prCreationResult: PrCreationResult | undefined }
 > {
-	const { ctx, issueNum, config, loopItem, projectId, fields, statusField } = runCtx;
-
 	// One body input for the whole approval path (issue #1831): publish, gate
 	// retry, final-status refresh. A retry can never drop the audit verdict.
 	const prBody = buildApprovalBodyInput(runCtx);
@@ -257,26 +245,25 @@ export async function handlePrApprovalFlow(
 	// comment instead of Done.
 	const gate = await runPrReadinessGate(runCtx, created, prBody);
 	const prCreationResult = gate.prCreationResult;
-	if (!gate.blocked) return { stop: false, prCreationResult };
+	const prNumber = prCreationResult?.prNumber;
+	let bodyFailure: string | undefined;
+	if (!gate.blocked) {
+		// Done requires the PR to carry this run's approval body: a failed
+		// publish leaves the earlier, still-visible PR clean, so a passing gate
+		// would complete the issue on the in-progress body (issue #1831, audit
+		// #2).
+		const body = await ensureApprovalBodyPublished(runCtx, prBody, prCreationResult);
+		if (body.result) return { stop: false, prCreationResult: body.result };
+		bodyFailure = body.error ?? prCreationResult?.error;
+	}
 
-	const blockerNote = gate.blockerNote ?? "PR not ready for Done — manual intervention required.";
+	const blockerNote =
+		gate.blockerNote ?? bodyPublishFailureNote(bodyFailure ?? prCreationResult?.error);
 	// The body was published as "success" before the gate ran. Refresh the
 	// already-published PR to the final status so it is self-describing;
 	// update-only, so a vanished PR can never become a duplicate here.
-	await refreshBodyForBlockedGate(runCtx, prBody, blockerNote, prCreationResult);
-	const stopReason = await blockPipelineOnPrGate(
-		runCtx.port,
-		ctx,
-		config,
-		issueNum,
-		loopItem,
-		projectId,
-		fields,
-		statusField,
-		loopStatus,
-		runCtx.collector,
-		blockerNote,
-	);
+	await refreshBodyForBlockedGate(runCtx, prBody, blockerNote, prNumber);
+	const stopReason = await blockPrReadinessGate(runCtx, blockerNote, loopStatus);
 	// The issue now sits in a non-Done status — the post-pipeline
 	// phase must not treat it as complete (never COMPLETED w/o PR).
 	return { stop: true, stopReason, loopStatus: "Implementation", prCreationResult };

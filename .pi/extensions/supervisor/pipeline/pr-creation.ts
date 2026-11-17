@@ -13,13 +13,12 @@ import type {
 import { generateBranchName } from "../lib/branch-name.ts";
 import type { GitHubPort } from "../github/ports.ts";
 import { tryRebaseOntoBase } from "./rebase.ts";
-import { buildPipelineSummary, renderAuditorSection } from "../pipeline/output.ts";
+import { buildPrBody } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 import type { PrBodyInput } from "./output.ts";
 
-// Body-input contract lives with the body renderer (output.ts); re-exported
-// here so PR call sites keep one import path for the publish surface.
+/** Body contract lives with the body renderer (output.ts); re-exported here. */
 export type { PrBodyInput } from "./output.ts";
 
 /**
@@ -103,46 +102,15 @@ async function verifyAhead(
 /** Level-carrying notify hook handed to upsertPullRequest by its callers. */
 export type PrNotify = (message: string, level: "info" | "warning" | "error") => void;
 
+/** Body text has one owner (output.ts, issue #1831); re-exported here. */
+export { buildPrBody };
+
 /**
- * Build the PR title + body for an issue.
- * Single owner of the buildPipelineSummary argument mapping so the early
- * upsert (in-progress) and the approval refresh cannot drift apart.
- * The auditor section is appended by output.ts — `buildPipelineSummary`
- * keeps its positional contract unchanged.
+ * Update an existing PR, mapping failures to a PrCreationResult. Module-local:
+ * `upsertPullRequest` and `publishPrBody` are the only ways into it, so every
+ * PR write stays inside this module (issue #1831 boundary).
  */
-export function buildPrBody(
-	issueNum: number,
-	issueTitle: string,
-	agentResults: PipelineAgentResult[],
-	config: SupervisorConfig | undefined,
-	input?: PrBodyInput,
-): { title: string; body: string } {
-	return {
-		title: `feat(#${issueNum}): ${issueTitle}`,
-		body: withAuditorSection(
-			buildPipelineSummary(
-				agentResults,
-				input?.overallStatus ?? "in-progress",
-				issueNum,
-				issueTitle,
-				config,
-				input?.stopReason,
-				undefined,
-				input?.gateFailureHistory,
-				input?.packageSafetyResult,
-			),
-			input?.auditVerdict,
-		),
-	};
-}
-
-/** Append the auditor verdict block, when the run produced one. */
-function withAuditorSection(summary: string, auditVerdict?: PrBodyInput["auditVerdict"]): string {
-	return auditVerdict ? `${summary}\n\n${renderAuditorSection(auditVerdict)}` : summary;
-}
-
-/** Update an existing PR, mapping failures to a PrCreationResult. */
-export async function updateExistingPr(
+async function updateExistingPr(
 	port: GitHubPort,
 	repo: string,
 	prNumber: number,
@@ -263,6 +231,52 @@ export async function upsertPullRequest(input: {
 }
 
 /**
+ * Write a body onto an already-published PR — update-only, so a body refresh
+ * can never open a second PR. The PR comes from `prNumber`, else the head
+ * branch; no PR is a failure result, never a create (issue #1831).
+ */
+export async function publishPrBody(input: {
+	repo: string;
+	head: string;
+	issueNum: number;
+	issueTitle: string;
+	agentResults: PipelineAgentResult[];
+	config: SupervisorConfig | undefined;
+	body: PrBodyInput;
+	port?: GitHubPort;
+	prNumber?: number;
+	notify?: PrNotify;
+}): Promise<PrCreationResult> {
+	const { repo, head, port, notify } = input;
+	if (!port) {
+		notify?.("GitHubPort not available for PR body refresh", "error");
+		return {
+			success: false,
+			error: "GitHubPort not available for PR body refresh",
+			source: "pr-creation",
+		};
+	}
+	let prNumber = input.prNumber;
+	if (!prNumber) {
+		try {
+			prNumber = (await port.listPullRequestsForBranch(head, repo))?.number;
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			return { success: false, error: `PR lookup failed: ${msg}`, source: "pr-creation" };
+		}
+	}
+	if (!prNumber) return { success: false, error: `No PR found for ${head}`, source: "pr-creation" };
+	const { title, body } = buildPrBody(
+		input.issueNum,
+		input.issueTitle,
+		input.agentResults,
+		input.config,
+		input.body,
+	);
+	return await updateExistingPr(port, repo, prNumber, title, body, notify);
+}
+
+/**
  * Create a pull request after auditor approves and transitions to Done.
  * Pushes branch, builds body, creates PR. Returns structured result so
  * the handler can detect failure and adjust pipeline completion status.
@@ -304,12 +318,9 @@ export async function createPrOnApproval(
 	log.info("pr-creation", `PR title: ${prTitle}`);
 
 	// ─── Phase 2: Pre-check — verify head has commits beyond base ──
-	// Runs BEFORE push to avoid force-pushing over existing remote commits.
-	// When the remote branch already has commits ahead of main, the push is
-	// skipped entirely (the branch is already up-to-date on the remote).
-	//
-	// Fallback: if port.compareBranches fails (network error), use local git
-	// fetch + merge-base --is-ancestor to determine whether to push.
+	// Runs BEFORE push so an up-to-date remote branch is never force-pushed;
+	// when compareBranches fails, verifyAhead falls back to a local
+	// fetch + merge-base --is-ancestor check.
 	let skipPush = false;
 	if (worktreePath && port) {
 		const verdict = await verifyAhead(pi, port, config, headBranch, worktreePath, log);
@@ -337,11 +348,9 @@ export async function createPrOnApproval(
 	}
 
 	// ─── Phase 2.5: Rebase onto latest base branch ─────────────────
-	// Fetch latest defaultBranch and rebase worktree branch onto it
-	// to avoid stale-base merge conflicts caused by PRs merged during
-	// pipeline runtime. On conflict, return early with rebaseConflicts
-	// so the post-PR merge handler (handlePostPipelineMerge) can dispatch
-	// the developer agent for resolution.
+	// A stale base conflicts with PRs merged mid-run, so rebase first; a
+	// conflict returns rebaseConflicts for the post-PR merge handler
+	// (handlePostPipelineMerge) to dispatch a developer agent.
 	if (worktreePath && !skipPush) {
 		log.info("pr-creation", `Rebasing onto ${config.remote}/${config.defaultBranch}`);
 		const rebaseResult = await tryRebaseOntoBase(
@@ -407,11 +416,9 @@ export async function createPrOnApproval(
 						`Push retry ${attempt + 1}/${MAX_PUSH_RETRIES} after ${delayMs}ms`,
 					);
 					await new Promise((resolve) => setTimeout(resolve, delayMs));
-					// --force-with-lease verifies against the LOCAL remote-tracking
-					// ref; retrying without refreshing it fails identically every
-					// attempt when the lease is stale (remote head branch deleted
-					// with the PR, or a pre-push fetch advanced the ref). Refresh
-					// the lease before each retry so the loop can actually recover.
+					// --force-with-lease checks the LOCAL remote-tracking ref: a stale
+					// lease (branch deleted with the PR, or a pre-push fetch moved it)
+					// fails identically every attempt, so refresh it before retrying.
 					const pruneResult = await pi.exec("git", ["fetch", "--prune", config.remote!], {
 						cwd: worktreePath,
 						timeout: 30000,

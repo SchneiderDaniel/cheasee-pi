@@ -37,6 +37,10 @@ function notifyConfigFailure(pi: ExtensionAPI, ctx: ConfigLoaderContext, message
 /**
  * Build the tool-info port closure over `pi.getAllTools()`.
  *
+ * Called once at extension init and handed to the harness constructor, so
+ * annotation-derived defaults are available for the very first `tool_call` —
+ * no `session_start` wiring step is involved.
+ *
  * Feature-detects the API: on pi floors without it the provider yields `[]`,
  * so annotation-derived defaults simply never apply and legacy behavior holds.
  * `getAllTools()` returns all *registered* tools (including inactive ones) — the
@@ -56,13 +60,13 @@ function buildToolInfoProvider(pi: ExtensionAPI): ToolInfoProvider {
 // ── Extension entry point ──
 
 export default function agentHarness(pi: ExtensionAPI): void {
-	const harness = new AgentHarness();
+	// The port is built once, at construction. It stays lazy (a closure over
+	// `pi.getAllTools()`), so later-registered tools remain visible per call.
+	const harness = new AgentHarness(undefined, buildToolInfoProvider(pi));
 
 	// Session start: initialize fresh state and load project config
 	pi.on("session_start", async (_data: unknown, ctx: unknown) => {
 		harness.reset();
-		// Annotations are resolved lazily per tool_call — no session snapshot.
-		harness.setToolInfoProvider(buildToolInfoProvider(pi));
 		const configCtx = (ctx ?? {}) as ConfigLoaderContext;
 		// Derive project root from ctx if available (for testability)
 		const projectRoot = configCtx.sessionManager?.getCwd?.();
