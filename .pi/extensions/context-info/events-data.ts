@@ -1,10 +1,15 @@
 // ── Payload → footer state mapping ──────────────────────────────
-// The two event payloads that need more than a field assignment: the shared
-// issue-data bus event (which also asks for a re-render) and the assistant
-// usage block behind the cache stats.
+// The payloads that need more than a field assignment: the shared issue-data
+// bus event (which also asks for a re-render), the assistant usage block behind
+// the cache stats, and the streamed message behind the TPS estimate.
+//
+// These functions are translators only. The metric policy lives in the pure
+// leaf modules `cache-stats.ts` and `stream-estimate.ts`.
 
 import type { FooterState } from "./footer-state.ts";
 import type { IssueDataEvent } from "../lib/issue-data-event.ts";
+import { computeCacheHitRate } from "./cache-stats.ts";
+import { estimateStreamedTokens } from "./stream-estimate.ts";
 
 /**
  * Mirror a supervisor issue-data event onto the footer. `pi.events` is the bus
@@ -38,25 +43,33 @@ export function applyIssueDataEvent(state: FooterState, payload: IssueDataEvent 
 	}
 }
 
-/** Cache read/write counts and the derived hit rate (Improvement #1). */
+/**
+ * Cache read/write counts and the derived hit rate, written together.
+ *
+ * Atomic on purpose: a usage record that cannot produce a rate (no `input`,
+ * zero denominator, partial fields) must not leave the footer showing fresh
+ * counts next to a stale percentage — or worse, counts labelled with the rate
+ * of a previous message. Nothing is written unless the rate is available.
+ */
 export function applyCacheStats(state: FooterState, usage: any): void {
-	if (usage && typeof usage.cacheRead === "number") {
-		state.footerConfig.cacheRead = usage.cacheRead;
-	}
-	if (usage && typeof usage.cacheWrite === "number") {
-		state.footerConfig.cacheWrite = usage.cacheWrite;
-	}
-	if (usage && typeof usage.cacheRead === "number" && typeof usage.cacheWrite === "number") {
-		state.footerConfig.cacheHitRate = Math.round(
-			(usage.cacheRead / (usage.cacheRead + usage.cacheWrite)) * 100,
-		);
-	}
+	const rate = computeCacheHitRate(usage);
+	if (rate === undefined) return;
+	state.footerConfig.cacheRead = usage.cacheRead;
+	state.footerConfig.cacheWrite = usage.cacheWrite;
+	state.footerConfig.cacheHitRate = rate;
 }
 
-/** Streaming token sample for the TPS estimator. */
+/**
+ * Streaming token sample for the TPS estimator.
+ *
+ * Derived from the streamed content, not from `assistantMessageEvent.partial
+ * .usage.output`: providers that withhold incremental output usage never let
+ * that number move, which is the reported `-- t/s` bug. A zero-length stream
+ * contributes no sample so the estimator cannot divide 0 by an elapsed time.
+ */
 export function applyTpsSample(state: FooterState, event: any): void {
-	const output = event.assistantMessageEvent?.partial?.usage?.output;
-	if (typeof output === "number") {
-		state.sampleTps(output);
+	const estimate = estimateStreamedTokens(event?.message);
+	if (estimate > 0) {
+		state.sampleTps(estimate);
 	}
 }

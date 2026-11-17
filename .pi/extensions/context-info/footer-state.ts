@@ -55,7 +55,6 @@ export class FooterState {
 
 	// ── State properties ──────────────────────────────────────────
 	config: ContextStatusBarConfig | null = null;
-	lastSampledOutput: number | undefined = undefined;
 
 	timerInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -115,17 +114,27 @@ export class FooterState {
 		}
 	}
 
+	// ── Response-scoped resets ────────────────────────────────────
+
+	/**
+	 * Start a fresh response: drop the rolling window and the displayed rate.
+	 *
+	 * This is the *only* response-scoped reset. It used to be inferred from a
+	 * decreasing sample, which silently dropped legitimate samples whenever the
+	 * estimate dipped (thinking-only deltas, a shrinking tool-call buffer). A
+	 * real `message_start` for an assistant message is an unambiguous boundary.
+	 */
+	beginResponse(): void {
+		this.footerConfig.tpsSamples.length = 0;
+		this.footerConfig.lastComputedTps.value = null;
+	}
+
 	// ── TPS sampling ──────────────────────────────────────────────
 
-	sampleTps(output: number | undefined): void {
-		if (typeof output !== "number" || output < 0) return;
-		// Detect reset between responses (new response starts from 0)
-		if (typeof this.lastSampledOutput === "number" && output < this.lastSampledOutput) {
-			this.footerConfig.tpsSamples.length = 0;
-		}
-		this.lastSampledOutput = output;
+	sampleTps(tokens: number | undefined): void {
+		if (typeof tokens !== "number" || tokens < 0) return;
 		const now = Date.now();
-		this.footerConfig.tpsSamples.push({ time: now, cumulativeTokens: output });
+		this.footerConfig.tpsSamples.push({ time: now, cumulativeTokens: tokens });
 		// Prune samples older than 30s
 		const cutoff = now - 30_000;
 		while (
@@ -144,11 +153,22 @@ export class FooterState {
 		this.callInstallFooter();
 	}
 
+	// ── Cache-scoped reset ────────────────────────────────────────
+
+	/**
+	 * Drop the cache counts and the derived rate together, so the footer can
+	 * never show a percentage computed from a different model's usage record.
+	 */
+	resetCacheStats(): void {
+		this.footerConfig.cacheRead = undefined;
+		this.footerConfig.cacheWrite = undefined;
+		this.footerConfig.cacheHitRate = undefined;
+	}
+
 	// ── State reset (for session boundaries) ──────────────────────
 
 	resetProperties(): void {
 		this.config = null;
-		this.lastSampledOutput = undefined;
 
 		Object.assign(this.footerConfig, createDefaultFooterConfig());
 	}

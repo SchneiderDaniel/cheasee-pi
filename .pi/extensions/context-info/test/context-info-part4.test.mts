@@ -1,5 +1,7 @@
 import assert from "node:assert";
 
+import { computeCacheHitRate } from "../cache-stats.ts";
+
 import { describe, it, beforeEach } from "node:test";
 
 import { formatCacheHitRate } from "../formatting.ts";
@@ -76,7 +78,10 @@ function createContextInfoExtension(): {
 	});
 
 	handlers.set("model_select", (event: any) => {
-		// Reset cache hit rate on model change (per research finding)
+		// Reset the whole cache segment on model change (cache keys are
+		// provider/model-specific): counts go with the rate.
+		_cacheRead = undefined;
+		_cacheWrite = undefined;
 		_cacheHitRate = undefined;
 		// Re-read session name (in case setSessionName was called mid-session)
 		if (mockPi.getSessionName) {
@@ -92,14 +97,14 @@ function createContextInfoExtension(): {
 		if (!msg || msg.role !== "assistant") return;
 		// Capture cache stats from raw event usage
 		const usage = msg.usage;
-		if (usage) {
-			if (typeof usage.cacheRead === "number") _cacheRead = usage.cacheRead;
-			if (typeof usage.cacheWrite === "number") _cacheWrite = usage.cacheWrite;
-
-			// Compute cache hit rate: cacheRead/(cacheRead+cacheWrite)*100
-			if (typeof _cacheRead === "number" && typeof _cacheWrite === "number") {
-				_cacheHitRate = Math.round((_cacheRead / (_cacheRead + _cacheWrite)) * 100);
-			}
+		// The denominator policy lives in production code (`cache-stats.ts`):
+		// cacheRead / (input + cacheRead + cacheWrite). Nothing is written unless
+		// a rate is available, so the counts can never drift from the percentage.
+		const rate = computeCacheHitRate(usage);
+		if (rate !== undefined) {
+			_cacheRead = usage.cacheRead;
+			_cacheWrite = usage.cacheWrite;
+			_cacheHitRate = rate;
 		}
 	});
 
@@ -201,13 +206,13 @@ describe("context-info extension — cache stats capture", () => {
 		ctx = createContextInfoExtension();
 	});
 
-	it("message_end with usage.cacheRead=76288 cacheWrite=0 → captures values", () => {
+	it("message_end with input=5000 cacheRead=76288 cacheWrite=0 → captures values", () => {
 		invoke(ctx, "session_start", {});
 		invoke(ctx, "model_select", { model: { contextWindow: 256000 } });
 		invoke(ctx, "message_end", {
 			message: {
 				role: "assistant",
-				usage: { cacheRead: 76288, cacheWrite: 0 },
+				usage: { input: 5000, cacheRead: 76288, cacheWrite: 0 },
 			},
 		});
 		assert.strictEqual(getCacheRead(ctx), 76288);
@@ -243,7 +248,7 @@ describe("context-info extension — cache stats capture", () => {
 		invoke(ctx, "message_end", {
 			message: {
 				role: "assistant",
-				usage: { cacheRead: 100, cacheWrite: 50 },
+				usage: { input: 1000, cacheRead: 100, cacheWrite: 50 },
 			},
 		});
 		assert.strictEqual(getCacheRead(ctx), 100);
@@ -274,40 +279,43 @@ describe("context-info extension — cache hit rate computation", () => {
 		ctx = createContextInfoExtension();
 	});
 
-	it("message_end with cacheRead=76288, cacheWrite=1024 → cacheHitRate=99", () => {
+	it("message_end with input=0 cacheRead=76288 cacheWrite=1024 → fully cached read share", () => {
 		invoke(ctx, "session_start", {});
 		invoke(ctx, "model_select", { model: { contextWindow: 256000 } });
 		invoke(ctx, "message_end", {
 			message: {
 				role: "assistant",
-				usage: { cacheRead: 76288, cacheWrite: 1024 },
+				usage: { input: 0, cacheRead: 76288, cacheWrite: 1024 },
 			},
 		});
-		assert.strictEqual(getCacheHitRate(ctx), 99);
+		// 76288 / 77312 * 100 = 98.674...
+		assert.strictEqual(Math.round(getCacheHitRate(ctx)!), 99);
 	});
 
-	it("message_end with cacheRead=0, cacheWrite=100 → cacheHitRate=0", () => {
+	it("message_end with input=0 cacheRead=0 cacheWrite=100 → cacheHitRate=0", () => {
 		invoke(ctx, "session_start", {});
 		invoke(ctx, "model_select", { model: { contextWindow: 256000 } });
 		invoke(ctx, "message_end", {
 			message: {
 				role: "assistant",
-				usage: { cacheRead: 0, cacheWrite: 100 },
+				usage: { input: 0, cacheRead: 0, cacheWrite: 100 },
 			},
 		});
 		assert.strictEqual(getCacheHitRate(ctx), 0);
 	});
 
-	it("message_end with cacheRead=100, cacheWrite=0 → cacheHitRate=100", () => {
+	it("message_end with input>0 and cacheWrite=0 → below 100 (not the old CH bug)", () => {
 		invoke(ctx, "session_start", {});
 		invoke(ctx, "model_select", { model: { contextWindow: 256000 } });
 		invoke(ctx, "message_end", {
 			message: {
 				role: "assistant",
-				usage: { cacheRead: 100, cacheWrite: 0 },
+				usage: { input: 2000, cacheRead: 100, cacheWrite: 0 },
 			},
 		});
-		assert.strictEqual(getCacheHitRate(ctx), 100);
+		const rate = getCacheHitRate(ctx);
+		assert.ok(rate !== undefined, "rate must be set");
+		assert.ok(rate! < 100, `zero cacheWrite alone must not report 100%, got ${rate}`);
 	});
 
 	it("message_end with both cacheRead and cacheWrite undefined → cacheHitRate stays undefined", () => {
@@ -346,14 +354,16 @@ describe("context-info extension — cache hit rate computation", () => {
 		invoke(ctx, "message_end", {
 			message: {
 				role: "assistant",
-				usage: { cacheRead: 100, cacheWrite: 0 },
+				usage: { input: 0, cacheRead: 100, cacheWrite: 0 },
 			},
 		});
 		assert.strictEqual(getCacheHitRate(ctx), 100);
 
-		// model_select resets CH
+		// model_select resets the whole cache segment (counts included)
 		invoke(ctx, "model_select", { model: { contextWindow: 512000 } });
 		assert.strictEqual(getCacheHitRate(ctx), undefined);
+		assert.strictEqual(getCacheRead(ctx), undefined);
+		assert.strictEqual(getCacheWrite(ctx), undefined);
 	});
 
 	it("session_start resets cacheHitRate", () => {
@@ -362,7 +372,7 @@ describe("context-info extension — cache hit rate computation", () => {
 		invoke(ctx, "message_end", {
 			message: {
 				role: "assistant",
-				usage: { cacheRead: 100, cacheWrite: 0 },
+				usage: { input: 0, cacheRead: 100, cacheWrite: 0 },
 			},
 		});
 		assert.strictEqual(getCacheHitRate(ctx), 100);
@@ -373,32 +383,32 @@ describe("context-info extension — cache hit rate computation", () => {
 	});
 });
 describe("formatCacheHitRate", () => {
-	it("formatCacheHitRate(75) → CH: 75%", () => {
-		assert.strictEqual(formatCacheHitRate(75), "CH: 75%");
+	it("formatCacheHitRate(75) → Cache Hit Rate: 75%", () => {
+		assert.strictEqual(formatCacheHitRate(75), "Cache Hit Rate: 75%");
 	});
 
-	it("formatCacheHitRate(0) → CH: 0%", () => {
-		assert.strictEqual(formatCacheHitRate(0), "CH: 0%");
+	it("formatCacheHitRate(0) → Cache Hit Rate: 0%", () => {
+		assert.strictEqual(formatCacheHitRate(0), "Cache Hit Rate: 0%");
 	});
 
-	it("formatCacheHitRate(100) → CH: 100%", () => {
-		assert.strictEqual(formatCacheHitRate(100), "CH: 100%");
+	it("formatCacheHitRate(100) → Cache Hit Rate: 100%", () => {
+		assert.strictEqual(formatCacheHitRate(100), "Cache Hit Rate: 100%");
 	});
 
-	it("formatCacheHitRate(33.333) → CH: 33% (rounded integer)", () => {
-		assert.strictEqual(formatCacheHitRate(33.333), "CH: 33%");
+	it("formatCacheHitRate(33.333) → Cache Hit Rate: 33% (rounded integer)", () => {
+		assert.strictEqual(formatCacheHitRate(33.333), "Cache Hit Rate: 33%");
 	});
 
-	it("formatCacheHitRate(undefined) → empty string", () => {
-		assert.strictEqual(formatCacheHitRate(undefined), "");
+	it("formatCacheHitRate(undefined) → label stays visible as unavailable", () => {
+		assert.strictEqual(formatCacheHitRate(undefined), "Cache Hit Rate: --");
 	});
 
-	it("formatCacheHitRate(null) → empty string", () => {
-		assert.strictEqual(formatCacheHitRate(null as any), "");
+	it("formatCacheHitRate(null) → label stays visible as unavailable", () => {
+		assert.strictEqual(formatCacheHitRate(null as any), "Cache Hit Rate: --");
 	});
 
-	it("formatCacheHitRate(NaN) → empty string", () => {
-		assert.strictEqual(formatCacheHitRate(NaN), "");
+	it("formatCacheHitRate(NaN) → label stays visible as unavailable", () => {
+		assert.strictEqual(formatCacheHitRate(NaN), "Cache Hit Rate: --");
 	});
 });
 describe("context-info extension — mode guard", () => {

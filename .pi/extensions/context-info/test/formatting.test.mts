@@ -12,6 +12,7 @@ import {
 	pickThresholdColor,
 	formatCacheStats,
 	formatCacheHitRate,
+	formatEstimatedTps,
 	formatTps,
 	computeTps,
 	resolveSubtleColor,
@@ -134,9 +135,16 @@ describe("public formatting exports", () => {
 	});
 
 	it("formatCacheHitRate formats correctly", () => {
-		assert.strictEqual(formatCacheHitRate(75.3), "CH: 75%");
-		assert.strictEqual(formatCacheHitRate(undefined), "");
-		assert.strictEqual(formatCacheHitRate(NaN), "");
+		assert.strictEqual(formatCacheHitRate(75.3), "Cache Hit Rate: 75%");
+		assert.strictEqual(formatCacheHitRate(undefined), "Cache Hit Rate: --");
+		assert.strictEqual(formatCacheHitRate(NaN), "Cache Hit Rate: --");
+		assert.ok(!formatCacheHitRate(75.3).includes("CH:"), "opaque CH abbreviation is gone");
+	});
+
+	it("formatEstimatedTps marks the estimate", () => {
+		assert.strictEqual(formatEstimatedTps(null), "-- t/s");
+		assert.strictEqual(formatEstimatedTps(42.53), "~42.5 t/s");
+		assert.strictEqual(formatEstimatedTps(0), "~0.0 t/s");
 	});
 
 	it("formatTps formats correctly", () => {

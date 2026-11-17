@@ -1,5 +1,7 @@
 import assert from "node:assert";
 
+import { computeCacheHitRate } from "../cache-stats.ts";
+
 import { describe, it, beforeEach, afterEach } from "node:test";
 
 import { formatSessionTimer } from "../formatting.ts";
@@ -86,7 +88,10 @@ function createContextInfoExtension(): {
 	});
 
 	handlers.set("model_select", (event: any) => {
-		// Reset cache hit rate on model change (per research finding)
+		// Reset the whole cache segment on model change (cache keys are
+		// provider/model-specific): counts go with the rate.
+		_cacheRead = undefined;
+		_cacheWrite = undefined;
 		_cacheHitRate = undefined;
 		// Re-read session name (in case setSessionName was called mid-session)
 		if (mockPi.getSessionName) {
@@ -102,14 +107,14 @@ function createContextInfoExtension(): {
 		if (!msg || msg.role !== "assistant") return;
 		// Capture cache stats from raw event usage
 		const usage = msg.usage;
-		if (usage) {
-			if (typeof usage.cacheRead === "number") _cacheRead = usage.cacheRead;
-			if (typeof usage.cacheWrite === "number") _cacheWrite = usage.cacheWrite;
-
-			// Compute cache hit rate: cacheRead/(cacheRead+cacheWrite)*100
-			if (typeof _cacheRead === "number" && typeof _cacheWrite === "number") {
-				_cacheHitRate = Math.round((_cacheRead / (_cacheRead + _cacheWrite)) * 100);
-			}
+		// The denominator policy lives in production code (`cache-stats.ts`):
+		// cacheRead / (input + cacheRead + cacheWrite). Nothing is written unless
+		// a rate is available, so the counts can never drift from the percentage.
+		const rate = computeCacheHitRate(usage);
+		if (rate !== undefined) {
+			_cacheRead = usage.cacheRead;
+			_cacheWrite = usage.cacheWrite;
+			_cacheHitRate = rate;
 		}
 	});
 
