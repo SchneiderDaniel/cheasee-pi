@@ -77,6 +77,46 @@ export function renderAuditorSection(verdict: AuditorVerdictSummary): string {
 	return lines.join("\n");
 }
 
+// ─── PR title + body ─────────────────────────────────────────────────
+
+/**
+ * Build the PR title + body for an issue.
+ * Single owner of the buildPipelineSummary argument mapping so the early
+ * upsert (in-progress) and the approval refresh cannot drift apart.
+ * The auditor section is appended here — `buildPipelineSummary` keeps its
+ * positional contract unchanged.
+ */
+export function buildPrBody(
+	issueNum: number,
+	issueTitle: string,
+	agentResults: PipelineAgentResult[],
+	config: SupervisorConfig | undefined,
+	input?: PrBodyInput,
+): { title: string; body: string } {
+	return {
+		title: `feat(#${issueNum}): ${issueTitle}`,
+		body: withAuditorSection(
+			buildPipelineSummary(
+				agentResults,
+				input?.overallStatus ?? "in-progress",
+				issueNum,
+				issueTitle,
+				config,
+				input?.stopReason,
+				undefined,
+				input?.gateFailureHistory,
+				input?.packageSafetyResult,
+			),
+			input?.auditVerdict,
+		),
+	};
+}
+
+/** Append the auditor verdict block, when the run produced one. */
+function withAuditorSection(summary: string, auditVerdict?: PrBodyInput["auditVerdict"]): string {
+	return auditVerdict ? `${summary}\n\n${renderAuditorSection(auditVerdict)}` : summary;
+}
+
 // ─── Pipeline summary builder ───────────────────────────────────────
 
 /**

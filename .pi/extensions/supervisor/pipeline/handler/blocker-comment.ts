@@ -1,16 +1,20 @@
 // ─── Pipeline Blocker Comments (issue #1830) ─────────────────────
-// A blocker is a comment, never a status change: the caller owns the
-// decision (the PR readiness gate also moves the issue, the CI gate
-// leaves the status untouched). Extracted so the PR and CI gates share
-// one poster without importing each other's module. The CI loop-back
-// recorder lives here too: both callbacks are "what a CI block writes",
-// and keeping them together keeps agent-loop-helpers under its file cap.
+// The poster owns the comment; the caller owns the decision. The PR readiness
+// gate also moves the issue out of Done (so it can never be closed COMPLETED
+// without a PR) and the CI gate leaves the status untouched — both
+// compositions live here, next to `postPipelineBlocker`, so the PR and CI
+// gates share one poster without importing each other's module. The CI
+// loop-back recorder lives here too: both callbacks are "what a CI block
+// writes", and keeping them together keeps agent-loop-helpers under its file
+// cap.
 
 import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { SupervisorConfig } from "../../config/types.ts";
 import type { GitHubPort } from "../../github/ports.ts";
 import type { ErrorCollector } from "../error-collector.ts";
 import { recordCiLoopBack } from "../stages/audit-rejection-ops.ts";
+import { applyStatusTransition } from "../stages/index.ts";
+import { getDebugLogger } from "../../lib/debug.ts";
 import type { postCiGateRejection } from "../stages/audit-rejection-ops.ts";
 import type { upsertDeveloperPr } from "../stages/git-ops.ts";
 import type { RunContext } from "./shared.ts";
@@ -115,4 +119,50 @@ export async function recordCiBlock(
 	ctx.ui.notify(`${stopReason}. Stopping to avoid an unbounded loop.`, "error");
 	collector?.push("handler", "error", stopReason);
 	return stopReason;
+}
+
+/**
+ * Post the PR-readiness blocker and move the issue out of Done (issue #1472).
+ * The comment is the shared poster's; the status move is the PR gate's own
+ * decision, so both live together: a blocked readiness gate must never leave
+ * the issue closable as COMPLETED without a PR. Returns the loop stop reason.
+ */
+export async function blockPrReadinessGate(
+	runCtx: RunContext,
+	blockerNote: string,
+	loopStatus: string,
+): Promise<string> {
+	const { port, ctx, config, issueNum, loopItem, projectId, fields, statusField, collector } =
+		runCtx;
+	// Comment text pinned by handler-part5/pr-approval-flow tests.
+	await postPipelineBlocker(
+		port,
+		ctx,
+		config,
+		issueNum,
+		"## 🔴 PR Readiness Blocked — Manual Intervention Required",
+		`${blockerNote}\n\nThe issue stays open in **Implementation**. The next pipeline run re-dispatches the developer with this blocker in context.`,
+		collector,
+	);
+	ctx.ui.notify(`PR readiness blocked for #${issueNum}: ${blockerNote}`, "error");
+	try {
+		await applyStatusTransition(
+			port,
+			loopItem.id,
+			projectId,
+			fields,
+			statusField.id,
+			"Implementation",
+		);
+		ctx.ui.notify(
+			`Issue #${issueNum} moved: ${loopStatus} → Implementation (PR blocked)`,
+			"warning",
+		);
+		getDebugLogger().info("handler", "PR blocked — issue moved to Implementation", { loopStatus });
+	} catch (err: unknown) {
+		const errMsg = err instanceof Error ? err.message : String(err);
+		ctx.ui.notify(`Failed to move issue to Implementation: ${errMsg}`, "error");
+		collector?.push("handler", "error", `Status transition to Implementation failed: ${errMsg}`);
+	}
+	return `PR readiness gate blocked: ${blockerNote}`;
 }
