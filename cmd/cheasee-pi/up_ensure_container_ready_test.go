@@ -19,6 +19,10 @@ func setUpReady(t *testing.T) {
 	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("CODEFLOW_PORT", "")
+	// `cheasee-pi start` fails closed without host credentials (Compose would
+	// otherwise fail on an unmountable secret source), so a ready-to-start
+	// fixture always ships the host-managed auth.json.
+	startAuthFile(t)
 }
 
 func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {

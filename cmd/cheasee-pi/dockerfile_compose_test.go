@@ -64,9 +64,9 @@ func TestCompose_ValidYAMLAndProjectName(t *testing.T) {
 		t.Fatalf("services section missing: %v", doc)
 	}
 	wantLabels := map[string][]any{
-		"cheasee-pi": {managedLabel},
+		"cheasee-pi": {managedLabel, "com.cheaseepi.auth-spec=${CHEASEEPI_AUTH_SPEC:-}"},
 		"codeflow":   {managedLabel, "com.cheaseepi.codeflow-spec=${CHEASEEPI_CODEFLOW_SPEC:-}"},
-		"ui":         {managedLabel},
+		"ui":         {managedLabel, "com.cheaseepi.auth-spec=${CHEASEEPI_AUTH_SPEC:-}"},
 	}
 	for _, svcName := range []string{"cheasee-pi", "codeflow", "ui"} {
 		svc, ok := services[svcName].(map[string]any)
@@ -98,14 +98,20 @@ func TestCompose_WorkspaceVolumeAbsolute(t *testing.T) {
 	}
 }
 
-func TestCompose_ConfigMountsRetained(t *testing.T) {
+func TestCompose_NoCredentialConfigMounts(t *testing.T) {
+	// Inverted by the credential-isolation change (issue #2076): the host
+	// config DIRECTORIES must never be bind-mounted again — a writable mount
+	// let any in-process container write rewrite the host's credentials and
+	// handed the agent far more host configuration than it needs. One
+	// read-only file-backed secret replaces them (compose_credentials_test.go
+	// pins the replacement).
 	content := readCompose(t)
-	for _, want := range []string{
+	for _, gone := range []string{
 		"~/.config/gh:/home/agentuser/.config/gh",
 		"~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi",
 	} {
-		if !strings.Contains(content, want) {
-			t.Errorf("compose should retain bind-mount %q", want)
+		if strings.Contains(content, gone) {
+			t.Errorf("compose must not bind-mount the host config dir %q", gone)
 		}
 	}
 }

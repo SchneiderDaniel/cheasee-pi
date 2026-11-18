@@ -20,25 +20,51 @@ export interface TokenResolutionOptions {
 }
 
 /**
- * Resolve the GitHub token from GH_TOKEN or ~/.config/gh/hosts.yml.
+ * Resolve the GitHub token: `GH_TOKEN` → the `CHEASEE_AUTH_PATH` file →
+ * `~/.config/gh/hosts.yml`.
  *
- * Env wins (trimmed, whitespace-only treated as unset), else the
- * `oauth_token:` line in the gh credential store, else null. Intentionally
+ * Env wins (trimmed; whitespace-only counts as unset). Second is the
+ * `github_token` in the file `CHEASEE_AUTH_PATH` names — the container mounts
+ * `auth.json` read-only there, mounts no host gh config dir, so that file beats
+ * the `hosts.yml` the entrypoint seeds into the container-local tmpfs. Last is
+ * the gh credential store's `oauth_token:` line, then null. Intentionally
  * uncached: a memoised null would poison later calls once `gh auth login`
- * or an exported GH_TOKEN lands mid-session. GH_TOKEN is passed to
- * `gh`/`ghRaw` as a per-child env option to work around WSL auth context
- * mismatch where pi.exec can return 401 even though the gh binary itself is
- * authenticated.
+ * lands mid-session. GH_TOKEN is passed to `gh`/`ghRaw` as a per-child env
+ * option, working around a WSL auth-context mismatch where pi.exec can return
+ * 401 even though the gh binary itself is authenticated.
  */
 export function resolveGitHubToken(opts?: TokenResolutionOptions): string | null {
 	const env = opts?.env ?? process.env;
 	const envToken = env.GH_TOKEN?.trim();
 	if (envToken) return envToken;
+	const secretToken = tokenFromAuthFile(env.CHEASEE_AUTH_PATH?.trim());
+	if (secretToken) return secretToken;
 	try {
 		const configPath = join(opts?.home ?? homedir(), ".config", "gh", "hosts.yml");
 		const yml = readFileSync(configPath, "utf8");
 		const match = yml.match(/oauth_token:\s+(\S+)/);
 		return match ? match[1]!.trim() : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Read `github_token` from the cheasee-pi auth file the container mounts
+ * read-only (`CHEASEE_AUTH_PATH`).
+ *
+ * An unset path, unreadable file, malformed JSON, non-string token, empty
+ * token: all mean "no token here". The caller falls through to `hosts.yml` — a
+ * credential file this code does not own is never a throw.
+ */
+function tokenFromAuthFile(path: string | undefined): string | null {
+	if (!path) return null;
+	try {
+		const parsed = JSON.parse(readFileSync(path, "utf8")) as { github_token?: unknown };
+		const token = parsed.github_token;
+		if (typeof token !== "string") return null;
+		const trimmed = token.trim();
+		return trimmed.length > 0 ? trimmed : null;
 	} catch {
 		return null;
 	}

@@ -85,6 +85,18 @@ func publishResolvedPorts(ctx context.Context, root string, env *sessionEnv) {
 // stack (reusing existing containers unless --build asks for a rebuild) and
 // waits for the entrypoint ready marker.
 func ensureContainerReady(ctx context.Context, root, name string, build bool) (cacheDir string, err error) {
+	// Credential gate FIRST (fail closed): Compose builds the auth.json secret
+	// mount with CreateMountpoint:false, so an absent host file surfaces as an
+	// opaque bind error at container start, after a ~1GB image build. Runs
+	// after the auto-init phase, which is what writes auth.json on a fresh
+	// machine — so a workspace init just created can start immediately.
+	authPath, err := (&fileRepository{}).Path()
+	if err != nil {
+		return "", fmt.Errorf("resolve credential file: %w", err)
+	}
+	if err := ensureAuthFile(authPath); err != nil {
+		return "", err
+	}
 	cacheDir, err = ensureCacheDir(ctx)
 	if err != nil {
 		return "", fmt.Errorf("cache dir: %w", err)
@@ -127,6 +139,11 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 		// sidecar it just created is already matching.
 		if running {
 			warnIfCodeflowDrift(ctx, root, cacheDir)
+			// Same read-only inspect shape, different container: the credential
+			// stamp says whether this container was created from the auth.json
+			// currently on the host. Warn only — a surprise recreate would break
+			// the zero-compose contract and interrupt a live session.
+			warnIfAuthDrift(ctx, root)
 		}
 	}
 	// Gate the exec behind first-run setup: compose up -d returns as soon as

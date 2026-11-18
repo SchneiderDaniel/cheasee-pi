@@ -91,38 +91,44 @@ func TestEntrypoint_InstallSkillReposMissingSettingsNoop(t *testing.T) {
 }
 
 // ──────────────────────────────────────────────
-// Phase 5b: container gh credential sync (single source of truth)
+// Phase 5b: container gh credential seed (single source of truth)
+//
+// The host config directories are no longer mounted (issue #2076), so the
+// credential reaches the container ONLY as the read-only file-backed secret at
+// $CHEASEE_AUTH_PATH, imported into the container-local $GH_CONFIG_DIR. The
+// behavioral contract lives in entrypoint_ghseed_test.go (production function
+// extracted, then executed); this file pins the static shape.
 // ──────────────────────────────────────────────
 
 func TestEntrypoint_GhTokenSyncReadsAuthJSON(t *testing.T) {
 	content := readEntrypoint(t)
 	for _, want := range []string{
-		"/home/agentuser/.config/cheasee-pi/auth.json",
+		"CHEASEE_AUTH_PATH",
 		"jq -r '.github_token // empty'",
-		"gh auth token",
+		"gh auth login --with-token",
 	} {
 		if !strings.Contains(content, want) {
-			t.Errorf("gh token sync must read auth.json and compare against gh's current token (%q)", want)
+			t.Errorf("gh credential seed must read github_token from the read-only secret, then import it (%q)", want)
 		}
 	}
 }
 
 func TestEntrypoint_GhTokenSyncImportsOnMismatch(t *testing.T) {
+	// The tmpfs is container-local, empty at every creation: no stored token
+	// exists to compare against, so the import is unconditional. Reading gh's
+	// current token would add a failure mode, writing no host state.
 	content := readEntrypoint(t)
-	if !strings.Contains(content, `[ "$token" != "$current" ]`) {
-		t.Error("gh token sync must import auth.json's token when gh's current token differs (not only when gh has no token)")
+	if strings.Contains(content, "gh auth token") {
+		t.Error("the seed must not read gh's stored token — the tmpfs is empty at container creation; auth.json is the single source of truth")
 	}
-	if !strings.Contains(content, "gh auth login --with-token") {
-		t.Error("gh token sync must import via gh auth login --with-token")
-	}
-	if strings.Contains(content, "! gosu agentuser gh auth status") {
-		t.Error("gh token sync must not gate on gh auth status (a bind-mounted stale token would always pass it)")
+	if strings.Contains(content, "gh auth status") {
+		t.Error("the seed must not gate on gh auth status (it cannot prove the token is the auth.json one)")
 	}
 }
 
 func TestEntrypoint_GhTokenSyncNoopWhenAuthMissing(t *testing.T) {
 	content := readEntrypoint(t)
-	if !strings.Contains(content, `[ -n "$token" ]`) {
-		t.Error("gh token sync must no-op when auth.json has no github_token")
+	if !strings.Contains(content, `[ -z "$token" ]`) {
+		t.Error("the seed must no-op when auth.json carries no github_token")
 	}
 }

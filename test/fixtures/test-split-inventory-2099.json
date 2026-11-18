@@ -65,19 +65,21 @@
 			"describeRoster": [
 				"gh() — low-level CLI wrapper",
 				"ghRaw() — raw CLI wrapper",
-				"detectTokenClass() — remediation hint keying",
-				"resolveGitHubToken() — single resolution policy",
 				"gh()/ghRaw() — GH_TOKEN injected as a per-child env var, never a shell string",
 				"createGitHubPort()",
-				"ghJson<T>() — typed JSON output parser"
+				"ghJson<T>() — typed JSON output parser",
+				"detectTokenClass() — remediation hint keying",
+				"resolveGitHubToken() — single resolution policy",
+				"resolveGitHubToken() — CHEASEE_AUTH_PATH credential file"
 			],
-			"itCallSites": 36,
+			"itCallSites": 43,
 			"productionImports": [
 				".pi/extensions/lib/port-types.ts",
 				".pi/extensions/supervisor/github/gh-client.ts",
 				".pi/extensions/supervisor/github/compose.ts"
 			],
 			"runtimeRoster": [
+				"GH_TOKEN wins over the secret file",
 				"a sibling spawned during the call never sees the hosts.yml token in process.env",
 				"auth.json wins over gh hosts.yml when both exist (init token re-imported into gh)",
 				"calls gh() and parses JSON output into typed result",
@@ -91,6 +93,9 @@
 				"does not throw on non-zero exit — caller decides (raw semantics)",
 				"exec rejection propagates and the pre-existing env value is untouched",
 				"falls back to hosts.yml oauth_token when GH_TOKEN is unset",
+				"falls back to hosts.yml when the secret file is malformed JSON",
+				"falls back when CHEASEE_AUTH_PATH points at a missing file",
+				"falls back when github_token is empty or not a string",
 				"generic type parameter compiles correctly",
 				"gh() — low-level CLI wrapper",
 				"gh()/ghRaw() — GH_TOKEN injected as a per-child env var, never a shell string",
@@ -98,11 +103,14 @@
 				"ghJson<T>() — typed JSON output parser",
 				"ghRaw() — raw CLI wrapper",
 				"ghRaw(): mid-session credential appearing is picked up on the next call",
+				"ignores CHEASEE_AUTH_PATH when it is unset or blank (existing behavior)",
 				"injected literal token → returns a port without touching the filesystem",
 				"non-zero exit: gh() throws and the pre-existing env value is untouched",
 				"passes opts.signal and opts.timeout through to pi.exec",
 				"prefers GH_TOKEN over hosts.yml",
+				"resolveGitHubToken() — CHEASEE_AUTH_PATH credential file",
 				"resolveGitHubToken() — single resolution policy",
+				"resolves github_token from the file named by CHEASEE_AUTH_PATH",
 				"resolves via GH_TOKEN when no literal is injected",
 				"returns 'cheasee-pi' when auth.json holds a github_token",
 				"returns 'gh' when gh hosts.yml holds an oauth_token",
@@ -113,6 +121,7 @@
 				"returns null when neither source exists",
 				"returns raw stdout including HTTP headers (no trim, no throw)",
 				"synchronous exec throw propagates and no stale token is left in process.env",
+				"the secret file wins over hosts.yml",
 				"throws 'GitHub token not found' when no token resolves (fail-closed)",
 				"throws on non-zero exit, includes stderr then stdout fallback",
 				"throws when output is invalid JSON",
@@ -124,7 +133,7 @@
 			],
 			"expectedItCallSites": {
 				"gh-client.test.mts": 24,
-				"gh-client-token.test.mts": 12
+				"gh-client-token.test.mts": 19
 			},
 			"note": "Generated pre-split by AST + TAP over the original suite; expectedItCallSites is the architecture's post-split placement."
 		},

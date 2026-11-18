@@ -61,12 +61,20 @@ func TestCompose_UIManagedShape(t *testing.T) {
 		t.Errorf("ui restart = %v, want unless-stopped", got)
 	}
 	labels, ok := svc["labels"].([]any)
-	if !ok || len(labels) != 1 || labels[0] != managedLabel {
-		t.Errorf("ui labels must be exactly [%s] (no spec stamp), got %v", managedLabel, labels)
+	if !ok || len(labels) != 2 {
+		t.Fatalf("ui labels must be [%s, auth-spec], got %v", managedLabel, labels)
+	}
+	if labels[0] != managedLabel {
+		t.Errorf("ui must carry the managed label first, got %v", labels)
+	}
+	if labels[1] != "com.cheaseepi.auth-spec=${CHEASEEPI_AUTH_SPEC:-}" {
+		t.Errorf("ui must carry the CLI-owned credential stamp label, got %v", labels)
 	}
 }
 
 func TestCompose_UIMounts(t *testing.T) {
+	// The ui reads the same read-only credential file the agent does; the
+	// whole-directory mounts are gone (see TestComposeCredentials_*).
 	svc := composeService(t, readCompose(t), "ui")
 	vols, ok := svc["volumes"].([]any)
 	if !ok {
@@ -74,13 +82,15 @@ func TestCompose_UIMounts(t *testing.T) {
 	}
 	want := []string{
 		"${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}",
-		"~/.config/gh:/home/agentuser/.config/gh:ro${VOLUME_RELABEL:-}",
-		"~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:ro${VOLUME_RELABEL:-}",
 	}
 	for _, w := range want {
 		if !slices.Contains(vols, any(w)) {
 			t.Errorf("ui volumes must contain %q, got %v", w, vols)
 		}
+	}
+	secrets, ok := svc["secrets"].([]any)
+	if !ok || len(secrets) != 1 || secrets[0] != authSecretName {
+		t.Errorf("ui must mount exactly the %q secret, got %v", authSecretName, svc["secrets"])
 	}
 }
 

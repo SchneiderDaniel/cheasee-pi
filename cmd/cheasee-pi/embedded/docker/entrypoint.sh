@@ -22,6 +22,10 @@ exec 1>&2
 #   CHEASEEPI_CPUS – CPU limit (e.g. 4.0). Applied to cgroup directly
 #                    because Docker Compose `cpus:` doesn't always apply
 #                    reliably on all platforms.
+#   CHEASEE_AUTH_PATH – read-only credential file mounted by Compose
+#                    (default: /run/secrets/cheasee_auth).
+#   GH_CONFIG_DIR  – writable, container-local gh config dir
+#                    (default: /home/agentuser/.config/gh, a tmpfs).
 # ------------------------------------------------------------------
 
 HOST_UID="${HOST_UID:-}"
@@ -319,8 +323,8 @@ gosu agentuser git config --global user.name "$GIT_NAME" 2>/dev/null || true
 gosu agentuser git config --global user.email "$GIT_EMAIL" 2>/dev/null || true
 
 # --- Rewrite SSH remote URLs to HTTPS for Docker --------------------------
-# Docker image has no SSH client. gh CLI is installed with an HTTPS OAuth
-# token passed via bind-mount (~/.config/gh). Use git insteadOf to
+# Docker image has no SSH client. gh CLI is installed; it authenticates from
+# the seeded container-local config (see seed_gh_config). Use git insteadOf to
 # transparently rewrite SSH GitHub URLs to HTTPS so git push works without
 # SSH. This is a global git config — does not modify the repo's .git/config.
 #
@@ -332,20 +336,48 @@ gosu agentuser git config --global --add url."https://github.com/".insteadOf "ss
 # Use gh as credential helper for HTTPS pushes
 gosu agentuser git config --global credential.helper "!/usr/bin/gh auth git-credential" 2>/dev/null || true
 
-# cheasee-pi auth persists the GitHub token in auth.json (bind-mounted) and
-# that file is the single source of truth for the container's GitHub
-# credential: init/--reauth mint it with the scopes the supervisor needs
-# (repo, read:org, project, workflow). The bind-mounted ~/.config/gh may hold
-# an older token minted before the project scope existed, so import auth.json's token
-# into gh whenever gh's current token differs — not just when gh has none.
-# gating on gh auth status would keep the stale token forever.
-if [ -f /home/agentuser/.config/cheasee-pi/auth.json ]; then
-    token=$(jq -r '.github_token // empty' /home/agentuser/.config/cheasee-pi/auth.json 2>/dev/null || true)
-    current=$(gosu agentuser gh auth token 2>/dev/null || true)
-    if [ -n "$token" ] && [ "$token" != "$current" ]; then
-        echo "$token" | gosu agentuser gh auth login --with-token 2>/dev/null || true
+# --- Seed the container-local gh config from the read-only credential ----
+# The host config directories are NOT mounted (issue #2076): a writable mount
+# let any in-container process rewrite the host's GitHub/provider credentials.
+# Compose mounts auth.json READ-ONLY at $CHEASEE_AUTH_PATH; gh writes into the
+# $GH_CONFIG_DIR tmpfs, recreated (re-seeded here) with every container
+# creation.
+#
+# cheasee-pi auth is the only writer; auth.json is the single source of truth:
+# init/--reauth mint the token with the scopes the supervisor needs (repo,
+# read:org, project, workflow), which a host gh config may predate. The tmpfs
+# starts empty, so the import is unconditional — no stored token to compare
+# against and no stale-token repair to do here.
+#
+# Adapter, not policy: this function holds no mount decision, writes no host
+# path. Every failure warns visibly, never aborts start (a key-only setup
+# legitimately has no github_token).
+seed_gh_config() {
+    local auth_path="${CHEASEE_AUTH_PATH:-/run/secrets/cheasee_auth}"
+    local config_dir="${GH_CONFIG_DIR:-/home/agentuser/.config/gh}"
+
+    if [ ! -f "$auth_path" ]; then
+        echo "Warning: GitHub credential file ${auth_path} is missing — gh/git push will not authenticate while it is absent (run cheasee-pi auth on the host, then cheasee-pi start --build)"
+        return 0
     fi
-fi
+
+    local token
+    token=$(jq -r '.github_token // empty' "$auth_path" 2>/dev/null) || token=""
+    if [ -z "$token" ]; then
+        return 0
+    fi
+
+    # gh writes hosts.yml inside config_dir; the tmpfs mountpoint is root-owned
+    # at creation, so Compose cannot set its uid/gid for us.
+    mkdir -p "$config_dir" 2>/dev/null || true
+    chown agentuser:agentuser "$config_dir" 2>/dev/null || true
+
+    if printf '%s' "$token" | gosu agentuser gh auth login --with-token >/dev/null 2>&1; then
+        return 0
+    fi
+    echo "Warning: could not import the GitHub credential into ${config_dir} — gh/git push may not authenticate (non-fatal; run cheasee-pi auth on the host, then cheasee-pi start --build)"
+}
+seed_gh_config
 # Mark the bare repo safe for container git ops — a host-owned .bare mount
 # would otherwise trip "detected dubious ownership" (CVE-2022-24765
 # mitigation) on every git call inside the container.
