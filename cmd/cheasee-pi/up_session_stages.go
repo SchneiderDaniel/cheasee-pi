@@ -71,6 +71,20 @@ func startEnv(ctx context.Context, root string) (*sessionEnv, error) {
 	return env, nil
 }
 
+// retireStage is the pre-container migration stage: reconcile the persistent
+// workspace with the packages this release still ships. It reports what it
+// changed on stderr — a converged workspace stays silent — and surfaces every
+// failure, because a workspace the migration could not clean would keep loading
+// the retired package for the whole session.
+func retireStage(root string) error {
+	rep, err := retirePackages(root, retireOptions{})
+	if err != nil {
+		return fmt.Errorf("retire removed packages: %w", err)
+	}
+	printRetireReport(rep, false)
+	return nil
+}
+
 // printEnvAndCommand is the dry-run output: the env vars to inject (secrets
 // redacted) and the exact docker command.
 func printEnvAndCommand(env map[string]string, name, target string) {

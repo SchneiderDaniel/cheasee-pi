@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 959,
+		"codeFiles": 980,
 		"criticalCount": 198,
-		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), and from 957 to 959 by #2097 (the Python parse-spec module and parser regression suite, both below the ceiling). CriticalCount remains 198; no complexity flags moved."
+		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), then to 959 by #2097 (the Python parse-spec module and parser regression suite). #2137 adds twenty-one below-ceiling scored files for deprecated-package retirement (eleven production modules plus ten `_test.go` files), with the combined tree measuring 980 codeFiles. CriticalCount remains 198; no complexity flags moved."
 	}
 }
