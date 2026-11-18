@@ -8,6 +8,7 @@ import { accessSync, constants as fsConstants, existsSync, mkdirSync } from "nod
 import { tmpdir } from "node:os";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { getDebugLogger } from "../lib/debug.ts";
+import { addWorktree } from "../../shared/git/worktree.ts";
 import { execChecked, withNotify, type Result } from "./result.ts";
 import type { NotifyFn } from "./helpers.ts";
 
@@ -257,15 +258,20 @@ export async function createWorktree(
 			// the entrypoint's lock blocks the prune that would fix it.
 			await recoverStaleWorktreeRegistration(pi, cwd, worktreeBase, worktreeBranch);
 
-			// Attempt 1: git worktree add -b (creates new branch + worktree)
+			// Attempt 1: git worktree add -b (creates new branch + worktree).
+			// The argv lives in shared/git/worktree.ts (issue #2138) so the goal-loop
+			// extension issues the identical command.
 			try {
-				const result = await pi.exec(
-					"git",
-					["worktree", "add", "-b", worktreeBranch, wt, defaultBranch],
-					{ cwd, timeout: 15000 },
-				);
-				if (result.code !== 0) {
-					throw new Error(result.stderr || result.stdout || "git worktree add failed");
+				const added = await addWorktree(pi.exec.bind(pi), {
+					cwd,
+					path: wt,
+					branch: worktreeBranch,
+					startPoint: defaultBranch,
+					createBranch: true,
+					timeoutMs: 15000,
+				});
+				if (!added.ok) {
+					throw new Error(added.error || "git worktree add failed");
 				}
 				log.info("worktree", `Worktree created at ${wt}`);
 

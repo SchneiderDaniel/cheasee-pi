@@ -108,12 +108,28 @@ describe("Phase 7: SDK static import resolution guard", () => {
 			);
 		});
 
-		it("production runner keeps the resolvable providers/all import", () => {
+		it("production runner resolves the model through the shared module", () => {
 			const source = readFileSync(runnerPath, "utf-8");
+			// Model resolution moved to shared/model/model-ref.ts (issue #2138); the
+			// catalog import must stay a resolvable static `providers/all` import.
 			assert.match(
 				source,
+				/import \{ resolveModel \} from "\.\.\/\.\.\/shared\/model\/model-ref\.ts"/,
+				"runner must import resolveModel from shared/model/model-ref.ts",
+			);
+			const shared = readFileSync(
+				resolve(import.meta.dirname, "..", ".pi/extensions/shared/model/model-ref.ts"),
+				"utf-8",
+			);
+			assert.match(
+				shared,
 				/import \{ getBuiltinModel \} from "@earendil-works\/pi-ai\/providers\/all"/,
-				"runner must import getBuiltinModel from providers/all",
+				"the shared resolver must import getBuiltinModel from providers/all",
+			);
+			assert.doesNotMatch(
+				shared,
+				/import \{[^}]*\bgetModel\b[^}]*\} from "@earendil-works\/pi-ai"/,
+				"must not import getModel from the pi-ai root (nonexistent export)",
 			);
 			assert.doesNotMatch(
 				source,

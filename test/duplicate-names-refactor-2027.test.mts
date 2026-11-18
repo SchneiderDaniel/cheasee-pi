@@ -22,10 +22,18 @@ describe("canonical single homes exist", () => {
 		assert.match(read(".pi/extensions/lib/port-adapters.ts"), /export function toExecFn\b/);
 	});
 
-	it("nullNotify / toNotifyFn live in pipeline/helpers.ts", () => {
-		const src = read(".pi/extensions/supervisor/pipeline/helpers.ts");
-		assert.match(src, /export function nullNotify\b/);
-		assert.match(src, /export function toNotifyFn\b/);
+	it("nullNotify / toNotifyFn live in shared/result.ts and are re-exported", () => {
+		// Moved to the shared extension layer (issue #2138) so the goal-loop
+		// extension uses the same notification port. The single-home invariant is
+		// preserved: exactly one definition, one historical re-export.
+		const shared = read(".pi/extensions/shared/result.ts");
+		assert.match(shared, /export function nullNotify\b/);
+		assert.match(shared, /export function toNotifyFn\b/);
+
+		const helpers = read(".pi/extensions/supervisor/pipeline/helpers.ts");
+		assert.doesNotMatch(helpers, /export function nullNotify\b/);
+		assert.doesNotMatch(helpers, /export function toNotifyFn\b/);
+		assert.match(helpers, /from "\.\.\/\.\.\/shared\/result\.ts"/);
 	});
 
 	it("unique_temp_dir is the single Rust temp-dir fixture (test_support.rs)", () => {

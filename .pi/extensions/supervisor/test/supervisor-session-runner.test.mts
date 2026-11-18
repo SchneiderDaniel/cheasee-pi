@@ -34,10 +34,18 @@ describe("agent-session-runner.ts — fix verification", () => {
 	});
 
 	it("A.2: model resolution call uses type assertion for provider arg", () => {
-		const lines = source.split("\n");
+		// The resolution call moved to shared/model/model-ref.ts (issue #2138); the
+		// assertion intent is unchanged — the provider arg must be type-asserted
+		// because the catalog is keyed by literal provider/model unions.
+		const sharedSource = readFileSync(".pi/extensions/shared/model/model-ref.ts", "utf-8");
+		const lines = [...source.split("\n"), ...sharedSource.split("\n")];
 		const getModelIndices = lines
 			.map((l, i) => (/get(?:Builtin)?Model\(/.test(l) && !l.trim().startsWith("//") ? i : -1))
 			.filter((i) => i >= 0);
+		assert.ok(
+			getModelIndices.length > 0,
+			"model resolution must live in shared/model/model-ref.ts",
+		);
 		// Check the call line AND the next few lines for type assertion
 		const hasTypeAssertion = getModelIndices.some((idx) => {
 			// Look at up to 5 lines starting from the call

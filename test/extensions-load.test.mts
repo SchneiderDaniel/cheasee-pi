@@ -25,7 +25,7 @@ function discoverExtensions(): ExtensionEntry[] {
 	const extensions: ExtensionEntry[] = [];
 
 	// Directories inside .pi/extensions/ that are shared libraries, not extensions
-	const SKIP_DIRS = new Set(["lib"]);
+	const SKIP_DIRS = new Set(["lib", "shared"]);
 
 	for (const entry of entries) {
 		if (!entry.isDirectory()) continue;
@@ -337,8 +337,8 @@ describe("Phase 6: No cross-extension imports from entry-point code", () => {
 		const violations: string[] = [];
 
 		// Shared library directories within extensions (allowed import targets)
-		// Matches "lib/" at start or "/lib/" in middle of path
-		const SHARED_LIBS = /(?:^|\/)lib\//;
+		// Matches "lib/" or "shared/" at start or in the middle of a path
+		const SHARED_LIBS = /(?:^|\/)(?:lib|shared)\//;
 
 		for (const ext of extensions) {
 			if (!ext.entryPoint || !existsSync(ext.entryPoint)) continue;

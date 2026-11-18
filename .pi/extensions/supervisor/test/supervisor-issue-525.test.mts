@@ -28,13 +28,21 @@ describe("Bug 2 — Model resolution guard in session-runner.ts", () => {
 	// ── 1.1: Catch block is non-empty (no silent empty catch) ──
 
 	it("1.1: resolveModel wraps resolution in a catch that throws (no silent fallback)", () => {
-		// Model resolution was extracted into a `resolveModel` helper
-		// (getModel → getBuiltinModel). The guard contract is unchanged: a
+		// Model resolution moved to shared/model/model-ref.ts (issue #2138) so the
+		// goal loop uses the same convention. The guard contract is unchanged: a
 		// resolution failure throws instead of silently falling back.
-		const start = lines.findIndex((l) => l.includes("function resolveModel("));
+		assert.match(
+			source,
+			/import \{ resolveModel \} from "\.\.\/\.\.\/shared\/model\/model-ref\.ts"/,
+			"the runner must use the shared resolver",
+		);
+		const sharedLines = readFileSync(".pi/extensions/shared/model/model-ref.ts", "utf-8").split(
+			"\n",
+		);
+		const start = sharedLines.findIndex((l) => l.includes("function resolveModel("));
 		assert.ok(start >= 0, "resolveModel helper must exist");
 
-		const block = lines.slice(start, start + 30);
+		const block = sharedLines.slice(start, start + 30);
 		const catchIdx = block.findIndex((l) => l.includes("} catch"));
 		assert.ok(catchIdx >= 0, "resolveModel must wrap model resolution in try/catch");
 
