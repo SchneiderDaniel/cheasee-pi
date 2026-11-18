@@ -1,0 +1,343 @@
+#!/usr/bin/env bash
+# Test stub for the `gh` CLI: a tiny stateful GitHub double.
+#
+# The gateway under test is the only caller. Every invocation is appended to
+# $GH_LOG as "<METHOD>\t<path>\t<request-body-file>" so tests can assert on the
+# exact transport (`--method`, `--input`, read-only-ness) and on request bodies.
+#
+# Response resolution order:
+#   1. $GH_PLAN ".responses[\"<METHOD> <path>\"]" — explicit override, either a
+#      single {"status","body"} object or {"sequence":[ ... ]} (last entry
+#      repeats once exhausted). Sequences are counted in $GH_STATE_DIR.
+#   2. the stateful handler below, which serves the repo's current state so a
+#      write followed by a re-read reflects that write (the remediation contract).
+#   3. $GH_PLAN ".default", else 404.
+set -uo pipefail
+
+: "${GH_LOG:?fake-gh: GH_LOG is required}"
+: "${GH_PLAN:?fake-gh: GH_PLAN is required}"
+: "${GH_STATE_DIR:?fake-gh: GH_STATE_DIR is required}"
+GH_BODY_DIR="${GH_BODY_DIR:-$GH_STATE_DIR/request-bodies}"
+GH_STATE="$GH_STATE_DIR/state.json"
+
+mkdir -p "$GH_BODY_DIR" "$GH_STATE_DIR"
+touch "$GH_LOG"
+if [[ ! -f "$GH_STATE" ]]; then
+	printf '%s\n' '{"admin":true,"default_branch":"main","secret_scanning":"disabled","vulnerability_alerts":"disabled","code_scanning":"not-configured","analyses":0,"protection":null,"rules":[],"files":[],"health_percentage":0,"head_sha":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}' >"$GH_STATE"
+fi
+
+# A transport-layer failure (auth, DNS, TLS) has no HTTP response at all: gh
+# writes to stderr and exits non-zero without printing headers.
+if [[ -n "${GH_FAKE_TRANSPORT_ERROR:-}" ]]; then
+	printf 'gh: %s\n' "$GH_FAKE_TRANSPORT_ERROR" >&2
+	exit 1
+fi
+
+argv="$*"
+method="GET"
+include=0
+input=""
+path=""
+
+while (($# > 0)); do
+	case "$1" in
+	--method)
+		method="${2:-}"
+		shift 2
+		;;
+	--include | -i)
+		include=1
+		shift
+		;;
+	--input)
+		input="${2:-}"
+		shift 2
+		;;
+	-*)
+		printf 'fake-gh: unsupported flag %s\n' "$1" >&2
+		exit 64
+		;;
+	*)
+		path="$1"
+		shift
+		;;
+	esac
+done
+
+req_body=""
+if [[ -n "$input" ]]; then
+	if [[ "$input" == "-" ]]; then
+		req_body=$(cat)
+	else
+		req_body=$(cat "$input")
+	fi
+fi
+
+count=$(wc -l <"$GH_LOG" 2>/dev/null || printf '0')
+count="${count//[!0-9]/}"
+[[ -n "$count" ]] || count=0
+REQ_BODY="$GH_BODY_DIR/$((count + 1)).json"
+printf '%s' "$req_body" >"$REQ_BODY"
+printf '%s\t%s\t%s\n' "$method" "$path" "$REQ_BODY" >>"$GH_LOG"
+# Full argv on its own line so tests can assert transport shape (--method,
+# --input) and the absence of the -f/-F flags that would silently flip the
+# request to POST and stringify every value.
+printf '%s\n' "$argv" >>"$GH_LOG.argv"
+
+norm="${path#/}"
+# Plan keys use the request path exactly as the gateway sends it ("/repos/...").
+key="$method $path"
+
+state_set() { # <jq path expression> <json value>
+	jq --argjson v "$2" "$1 = \$v" "$GH_STATE" >"$GH_STATE_DIR/.state.tmp" &&
+		mv "$GH_STATE_DIR/.state.tmp" "$GH_STATE"
+}
+
+state_append() { # <jq array path> <json value>
+	jq --argjson v "$2" "$1 = (((($1 // []) + [\$v]) | unique))" "$GH_STATE" >"$GH_STATE_DIR/.state.tmp" &&
+		mv "$GH_STATE_DIR/.state.tmp" "$GH_STATE"
+}
+
+req_get() { # <jq path expression> on the request body
+	jq -r "$1 // empty" "$REQ_BODY" 2>/dev/null || true
+}
+
+handle() { # <method> <normalized path> — prints a response object or nothing
+	local m="$1" p="$2" br fp new
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+$ ]]; then
+		case "$m" in
+		GET)
+			jq -c '{status:200, body:{full_name:"owner/repo", default_branch:.default_branch, permissions:{admin:.admin}, security_and_analysis:{secret_scanning:{status:.secret_scanning}}}}' "$GH_STATE"
+			return 0
+			;;
+		PATCH)
+			new=$(req_get '.security_and_analysis.secret_scanning.status')
+			if [[ -n "$new" ]]; then
+				state_set '.secret_scanning' "$(jq -c -n --arg s "$new" '$s')"
+			fi
+			jq -c '{status:200, body:{full_name:"owner/repo", security_and_analysis:{secret_scanning:{status:.secret_scanning}}}}' "$GH_STATE"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/branches/([^/]+)/protection$ ]]; then
+		br="${BASH_REMATCH[1]}"
+		: "$br"
+		case "$m" in
+		GET)
+			if [[ "$(jq -r '.protection == null' "$GH_STATE")" == "true" ]]; then
+				printf '{"status":404,"body":{"message":"Branch not protected"}}'
+			else
+				jq -c '{status:200, body:.protection}' "$GH_STATE"
+			fi
+			return 0
+			;;
+		PUT)
+			jq -c '. as $r | {required_status_checks:$r.required_status_checks, required_pull_request_reviews:$r.required_pull_request_reviews, enforce_admins:{enabled:($r.enforce_admins // false)}, restrictions:$r.restrictions}' "$REQ_BODY" >"$GH_STATE_DIR/.prot.tmp"
+			jq --slurpfile prot "$GH_STATE_DIR/.prot.tmp" '.protection = $prot[0]' "$GH_STATE" >"$GH_STATE_DIR/.state.tmp" &&
+				mv "$GH_STATE_DIR/.state.tmp" "$GH_STATE"
+			printf '{"status":200,"body":{"message":"Branch protection updated"}}'
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/rules/branches/([^/]+)$ ]]; then
+		case "$m" in
+		GET)
+			jq -c '{status:200, body:(.rules // [])}' "$GH_STATE"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/vulnerability-alerts$ ]]; then
+		case "$m" in
+		GET)
+			if [[ "$(jq -r '.vulnerability_alerts' "$GH_STATE")" == "enabled" ]]; then
+				printf '{"status":204,"body":null}'
+			else
+				printf '{"status":404,"body":{"message":"Not Found"}}'
+			fi
+			return 0
+			;;
+		PUT)
+			state_set '.vulnerability_alerts' '"enabled"'
+			printf '{"status":204,"body":null}'
+			return 0
+			;;
+		DELETE)
+			state_set '.vulnerability_alerts' '"disabled"'
+			printf '{"status":204,"body":null}'
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/code-scanning/default-setup$ ]]; then
+		case "$m" in
+		GET)
+			jq -c '{status:200, body:{state:.code_scanning, query_suite:"default", languages:["bash"]}}' "$GH_STATE"
+			return 0
+			;;
+		PATCH)
+			state_set '.code_scanning' '"configured"'
+			jq -c '{status:200, body:{state:.code_scanning}}' "$GH_STATE"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/code-scanning/analyses$ ]]; then
+		case "$m" in
+		GET)
+			jq -c '{status:200, body:[range(0; (.analyses // 0)) | {id:., state:"completed"}]}' "$GH_STATE"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/community/profile$ ]]; then
+		case "$m" in
+		GET)
+			if [[ "$(jq -r '.community_profile // "ok"' "$GH_STATE")" == "unavailable" ]]; then
+				printf '{"status":404,"body":{"message":"Not Found"}}'
+				return 0
+			fi
+			jq -c '{
+				status:200,
+				body:{
+					health_percentage:.health_percentage,
+					files:{
+						readme:(if (.files|index("README.md")) != null then {path:"README.md", html_url:"https://example.invalid/README.md"} else null end),
+						code_of_conduct:(if (.files|index("CODE_OF_CONDUCT.md")) != null then {path:"CODE_OF_CONDUCT.md", name:"Contributor Covenant"} else null end),
+						contributing:(if (.files|index("CONTRIBUTING.md")) != null then {path:"CONTRIBUTING.md", html_url:"https://example.invalid/CONTRIBUTING.md"} else null end),
+						license:(if (.files|index("LICENSE")) != null then {path:"LICENSE", spdx_id:"MIT"} else null end),
+						issue_template:(if ((.files|map(select(startswith(".github/ISSUE_TEMPLATE/"))) | length) > 0) then {path:".github/ISSUE_TEMPLATE/bug_report.md"} else null end),
+						pull_request_template:(if (.files|index(".github/PULL_REQUEST_TEMPLATE.md")) != null then {path:".github/PULL_REQUEST_TEMPLATE.md"} else null end)
+					}
+				}
+			}' "$GH_STATE"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/contents/(.+)$ ]]; then
+		fp="${BASH_REMATCH[1]}"
+		case "$m" in
+		GET)
+			if [[ "$(jq -r --arg f "$fp" '(.files|index($f)) != null' "$GH_STATE")" == "true" ]]; then
+				jq -c -n --arg f "$fp" '{status:200, body:{type:"file", path:$f, name:$f}}'
+			elif [[ "$(jq -r --arg f "$fp/" '(.files|map(select(startswith($f))) | length) > 0' "$GH_STATE")" == "true" ]]; then
+				jq -c --arg f "$fp/" '{status:200, body:[.files[] | select(startswith($f)) | {type:"file", path:.}]}' "$GH_STATE"
+			else
+				printf '{"status":404,"body":{"message":"Not Found"}}'
+			fi
+			return 0
+			;;
+		PUT)
+			state_append '.files' "$(jq -c -n --arg f "$fp" '$f')"
+			printf '{"status":201,"body":{"content":{"path":"%s"},"commit":{"sha":"cafebabe"}}}' "$fp"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/git/ref/heads/(.+)$ ]]; then
+		case "$m" in
+		GET)
+			jq -c '{status:200, body:{ref:"refs/heads/x", object:{sha:.head_sha, type:"commit"}}}' "$GH_STATE"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/git/refs$ ]]; then
+		case "$m" in
+		POST)
+			jq -c '{status:201, body:{ref:.ref, object:{sha:.object.sha}}}' "$REQ_BODY"
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^repos/[^/]+/[^/]+/pulls$ ]]; then
+		case "$m" in
+		POST)
+			printf '{"status":201,"body":{"number":1,"html_url":"https://example.invalid/pull/1"}}'
+			return 0
+			;;
+		esac
+	fi
+
+	if [[ "$p" =~ ^licenses/([^/]+)$ ]]; then
+		case "$m" in
+		GET)
+			jq -c -n --arg k "${BASH_REMATCH[1]}" '{status:200, body:{key:$k, name:"MIT License", spdx_id:"MIT", body:"MIT License\n\nCopyright (c) [year] [fullname]\n\nPermission is hereby granted, free of charge.\n"}}'
+			return 0
+			;;
+		esac
+	fi
+
+	return 0
+}
+
+mode=$(jq -r --arg k "$key" '
+	if (.responses[$k] // null) == null then "none"
+	elif (.responses[$k] | type) == "object" and (.responses[$k] | has("sequence")) then "sequence"
+	else "single" end' "$GH_PLAN")
+
+case "$mode" in
+sequence)
+	countfile="$GH_STATE_DIR/seq_$(printf '%s' "$key" | tr -c 'A-Za-z0-9' '_').count"
+	idx=0
+	[[ -f "$countfile" ]] && idx=$(cat "$countfile")
+	idx="${idx//[!0-9]/}"
+	[[ -n "$idx" ]] || idx=0
+	len=$(jq -r --arg k "$key" '.responses[$k].sequence | length' "$GH_PLAN")
+	use=$idx
+	((use < len)) || use=$((len - 1))
+	response=$(jq -c --arg k "$key" --argjson i "$use" '.responses[$k].sequence[$i]' "$GH_PLAN")
+	printf '%s' "$((idx + 1))" >"$countfile"
+	;;
+single)
+	response=$(jq -c --arg k "$key" '.responses[$k]' "$GH_PLAN")
+	;;
+*)
+	response=$(handle "$method" "$norm")
+	;;
+esac
+
+if [[ -z "$response" ]]; then
+	response=$(jq -c '.default // {status:404, body:{message:"Not Found"}}' "$GH_PLAN")
+fi
+
+status=$(jq -r '.status' <<<"$response")
+reason="Status"
+case "$status" in
+200) reason="OK" ;;
+201) reason="Created" ;;
+204) reason="No Content" ;;
+401) reason="Unauthorized" ;;
+403) reason="Forbidden" ;;
+404) reason="Not Found" ;;
+422) reason="Unprocessable Entity" ;;
+esac
+
+if ((include)); then
+	printf 'HTTP/2.0 %s %s\r\n' "$status" "$reason"
+	printf '\r\n'
+fi
+
+payload=$(jq -c 'if (.body // null) == null then empty else .body end' <<<"$response")
+[[ -n "$payload" ]] && printf '%s\n' "$payload"
+
+if [[ "$status" =~ ^[0-9]+$ ]] && ((status >= 400)); then
+	printf 'gh: HTTP %s\n' "$status" >&2
+	exit 1
+fi
+
+exit 0
