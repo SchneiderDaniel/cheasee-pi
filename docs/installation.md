@@ -160,7 +160,9 @@ trailing slash, `owner/repo` shorthand) is never matched either.
 
 The migration is refused while a session holds the workspace: close the session
 (`Ctrl+D`) first. If no session is running, the claim it left behind is stale —
-`cheasee-pi down` clears it.
+`cheasee-pi down` clears it. It also refuses a checkout path that is a symlink,
+or that sits behind one: deleting through a link would reach outside the
+workspace, so that path is reported for you to remove yourself.
 
 Then verify and restart the container — no `ponytail` footer, status indicator or
 command may appear:

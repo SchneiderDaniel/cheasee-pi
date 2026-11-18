@@ -10,6 +10,7 @@ on no registry name.
 from __future__ import annotations
 import os
 import sys
+from dataclasses import replace
 from pathlib import Path
 from .adapters import ADAPTERS, Adapter
 from .discovery import ALWAYS_SKIP_DIRS, collect_dependencies  # noqa: F401  re-export
@@ -58,15 +59,15 @@ def _resolve_sources(deps: list[Dependency], root: Path,
     file_lines: dict[str, list[str]] = {}
     kept: list[Dependency] = []
     for dep in deps:
-        dep.source_file = _relative(dep, root)
-        lines = _lines(root, file_lines, dep.source_file)
-        if dep.line == 0:
-            dep.line = _locate(dep, lines)
+        source_file = _relative(dep, root)
+        lines = _lines(root, file_lines, source_file)
+        line = dep.line or _locate(dep, lines)
         marker = adapter_by_lang[dep.language].inline_marker
-        if marker and dep.line > 0:
-            if dep.line <= len(lines) and marker in lines[dep.line - 1]:
+        if marker and line > 0:
+            if line <= len(lines) and marker in lines[line - 1]:
                 continue  # inline slopsquat-ignore marker
-        kept.append(dep)
+        # records are immutable: resolution is one explicit replace, no mutation
+        kept.append(replace(dep, source_file=source_file, line=line))
     return kept
 
 

@@ -19,6 +19,23 @@ func appendStringUnique(list []string, value string) []string {
 	return append(list, value)
 }
 
+// announceRetirePlan turns a plan into the report a caller prints, plus the
+// warning every entry the plan left for explicit confirmation deserves. That
+// warning is the audit trail: the operator has to learn the entry survived, and
+// with which command to finish the job.
+func announceRetirePlan(plan retirePlan) retireReport {
+	var rep retireReport
+	for _, entry := range plan.NeedsConfirm {
+		rep.NeedsConfirmation = appendStringUnique(rep.NeedsConfirmation, entry.Source)
+		fmt.Fprintf(os.Stderr, "  ⚠ %s is still registered and cannot be proven a harness leftover — run `%s` to remove it, or delete it yourself if you installed it.\n",
+			entry.Source, confirmHint)
+	}
+	for _, entry := range plan.Auto {
+		rep.Removed = appendStringUnique(rep.Removed, entry.Source)
+	}
+	return rep
+}
+
 // printRetireReport renders one run to stderr. A converged workspace prints
 // nothing, so a normal start stays silent; a dry run says what it would do
 // instead of what it did.

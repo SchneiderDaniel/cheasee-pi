@@ -14,9 +14,7 @@ import (
 // container entrypoint reads) and `.pi/settings.json` second. Surviving
 // `packages` elements are re-emitted from their raw bytes, so an unrelated entry
 // keeps its key order and values.
-func writeRetiredSettings(root string, cheasee *CheaseeSettings, cheaseePresent bool,
-	piSettings *Settings, piPresent bool, removed []retireEntry, skillRepos []string,
-	packages []json.RawMessage) error {
+func writeRetiredSettings(root string, in retireInputs, removed []retireEntry) error {
 	removedRepos := make(map[int]bool, len(removed))
 	removedPackages := make(map[int]bool, len(removed))
 	for _, entry := range removed {
@@ -27,22 +25,22 @@ func writeRetiredSettings(root string, cheasee *CheaseeSettings, cheaseePresent 
 		removedPackages[entry.Index] = true
 	}
 
-	if cheaseePresent && len(removedRepos) > 0 {
-		kept := make([]string, 0, len(skillRepos))
-		for i, spec := range skillRepos {
+	if in.cheaseePresent && len(removedRepos) > 0 {
+		kept := make([]string, 0, len(in.skillRepos))
+		for i, spec := range in.skillRepos {
 			if !removedRepos[i] {
 				kept = append(kept, spec)
 			}
 		}
-		cheasee.SkillRepos = kept
-		if err := cheasee.Save(root); err != nil {
+		in.cheasee.SkillRepos = kept
+		if err := in.cheasee.Save(root); err != nil {
 			return fmt.Errorf("save cheasee-settings.json: %w", err)
 		}
 	}
 
-	if piPresent && len(removedPackages) > 0 {
-		kept := make([]json.RawMessage, 0, len(packages))
-		for i, raw := range packages {
+	if in.piPresent && len(removedPackages) > 0 {
+		kept := make([]json.RawMessage, 0, len(in.packages))
+		for i, raw := range in.packages {
 			if !removedPackages[i] {
 				kept = append(kept, raw)
 			}
@@ -53,29 +51,15 @@ func writeRetiredSettings(root string, cheasee *CheaseeSettings, cheaseePresent 
 		if err != nil {
 			return fmt.Errorf("encode packages: %w", err)
 		}
-		if piSettings.extra == nil {
-			piSettings.extra = make(map[string]json.RawMessage, 1)
+		if in.pi.extra == nil {
+			in.pi.extra = make(map[string]json.RawMessage, 1)
 		}
-		piSettings.extra["packages"] = encoded
-		if err := piSettings.Save(root); err != nil {
+		in.pi.extra["packages"] = encoded
+		if err := in.pi.Save(root); err != nil {
 			return fmt.Errorf("save .pi/settings.json: %w", err)
 		}
 	}
 	return nil
-}
-
-// inspectRetireClone stats the checkout path without following it: RemoveAll on
-// a symlink would delete the link (harmless) but the intent is to delete the
-// directory pi created, and following a link is never what an upgrade should do.
-func inspectRetireClone(path string) (present, isSymlink bool, err error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, false, nil
-		}
-		return false, false, fmt.Errorf("inspect %s: %w", retiredCloneRel, err)
-	}
-	return true, info.Mode()&os.ModeSymlink != 0, nil
 }
 
 // liveSessionClaims lists the sessions currently holding the workspace, read
