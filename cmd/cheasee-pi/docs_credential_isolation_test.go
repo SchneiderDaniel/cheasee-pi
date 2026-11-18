@@ -66,3 +66,32 @@ func TestDocs_CredentialIsolation_RecreateNuance(t *testing.T) {
 		}
 	}
 }
+
+// TestDocs_CredentialIsolation_InstallAndSecurity pins the two other places a
+// reader meets the credential model before the configuration reference: the
+// reauthentication note in the install guide (a credential change needs a
+// recreate) and the Docker security posture list (one read-only credential
+// file, no host config directory).
+func TestDocs_CredentialIsolation_InstallAndSecurity(t *testing.T) {
+	install := readRepoFile(t, "docs/installation.md")
+	for _, want := range []string{
+		authFileEnv,
+		"secrets.cheasee_auth",
+		"cheasee-pi start --build",
+	} {
+		if !strings.Contains(install, want) {
+			t.Errorf("docs/installation.md must state the credential source and the recreate workflow (%q missing)", want)
+		}
+	}
+
+	security := readRepoFile(t, "docs/security.md")
+	for _, want := range []string{
+		authSecretName,
+		"read-only",
+		"tmpfs",
+	} {
+		if !strings.Contains(security, want) {
+			t.Errorf("docs/security.md must record the read-only credential mount in its Docker posture list (%q missing)", want)
+		}
+	}
+}

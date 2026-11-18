@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 988,
+		"codeFiles": 1005,
 		"criticalCount": 196,
-		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), then to 959 by #2097 (the Python parse-spec module and parser regression suite). #2137 adds twenty-one below-ceiling scored files for deprecated-package retirement (eleven production modules plus ten `_test.go` files), reaching 980. #2098 adds eight below-ceiling GitHub adapter, error-panel and tool-call-text modules, reaching 988; its refactor also moves two former critical paths below the ceiling, so criticalCount is 196."
+		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), then to 959 by #2097 (the Python parse-spec module and parser regression suite). #2137 adds twenty-one below-ceiling scored files for deprecated-package retirement (eleven production modules plus ten `_test.go` files), reaching 980. #2098 adds eight below-ceiling GitHub adapter, error-panel and tool-call-text modules, reaching 988; its refactor also moves two former critical paths below the ceiling, so criticalCount is 196. #2076 adds seventeen below-ceiling scored Go modules in cmd/cheasee-pi for the credential-isolation feature (`auth_stamp.go`, `auth_drift.go`, the two `auth_stamp_identity_*` stat shims and fourteen contract/characterization test files), reaching 1005; every one scores at or below the ceiling of 30, so criticalCount stays 196."
 	}
 }

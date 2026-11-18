@@ -118,7 +118,11 @@ first run.
 > `cheasee-pi init --reauth` re-runs the authentications (GitHub OAuth device
 > flow + provider API-key setup) without touching the clone or the settings
 > scaffold. Plain `cheasee-pi init` still refuses an initialized workspace —
-> `--reauth` is the explicit redo entry point.
+> `--reauth` is the explicit redo entry point. Credentials reach the containers
+> as one read-only file, so a change needs a container recreate:
+> `cheasee-pi init --reauth` (or `cheasee-pi auth add <provider>`) followed by
+> `cheasee-pi start --build`. See
+> [Configuration](configuration.md#changing-credentials-requires-a-container-recreate).
 
 ### Upgrade from a Ponytail release
 
@@ -335,6 +339,18 @@ variables are a hard error, even for `build`):
 WORKSPACE_HOST_PATH=$(pwd) \
 WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
   docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache
+```
+
+Raw compose also interpolates the credential source
+(`CHEASEEPI_AUTH_FILE`, default `~/.config/cheasee-pi/auth.json`) into the
+read-only `secrets.cheasee_auth.file` mount. The default is the path the CLI
+writes on Linux without `XDG_CONFIG_HOME`; on an `XDG_CONFIG_HOME` host or on
+macOS (`~/Library/Application Support`), pass the resolved path explicitly, or
+container creation fails with a Compose bind-mount error:
+
+```bash
+CHEASEEPI_AUTH_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/cheasee-pi/auth.json" \
+  docker compose -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
 ### Permission errors
