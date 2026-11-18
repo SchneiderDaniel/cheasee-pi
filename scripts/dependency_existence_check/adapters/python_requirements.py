@@ -1,47 +1,50 @@
-"""requirements*.txt extraction, including -r include-file recursion."""
+"""requirements*.txt parsing, including -r include-file recursion."""
 
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
-from ..models import Dependency
+from .python_spec import ParsedSpec
+
+_INCLUDE = re.compile(r"-(?:r|requirement)\s+(\S+)")
+_REQUIREMENT = re.compile(
+    r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*([<>=!~;].*)?$"
+)
 
 
-class RequirementsMixin:
-    def _requirements(self, text: str, path: Path | None) -> list[Dependency]:
-        deps: list[Dependency] = []
-        base = (path.parent if path else Path("."))
-        seen: set[Path] = set()
+def parse_requirements(text: str, path: Path | None = None) -> list[ParsedSpec]:
+    """Translate requirements text into specs, following `-r` includes."""
+    specs: list[ParsedSpec] = []
+    seen: set[Path] = set()
 
-        def parse(content: str, bdir: Path, src: str) -> None:
-            for i, raw in enumerate(content.splitlines(), 1):
-                line = raw.strip()
-                if not line or line.startswith("#"):
+    def scan(content: str, base: Path, source: Path) -> None:
+        for line_no, raw in enumerate(content.splitlines(), 1):
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            include = _INCLUDE.match(line)
+            if include:
+                target = (base / include.group(1)).resolve()
+                if target in seen:
                     continue
-                m = re.match(r"-(?:r|requirement)\s+(\S+)", line)
-                if m:
-                    inc = (bdir / m.group(1)).resolve()
-                    if inc in seen:
-                        continue
-                    seen.add(inc)
-                    try:
-                        parse(inc.read_text(encoding="utf-8", errors="replace"),
-                              inc.parent, str(inc))
-                    except OSError:
-                        continue
+                seen.add(target)
+                try:
+                    scan(target.read_text(encoding="utf-8", errors="replace"),
+                         target.parent, target)
+                except OSError:
                     continue
-                if line.startswith("-"):
-                    continue  # other options (-e, -c, -i, ...)
-                spec = re.match(
-                    r"^([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[[^\]]*\])?\s*([<>=!~;].*)?$", line
-                )
-                if not spec:
-                    continue
-                dep_name = spec.group(1)
-                if "/" in dep_name or "\\" in dep_name or dep_name.startswith("."):
-                    continue  # local paths / VCS, not registry packages
-                deps.append(self._dep(dep_name, None, i, False, Path(src)))
+                continue
+            if line.startswith("-"):
+                continue  # other options (-e, -c, -i, ...)
+            match = _REQUIREMENT.match(line)
+            if not match:
+                continue
+            name = match.group(1)
+            if "/" in name or "\\" in name or name.startswith("."):
+                continue  # local paths / VCS, not registry packages
+            specs.append(ParsedSpec(name, None, line_no, source))
 
-        parse(text, base, str(path) if path else "requirements.txt")
-        return deps
+    scan(text, path.parent if path else Path("."),
+         path if path else Path("requirements.txt"))
+    return specs

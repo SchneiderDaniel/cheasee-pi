@@ -39,6 +39,9 @@ from dependency_existence_check_tests.test_adapter_extraction_jvm_dotnet import 
 from dependency_existence_check_tests.test_adapter_extraction_systems_dynamic import (  # noqa: E402,F401
     AdapterExtractionSystemsDynamicTests,
 )
+from dependency_existence_check_tests.test_python_parsers import (  # noqa: E402,F401
+    PythonParserTests,
+)
 from dependency_existence_check_tests.test_registry_transport import (  # noqa: E402,F401
     RegistryAndTransportTests,
 )

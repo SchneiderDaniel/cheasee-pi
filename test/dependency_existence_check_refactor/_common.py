@@ -62,7 +62,7 @@ _PUBLIC_NAMES = {
 }
 _SUBCLASSES = _PUBLIC_NAMES - {"ADAPTERS", "Adapter"}
 _SUBMODULES = [
-    "base", "python", "python_requirements", "python_metadata",
+    "base", "python", "python_spec", "python_requirements", "python_metadata",
     "js", "go", "rust", "java", "dotnet", "cpp", "ruby", "php", "swift", "dart",
 ]
 _ADAPTER_ATTRS = [

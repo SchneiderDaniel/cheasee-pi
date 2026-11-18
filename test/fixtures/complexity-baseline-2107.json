@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 965,
+		"codeFiles": 967,
 		"criticalCount": 196,
-		"note": "The codeFiles control includes four below-ceiling scenario modules added by #2096, reaching 957, then eight below-ceiling scored modules added by #2098, reaching 965. #2098 also moves two former critical paths below the ceiling, re-anchoring criticalCount from 198 to 196. No flag moved in this change's own citations."
+		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), from 957 to 959 by #2097 (the Python parse-spec module and parser regression suite, both below the ceiling), and from 959 to 967 by #2098 (eight below-ceiling GitHub adapter, error-panel and tool-call-text modules). #2098 also moves two former critical paths below the ceiling, so criticalCount changes from 198 to 196."
 	}
 }

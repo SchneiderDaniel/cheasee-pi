@@ -1,15 +1,18 @@
 // ─── Tests: github/gh-client.ts — typed gh CLI wrappers ──────────
-// Tests with mock pi.exec. No network calls.
+// Tests with mock pi.exec. No network calls. Covers gh()/ghRaw(), the
+// per-child GH_TOKEN injection path, createGitHubPort() composition and
+// ghJson(). Token resolution itself is covered by gh-client-token.test.mts.
 
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import type { ExecResult } from "@earendil-works/pi-coding-agent";
 import { gh, ghJson, ghRaw, detectTokenClass, resolveGitHubToken } from "../../github/gh-client.ts";
 import { createGitHubPort } from "../../github/compose.ts";
+import { writeHosts } from "../helper/gh-client-fixtures.mts";
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
@@ -93,163 +96,6 @@ describe("ghRaw() — raw CLI wrapper", () => {
 		const exec = createMockExec({ code: 1, stdout: "", stderr: "boom" });
 		const result = await ghRaw(exec, ["api", "-i", "/user"]);
 		assert.equal(result.code, 1);
-	});
-});
-
-// ─── Tests: detectTokenClass() ───────────────────────────────────
-
-describe("detectTokenClass() — remediation hint keying", () => {
-	it("returns 'cheasee-pi' when auth.json holds a github_token", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-class-pi-"));
-		try {
-			mkdirSync(join(home, ".config", "cheasee-pi"), { recursive: true });
-			writeFileSync(
-				join(home, ".config", "cheasee-pi", "auth.json"),
-				JSON.stringify({ github_token: "gho_init_minted", github_user: "me" }),
-			);
-			assert.equal(detectTokenClass(home), "cheasee-pi");
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("returns 'gh' when gh hosts.yml holds an oauth_token", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-class-gh-"));
-		try {
-			mkdirSync(join(home, ".config", "gh"), { recursive: true });
-			const yml = [
-				"github.com:",
-				"    users:",
-				"        octocat:",
-				"            oauth_token: gho_gh_minted",
-				"    oauth_token: gho_gh_minted",
-			].join("\n");
-			writeFileSync(join(home, ".config", "gh", "hosts.yml"), yml);
-			assert.equal(detectTokenClass(home), "gh");
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("returns 'unknown' when neither credential store exists", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-class-unk-"));
-		try {
-			assert.equal(detectTokenClass(home), "unknown");
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("auth.json wins over gh hosts.yml when both exist (init token re-imported into gh)", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-class-both-"));
-		try {
-			mkdirSync(join(home, ".config", "cheasee-pi"), { recursive: true });
-			writeFileSync(
-				join(home, ".config", "cheasee-pi", "auth.json"),
-				JSON.stringify({ github_token: "gho_init_minted" }),
-			);
-			mkdirSync(join(home, ".config", "gh"), { recursive: true });
-			writeFileSync(
-				join(home, ".config", "gh", "hosts.yml"),
-				"github.com:\n    oauth_token: gho_gh_minted\n",
-			);
-			assert.equal(
-				detectTokenClass(home),
-				"cheasee-pi",
-				"entrypoint re-import makes gh hold the init token",
-			);
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-});
-
-// ─── Tests: resolveGitHubToken() — one resolution policy ──────────
-
-/** Write a gh hosts.yml holding `oauth_token: <token>` under `home`. */
-function writeHosts(home: string, token: string): void {
-	mkdirSync(join(home, ".config", "gh"), { recursive: true });
-	writeFileSync(
-		join(home, ".config", "gh", "hosts.yml"),
-		`github.com:\n    oauth_token: ${token}\n`,
-	);
-}
-
-describe("resolveGitHubToken() — single resolution policy", () => {
-	it("prefers GH_TOKEN over hosts.yml", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-tok-pref-"));
-		try {
-			writeHosts(home, "gho_file");
-			assert.equal(resolveGitHubToken({ home, env: { GH_TOKEN: "gho_env" } }), "gho_env");
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("falls back to hosts.yml oauth_token when GH_TOKEN is unset", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-tok-file-"));
-		try {
-			writeHosts(home, "gho_file");
-			assert.equal(resolveGitHubToken({ home, env: {} }), "gho_file");
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("trims leading/trailing whitespace from GH_TOKEN", () => {
-		assert.equal(resolveGitHubToken({ env: { GH_TOKEN: "  gho_pad  " } }), "gho_pad");
-	});
-
-	it("returns null when neither source exists", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-tok-none-"));
-		try {
-			assert.equal(resolveGitHubToken({ home, env: {} }), null);
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("returns null when home has no .config/gh/hosts.yml", () => {
-		assert.equal(resolveGitHubToken({ home: tmpdir(), env: {} }), null);
-	});
-
-	it("returns null when hosts.yml has no oauth_token line", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-tok-noline-"));
-		try {
-			mkdirSync(join(home, ".config", "gh"), { recursive: true });
-			writeFileSync(
-				join(home, ".config", "gh", "hosts.yml"),
-				"github.com:\n    users:\n        octocat: {}\n",
-			);
-			assert.equal(resolveGitHubToken({ home, env: {} }), null);
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("treats whitespace-only GH_TOKEN as unset and falls through to hosts.yml", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-tok-blank-"));
-		try {
-			writeHosts(home, "gho_file");
-			assert.equal(resolveGitHubToken({ home, env: { GH_TOKEN: "   " } }), "gho_file");
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
-	});
-
-	it("does not poison a later successful call (no module cache of null)", () => {
-		const home = mkdtempSync(join(tmpdir(), "gh-tok-poison-"));
-		try {
-			assert.equal(resolveGitHubToken({ home, env: {} }), null, "first call: no credential");
-			writeHosts(home, "gho_file");
-			assert.equal(
-				resolveGitHubToken({ home, env: {} }),
-				"gho_file",
-				"second call sees the newly written credential — null was not cached",
-			);
-		} finally {
-			rmSync(home, { recursive: true, force: true });
-		}
 	});
 });
 
