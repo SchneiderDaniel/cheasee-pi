@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExecFn } from "../../../lib/port-types.ts";
 import type { ExecResult } from "@earendil-works/pi-coding-agent";
-import { gh, ghJson, ghRaw, detectTokenClass, resolveGitHubToken } from "../../github/gh-client.ts";
+import { gh, ghJson, ghRaw } from "../../github/gh-client.ts";
 import { createGitHubPort } from "../../github/compose.ts";
 import { writeHosts } from "../helper/gh-client-fixtures.mts";
 
