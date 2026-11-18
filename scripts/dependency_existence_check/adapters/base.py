@@ -1,4 +1,4 @@
-"""Shared Adapter base and manifest-name helpers.
+"""Shared Adapter base.
 
 Lowest layer of the adapters package: imports only the domain models and
 stdlib. Never imports an ecosystem module (one-directional dependency:
@@ -8,15 +8,9 @@ base <- ecosystem modules <- aggregation __init__).
 from __future__ import annotations
 
 import fnmatch
-import re
 from pathlib import Path
 
 from ..models import Dependency
-
-
-def pep508_name(spec: str) -> str | None:
-    m = re.match(r"^([A-Za-z0-9][A-Za-z0-9._-]*)", spec.strip())
-    return m.group(1) if m else None
 
 
 class Adapter:
