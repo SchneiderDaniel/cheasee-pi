@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 953,
+		"codeFiles": 957,
 		"criticalCount": 198,
-		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, which added three below-ceiling agent-harness test modules, and from 951 to 953 by #2136, which added two below-ceiling context-info policy modules (cache-stats.ts and stream-estimate.ts). CriticalCount remains 198; no complexity flags moved."
+		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, which added three below-ceiling agent-harness test modules, from 951 to 953 by #2136, which added two below-ceiling context-info policy modules (cache-stats.ts and stream-estimate.ts), and from 953 to 957 by #2096, which added four below-ceiling scenario modules under test/dependency_existence_check_tests/ for the frozen `Dependency`/`PackageRecord` records (record immutability, the resolution transition, inline-marker gating and pipeline parity). CriticalCount remains 198; no complexity flags moved."
 	}
 }
