@@ -188,42 +188,40 @@ func TestModeExtensionsRemoved_InstallGuideCleanupPath(t *testing.T) {
 	}
 	guide := string(data)
 
-	// The cleanup path is the one place an operator can still be running
-	// Ponytail, so it must be an executable, ordered procedure.
+	// The upgrade path is the one place an operator can still be running
+	// Ponytail. It is automatic now: start reconciles the workspace, and
+	// `cheasee-pi migrate` is the explicit entry point.
 	section, ok := guideSection(guide, "### Upgrade from a Ponytail release")
 	if !ok {
 		t.Fatal("docs/installation.md must carry a '### Upgrade from a Ponytail release' section")
 	}
-	uninstall := "pi uninstall " + ponytailSource
-	steps := numberedSteps(section)
-	if len(steps) < 4 {
-		t.Fatalf("cleanup path must be an ordered list of at least 4 steps, got %d", len(steps))
-	}
-
-	// Order matters: pi uninstall first, the manual settings edit second, the
-	// clone deletion third. Removing the entry by hand before uninstalling can
-	// leave the checkout behind.
-	for i, want := range []struct {
+	for _, want := range []struct {
 		needle string
 		what   string
 	}{
-		{uninstall, "the pi uninstall command"},
-		{".pi/settings.json", "the scoped settings edit"},
-		{ponytailClonePath, "the scoped clone deletion"},
-		{"jq -r '.packages'", "the verification command"},
+		{"cheasee-pi migrate", "the migration command"},
+		{"migrate --confirm", "the explicit-confirmation flag"},
+		{ponytailClonePath, "the exact checkout the migration removes"},
 	} {
-		if !strings.Contains(steps[i], want.needle) {
-			t.Errorf("cleanup step %d must carry %s (%q)", i+1, want.what, want.needle)
+		if !strings.Contains(section, want.needle) {
+			t.Errorf("upgrade section must carry %s (%q)", want.what, want.needle)
 		}
 	}
-	if !hasLinePrefixedBy(steps[0], uninstall) {
-		t.Errorf("cleanup step 1 must carry %q on one line (a wrapped command is not runnable)", uninstall)
+
+	// The guide documents the automatic path, not the old manual procedure: pi
+	// runs only inside the container, which the upgrade path cannot assume.
+	if strings.Contains(section, "pi uninstall") {
+		t.Error("the upgrade section must not keep the manual `pi uninstall` procedure")
 	}
-	// `pi list` reports the installed extension sources for the current scope, so
-	// the verification step must offer it: a settings edit alone does not prove
-	// that pi still resolves the package.
-	if !strings.Contains(steps[3], "pi list") {
-		t.Errorf("cleanup step 4 must offer `pi list` next to the %q check", "jq -r '.packages'")
+	// Verification stays: a settings edit alone does not prove pi stopped
+	// resolving the package.
+	if !strings.Contains(section, "pi list") {
+		t.Error("the upgrade section must still verify with `pi list`")
+	}
+	// The confirmation requirement is the issue's explicit-consent clause, so
+	// the guide must say which entry waits for it.
+	if !strings.Contains(strings.ToLower(section), "confirm") {
+		t.Error("the upgrade section must explain when --confirm is required")
 	}
 
 	// `.pi/git` also holds user-installed skill clones: a wholesale delete would

@@ -26,6 +26,7 @@ covered in [Configuration](configuration.md).
 | `cheasee-pi down` (alias `stop`)                   | Stop/remove THIS workspace's container only                                | —                                     |
 | `cheasee-pi clean`                                 | Remove ALL cheasee-pi containers (every repo) — kills active sessions      | confirmation                          |
 | `cheasee-pi prune-images`                          | Delete ALL tagged cheasee-pi images (every repo) — recreated on next build | confirmation, `--dry-run` / `--yes`   |
+| `cheasee-pi migrate`                               | Reconcile a workspace with packages this release no longer ships           | `--dry-run`, `--confirm`              |
 | `cheasee-pi uninstall`                             | Delete cheasee-pi itself: cache, auth config, binaries                     | confirmation                          |
 | `cheasee-pi about` (alias `intro`)                 | Print a ~10-line glossary of core concepts + workflow links                | —                                     |
 | `cheasee-pi completion <shell>`                    | Generate a completion script for Bash, Fish, PowerShell, or Zsh            | shell                                 |
@@ -59,6 +60,11 @@ cheasee-pi completion zsh --help
 | 5    | `cheasee-pi down`                | stop and remove this workspace's container                                  |
 | 6    | `cheasee-pi clean`               | sweep every container + orphan sessions, prune                              |
 | 7    | `cheasee-pi prune-images`        | remove every tagged `cheasee-pi-*` image on the host + orphaned build cache |
+
+`cheasee-pi start` reconciles the workspace with the packages this release
+ships before the container starts (see `cheasee-pi migrate`): an entry an older
+release recorded in `.pi/settings.json` or `cheasee-settings.json` is removed
+there and then, because the bind-mounted workspace survives every image rebuild.
 
 An empty folder can skip step 1: `cheasee-pi start` auto-runs init and
 stops (init never launches pi); run `cheasee-pi start` again to launch.
@@ -194,6 +200,20 @@ Delete ALL tagged cheasee-pi images (every repo) — recreated on next build —
 | **Checks** | Refuses while any cheasee-pi container exists (running or stopped) — run `cheasee-pi clean` first; a running container is a hard Docker conflict `-f` cannot force, and force-removing a stopped container's image silently orphans it. `--dry-run` lists the matched images with approximate (upper-bound) sizes. |
 | **Inputs** | Flags: `--dry-run`, `--yes` (skip confirmation).                                                                                                                                                                                                                                                                   |
 | **Note**   | Images are regenerable via `cheasee-pi build` / `cheasee-pi rebuild`. `docker buildx prune -a -f` discards cache host-wide — other projects sharing the default builder lose their cache too. Foreign tagged images are never matched.                                                                             |
+
+## `cheasee-pi migrate`
+
+Reconcile an existing workspace with a release that dropped a bundled package.
+An upgrade never replaces the workspace — the container bind-mounts it — so an
+entry an older release recorded keeps being loaded, and the container
+entrypoint keeps reinstalling it from `skillRepos` on every start.
+
+|            |                                                                                                                                                                                                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Does**   | Removes exactly the deprecated registration from `.pi/settings.json` `packages`, from `cheasee-settings.json` `skillRepos`, and the project-local clone under `.pi/git/`. Every other package, skill repository and clone is preserved, and a re-run is a no-op. |
+| **Checks** | Refuses while a session holds the workspace — close it first. A `packages` entry the migration cannot prove the harness wrote (a bare source with no harness-written `skillRepos` seed beside it) is left alone and named on stderr until `--confirm`.           |
+| **Inputs** | Flags: `--dry-run` (report only), `--confirm` (also remove the unprovable entries), `--workdir`.                                                                                                                                                                 |
+| **Note**   | `cheasee-pi start` runs the same migration before the container starts; `migrate` exists to inspect it, to run it without starting pi, or to finish a confirmed entry.                                                                                           |
 
 ## `cheasee-pi uninstall`
 

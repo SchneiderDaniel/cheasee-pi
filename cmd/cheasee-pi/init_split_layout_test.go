@@ -270,6 +270,7 @@ var upSplitFiles = []string{
 	"up_workspace_test.go",
 	"up_flow_test.go",
 	"up_flow_journey_test.go",
+	"up_flow_retire_test.go",
 }
 
 // wantUpDecls pins the non-Test decls of the up split to their target file.
@@ -303,12 +304,16 @@ var wantUpDecls = map[string]string{
 }
 
 // upSplitRules map the up test decl name prefixes to their thematic file.
-// Prefixes are disjoint, so order is not load-bearing.
+// The specific prefixes must precede the generic ones they nest under (the
+// matcher returns the first hit), so order is load-bearing where a rule is a
+// prefix of another.
 var upSplitRules = []prefixRule{
 	{"TestRunUpE_nonInitializedRefused", "up_flow_test.go"},
 	{"TestRunUpE_dryRun", "up_flow_test.go"},
 	{"TestRunUpE_autoInit", "up_flow_test.go"},
 	{"TestRunUpE_fullFlowRunsContainer", "up_flow_test.go"},
+	// The pre-container retirement stage has its own scenario file.
+	{"TestRunUpE_retire", "up_flow_retire_test.go"},
 	{"TestRunUpE", "up_flow_journey_test.go"},
 	{"TestExecArgs", "up_env_test.go"},
 	{"TestBuildEnvFlags_authGitHubTokenWinsOverProcessEnv", "up_env_flags_test.go"},

@@ -102,6 +102,7 @@ func TestRootCmd_GroupAssignment(t *testing.T) {
 		"clean":        groupIDDailyUse,
 		"down":         groupIDDailyUse,
 		"build":        groupIDMaintenance,
+		"migrate":      groupIDMaintenance,
 		"prune-images": groupIDMaintenance,
 		"rebuild":      groupIDMaintenance,
 		"uninstall":    groupIDMaintenance,
