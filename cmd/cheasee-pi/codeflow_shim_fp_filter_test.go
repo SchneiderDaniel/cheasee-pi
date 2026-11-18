@@ -53,43 +53,28 @@ func TestCodeFlowServer_FpFilterRewritePure(t *testing.T) {
 	}
 	dir := t.TempDir()
 	serverPath := stageCodeflowShim(t, dir)
-	script := `import runpy, sys, os
+	script := `import runpy, sys
 
 m = runpy.run_path(sys.argv[1])
 pat, repl = m["_UI_REWRITES"][0]
 
-src = b"<script>function generateReport(format){return format;}</script>"
+# Issue #2147: the filter runs at analysis completion, not at export time, so the
+# dashboard score and the exported report read the same filtered data.
+src = b"<script>function runAnalysisData(options){return buildAnalysisData(options);}</script>"
 out = pat.sub(lambda _: repl, src)
-assert out.count(b"function __piFpGenerateReport(format){return format;}") == 1, out
-assert out.count(b"piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data), { deriveSuggestions: function (d) {") == 1, out
-assert b'if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;' in out, out
-assert b'if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;' in out, out
-assert b'if ("stats" in __piFp.data) data.stats = __piFp.data.stats;' in out, out
-assert b"data = piFpFilter" not in out, "must not rebind data (const-safe): %r" % out
-assert b'"fp-filter: suppressed "' in out, "suppression log must keep the headless wording: %r" % out
-assert b"__piFp.suppressed.hygiene.length" in out, "the hygiene count must be reported: %r" % out
-assert b'" hygiene finding(s), "' in out, out
-assert b"__piFpDead + \" unused function(s), \"" in out, "the dead-function count must be reported: %r" % out
-assert b"__piFp.suppressed.duplicates" in out, "the duplicate count must be reported: %r" % out
-assert b'" duplicate group(s)");' in out, out
-assert b'if ("duplicates" in __piFp.data) data.duplicates = __piFp.data.duplicates;' in out, out
-assert b'if ("issues" in __piFp.data) data.issues = __piFp.data.issues;' in out, out
-assert b"data.files.forEach(function (f) { if (f) f.piFpSource = null; })" in out, "the retained source must be released: %r" % out
-assert b"Parser.generateSuggestions" in out, "the page's own deriver must be passed: %r" % out
-assert b'if ("suggestions" in __piFp.data) data.suggestions = __piFp.data.suggestions;' in out, out
-assert b"derived suggestion(s): derivation unavailable" in out, out
-assert b'"use strict"' in out, out
-assert b"throw e" in out, "sanitizer error must fail closed: %r" % out
-assert b"__codeflowBridgeReportError" in out, "sanitizer failure must be visible: %r" % out
-assert b"window.__codeflowBridgeReportError = reportError" in m["_BRIDGE_JS"], m["_BRIDGE_JS"]
-assert b"return __piFpGenerateReport.apply(this, arguments)" in out, out
+assert out.count(b"function __piFpRunAnalysisData(options){return buildAnalysisData(options);}</script>") == 1, out
+assert out.count(b"piFpFilterBrowserGlue.applyFalsePositiveFilter(__piFpData)") == 1, out
+assert b"function runAnalysisData(options) { \"use strict\";" in out, out
+assert b"__piFpGenerateReport" not in out, "the export wrapper must be gone: %r" % out
+assert b"sanitizeAnalysisData" not in out, "the seam only calls the glue: %r" % out
+assert b"data.securityIssues =" not in out, "the seam writes no fields itself: %r" % out
 assert pat.sub(lambda _: repl, out) == out, "not idempotent"
 
-raw = b"<script>no report function here</script>"
+raw = b"<script>no analysis seam here</script>"
 assert pat.sub(lambda _: repl, raw) == raw, "anchor-free bytes altered: %r" % pat.sub(lambda _: repl, raw)
 
-# The analyzer frees each file's source before generateReport; the served page
-# must keep it on piFpSource so the in-page filter can resolve references.
+# The analyzer frees each file's source before the filter can read it; the served
+# page must keep it on piFpSource.
 src_keep = [rw for rw in m["_UI_REWRITES"] if b"f.piFpSource=f.content" in rw[1]]
 assert len(src_keep) == 1, src_keep
 keep_pat, keep_repl = src_keep[0]
@@ -101,9 +86,9 @@ assert keep_pat.sub(lambda _: keep_repl, b"nothing to keep here") == b"nothing t
 
 bridge = m["_BRIDGE_SCRIPT"]
 assert bridge.count(b"fp-filter.js") == 1, bridge
-assert bridge.count(b"codeflow-bridge.js") == 1, bridge
-assert m["_FP_FILTER_ROUTE"] == "/fp-filter.js"
-assert os.path.basename(m["_FP_FILTER_PATH"]) == "fp-filter.js"
+assert bridge.count(b'<script src="fp-filter/browser-glue.js" defer></script>') == 1, bridge
+glue_at = bridge.index(b'<script src="fp-filter/browser-glue.js" defer></script>')
+assert glue_at < bridge.index(b'<script src="fp-filter.js" defer></script>'), "the glue loads before the index"
 print("OK")
 `
 	scriptPath := filepath.Join(dir, "check_fp_filter.py")
@@ -112,21 +97,21 @@ print("OK")
 	}
 	out, err := exec.Command(python, scriptPath, serverPath).CombinedOutput()
 	if err != nil {
-		t.Fatalf("false-positive wrapper checks failed: %v\n%s", err, out)
+		t.Fatalf("false-positive seam checks failed: %v\n%s", err, out)
 	}
 	if !strings.Contains(string(out), "OK") {
 		t.Fatalf("unexpected helper output: %s", out)
 	}
 }
 
-// TestCodeFlowServer_FpFilterWrapperBehavior executes the served-page wrapper:
-// the page declares `data` as a constant, so the old rebinding threw and fell
-// back to the unfiltered report. The wrapper must filter by overwriting the
-// array properties, a sanitizer error must fail closed (no unfiltered export),
-// and a write a frozen `data` rejects must surface on the same visible error
-// banner instead of aborting the export silently. The rewritten generateReport
-// comes from the real server.py rewrite.
-func TestCodeFlowServer_FpFilterWrapperBehavior(t *testing.T) {
+// TestCodeFlowServer_FpFilterSeamBehavior executes the served-page seam: the
+// filter runs at analysis completion and writes its result into the same `data`
+// object the page scores, so the dashboard and the export cannot disagree. A
+// write a frozen `data` rejects must surface on the visible error banner instead
+// of aborting silently, and a sanitizer throw must fail closed. The rewritten
+// seam comes from the real server.py rewrite; the application step is the real
+// fp-filter/browser-glue.js.
+func TestCodeFlowServer_FpFilterSeamBehavior(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
 		t.Skip("python3 not available")
@@ -139,77 +124,74 @@ func TestCodeFlowServer_FpFilterWrapperBehavior(t *testing.T) {
 	serverPath := stageCodeflowShim(t, dir)
 	filterPath := filepath.Join(dir, "fp-filter.js")
 
-	// Emit three CommonJS harnesses: one with a real `const data`, one whose
-	// sanitizer throws, and one whose `data` is frozen so the in-place write
-	// throws. All inline the rewrite server.py actually serves.
-	script := `import runpy, sys
+	// Three CommonJS harnesses: a healthy analysis, a frozen `data` (the write a
+	// page can reject) and a policy that throws at the application step.
+	script := `import os, runpy, sys
 
 m = runpy.run_path(sys.argv[1])
 pat, repl = m["_UI_REWRITES"][0]
-rewritten = pat.sub(lambda _: repl, b"function generateReport(format){ return data; }").decode()
+rewritten = pat.sub(lambda _: repl, b"function runAnalysisData(options){ return buildAnalysisData(options); }").decode()
+# The page's glue tag publishes one global; the harness publishes the same one.
+glue = "globalThis.piFpFilterBrowserGlue = require(%r);" % os.path.join(
+    os.path.dirname(sys.argv[1]), "fp-filter", "browser-glue.js")
 
 ok = """const data = { stats: { security: 1, violations: 0 }, securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' }, { severity: 'low', title: 'Code Comments', code: '', path: 'src/widget.test.ts' } ], layerViolations: [] };
-const piFpFilter = require(process.argv[2]);
-""" + rewritten + """
-generateReport('md');
-process.stdout.write('RESULT' + JSON.stringify({ security: data.securityIssues.length, layers: data.layerViolations.length, stats: data.stats }));
+function buildAnalysisData() { return Promise.resolve(data); }
+""" + glue + rewritten + """
+runAnalysisData({}).then(function (filtered) {
+  process.stdout.write('RESULT' + JSON.stringify({ same: filtered === data, security: data.securityIssues.length, layers: data.layerViolations.length, stats: data.stats }));
+}).catch(function (e) { process.stdout.write('THREW:' + e.message); });
 """
 open(sys.argv[3], "w").write(ok)
 
-fail = """const data = { securityIssues: [] };
-globalThis.__bridgeSaw = null;
+banner = """globalThis.__bridgeSaw = null;
 globalThis.__codeflowBridgeReportError = function (m) { globalThis.__bridgeSaw = m; };
-const piFpFilter = { sanitizeAnalysisData() { throw new Error('fp-filter exploded'); }, readFileFrom() { return () => null; } };
-""" + rewritten + """
-try { generateReport('md'); process.stdout.write('RESULTNO_THROW'); }
-catch (e) { process.stdout.write('RESULTTHREW:' + e.message + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw); }
 """
-open(sys.argv[4], "w").write(fail)
-
 frozen = """const data = Object.freeze({ securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] });
-globalThis.__bridgeSaw = null;
-globalThis.__codeflowBridgeReportError = function (m) { globalThis.__bridgeSaw = m; };
-const piFpFilter = require(process.argv[2]);
-""" + rewritten + """
-try { generateReport('md'); process.stdout.write('FROZENNO_THROW'); }
-catch (e) { process.stdout.write('FROZEN:' + e.constructor.name + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw); }
+function buildAnalysisData() { return Promise.resolve(data); }
+""" + banner + glue + rewritten + """
+runAnalysisData({}).then(function () { process.stdout.write('FROZENNO_THROW'); })
+  .catch(function (e) { process.stdout.write('FROZEN:' + e.constructor.name + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw); });
 """
-open(sys.argv[5], "w").write(frozen)
+open(sys.argv[4], "w").write(frozen)
+
+throwing = """const data = { securityIssues: [] };
+""" + banner + glue + """
+try {
+  globalThis.piFpFilterBrowserGlue.applyFalsePositiveFilter(data, { piFpFilter: { sanitizeAnalysisData: function () { throw new Error('fp-filter exploded'); }, readFileFrom: function () { return function () { return null; }; } } });
+  process.stdout.write('RESULTNO_THROW');
+} catch (e) {
+  process.stdout.write('RESULTTHREW:' + e.message + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw);
+}
+"""
+open(sys.argv[5], "w").write(throwing)
 `
 	scriptPath := filepath.Join(dir, "emit_harness.py")
 	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
 		t.Fatalf("write emit script: %v", err)
 	}
 	okHarness := filepath.Join(dir, "ok.cjs")
-	failHarness := filepath.Join(dir, "fail.cjs")
 	frozenHarness := filepath.Join(dir, "frozen.cjs")
-	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, okHarness, failHarness, frozenHarness).CombinedOutput(); err != nil {
+	throwingHarness := filepath.Join(dir, "throwing.cjs")
+	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, okHarness, frozenHarness, throwingHarness).CombinedOutput(); err != nil {
 		t.Fatalf("emit harnesses: %v\n%s", err, out)
 	}
 
-	out, err := exec.Command(node, okHarness, filterPath).CombinedOutput()
+	out, err := exec.Command(node, okHarness).CombinedOutput()
 	if err != nil {
-		t.Fatalf("const-data harness failed: %v\n%s", err, out)
+		t.Fatalf("analysis harness failed: %v\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "RESULT{\"security\":0,\"layers\":0,\"stats\":{\"security\":0,\"violations\":0}}") {
-		t.Errorf("const `data` was not filtered in place (arrays and stats must both move): %s", out)
+	if !strings.Contains(string(out), "RESULT{\"same\":true,\"security\":0,\"layers\":0,\"stats\":{\"security\":0,\"violations\":0}}") {
+		t.Errorf("the analysis result must be filtered in place (same object, arrays and stats): %s", out)
 	}
 	if !strings.Contains(
 		string(out),
 		"fp-filter: suppressed 1 security issue(s), 0 layer violation(s), 1 hygiene finding(s)",
 	) {
-		t.Errorf("the served wrapper must log the same suppression line as the headless runner, got: %s", out)
+		t.Errorf("the served seam must log the same suppression line as the headless runner, got: %s", out)
 	}
 
-	out, err = exec.Command(node, failHarness, filterPath).CombinedOutput()
-	if err != nil {
-		t.Fatalf("fail-closed harness failed: %v\n%s", err, out)
-	}
-	if !strings.Contains(string(out), "RESULTTHREW:fp-filter exploded:fp-filter exploded:false-positive filter failed; report not exported: fp-filter exploded") {
-		t.Errorf("sanitizer error must fail closed and surface the failure, got: %s", out)
-	}
-
-	out, err = exec.Command(node, frozenHarness, filterPath).CombinedOutput()
+	out, err = exec.Command(node, frozenHarness).CombinedOutput()
 	if err != nil {
 		t.Fatalf("frozen-data harness failed: %v\n%s", err, out)
 	}
@@ -219,15 +201,24 @@ open(sys.argv[5], "w").write(frozen)
 	if !strings.Contains(string(out), "false-positive filter failed; report not exported:") {
 		t.Errorf("a frozen-data write failure must surface on the visible error handler, got: %s", out)
 	}
+
+	out, err = exec.Command(node, throwingHarness).CombinedOutput()
+	if err != nil {
+		t.Fatalf("throwing-policy harness failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "RESULTTHREW:fp-filter exploded:fp-filter exploded:false-positive filter failed; report not exported: fp-filter exploded") {
+		t.Errorf("sanitizer error must fail closed and surface the failure, got: %s", out)
+	}
 }
 
 // TestCodeFlowServer_FpFilterServed is the serve-path contract: /fp-filter.js is
 // served byte-verbatim as JavaScript, the served index.html references it exactly
-// once after the policy-module tags and wraps generateReport in it.
+// once after the policy-module tags, and the analysis seam calls the glue (issue
+// #2147: the export is a pure reader, so there is no wrapper in generateReport).
 func TestCodeFlowServer_FpFilterServed(t *testing.T) {
 	uiDir := t.TempDir()
 	writeShimFile(t, uiDir, "index.html",
-		"<script>function generateReport(format){return format;}</script>\n</body>")
+		"<script>function runAnalysisData(options){return buildAnalysisData(options);}</script>\n</body>")
 	base := startShim(t, t.TempDir(), uiDir)
 
 	resp, body := getStatus(t, newNoRedirectClient(), base+"/fp-filter.js")
@@ -251,19 +242,19 @@ func TestCodeFlowServer_FpFilterServed(t *testing.T) {
 	}
 	for _, want := range []string{
 		"<script src=\"fp-filter.js\" defer></script><script src=\"codeflow-bridge.js\" defer></script>",
-		"if (\"securityIssues\" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;",
-		"if (\"layerViolations\" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;",
-		"if (\"stats\" in __piFp.data) data.stats = __piFp.data.stats;",
-		"function __piFpGenerateReport(format){return format;}",
+		"<script src=\"fp-filter/browser-glue.js\" defer></script>",
+		"piFpFilterBrowserGlue.applyFalsePositiveFilter(__piFpData)",
+		"function __piFpRunAnalysisData(options){return buildAnalysisData(options);}",
 	} {
 		if n := bytes.Count(body, []byte(want)); n != 1 {
 			t.Errorf("served index.html must contain %q exactly once, got %d\nbody: %s", want, n, body)
 		}
 	}
-	// The index tag is the only occurrence of `fp-filter.js`: the module tags are
-	// `fp-filter/<name>.js`, which does not contain that substring.
-	if n := bytes.Count(body, []byte("fp-filter.js")); n != 1 {
-		t.Errorf("served index.html must reference fp-filter.js once, got %d", n)
+	// The seam is analysis completion: the glue call precedes the analyzed body,
+	// plus nothing of the old export-time wrapper survives.
+	if bytes.Index(body, []byte("piFpFilterBrowserGlue.applyFalsePositiveFilter(__piFpData)")) >
+		bytes.Index(body, []byte("function __piFpRunAnalysisData(options){return buildAnalysisData(options);}")) {
+		t.Errorf("the glue call must precede the body it filters")
 	}
 }
 
@@ -410,10 +401,11 @@ print("ROUTE\t" + m["_FP_FILTER_MODULE_ROUTE"])
 }
 
 // TestCodeFlowServer_FpFilterSuggestions covers the derived `suggestions[]` cards
-// (issue #2030): the wrapper passes the page's own `Parser.generateSuggestions` as
-// the deriver and copies the reconciled array back, so the served UI cannot export
-// cards naming findings the filter just dropped. With no deriver available the
-// cards are dropped and the degradation is logged — never silently exported.
+// (issue #2030): the application step passes the page's own
+// `Parser.generateSuggestions` as the deriver and the seam writes the reconciled
+// array back, so the served UI cannot show cards naming findings the filter just
+// dropped. With no deriver available the cards are dropped and the degradation is
+// logged — never silently exported.
 func TestCodeFlowServer_FpFilterSuggestions(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -427,11 +419,14 @@ func TestCodeFlowServer_FpFilterSuggestions(t *testing.T) {
 	serverPath := stageCodeflowShim(t, dir)
 	filterPath := filepath.Join(dir, "fp-filter.js")
 
-	script := `import runpy, sys
+	script := `import os, runpy, sys
 
 m = runpy.run_path(sys.argv[1])
 pat, repl = m["_UI_REWRITES"][0]
-rewritten = pat.sub(lambda _: repl, b"function generateReport(format){ return data; }").decode()
+rewritten = pat.sub(lambda _: repl, b"function runAnalysisData(options){ return buildAnalysisData(options); }").decode()
+# The page's glue tag publishes one global; the harness publishes the same one.
+glue = "globalThis.piFpFilterBrowserGlue = require(%r);" % os.path.join(
+    os.path.dirname(sys.argv[1]), "fp-filter", "browser-glue.js")
 
 # The page exposes its own deriver; it must also see the *filtered* arrays.
 deriver = """const data = {
@@ -440,24 +435,26 @@ deriver = """const data = {
   duplicates: [ { type: 'code', name: 'withEnv, exec, cacheGet', files: [ { file: 'a.ts' } ] } ],
   issues: [], stats: { dead: 3 }, securityIssues: [], files: []
 };
-const Parser = { generateSuggestions: function (d) {
+globalThis.Parser = { generateSuggestions: function (d) {
   globalThis.__deriverSaw = { layers: d.layerViolations.length, duplicates: d.duplicates.length };
   return [ { title: 'Remove Dead Code', desc: d.stats.dead + ' unused functions detected.' } ];
 } };
-const piFpFilter = require(process.argv[2]);
-""" + rewritten + """
-generateReport('md');
-process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions, seen: globalThis.__deriverSaw }));
+function buildAnalysisData() { return Promise.resolve(data); }
+""" + glue + rewritten + """
+runAnalysisData({}).then(function () {
+  process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions, seen: globalThis.__deriverSaw }));
+}).catch(function (e) { process.stdout.write('THREW:' + e.message); });
 """
 open(sys.argv[3], "w").write(deriver)
 
-# A page with Parser but no deriver: the export still happens, empty, and says so.
+# A page with Parser but no deriver: the analysis still completes, empty, and says so.
 missing = """const data = { suggestions: [ { title: 'Fix Security Issues', desc: '9 high-severity issues found.' } ], issues: [], stats: { dead: 0 }, files: [], securityIssues: [], layerViolations: [] };
-const Parser = { functionKey: function (fn) { return fn.name; } };
-const piFpFilter = require(process.argv[2]);
-""" + rewritten + """
-generateReport('md');
-process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions }));
+globalThis.Parser = { functionKey: function (fn) { return fn.name; } };
+function buildAnalysisData() { return Promise.resolve(data); }
+""" + glue + rewritten + """
+runAnalysisData({}).then(function () {
+  process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions }));
+}).catch(function (e) { process.stdout.write('THREW:' + e.message); });
 """
 open(sys.argv[4], "w").write(missing)
 `
@@ -471,19 +468,19 @@ open(sys.argv[4], "w").write(missing)
 		t.Fatalf("emit harnesses: %v\n%s", err, out)
 	}
 
-	out, err := exec.Command(node, withDeriver, filterPath).CombinedOutput()
+	out, err := exec.Command(node, withDeriver).CombinedOutput()
 	if err != nil {
 		t.Fatalf("deriver harness failed: %v\n%s", err, out)
 	}
 	want := `RESULT{"suggestions":[{"title":"Remove Dead Code","desc":"3 unused functions detected."}],"seen":{"layers":0,"duplicates":0}}`
 	if !strings.Contains(string(out), want) {
-		t.Errorf("the served wrapper must re-derive from the filtered data, got: %s\nwant: %s", out, want)
+		t.Errorf("the seam must re-derive from the filtered data, got: %s\nwant: %s", out, want)
 	}
 	if strings.Contains(string(out), "derivation unavailable") {
 		t.Errorf("the healthy path must stay quiet, got: %s", out)
 	}
 
-	out, err = exec.Command(node, withoutDeriver, filterPath).CombinedOutput()
+	out, err = exec.Command(node, withoutDeriver).CombinedOutput()
 	if err != nil {
 		t.Fatalf("missing-deriver harness failed: %v\n%s", err, out)
 	}

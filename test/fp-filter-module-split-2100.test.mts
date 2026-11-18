@@ -73,6 +73,7 @@ const MODULES = [
 ];
 
 /** The browser global each module tag publishes (the index reads these). */
+const GLUE_MODULE = "browser-glue";
 const GLOBALS: Record<string, string> = {
 	lexical: "piFpFilterLexical",
 	hygiene: "piFpFilterHygiene",
@@ -304,8 +305,8 @@ function loadFilter(order: string[] = MODULES): Record<string, any> {
 	return sandbox;
 }
 
-/** The served `generateReport` wrapper, emitted by server.py's own rewrite. */
-function servedWrapper(): string | null {
+/** The served analysis-seam wrapper, emitted by ui_rewrites.py's own rewrite. */
+function servedSeam(): string | null {
 	try {
 		return execFileSync(
 			"python3",
@@ -315,7 +316,7 @@ function servedWrapper(): string | null {
 					"import runpy, sys",
 					"m = runpy.run_path(sys.argv[1])",
 					"pat, repl = m['_UI_REWRITES'][0]",
-					"src = b'function generateReport(format){ return data; }'",
+					"src = b'function runAnalysisData(options){ return buildAnalysisData(options); }'",
 					"sys.stdout.write(pat.sub(lambda _: repl, src).decode())",
 				].join("\n"),
 				SERVER_PY,
@@ -742,7 +743,11 @@ describe("fp-filter module split #2100 — served adapters", () => {
 		const tagged = [
 			...script.matchAll(/<script src="fp-filter\/([\w/-]+)\.js" defer><\/script>/g),
 		].map((m) => m[1]);
-		assert.deepStrictEqual(tagged, MODULES, "one tag per module, in load order");
+		assert.deepStrictEqual(
+			tagged,
+			[...MODULES, GLUE_MODULE],
+			"one tag per policy module, then the application step (issue #2147), in load order",
+		);
 		const indexTag = '<script src="fp-filter.js" defer></script>';
 		assert.equal(script.split(indexTag).length - 1, 1, "exactly one index tag");
 		const indexAt = script.indexOf(indexTag);
@@ -857,22 +862,31 @@ describe("fp-filter module split #2100 — served page parity", () => {
 		assert.ok(node.suppressed.layerViolations.length > 0, "the real layer category is noise");
 	});
 
-	it("served wrapper leaves the page's data equal to the headless result", (t) => {
-		const wrapper = servedWrapper();
-		if (!wrapper) return t.skip("python3 is not available to emit the served rewrite");
+	it("served seam leaves the page's data equal to the headless result", async (t) => {
+		const seam = servedSeam();
+		if (!seam) return t.skip("python3 is not available to emit the served rewrite");
+		// The served page loads the policy modules, then the index, then the glue.
 		const sandbox = loadFilter();
-		sandbox.__fixture = read("test/fixtures/codeflow-real-analysis-fp.json");
+		vm.runInContext(
+			readFileSync(resolve(MODULE_DIR, `${GLUE_MODULE}.js`), "utf-8"),
+			sandbox,
+			{ filename: `${GLUE_MODULE}.js` },
+		);
 		sandbox.console = { info: () => {}, error: () => {} };
 		const files = servedShape().files;
+		sandbox.__fixture = read("test/fixtures/codeflow-real-analysis-fp.json");
 		sandbox.__files = JSON.stringify(files);
+		// `runAnalysisData` resolves the analyzer's result; the recording stands in
+		// for it, exactly as the page hands it over at analysis completion.
 		vm.runInContext(
-			"const data = JSON.parse(__fixture); data.files = JSON.parse(__files);",
+			"const __recorded = JSON.parse(__fixture); __recorded.files = JSON.parse(__files);\n" +
+				"function buildAnalysisData() { return Promise.resolve(__recorded); }",
 			sandbox,
 		);
-		vm.runInContext(`${wrapper}\n;globalThis.__out = generateReport('json');`, sandbox, {
-			filename: "served-wrapper.js",
-		});
-		const page = JSON_COPY(sandbox.__out);
+		vm.runInContext(seam, sandbox, { filename: "served-seam.js" });
+		const page = JSON_COPY(
+			await vm.runInContext("runAnalysisData({ analyzed: [], allFns: [] })", sandbox),
+		);
 		const headless = JSON_COPY(
 			api.sanitizeAnalysisData(
 				{ ...JSON.parse(sandbox.__fixture), files },
@@ -891,7 +905,12 @@ describe("fp-filter module split #2100 — served page parity", () => {
 		assert.deepStrictEqual(
 			sandbox.__codeflowFpFilterError,
 			undefined,
-			"the wrapper must not fail closed on a healthy page",
+			"the seam must not fail closed on a healthy page",
+		);
+		// The retained source is released once the seam has filtered.
+		assert.ok(
+			page.files.every((f: { piFpSource: unknown }) => f.piFpSource === null),
+			"the served page must not retain the analyzed source after completion",
 		);
 	});
 });
