@@ -7,7 +7,7 @@ import type { AgentRunState } from "../../config/types.ts";
 import type { NestedCall } from "../../subagent/types.ts";
 import { MAX_NESTED_CALLS } from "../../session/message-renderers/constants.ts";
 import { pushLog } from "../../agent/state-helpers.ts";
-import { renderToolCallText } from "../../lib/render-helpers.ts";
+import { renderToolCallText } from "../../lib/tool-call-text.ts";
 import { extractTextFromContent } from "../../lib/formatting.ts";
 import type { NormalizedEvent, HandlerResult } from "./normalize.ts";
 

@@ -1,32 +1,24 @@
-// ─── Tests: OctokitClient — repo parsing + closing-PR delegation ───
-// Split out of octokit-client.test.mts (issue #2102): the repo-string
-// contract and the getClosingPrsForIssue delegation checks live here so the
-// original suite stays well under the Rule 1 file-size ceiling.
+// ─── Tests: repo parsing across the split adapters (issue #2098) ───
+// Originally pinned the adapter-private `parseRepo` of the single
+// OctokitClient (issue #2102). After the port split the guard lives once in
+// RepoAdapterBase, so the contract is pinned here for BOTH repo-taking
+// adapters — and asserted to have exactly one textual definition.
 //
 // Run with:
 //   node --experimental-strip-types --test .pi/extensions/supervisor/test/github/octokit-repo-parsing.test.mts
 
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { OctokitClient } from "../../github/octokit-client.ts";
+import { readFileSync, readdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { OctokitIssues } from "../../github/octokit-issues.ts";
+import { OctokitPulls } from "../../github/octokit-pulls.ts";
+import type { GitHubTransport } from "../../github/github-transport.ts";
+import { fakeTransport, createMockLogger } from "./fake-transport.mts";
 
-// ─── Mock Logger ──────────────────────────────────────────────────
-
-function createMockLogger() {
-	return {
-		debug: () => {},
-		info: () => {},
-		warn: () => {},
-		error: () => {},
-		child: () => createMockLogger(),
-	};
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// Repo parsing — adapter-private `parseRepo` (issue #2102)
-// Ten public methods used to repeat the same split/guard block. They now
-// share one private helper; these tests pin its observable contract.
-// ═══════════════════════════════════════════════════════════════════════
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const GITHUB_DIR = join(__dirname, "../../github");
 
 const INVALID_REPO = "nope";
 const INVALID_MESSAGE = "Invalid repo format: nope (expected owner/name)";
@@ -37,16 +29,13 @@ interface Recorded {
 }
 
 /** Octokit/graphql stub that records every call and never touches the network. */
-function recordingStub(log: Recorded[]): {
-	octokit: Record<string, unknown>;
-	graphql: (query: string) => Promise<unknown>;
-} {
+function recordingTransport(log: Recorded[]): GitHubTransport {
 	const rec = (api: string, response: unknown) =>
 		mock.fn(async (args: Record<string, unknown>) => {
 			log.push({ api, args });
 			return response;
 		});
-	return {
+	return fakeTransport({
 		octokit: {
 			issues: {
 				get: rec("issues.get", {
@@ -69,46 +58,100 @@ function recordingStub(log: Recorded[]): {
 				}),
 			},
 		},
-		graphql: async (query: string) => {
+		query: async (query: string) => {
 			log.push({ api: "graphql", args: { query } });
 			return { repository: { issue: { timelineItems: { nodes: [] } } } };
 		},
-	};
+	}) as GitHubTransport;
 }
 
-/** Octokit/graphql stand-in that fails loudly if any HTTP path is reached. */
-function throwingStub(): Record<string, unknown> {
-	return new Proxy({} as Record<string, unknown>, {
-		get() {
+/** Transport stand-in that fails loudly if any HTTP path is reached. */
+function throwingTransport(): GitHubTransport {
+	const thrower = new Proxy(
+		{},
+		{
+			get() {
+				throw new Error("HTTP call attempted despite invalid repo");
+			},
+		},
+	);
+	return fakeTransport({
+		octokit: thrower as unknown as Record<string, unknown>,
+		query: async () => {
 			throw new Error("HTTP call attempted despite invalid repo");
 		},
 	});
 }
 
-/** The ten repo-taking public methods, invoked with a caller-supplied repo string. */
-const REPO_METHODS: Array<{
+type AnyAdapter = OctokitIssues | OctokitPulls;
+
+interface MethodCase {
 	name: string;
-	invoke: (client: OctokitClient, repo: string) => Promise<unknown>;
-}> = [
-	{ name: "getIssue", invoke: (c, repo) => c.getIssue(1, repo) },
-	{ name: "getIssueWithComments", invoke: (c, repo) => c.getIssueWithComments(1, repo) },
-	{ name: "closeIssue", invoke: (c, repo) => c.closeIssue(1, repo) },
-	{ name: "postIssueComment", invoke: (c, repo) => c.postIssueComment(1, repo, "body") },
-	{ name: "compareBranches", invoke: (c, repo) => c.compareBranches("main", "b", repo) },
+	build: (transport: GitHubTransport) => AnyAdapter;
+	invoke: (adapter: AnyAdapter, repo: string) => Promise<unknown>;
+}
+
+function issues(transport: GitHubTransport): OctokitIssues {
+	return new OctokitIssues(transport, createMockLogger());
+}
+
+function pulls(transport: GitHubTransport): OctokitPulls {
+	return new OctokitPulls(transport, createMockLogger());
+}
+
+/** Every repo-taking method across the split adapters (ten in total). */
+const REPO_METHODS: MethodCase[] = [
 	{
-		name: "listPullRequestsForBranch",
-		invoke: (c, repo) => c.listPullRequestsForBranch("b", repo),
+		name: "OctokitIssues.getIssue",
+		build: issues,
+		invoke: (a, repo) => (a as OctokitIssues).getIssue(1, repo),
 	},
 	{
-		name: "createPullRequest",
-		invoke: (c, repo) => c.createPullRequest({ repo, base: "main", head: "b", title: "t" }),
+		name: "OctokitIssues.getIssueWithComments",
+		build: issues,
+		invoke: (a, repo) => (a as OctokitIssues).getIssueWithComments(1, repo),
 	},
-	{ name: "updatePullRequest", invoke: (c, repo) => c.updatePullRequest(1, repo, "body") },
 	{
-		name: "checkBlockedByDependencies",
-		invoke: (c, repo) => c.checkBlockedByDependencies(1, repo),
+		name: "OctokitIssues.closeIssue",
+		build: issues,
+		invoke: (a, repo) => (a as OctokitIssues).closeIssue(1, repo),
 	},
-	{ name: "getClosingPrsForIssue", invoke: (c, repo) => c.getClosingPrsForIssue(1, repo) },
+	{
+		name: "OctokitIssues.postIssueComment",
+		build: issues,
+		invoke: (a, repo) => (a as OctokitIssues).postIssueComment(1, repo, "body"),
+	},
+	{
+		name: "OctokitPulls.compareBranches",
+		build: pulls,
+		invoke: (a, repo) => (a as OctokitPulls).compareBranches("main", "b", repo),
+	},
+	{
+		name: "OctokitPulls.listPullRequestsForBranch",
+		build: pulls,
+		invoke: (a, repo) => (a as OctokitPulls).listPullRequestsForBranch("b", repo),
+	},
+	{
+		name: "OctokitPulls.createPullRequest",
+		build: pulls,
+		invoke: (a, repo) =>
+			(a as OctokitPulls).createPullRequest({ repo, base: "main", head: "b", title: "t" }),
+	},
+	{
+		name: "OctokitPulls.updatePullRequest",
+		build: pulls,
+		invoke: (a, repo) => (a as OctokitPulls).updatePullRequest(1, repo, "body"),
+	},
+	{
+		name: "OctokitPulls.checkBlockedByDependencies",
+		build: pulls,
+		invoke: (a, repo) => (a as OctokitPulls).checkBlockedByDependencies(1, repo),
+	},
+	{
+		name: "OctokitPulls.getClosingPrsForIssue",
+		build: pulls,
+		invoke: (a, repo) => (a as OctokitPulls).getClosingPrsForIssue(1, repo),
+	},
 ];
 
 /** Assert every recorded call carries the parsed owner/name pair. */
@@ -134,15 +177,16 @@ function assertRepoForwarded(log: Recorded[], owner: string, name: string): void
 	}
 }
 
-describe("OctokitClient — repo parsing (parseRepo extraction)", () => {
-	for (const { name, invoke } of REPO_METHODS) {
-		it(`${name} rejects a repo without owner/name before any HTTP call`, async () => {
-			const client = new OctokitClient("fake-token", createMockLogger() as any);
-			(client as any).octokit = throwingStub();
-			(client as any)._graphql = throwingStub();
+// ═══════════════════════════════════════════════════════════════════
+// One shared guard, identical message
+// ═══════════════════════════════════════════════════════════════════
 
+describe("repo parsing — shared guard across split adapters", () => {
+	for (const { name, build, invoke } of REPO_METHODS) {
+		it(`${name} rejects a repo without owner/name before any HTTP call`, async () => {
+			const adapter = build(throwingTransport());
 			await assert.rejects(
-				() => invoke(client, INVALID_REPO),
+				() => invoke(adapter, INVALID_REPO),
 				(err: Error) => {
 					assert.equal(err.message, INVALID_MESSAGE);
 					return true;
@@ -153,13 +197,10 @@ describe("OctokitClient — repo parsing (parseRepo extraction)", () => {
 
 	for (const repo of ["", "/repo", "owner/", "/"]) {
 		it(`rejects ${JSON.stringify(repo)} with the exact message and no HTTP call`, async () => {
-			for (const { name, invoke } of REPO_METHODS) {
-				const client = new OctokitClient("fake-token", createMockLogger() as any);
-				(client as any).octokit = throwingStub();
-				(client as any)._graphql = throwingStub();
-
+			for (const { name, build, invoke } of REPO_METHODS) {
+				const adapter = build(throwingTransport());
 				await assert.rejects(
-					() => invoke(client, repo),
+					() => invoke(adapter, repo),
 					(err: Error) => {
 						assert.equal(
 							err.message,
@@ -173,36 +214,24 @@ describe("OctokitClient — repo parsing (parseRepo extraction)", () => {
 		});
 	}
 
-	for (const { name, invoke } of REPO_METHODS) {
+	for (const { name, build, invoke } of REPO_METHODS) {
 		it(`${name} splits owner/repo and forwards both as defined strings`, async () => {
 			const log: Recorded[] = [];
-			const stub = recordingStub(log);
-			const client = new OctokitClient("fake-token", createMockLogger() as any);
-			(client as any).octokit = stub.octokit;
-			(client as any)._graphql = stub.graphql;
-
-			await invoke(client, "owner/repo");
+			await invoke(build(recordingTransport(log)), "owner/repo");
 			assertRepoForwarded(log, "owner", "repo");
 		});
 
 		it(`${name} ignores an extra path segment (owner=a, repo=b)`, async () => {
 			const log: Recorded[] = [];
-			const stub = recordingStub(log);
-			const client = new OctokitClient("fake-token", createMockLogger() as any);
-			(client as any).octokit = stub.octokit;
-			(client as any)._graphql = stub.graphql;
-
-			await invoke(client, "a/b/c");
+			await invoke(build(recordingTransport(log)), "a/b/c");
 			assertRepoForwarded(log, "a", "b");
 		});
 	}
 
 	it("createPullRequest validates input.repo, not the input object", async () => {
-		const client = new OctokitClient("fake-token", createMockLogger() as any);
-		(client as any).octokit = throwingStub();
-
+		const adapter = pulls(throwingTransport());
 		await assert.rejects(
-			() => client.createPullRequest({ repo: INVALID_REPO, base: "main", head: "b", title: "t" }),
+			() => adapter.createPullRequest({ repo: INVALID_REPO, base: "main", head: "b", title: "t" }),
 			(err: Error) => {
 				assert.equal(err.message, INVALID_MESSAGE);
 				assert.ok(!err.message.includes("[object Object]"));
@@ -210,83 +239,35 @@ describe("OctokitClient — repo parsing (parseRepo extraction)", () => {
 			},
 		);
 	});
-
-	it("parseRepo is not part of the module's export surface", async () => {
-		const mod = (await import("../../github/octokit-client.ts")) as Record<string, unknown>;
-		assert.equal("parseRepo" in mod, false);
-	});
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-// getClosingPrsForIssue — adapter delegation to mapPrToClosingRef
-// ═══════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════
+// The guard lives in exactly one place
+// ═══════════════════════════════════════════════════════════════════
 
-describe("OctokitClient.getClosingPrsForIssue — mapper delegation", () => {
-	it("looks up details with the search item's number", async () => {
-		const search = mock.fn(async () => ({ data: { items: [{ number: 77 }] } }));
-		const get = mock.fn(async (_args: Record<string, unknown>) => ({
-			data: {
-				number: 77,
-				merge_commit_sha: "sha77",
-				merged_at: "2025-01-01T00:00:00Z",
-				state: "closed",
-				head: { ref: "branch-77", sha: "head77" },
-				body: "Closes #42",
-			},
-		}));
-		const client = new OctokitClient("fake-token", createMockLogger() as any);
-		(client as any).octokit = { search: { issuesAndPullRequests: search }, pulls: { get } };
+function githubSources(): string[] {
+	return readdirSync(GITHUB_DIR)
+		.filter((name) => name.endsWith(".ts") && !name.includes(".test."))
+		.map((name) => join(GITHUB_DIR, name));
+}
 
-		const refs = await client.getClosingPrsForIssue(42, "owner/repo");
-
-		const args = get.mock.calls[0]!.arguments[0] as Record<string, unknown>;
-		assert.equal(args.owner, "owner");
-		assert.equal(args.repo, "repo");
-		assert.equal(args.pull_number, 77);
-		assert.deepEqual(refs, [
-			{ number: 77, sha: "sha77", source: "closing-keyword", branch: "branch-77", state: "merged" },
-		]);
+describe("parseRepo — one shared helper, zero duplicated literal", () => {
+	it("declares the invalid-repo message exactly once", () => {
+		const bearers = githubSources()
+			.filter((file) => readFileSync(file, "utf-8").includes("Invalid repo format:"))
+			.map((file) => basename(file));
+		assert.deepEqual(bearers, ["adapter-base.ts"]);
 	});
 
-	it("detail lookup failure yields the preserved empty-sha open characterization", async () => {
-		const client = new OctokitClient("fake-token", createMockLogger() as any);
-		(client as any).octokit = {
-			search: {
-				issuesAndPullRequests: mock.fn(async () => ({ data: { items: [{ number: 42 }] } })),
-			},
-			pulls: {
-				get: mock.fn(async () => {
-					throw new Error("Not Found");
-				}),
-			},
-		};
-
-		const refs = await client.getClosingPrsForIssue(42, "owner/repo");
-		assert.deepEqual(refs, [
-			{ number: 42, sha: "", source: "branch-head", branch: "", state: "open" },
-		]);
-	});
-
-	it("outer search failure resolves [] and warns once through the logger", async () => {
-		const warn = mock.fn((_scope: string, _message: string) => {});
-		const logger = { ...createMockLogger(), warn };
-		const client = new OctokitClient("fake-token", logger as any);
-		(client as any).octokit = {
-			search: {
-				issuesAndPullRequests: mock.fn(async () => {
-					throw new Error("API rate limit exceeded");
-				}),
-			},
-		};
-
-		const refs = await client.getClosingPrsForIssue(42, "owner/repo");
-
-		assert.deepEqual(refs, []);
-		assert.equal(warn.mock.callCount(), 1);
-		const message = warn.mock.calls[0]!.arguments[1] as string;
-		assert.ok(
-			message.includes("getClosingPrsForIssue failed"),
-			`warning must name the failing operation, got: ${message}`,
-		);
+	it("is not part of any adapter's export surface", async () => {
+		for (const module of [
+			"octokit-issues.ts",
+			"octokit-pulls.ts",
+			"octokit-projects.ts",
+			"adapter-base.ts",
+		]) {
+			const mod = (await import(`../../github/${module}`)) as Record<string, unknown>;
+			assert.equal("parseRepo" in mod, false, `${module} must not export parseRepo`);
+		}
 	});
 });

@@ -3,9 +3,10 @@
 // newline-segment count exceeds 500:
 //   longFiles = analyzed.filter(f => f.isCode !== false && f.lines && f.lines > 500)
 //   lines = content.split("\n").length
-// This issue cited five files. Four are supervisor test suites that were split
-// into cohesive `<stem>-<concern>.test.mts` siblings; the fifth
-// (`codeflow/fp-filter.js`) was already split under #2100 and is out of scope.
+// This issue cited five files. Three supervisor test suites remain split into
+// cohesive `<stem>-<concern>.test.mts` siblings; the Octokit suite was replaced
+// by focused adapter suites under #2098. The fifth (`codeflow/fp-filter.js`)
+// was already split under #2100 and is out of scope.
 //
 // The detector is *not* re-derived here: `lineCount`/`isFlagged` come from
 // `test/fixtures/long-file-mirror.mts`, the single owner of the pinned
@@ -48,9 +49,10 @@ interface Family {
 }
 
 /**
- * The four suites this issue splits. `codeflow/fp-filter.js` is deliberately
- * absent: #2100 already split it, and the index is pinned separately below as
- * the documented out-of-scope file.
+ * The three still-independent suites split by this issue. #2098 replaced the
+ * OctokitClient test family with adapter suites, which are pinned separately
+ * below. `codeflow/fp-filter.js` is deliberately absent: #2100 already split
+ * it, and the index is pinned separately as the documented out-of-scope file.
  */
 const FAMILIES: Family[] = [
 	{
@@ -66,13 +68,6 @@ const FAMILIES: Family[] = [
 		stem: "gh-client",
 		original: `${SUP_TEST}/github/gh-client.test.mts`,
 		siblings: ["gh-client-token.test.mts"],
-	},
-	{
-		name: "octokit-client",
-		dir: `${SUP_TEST}/github`,
-		stem: "octokit-client",
-		original: `${SUP_TEST}/github/octokit-client.test.mts`,
-		siblings: ["octokit-client-issue-404.test.mts", "octokit-client-mutations.test.mts"],
 	},
 	{
 		name: "validation",
@@ -144,6 +139,18 @@ describe("long-file split #2099 — the four cited suites and their siblings", (
 			}
 		});
 	}
+
+	it("the #2098 Octokit replacement suites stay under the shared ceiling", () => {
+		for (const rel of [
+			`${SUP_TEST}/github/octokit-issues.test.mts`,
+			`${SUP_TEST}/github/octokit-pulls.test.mts`,
+			`${SUP_TEST}/github/octokit-projects.test.mts`,
+		]) {
+			assert.ok(existsSync(resolve(ROOT, rel)), `missing: ${rel}`);
+			const segments = segmentsOf(rel);
+			assert.ok(segments <= CEILING, `${rel} counts ${segments} segments (ceiling ${CEILING})`);
+		}
+	});
 });
 
 describe("long-file split #2099 — the fifth cited file is out of scope", () => {

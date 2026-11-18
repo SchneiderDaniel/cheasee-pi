@@ -1,13 +1,14 @@
-// ─── GitHub Port Interface ────────────────────────────────────────
-// Domain-owned port for GitHub operations. Pipeline code depends only
-// on this interface — zero Octokit imports beyond the adapter.
+// ─── GitHub Ports ────────────────────────────────────────────────
+// Domain-owned ports for GitHub operations. Pipeline code depends only on
+// these interfaces — no adapter, transport, or Octokit import reaches inward
+// (issue #2098 split; enforced by github-split-boundaries.test.mts).
+//
+// One port per use-case family, so the composition root can bind three
+// single-responsibility adapters and still hand callers ONE object.
 
 import type { ProjectField, ProjectItem, DepsResult, PrConflictInfo } from "../config/types.ts";
 import type { RawIssueData } from "../lib/issue-filter.ts";
 export type { RawIssueData };
-import { OctokitClient } from "./octokit-client.ts";
-import { resolveGitHubToken } from "./gh-client.ts";
-import { getDebugLogger } from "../lib/debug.ts";
 
 // ─── Closing PR Reference ───────────────────────────────────────
 
@@ -24,9 +25,19 @@ export interface ClosingPrRef {
 	state: "open" | "closed" | "merged";
 }
 
-// ─── GitHub Port ─────────────────────────────────────────────────
+// ─── Token lifecycle ────────────────────────────────────────────
 
-export interface GitHubPort {
+/**
+ * Credential rotation for long-running sessions. Owned by the transport and
+ * surfaced on the composed port so one call swaps both API handles.
+ */
+export interface AuthPort {
+	setToken(token: string): void;
+}
+
+// ─── Issue operations ───────────────────────────────────────────
+
+export interface IssuePort {
 	/** Fetch issue by number. Returns null if 404. */
 	getIssue(issueNum: number, repo: string): Promise<RawIssueData | null>;
 
@@ -59,7 +70,11 @@ export interface GitHubPort {
 
 	/** Delete an issue comment. A missing comment (404) is a no-op. */
 	deleteIssueComment(commentId: string, repo: string): Promise<void>;
+}
 
+// ─── Pull-request + dependency operations ───────────────────────
+
+export interface PullPort {
 	/** Compare two branches. Returns ahead_by count. */
 	compareBranches(base: string, head: string, repo: string): Promise<number>;
 
@@ -78,6 +93,20 @@ export interface GitHubPort {
 	/** Update PR body (and optionally title). */
 	updatePullRequest(prNumber: number, repo: string, body: string, title?: string): Promise<void>;
 
+	/** Check if an issue is blocked by unresolved dependencies. */
+	checkBlockedByDependencies(issueNum: number, repo: string): Promise<DepsResult>;
+
+	/**
+	 * Get PRs referencing this issue via closing keywords ("Closes #N").
+	 * Returns an empty array if no closing PRs are found.
+	 * Fail-open: returns empty array on error (does not throw).
+	 */
+	getClosingPrsForIssue(issueNum: number, repo: string): Promise<ClosingPrRef[]>;
+}
+
+// ─── ProjectV2 operations ──────────────────────────────────────
+
+export interface ProjectPort {
 	/** Get ProjectV2 fields. */
 	getProjectFields(projectNumber: number): Promise<ProjectField[]>;
 
@@ -94,36 +123,13 @@ export interface GitHubPort {
 		fieldId: string,
 		optionId: string,
 	): Promise<void>;
-
-	/** Check if an issue is blocked by unresolved dependencies. */
-	checkBlockedByDependencies(issueNum: number, repo: string): Promise<DepsResult>;
-
-	/**
-	 * Get PRs referencing this issue via closing keywords ("Closes #N").
-	 * Returns an empty array if no closing PRs are found.
-	 * Fail-open: returns empty array on error (does not throw).
-	 */
-	getClosingPrsForIssue(issueNum: number, repo: string): Promise<ClosingPrRef[]>;
-
-	/** Update the auth token for long-running sessions. */
-	setToken(token: string): void;
 }
 
-// ─── Factory ────────────────────────────────────────────────────
+// ─── The composite port ────────────────────────────────────────
 
 /**
- * Create a GitHubPort instance. Auth resolves from the injected literal when
- * provided, else from `resolveGitHubToken()` (env or hosts.yml). Throws if
- * no token is found.
+ * Exactly the intersection of the sub-ports. Use cases keep consuming one
+ * object; the composition root (github/compose.ts) is the only module that
+ * knows it is assembled from three adapters over one transport.
  */
-export function createGitHubPort(token?: string): GitHubPort {
-	const resolved = token ?? resolveGitHubToken();
-	if (!resolved) {
-		throw new Error(
-			"GitHub token not found. Set GH_TOKEN environment variable or " +
-				"ensure ~/.config/gh/hosts.yml contains a valid oauth_token for github.com.",
-		);
-	}
-	const log = getDebugLogger();
-	return new OctokitClient(resolved, log.child("github"));
-}
+export type GitHubPort = IssuePort & PullPort & ProjectPort & AuthPort;

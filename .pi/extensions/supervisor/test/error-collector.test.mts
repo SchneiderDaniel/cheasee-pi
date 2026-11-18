@@ -169,8 +169,8 @@ describe("ErrorCollector — toNotificationBlock", () => {
 		try {
 			const collector = new ErrorCollector();
 			const longMsg = "y".repeat(300);
+			// Logging happens at ingestion, not at render (issue #2098 split).
 			collector.push("src", "error", longMsg);
-			collector.toNotificationBlock();
 
 			const logLines = readFileSync(logger.getLogPath(), "utf8").trim().split("\n").filter(Boolean);
 			const hit = logLines.find((l) => {

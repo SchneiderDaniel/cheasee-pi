@@ -50,6 +50,11 @@ const inventory = JSON.parse(readFileSync(resolve(ROOT, FIXTURE), "utf8")) as {
 	families: FamilyInventory[];
 };
 
+// #2098 replaced the OctokitClient monolith and its historical test family
+// with separate issue/pull/project adapters and focused suites. Keep that
+// pre-split inventory as an archival record, but only replay extant families.
+const currentFamilies = inventory.families.filter((family) => family.family !== "octokit-client");
+
 const read = (rel: string): string => readFileSync(resolve(ROOT, rel), "utf8");
 
 interface ParsedFile {
@@ -214,7 +219,7 @@ describe("test-split inventory #2099 — the fixture describes the four cited su
 	});
 });
 
-for (const family of inventory.families) {
+for (const family of currentFamilies) {
 	describe(`test-split inventory #2099 — ${family.family}`, () => {
 		const paths = family.suites.map((name) => `${family.dir}/${name}`);
 		const parsed = new Map<string, ParsedFile>();

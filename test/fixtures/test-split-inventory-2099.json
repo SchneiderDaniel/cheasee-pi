@@ -75,7 +75,7 @@
 			"productionImports": [
 				".pi/extensions/lib/port-types.ts",
 				".pi/extensions/supervisor/github/gh-client.ts",
-				".pi/extensions/supervisor/github/ports.ts"
+				".pi/extensions/supervisor/github/compose.ts"
 			],
 			"runtimeRoster": [
 				"a sibling spawned during the call never sees the hosts.yml token in process.env",
@@ -197,7 +197,7 @@
 				"octokit-client-issue-404.test.mts": 10,
 				"octokit-client-mutations.test.mts": 11
 			},
-			"note": "Generated pre-split by AST + TAP over the original suite; expectedItCallSites is the architecture's post-split placement."
+			"note": "Historical pre-split AST + TAP inventory. #2098 replaced the OctokitClient monolith with focused issue/pull/project adapter suites, so this original family is retained for provenance but is not replayed against the refactored files."
 		},
 		{
 			"family": "validation",
