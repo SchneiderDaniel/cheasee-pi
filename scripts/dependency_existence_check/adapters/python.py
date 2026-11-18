@@ -1,4 +1,10 @@
-"""Python ecosystem adapter: filename/content detection + extract dispatch."""
+"""Python ecosystem adapter: filename/content detection + extract dispatch.
+
+The only Python class: it owns the dispatch, the TOML decode guard, and the
+`Dependency` construction. The parsers in `python_requirements` /
+`python_metadata` translate manifests into specs and know nothing about
+`Adapter`.
+"""
 
 from __future__ import annotations
 
@@ -8,11 +14,12 @@ from pathlib import Path
 
 from ..models import Dependency
 from .base import Adapter
-from .python_metadata import PipfileTomlMixin, SetupMixin
-from .python_requirements import RequirementsMixin
+from .python_metadata import parse_pipfile, parse_setup_cfg, parse_setup_py, parse_toml
+from .python_requirements import parse_requirements
+from .python_spec import ParsedSpec
 
 
-class PythonAdapter(RequirementsMixin, PipfileTomlMixin, SetupMixin, Adapter):
+class PythonAdapter(Adapter):
     language = "python"
     patterns = ("requirements*.txt", "pyproject.toml", "Pipfile", "setup.py", "setup.cfg")
     priority = 10
@@ -36,17 +43,21 @@ class PythonAdapter(RequirementsMixin, PipfileTomlMixin, SetupMixin, Adapter):
     def extract(self, text: str, path: Path | None = None) -> list[Dependency]:
         name = path.name if path else ""
         if fnmatch.fnmatchcase(name, "requirements*.txt"):
-            return self._requirements(text, path)
+            return self._deps(parse_requirements(text, path))
         if name in ("pyproject.toml", "Pipfile"):
             try:
                 data = tomllib.loads(text)
             except tomllib.TOMLDecodeError:
                 return []
             if name == "Pipfile":
-                return self._pipfile(data, path)
-            return self._toml(data, path)
+                return self._deps(parse_pipfile(data, path))
+            return self._deps(parse_toml(data, path))
         if name == "setup.cfg":
-            return self._setup_cfg(text, path)
+            return self._deps(parse_setup_cfg(text, path))
         if name == "setup.py":
-            return self._setup_py(text, path)
+            return self._deps(parse_setup_py(text, path))
         return []
+
+    def _deps(self, specs: list[ParsedSpec]) -> list[Dependency]:
+        """Wrap parser output in domain records; adapter defaults apply."""
+        return [self._dep(s.name, s.version, s.line, path=s.source) for s in specs]
