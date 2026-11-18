@@ -7,7 +7,9 @@
 // (R2.AC1).
 
 import type { AcceptanceCriterion, GoalPullRequest, GoalRecord } from "../domain/goal-record.ts";
+export type { AcceptanceCriterion, GoalPullRequest, GoalRecord } from "../domain/goal-record.ts";
 import type { Result } from "../../shared/result.ts";
+import type { GoalLoopSettings } from "../config/goal-loop-settings.ts";
 
 // ─── Model resolution ────────────────────────────────────────────
 
@@ -31,6 +33,15 @@ export type ModelResolver = (ref: string) => {
 	provider: string;
 	contextWindow: number;
 };
+
+/** Effective configuration for one goal run (R6). */
+export interface GoalRuntimeConfig {
+	settings: GoalLoopSettings;
+	model: ResolvedGoalModel;
+}
+
+/** Load + validate settings, resolve the model, gate capacity (R6.AC4). */
+export type LoadGoalConfig = () => Result<GoalRuntimeConfig>;
 
 // ─── Durable state ───────────────────────────────────────────────
 

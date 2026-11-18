@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 988,
+		"codeFiles": 1034,
 		"criticalCount": 196,
-		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), then to 959 by #2097 (the Python parse-spec module and parser regression suite). #2137 adds twenty-one below-ceiling scored files for deprecated-package retirement (eleven production modules plus ten `_test.go` files), reaching 980. #2098 adds eight below-ceiling GitHub adapter, error-panel and tool-call-text modules, reaching 988; its refactor also moves two former critical paths below the ceiling, so criticalCount is 196."
+		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), then to 959 by #2097 (the Python parse-spec module and parser regression suite). #2137 adds twenty-one below-ceiling scored files for deprecated-package retirement (eleven production modules plus ten `_test.go` files), reaching 980. #2098 adds eight below-ceiling GitHub adapter, error-panel and tool-call-text modules, reaching 988; its refactor also moves two former critical paths below the ceiling, so criticalCount is 196. #2138 adds thirty below-ceiling scored goal-loop and shared modules (goal-loop domain, application, adapters, config and wiring; shared git/github primitives), reaching 1034. The merged goal-loop code lands entirely under the ceiling, so criticalCount is unchanged at 196; the one moved file (`shared/git/worktree-guard.ts`) replaces the equivalent `supervisor/pipeline/worktree-guard.ts` deferral in #2033."
 	}
 }

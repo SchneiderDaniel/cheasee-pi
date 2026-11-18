@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMockExec } from "../../supervisor/test/helpers/git-harness.mts";
 import { GoalService } from "../application/goal-service.ts";
-import { HarnessCheckRunner } from "../adapters/pi-goal-runtime.ts";
+import { HarnessCheckRunner } from "../adapters/goal-checks.ts";
 import type { GoalRecord } from "../domain/goal-record.ts";
 import {
 	buildRecord,

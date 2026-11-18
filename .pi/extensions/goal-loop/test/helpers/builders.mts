@@ -5,11 +5,11 @@
  * contract change is one edit.
  */
 
-import {
-	createGoalRecord,
-	type AcceptanceCriterion,
-	type GoalConfigSnapshot,
-	type GoalRecord,
+import { createGoalRecord } from "../../domain/goal-record-id.ts";
+import type {
+	AcceptanceCriterion,
+	GoalConfigSnapshot,
+	GoalRecord,
 } from "../../domain/goal-record.ts";
 import type { GoalServiceDeps, GoalRuntimeConfig } from "../../application/goal-service.ts";
 import {

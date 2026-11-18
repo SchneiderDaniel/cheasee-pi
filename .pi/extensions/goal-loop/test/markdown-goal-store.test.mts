@@ -9,7 +9,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MarkdownGoalStore } from "../adapters/markdown-goal-store.ts";
-import { serializeGoalRecord } from "../domain/goal-record.ts";
+import { serializeGoalRecord } from "../domain/goal-record-markdown.ts";
 import { realGit } from "../../supervisor/test/helpers/git-harness.mts";
 import { buildRecord } from "./helpers/builders.mts";
 

@@ -7,20 +7,21 @@ import assert from "node:assert/strict";
 import {
 	ACTIVE_STATUSES,
 	assertTransition,
-	assertSafeGoalId,
 	canTransition,
-	createGoalRecord,
-	extractAgentSection,
 	findActiveRecord,
 	isActiveStatus,
-	makeGoalId,
-	parseGoalRecord,
-	serializeGoalRecord,
-	slugifyGoalDescription,
 	GOAL_STATUSES,
 	type GoalRecord,
 	type GoalStatus,
 } from "../domain/goal-record.ts";
+import {
+	assertSafeGoalId,
+	createGoalRecord,
+	makeGoalId,
+	slugifyGoalDescription,
+} from "../domain/goal-record-id.ts";
+import { extractAgentSection, serializeGoalRecord } from "../domain/goal-record-markdown.ts";
+import { parseGoalRecord } from "../domain/goal-record-parse.ts";
 import { buildRecord, DEFAULT_CONFIG } from "./helpers/builders.mts";
 
 describe("goal record entity", () => {

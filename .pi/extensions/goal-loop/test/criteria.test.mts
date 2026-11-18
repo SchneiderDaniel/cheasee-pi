@@ -5,15 +5,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
-	appendSteering,
 	boundQuestions,
 	criterionProblem,
 	goalReadiness,
 	isGoalReady,
 	MAX_CLARIFICATION_QUESTIONS,
-	reviseCriteria,
 	verifierProblem,
 } from "../domain/criteria.ts";
+import { appendSteering, reviseCriteria } from "../domain/steering.ts";
 import type { AcceptanceCriterion } from "../domain/goal-record.ts";
 import { buildRecord } from "./helpers/builders.mts";
 

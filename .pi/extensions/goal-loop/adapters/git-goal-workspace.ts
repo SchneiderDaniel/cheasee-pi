@@ -1,6 +1,6 @@
 // ─── Git goal workspace ──────────────────────────────────────────
 // Adapter: the clean-checkout gate, the HEAD-based worktree and the confirmed
-// cleanup. All git argv comes from `shared/git/worktree.ts`, and cleanup
+// cleanup. All git argv comes from `shared/git/`, and cleanup
 // re-verifies the target with the Supervisor's removal guard
 // (`verifyRemovableWorktree`) — the goal loop never deletes a path it cannot
 // prove is a registered linked worktree inside its own base.
@@ -14,16 +14,14 @@
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { failure, type Result } from "../../shared/result.ts";
+import { addWorktree, removeWorktree, type ExecLike } from "../../shared/git/worktree.ts";
 import {
-	addWorktree,
 	isCheckoutClean,
 	isWritableOrCreatable,
 	listWorktreesPorcelain,
-	removeWorktree,
 	resolveCurrentBranch,
 	resolveHead,
-	type ExecLike,
-} from "../../shared/git/worktree.ts";
+} from "../../shared/git/git-query.ts";
 import {
 	parseWorktreeListPorcelain,
 	verifyRemovableWorktree,

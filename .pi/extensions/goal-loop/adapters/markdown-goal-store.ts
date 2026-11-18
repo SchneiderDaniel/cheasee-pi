@@ -1,7 +1,8 @@
 // ─── Markdown goal store ─────────────────────────────────────────
-// Adapter: maps a GoalRecord onto one Markdown file with YAML front matter and
-// back. Owns I/O policy — atomic writes, fail-closed parsing, the cross-process
-// lock and path containment — and nothing else.
+// Adapter: maps a `GoalRecord` onto one Markdown file with YAML front matter
+// and back. Owns the file policy — atomic writes, fail-closed parsing, path
+// containment — and nothing else; cross-process locking lives in
+// `goal-store-lock.ts`.
 //
 // Location: `<original checkout>/ignore/goals/<id>.md`. The root is an explicit
 // constructor argument (never `process.cwd()`), so a goal running inside its own
@@ -9,12 +10,10 @@
 // `ignore/` is already gitignored, so the record can never be committed.
 
 import {
-	closeSync,
 	existsSync,
 	mkdirSync,
-	openSync,
-	readFileSync,
 	readdirSync,
+	readFileSync,
 	renameSync,
 	rmSync,
 	writeFileSync,
@@ -22,14 +21,12 @@ import {
 import { join } from "node:path";
 import { failure, type Result } from "../../shared/result.ts";
 import { isPathWithinBase } from "../../lib/path-containment.ts";
-import {
-	assertSafeGoalId,
-	extractAgentSection,
-	parseGoalRecord,
-	serializeGoalRecord,
-	type GoalRecord,
-} from "../domain/goal-record.ts";
+import { assertSafeGoalId } from "../domain/goal-record-id.ts";
+import { extractAgentSection, serializeGoalRecord } from "../domain/goal-record-markdown.ts";
+import { parseGoalRecord } from "../domain/goal-record-parse.ts";
+import type { GoalRecord } from "../domain/goal-record.ts";
 import type { GoalStore } from "../application/ports.ts";
+import { GoalLock } from "./goal-store-lock.ts";
 
 const SOURCE = "goal-store";
 
@@ -38,22 +35,6 @@ export const GOAL_RECORD_DIR = "ignore/goals";
 /** Lock file guarding cross-process double starts. */
 export const GOAL_LOCK_FILE = ".lock";
 
-interface LockPayload {
-	pid: number;
-	startedAt: string;
-}
-
-/** True when a process with `pid` exists. EPERM means it exists but is foreign. */
-function isPidAlive(pid: number): boolean {
-	if (!Number.isInteger(pid) || pid <= 0) return false;
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch (err: unknown) {
-		return (err as NodeJS.ErrnoException).code === "EPERM";
-	}
-}
-
 /**
  * File-backed {@link GoalStore}.
  *
@@ -61,10 +42,11 @@ function isPidAlive(pid: number): boolean {
  */
 export class MarkdownGoalStore implements GoalStore {
 	private readonly root: string;
-	private lockHeld = false;
+	private readonly lock: GoalLock;
 
 	constructor(checkoutRoot: string) {
 		this.root = checkoutRoot;
+		this.lock = new GoalLock(join(this.directory, GOAL_LOCK_FILE), () => this.ensureDirectory());
 	}
 
 	/** `<checkout>/ignore/goals`. */
@@ -104,16 +86,9 @@ export class MarkdownGoalStore implements GoalStore {
 		let path: string;
 		try {
 			path = this.pathFor(record.id);
-		} catch (err: unknown) {
-			return failure(err instanceof Error ? err.message : String(err), SOURCE);
-		}
-		try {
 			this.ensureDirectory();
 		} catch (err: unknown) {
-			return failure(
-				`cannot create ${this.directory}: ${err instanceof Error ? err.message : String(err)}`,
-				SOURCE,
-			);
+			return failure(describeError(`cannot write goal record ${record.id}`, err), SOURCE);
 		}
 
 		const existingAgentSection = existsSync(path)
@@ -127,10 +102,7 @@ export class MarkdownGoalStore implements GoalStore {
 			return { ok: true, value: undefined };
 		} catch (err: unknown) {
 			rmSync(tmp, { force: true });
-			return failure(
-				`cannot write goal record ${path}: ${err instanceof Error ? err.message : String(err)}`,
-				SOURCE,
-			);
+			return failure(describeError(`cannot write goal record ${path}`, err), SOURCE);
 		}
 	}
 
@@ -140,16 +112,13 @@ export class MarkdownGoalStore implements GoalStore {
 		try {
 			path = this.pathFor(id);
 		} catch (err: unknown) {
-			return failure(err instanceof Error ? err.message : String(err), SOURCE);
+			return failure(describeError(`cannot resolve goal record ${id}`, err), SOURCE);
 		}
 		let text: string;
 		try {
 			text = readFileSync(path, "utf-8");
 		} catch (err: unknown) {
-			return failure(
-				`cannot read goal record ${path}: ${err instanceof Error ? err.message : String(err)}`,
-				SOURCE,
-			);
+			return failure(describeError(`cannot read goal record ${path}`, err), SOURCE);
 		}
 		return this.parseFile(path, text);
 	}
@@ -157,8 +126,8 @@ export class MarkdownGoalStore implements GoalStore {
 	/** Wrap the domain parser so the error names the file. */
 	private parseFile(path: string, text: string): Result<GoalRecord> {
 		const parsed = parseGoalRecord(text);
-		if (!parsed.ok) return failure(`${path}: ${parsed.error}`, SOURCE);
-		return parsed;
+		if (parsed.ok) return parsed;
+		return failure(`${path}: ${parsed.error}`, SOURCE);
 	}
 
 	/**
@@ -172,10 +141,7 @@ export class MarkdownGoalStore implements GoalStore {
 		try {
 			entries = readdirSync(this.directory);
 		} catch (err: unknown) {
-			return failure(
-				`cannot list ${this.directory}: ${err instanceof Error ? err.message : String(err)}`,
-				SOURCE,
-			);
+			return failure(describeError(`cannot list ${this.directory}`, err), SOURCE);
 		}
 		const records: GoalRecord[] = [];
 		for (const entry of entries.sort()) {
@@ -188,87 +154,18 @@ export class MarkdownGoalStore implements GoalStore {
 		return { ok: true, value: records };
 	}
 
-	/** `<checkout>/ignore/goals/.lock`. */
-	private get lockPath(): string {
-		return join(this.directory, GOAL_LOCK_FILE);
-	}
-
-	/**
-	 * Acquire the cross-process lock.
-	 *
-	 * A lock whose pid is still alive refuses the start; a stale pid (crashed
-	 * process) is taken over. The lock is created with `wx` so two processes
-	 * racing cannot both win.
-	 */
+	/** Cross-process exclusive lock (see `GoalLock`). */
 	async acquire(): Promise<Result<void>> {
-		try {
-			this.ensureDirectory();
-		} catch (err: unknown) {
-			return failure(
-				`cannot create ${this.directory}: ${err instanceof Error ? err.message : String(err)}`,
-				SOURCE,
-			);
-		}
-
-		const held = this.readLock();
-		if (held && isPidAlive(held.pid) && held.pid !== process.pid) {
-			return failure(
-				`goal lock held by pid ${held.pid} since ${held.startedAt} — another goal loop is running`,
-				SOURCE,
-			);
-		}
-		if (held) {
-			// Stale (or our own): take it over.
-			rmSync(this.lockPath, { force: true });
-		}
-
-		const payload: LockPayload = { pid: process.pid, startedAt: new Date().toISOString() };
-		try {
-			const fd = openSync(this.lockPath, "wx");
-			try {
-				writeFileSync(fd, JSON.stringify(payload), "utf-8");
-			} finally {
-				closeSync(fd);
-			}
-			this.lockHeld = true;
-			return { ok: true, value: undefined };
-		} catch (err: unknown) {
-			return failure(
-				`cannot acquire goal lock ${this.lockPath}: ${
-					err instanceof Error ? err.message : String(err)
-				}`,
-				SOURCE,
-			);
-		}
+		return await this.lock.acquire();
 	}
 
-	private readLock(): LockPayload | null {
-		if (!existsSync(this.lockPath)) return null;
-		try {
-			const parsed: unknown = JSON.parse(readFileSync(this.lockPath, "utf-8"));
-			if (typeof parsed !== "object" || parsed === null) return null;
-			const payload = parsed as Record<string, unknown>;
-			if (typeof payload.pid !== "number") return null;
-			return {
-				pid: payload.pid,
-				startedAt: typeof payload.startedAt === "string" ? payload.startedAt : "unknown",
-			};
-		} catch {
-			// Unreadable lock: treat as stale so a crashed write cannot wedge
-			// every future goal forever.
-			return { pid: -1, startedAt: "unknown" };
-		}
-	}
-
-	/** Release our own lock. Never removes a lock another process owns. */
+	/** Release our own lock. */
 	async release(): Promise<void> {
-		if (!this.lockHeld) return;
-		const held = this.readLock();
-		if (held && held.pid !== process.pid) {
-			this.lockHeld = false;
-			return;
-		}
-		rmSync(this.lockPath, { force: true });
-		this.lockHeld = false;
+		await this.lock.release();
 	}
+}
+
+/** `prefix: message` for any thrown value. */
+function describeError(prefix: string, err: unknown): string {
+	return `${prefix}: ${err instanceof Error ? err.message : String(err)}`;
 }

@@ -30,14 +30,14 @@
 	"after": {
 		"criticalCount": 196,
 		"expectedDrop": 8,
-		"files": 1840,
-		"codeFiles": 988
+		"files": 1902,
+		"codeFiles": 1034
 	},
 	"partition": {
-		"scored": 988,
+		"scored": 1034,
 		"critical": 196,
 		"notScored": 93,
-		"belowCeiling": 792
+		"belowCeiling": 838
 	},
 	"reducedBy": [
 		{
@@ -365,6 +365,10 @@
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},
+		".pi/extensions/shared/git/worktree-guard.ts": {
+			"reason": "The remaining score is the worktree-registry reconciliation logic (porcelain parsing, allowlist matching, path containment) in one module. Issue #2138 moved the file from `supervisor/pipeline/` to `shared/git/` so the goal-loop extension runs the same removal policy; the Supervisor keeps a thin re-export shell. The move re-keys the deferral, it does not shrink the code.",
+			"requires": "a later refactor issue with a seam analysis for this file"
+		},
 		".pi/extensions/structural-analyzer/index.ts": {
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
@@ -526,10 +530,6 @@
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},
 		".pi/extensions/supervisor/pipeline/worktree-deps.ts": {
-			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
-			"requires": "a later refactor issue with a seam analysis for this file"
-		},
-		".pi/extensions/supervisor/pipeline/worktree-guard.ts": {
 			"reason": "scored > 30 but not in the Wave-1 selection (no responsibility seam identified yet)",
 			"requires": "a later refactor issue with a seam analysis for this file"
 		},

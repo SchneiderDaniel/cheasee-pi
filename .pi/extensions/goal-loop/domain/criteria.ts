@@ -1,10 +1,9 @@
 // ─── Acceptance criteria validity ────────────────────────────────
-// R1.AC1/AC2: a goal is only startable when it has a clarified statement and
-// every criterion carries a verification method. Pure — the service decides
+// R1.AC1/AC2: a goal is only startable once it has a clarified statement plus
+// criteria that each carry a verification method. Pure — the service decides
 // what to do with the verdict; this module only judges it.
 
-import { transitionTo } from "./goal-record.ts";
-import type { AcceptanceCriterion, GoalRecord, Verifier } from "./goal-record.ts";
+import type { AcceptanceCriterion, Verifier } from "./goal-record.ts";
 
 /** Maximum focused clarification questions per invocation (research finding). */
 export const MAX_CLARIFICATION_QUESTIONS = 5;
@@ -14,19 +13,19 @@ export function verifierProblem(verifier: Verifier | undefined): string | null {
 	if (!verifier) return "has no verification method";
 	if (verifier.kind === "command") {
 		if (!Array.isArray(verifier.argv) || verifier.argv.length === 0) {
-			return "has a command verifier with an empty argv";
+			return "has a command verifier: empty argv";
 		}
 		if (!Number.isInteger(verifier.expectExit)) {
-			return "has a command verifier with a non-integer expectExit";
+			return "has a command verifier: expectExit is not an integer";
 		}
-		if (verifier.pinned.some((p) => !p.path || !p.sha256)) {
-			return "has a pinned file without a path or sha256";
+		for (const pinned of verifier.pinned) {
+			if (!pinned.path || !pinned.sha256) return "has a pinned file missing a path or sha256";
 		}
 		return null;
 	}
 	if (verifier.kind === "inspect") {
 		if (!verifier.instruction || !verifier.instruction.trim()) {
-			return "has an inspect verifier with an empty instruction";
+			return "has an inspect verifier: empty instruction";
 		}
 		return null;
 	}
@@ -65,8 +64,8 @@ export function criterionProblems(criteria: AcceptanceCriterion[]): string[] {
  * Readiness verdict for starting goal work (R1.AC2/AC3).
  *
  * A goal is ready when it has a clarified statement, at least one criterion,
- * and every criterion has a valid verifier. No further confirmation step
- * exists after this — readiness IS the gate.
+ * plus a valid verifier on every criterion. No confirmation step follows this
+ * verdict: readiness IS the gate.
  */
 export function goalReadiness(record: { clarifiedGoal: string; criteria: AcceptanceCriterion[] }): {
 	ready: boolean;
@@ -101,34 +100,4 @@ export function boundQuestions(questions: string[]): string[] {
 		.map((q) => q.trim())
 		.filter((q) => q !== "")
 		.slice(0, MAX_CLARIFICATION_QUESTIONS);
-}
-
-/**
- * Append a steering message (R4.AC4). `criteria` and `clarifiedGoal` are
- * returned byte-identical — only `/goal revise` may change them.
- */
-export function appendSteering(record: GoalRecord, message: string): GoalRecord {
-	const text = message.trim();
-	if (!text) return record;
-	return { ...record, steering: [...record.steering, text] };
-}
-
-/**
- * Replace the criteria and re-enter clarification (R4.AC4): a revised goal must
- * be re-judged for clarity and verifiability before work resumes.
- *
- * Routed through the transition table so a terminal goal cannot be revived by
- * revising it.
- */
-export function reviseCriteria(
-	record: GoalRecord,
-	criteria: AcceptanceCriterion[],
-	clarifiedGoal?: string,
-): GoalRecord {
-	return {
-		...transitionTo(record, "clarifying"),
-		criteria,
-		clarifiedGoal: clarifiedGoal ?? record.clarifiedGoal,
-		verification: [],
-	};
 }

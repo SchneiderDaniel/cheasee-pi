@@ -8,16 +8,15 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	checkModelCapacity,
 	DEFAULT_CONTEXT_ROLLOVER_TOKENS,
 	DEFAULT_MAX_ITERATIONS,
 	DEFAULT_RESERVE_TOKENS,
 	GoalLoopSettingsSchema,
 	loadGoalLoopSettings,
 	parseGoalLoopSettings,
-	prepareGoalLoopConfig,
-	resolveGoalModel,
 } from "../config/goal-loop-settings.ts";
+import { checkModelCapacity, resolveGoalModel } from "../config/goal-model.ts";
+import { prepareGoalLoopConfig } from "../config/goal-loop-config.ts";
 import { createModelResolver } from "./helpers/fake-ports.mts";
 
 function withSettingsFile(content: string): { path: string; cleanup: () => void } {
