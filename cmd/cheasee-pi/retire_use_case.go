@@ -47,7 +47,10 @@ func retirePackages(root string, opts retireOptions) (retireReport, error) {
 		return rep, err
 	}
 	if len(claims) > 0 {
-		return rep, fmt.Errorf("workspace is in use by a running session (%s) — close it, then re-run",
+		// Name the recovery too: a claim outlives a session that was killed without
+		// its deferred release, and "close the session" is not actionable when
+		// there is none. `down` purges the claims of the containers it removes.
+		return rep, fmt.Errorf("workspace is in use by a running session (%s) — close it with Ctrl+D, then re-run; if no session is running, `cheasee-pi down` clears the stale claim",
 			strings.Join(claims, ", "))
 	}
 

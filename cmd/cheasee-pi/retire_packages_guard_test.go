@@ -100,6 +100,11 @@ func TestRetirePackages_LiveSessionRefused(t *testing.T) {
 	if !strings.Contains(err.Error(), "running session") {
 		t.Errorf("error must tell the user to close the running session, got %v", err)
 	}
+	// A claim can outlive a killed session, and "close it" is not actionable
+	// when there is nothing to close: the recovery must be named too.
+	if !strings.Contains(err.Error(), "cheasee-pi down") {
+		t.Errorf("error must name the stale-claim recovery, got %v", err)
+	}
 
 	assertBytesUnchanged(t, piSettingsFile(root), piBefore)
 	assertBytesUnchanged(t, cheaseeSettingsFile(root), cheaseeBefore)

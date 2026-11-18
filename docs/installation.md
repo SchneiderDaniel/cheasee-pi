@@ -159,7 +159,8 @@ until you pass `--confirm`. A variant spelling (`.git` suffix, `@ref` pin,
 trailing slash, `owner/repo` shorthand) is never matched either.
 
 The migration is refused while a session holds the workspace: close the session
-(`Ctrl+D`) first.
+(`Ctrl+D`) first. If no session is running, the claim it left behind is stale —
+`cheasee-pi down` clears it.
 
 Then verify and restart the container — no `ponytail` footer, status indicator or
 command may appear:
