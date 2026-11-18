@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 )
 
-// Checkout probe plus the settings writer.
+// The settings writer: two files, written only when the plan removes something.
 
 // writeRetiredSettings persists the two settings files, in order and only when
 // the plan actually changes them: `cheasee-settings.json` first (the file the
