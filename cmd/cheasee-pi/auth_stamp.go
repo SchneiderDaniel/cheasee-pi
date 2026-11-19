@@ -80,16 +80,16 @@ func ensureAuthFile(path string) error {
 	fi, err := os.Stat(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("no provider/GitHub credentials at %s — run `cheasee-pi auth` (or `cheasee-pi init --reauth`) on the host, then `cheasee-pi start` again", path)
+			return fmt.Errorf("no provider/GitHub credentials at %s — run `cheasee-pi auth add <provider>` (or `cheasee-pi init --reauth` for the GitHub token) on the host, then `cheasee-pi start` again", path)
 		}
-		return fmt.Errorf("cannot read credential file %s: %w — run `cheasee-pi auth` to rewrite it, then `cheasee-pi start` again", path, err)
+		return fmt.Errorf("cannot read credential file %s: %w — run `cheasee-pi auth add <provider>` to rewrite it, then `cheasee-pi start` again", path, err)
 	}
 	if fi.IsDir() {
-		return fmt.Errorf("credential path %s is a directory, not the auth.json file — run `cheasee-pi auth` to rewrite it", path)
+		return fmt.Errorf("credential path %s is a directory, not the auth.json file — remove it, then run `cheasee-pi auth add <provider>`", path)
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return fmt.Errorf("credential file %s is not readable: %w — the container could not read it either; run `cheasee-pi auth` to rewrite it", path, err)
+		return fmt.Errorf("credential file %s is not readable: %w — the container could not read it either; run `cheasee-pi auth add <provider>` to rewrite it, then `cheasee-pi start` again", path, err)
 	}
 	if err := f.Close(); err != nil {
 		return fmt.Errorf("close credential file %s: %w", path, err)
