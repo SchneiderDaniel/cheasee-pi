@@ -16,12 +16,15 @@ _FP_FILTER_ROUTE = "/fp-filter.js"
 _FP_FILTER_DIR = os.path.dirname(os.path.abspath(__file__))
 _FP_FILTER_PATH = os.path.join(_FP_FILTER_DIR, "fp-filter.js")
 
-# The policy modules `fp-filter.js` is built from, in load order: each entry
-# publishes one global the next one (and the index) reads, and the index itself
-# loads last. A path is relative to `fp-filter/`, so it doubles as the served
-# name under `_FP_FILTER_MODULE_ROUTE`. This tuple is the single allowlist: a
-# request tail is looked up in it and never joined to the filesystem, so `..`,
-# an encoded separator or an absolute path can only miss and 404.
+# The policy modules `fp-filter.js` is built from, plus the page-side application
+# step, in load order: each entry publishes one global the next one (and the
+# index) reads, and the index itself loads last. `browser-glue` is the one
+# exception to "policy module": it applies the policy to the page's `data` and is
+# therefore served here but never loaded by `fp-filter.js`. A path is relative to
+# `fp-filter/`, so it doubles as the served name under
+# `_FP_FILTER_MODULE_ROUTE`. This tuple is the single allowlist: a request tail is
+# looked up in it and never joined to the filesystem, so `..`, an encoded
+# separator or an absolute path can only miss and 404.
 _FP_FILTER_MODULES = (
     "lexical",
     "hygiene",
@@ -31,6 +34,10 @@ _FP_FILTER_MODULES = (
     "security/command-exec",
     "dead-code",
     "duplicates",
+    # Last: it reads the `piFpFilter` global the index publishes, so its tag must
+    # follow the policy tags (and still precede the index's own tag only because
+    # the index is emitted after every module here — see `_BRIDGE_SCRIPT`).
+    "browser-glue",
 )
 _FP_FILTER_MODULE_ROUTE = "/fp-filter/"
 _FP_FILTER_MODULE_DIR = os.path.join(_FP_FILTER_DIR, "fp-filter")
@@ -125,76 +132,54 @@ def _ts_rewrite(anchor, tail=b""):
     )
 
 
-# Rewrites applied to the served page. The page's `generateReport` gets the same
-# false-positive filter the headless runner applies, so the served UI's health
-# score and exports agree with the report pi reads. The filter reads cited files
-# from `data.files[].content`; a page that omits them still gets the rules that
-# need no file. The wrapper filters `data` first, then calls the original
-# (renamed) function, and logs the same suppression line the headless runner
-# writes to stderr (byte-identical wording, so the two paths cannot drift).
+# The served page's health score, its tabs and its exports must read the same
+# analysis snapshot the headless runner reports on (issue #2147). The analyzer's
+# raw result is therefore filtered *once*, at analysis completion, by
+# `fp-filter/browser-glue.js`, and the filtered fields are written back into the
+# very `data` object the page renders. The dashboard score (`calcHealth(data)`,
+# recomputed from `data` on every render) and `generateReport()` (a pure reader)
+# then cannot disagree.
 #
-# The wrapper also releases the retained source (`files[].piFpSource`) once the
-# filter has read it: upstream frees that text on purpose, and a large scan must
-# not pin it in the tab after the report is built.
+# The seam is the page's own `runAnalysisData(options)` — the single choke point
+# every analysis path awaits before `setData` — so this rewrite wraps that
+# function and the original (renamed) body follows unchanged. The glue owns the
+# whole application: the policy call, the in-place field writes, the
+# retained-source release (`files[].piFpSource`, which upstream frees on purpose)
+# and the suppression log line the headless runner writes to stderr
+# (byte-identical wording, so the two paths cannot drift). A failure — a
+# sanitizer throw or a write a frozen `data` rejects — reaches the bridge's
+# visible error banner (`window.__codeflowBridgeReportError`) and aborts the
+# analysis instead of rendering data the filter never saw. `"use strict"` makes
+# a silently-ignored write throw.
 #
-# It overwrites the *properties* of `data` (the finding arrays, the dead-function
-# list, the derived suggestion cards and the stats counts) instead of rebinding
-# `data`:
-# a page that declares `data` as a constant cannot be reassigned, and the former
-# reassignment threw, was swallowed, and exported the unfiltered report. The
-# assignments sit inside the same try as the filter call, so a write that a
-# frozen `data` rejects is reported through the bridge's visible error banner
-# (`window.__codeflowBridgeReportError`) exactly like a sanitizer throw — never
-# an unannounced abort. A failure propagates and fails closed rather than
-# emitting data the filter never saw. `"use strict"` makes a silently-ignored
-# write (a frozen `data`) throw instead.
-_FP_WRAPPER_HEAD = b"function generateReport"
-_FP_WRAPPER_BODY = (
-    b'() { "use strict";'
-    b" var __piFp;"
-    b" try {"
-    # The analyzer derives `data.suggestions` from the arrays this filter shrinks,
-    # so the page's own `Parser.generateSuggestions` is passed as the deriver
-    # port — the seven rules are never mirrored here. A page without it yields
-    # `null`, which the filter turns into "no cards" rather than stale ones.
-    b" __piFp = piFpFilter.sanitizeAnalysisData(data, piFpFilter.readFileFrom(data),"
-    b" { deriveSuggestions: function (d) {"
-    b" return typeof Parser !== 'undefined' && Parser && typeof Parser.generateSuggestions === 'function' ? Parser.generateSuggestions(d) : null;"
-    b" } });"
-    b' if ("files" in data && Array.isArray(data.files)) data.files.forEach(function (f) { if (f) f.piFpSource = null; });'
-    b' if ("securityIssues" in __piFp.data) data.securityIssues = __piFp.data.securityIssues;'
-    b' if ("layerViolations" in __piFp.data) data.layerViolations = __piFp.data.layerViolations;'
-    b' if ("deadFunctions" in __piFp.data) data.deadFunctions = __piFp.data.deadFunctions;'
-    b' if ("unusedFunctions" in __piFp.data) data.unusedFunctions = __piFp.data.unusedFunctions;'
-    b' if ("duplicates" in __piFp.data) data.duplicates = __piFp.data.duplicates;'
-    b' if ("issues" in __piFp.data) data.issues = __piFp.data.issues;'
-    b' if ("suggestions" in __piFp.data) data.suggestions = __piFp.data.suggestions;'
-    b' if ("stats" in __piFp.data) data.stats = __piFp.data.stats;'
-    b" } catch (e) { var m = String((e && e.message) || e);"
-    b" try { if (globalThis.__codeflowBridgeReportError) globalThis.__codeflowBridgeReportError('false-positive filter failed; report not exported: ' + m); } catch (_) {}"
-    b" try { globalThis.__codeflowFpFilterError = m; } catch (_) {} throw e; }"
-    b" var __piFpDead = (__piFp.suppressed.deadCode || []).length;"
-    b" var __piFpDup = (__piFp.suppressed.duplicates || []).length;"
-    b" var __piFpSugg = (__piFp.suppressed.suggestions || []).length;"
-    b" if (__piFp.suppressed.security.length || __piFp.suppressed.layerViolations.length || __piFp.suppressed.hygiene.length || __piFpDead || __piFpDup) { try {"
-    b' console.info("fp-filter: suppressed " + __piFp.suppressed.security.length +'
-    b' " security issue(s), " + __piFp.suppressed.layerViolations.length + " layer violation(s), " + __piFp.suppressed.hygiene.length + " hygiene finding(s), " + __piFpDead + " unused function(s), " + __piFpDup + " duplicate group(s)");'
-    b" } catch (_) {} }"
-    # Same wording as the headless runner: a missing deriver must never be silent.
-    b" if (__piFpSugg) { try { console.info('fp-filter: dropped ' + __piFpSugg + ' derived suggestion(s): derivation unavailable'); } catch (_) {} }"
-    b" return __piFpGenerateReport.apply(this, arguments); }\n"
-    b"function __piFpGenerateReport("
+# `generateReport` is deliberately untouched: filtering there scored the raw
+# analyzer output on the dashboard and re-filtered an already-filtered snapshot
+# on export.
+_FP_SEAM_HEAD = b"function runAnalysisData"
+# The wrapper keeps upstream's signature and forwards it, so the spliced call site
+# reads exactly like the original. The marker doubles as the idempotence guard
+# below: once spliced, the `(` is followed by this text, so a second pass misses.
+# The marker starts right after the `(` the anchor consumes, so it can be used as
+# a lookahead on the same position.
+_FP_SEAM_MARK = b'options) { "use strict"; return Promise.resolve(__piFpRunAnalysisData'
+_FP_SEAM_BODY = (
+    b"(" + _FP_SEAM_MARK
+    + b"(options)).then(function (__piFpData) {"
+    b" piFpFilterBrowserGlue.applyFalsePositiveFilter(__piFpData);"
+    b" return __piFpData; }); }\n"
+    b"function __piFpRunAnalysisData("
 )
 
 
-def _fp_rewrite():
-    """(regex, replacement) wrapping the page's own `generateReport`.
+def _fp_seam_rewrite():
+    """(regex, replacement) routing analysis completion through the glue.
 
-    The negative lookahead keeps the rule idempotent: the spliced header is
-    followed by `)`, the real one by its parameter list."""
+    The negative lookahead keeps the rule idempotent: the spliced wrapper is
+    recognised by its own marker, while the real function's parameter list is
+    spliced in after the renamed header."""
     return (
-        re.compile(re.escape(_FP_WRAPPER_HEAD + b"(") + b"(?![)])"),
-        _FP_WRAPPER_HEAD + _FP_WRAPPER_BODY,
+        re.compile(re.escape(_FP_SEAM_HEAD + b"(") + b"(?!" + re.escape(_FP_SEAM_MARK) + b")"),
+        _FP_SEAM_HEAD + _FP_SEAM_BODY,
     )
 
 
@@ -211,9 +196,11 @@ _BRIDGE_SCRIPT = (
 )
 
 _UI_REWRITES = (
-    # Browser parity for the headless false-positive filter. A silent no-op when
-    # upstream renames generateReport.
-    _fp_rewrite(),
+    # Browser parity for the headless false-positive filter, applied once at
+    # analysis completion (so the dashboard score and the exports read the same
+    # snapshot). A silent no-op when upstream renames `runAnalysisData` — the
+    # recorded-seam fixture test fails instead of letting that pass unnoticed.
+    _fp_seam_rewrite(),
     # The analyzer frees every file's source (`f.content=null`) before
     # `generateReport` runs, leaving the in-page filter nothing to resolve
     # references against (so it kept every dead-code finding). Keep the text under
