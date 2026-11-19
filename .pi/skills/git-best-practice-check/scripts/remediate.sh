@@ -51,6 +51,7 @@ usage() {
 CONSENT=0
 ID=""
 REPO_ARG=""
+REPO_SET=0
 SETTINGS=""
 FULLNAME=""
 LICENSE_KEY="mit"
@@ -66,6 +67,7 @@ while (($# > 0)); do
 		;;
 	--repo)
 		REPO_ARG="${2:-}"
+		REPO_SET=1
 		shift 2
 		;;
 	--settings)
@@ -129,7 +131,10 @@ if [[ -n "$SETTINGS" ]]; then
 	export GBPC_SETTINGS_FILE="$SETTINGS"
 fi
 
-if ! REPO=$(resolve_repo ${REPO_ARG:+"$REPO_ARG"}); then
+# An explicit --repo goes through even when empty, so `resolve_repo_arg` can
+# reject it instead of falling back to supervisor.repo: a consented write must
+# never land on a repository the user did not name.
+if ! REPO=$(resolve_repo_arg "$REPO_SET" "$REPO_ARG"); then
 	exit 2
 fi
 

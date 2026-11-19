@@ -107,7 +107,7 @@ run() { # <command...>
 # ---------------------------------------------------------------------------
 # harness helpers
 # ---------------------------------------------------------------------------
-STATE_DEFAULT='{"admin":true,"default_branch":"main","secret_scanning":"disabled","vulnerability_alerts":"disabled","code_scanning":"not-configured","analyses":0,"protection":null,"rules":[],"files":[],"health_percentage":0,"head_sha":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}'
+STATE_DEFAULT='{"admin":true,"default_branch":"main","secret_scanning":"disabled","vulnerability_alerts":"disabled","code_scanning":"not-configured","analyses":0,"analyses_age_days":0,"protection":null,"rules":[],"files":[],"health_percentage":0,"head_sha":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}'
 STATE_FILE="$GH_STATE_DIR/state.json"
 
 plan_reset() {

@@ -20,7 +20,14 @@ nok() {
 	FAILS=$((FAILS + 1))
 }
 
+# Fixed clock: evaluate.jq never reads one, audit.sh passes `--argjson now`.
+TEST_NOW=1760000000
+iso() { jq -n -r --argjson t "$1" '$t | todate'; } # epoch seconds -> ISO8601
+ago() { printf '%s' "$((TEST_NOW - $1 * 86400))"; } # epoch seconds, N days back
 evaluate() { # <id>, evidence on stdin
+	jq -c -f "$EVALUATE" --arg id "$1" --argjson now "$TEST_NOW"
+}
+evaluate_without_clock() { # <id>, evidence on stdin — same call, no `now`
 	jq -c -f "$EVALUATE" --arg id "$1"
 }
 
@@ -228,14 +235,44 @@ check "default setup not configured" code-scanning \
 	\"analyses\":{\"status\":200,\"body\":[]}}"
 expect_status fail
 
+# Workflow mode: default setup off, one analysis shifted <days> back, stamping
+# <created_at|updated_at>.
+workflow_ev() {
+	printf '{%s,"default_setup":{"status":200,"body":{"state":"not-configured"}},"analyses":{"status":200,"body":[{"id":7,"state":"completed","%s":"%s"}]}}' \
+		"$CTX" "${2:-created_at}" "$(iso "$(ago "$1")")"
+}
+
 check "default setup not configured but a scanning workflow has uploaded analyses" code-scanning \
+	"$(workflow_ev 3)"
+expect_status pass
+expect_evidence "completed analyses=1"
+expect_evidence "workflow"
+
+check "default setup not configured and only stale analyses (400 days)" code-scanning \
+	"$(workflow_ev 400)"
+expect_status fail
+expect_evidence "400 days old"
+expect_evidence "not-configured"
+
+check "default setup not configured, analyses at the edge of the window (89 days)" code-scanning \
+	"$(workflow_ev 89 updated_at)"
+expect_status pass
+
+check "default setup not configured and analyses without any timestamp" code-scanning \
 	"{
 	$CTX,
 	\"default_setup\":{\"status\":200,\"body\":{\"state\":\"not-configured\"}},
 	\"analyses\":{\"status\":200,\"body\":[{\"id\":7,\"state\":\"completed\"}]}}"
+expect_status unknown
+expect_evidence "without a usable timestamp"
+
+check "default setup configured with a stale run still passes (setup is on)" code-scanning \
+	"{
+	$CTX,
+	\"default_setup\":{\"status\":200,\"body\":{\"state\":\"configured\"}},
+	\"analyses\":{\"status\":200,\"body\":[{\"id\":1,\"state\":\"completed\",\"created_at\":\"$(iso "$(ago 200)")\"}]}}"
 expect_status pass
-expect_evidence "completed analyses=1"
-expect_evidence "workflow"
+expect_evidence "200 days old"
 
 check "default setup 403 is not-available" code-scanning \
 	"{
@@ -408,6 +445,23 @@ check "practice label is populated" community-readme \
 	\"probes\":[{\"path\":\"README.md\",\"status\":404,\"body\":null}]}"
 expect_field '.id' 'community-readme'
 
+# code-scanning recency: the window is an input, never a clock read
+CASES=$((CASES + 1))
+CUR="code scanning: workflow analyses are unknown when no clock is supplied"
+if OUT=$(workflow_ev 400 | evaluate_without_clock code-scanning); then
+	expect_status unknown
+else
+	nok "$CUR: evaluate.jq exited non-zero"
+fi
+
+CASES=$((CASES + 1))
+CUR="code scanning: the same evidence with a clock is fail (recency is the only difference)"
+if OUT=$(workflow_ev 400 | evaluate code-scanning); then
+	expect_status fail
+else
+	nok "$CUR: evaluate.jq exited non-zero"
+fi
+
 # --------------------------------------------------------------------------
 # determinism / purity
 # --------------------------------------------------------------------------
@@ -431,7 +485,7 @@ CUR="purity: identical output with gh off PATH and tokens unset"
 PURE_BIN=$(mktemp -d)
 ln -s "$(command -v jq)" "$PURE_BIN/jq"
 # shellcheck disable=SC2086
-pure=$(printf '%s' "$DETERMINISM_EV" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_HOST PATH="$PURE_BIN" jq -c -f "$EVALUATE" --arg id branch-protection)
+pure=$(printf '%s' "$DETERMINISM_EV" | env -u GH_TOKEN -u GITHUB_TOKEN -u GH_HOST PATH="$PURE_BIN" jq -c -f "$EVALUATE" --arg id branch-protection --argjson now "$TEST_NOW")
 rm -rf "$PURE_BIN"
 if [[ "$pure" == "$first" ]]; then
 	ok "$CUR"

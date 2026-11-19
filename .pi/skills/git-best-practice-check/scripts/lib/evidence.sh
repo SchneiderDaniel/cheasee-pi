@@ -37,9 +37,12 @@ gather_community() {
 gather_evidence() {
 	case "$1" in
 	branch-protection)
-		local protection rules
-		protection=$(gh_request GET "/repos/$REPO/branches/$DEFAULT_BRANCH/protection")
-		rules=$(gh_request GET "/repos/$REPO/rules/branches/$DEFAULT_BRANCH")
+		local protection rules branch_path
+		# The branch name is a single path segment: encode it, or a branch like
+		# "release/2026" turns into a different request path and answers 404.
+		branch_path=$(urlencode_path_component "$DEFAULT_BRANCH")
+		protection=$(gh_request GET "/repos/$REPO/branches/$branch_path/protection")
+		rules=$(gh_request GET "/repos/$REPO/rules/branches/$branch_path")
 		jq -c -n --arg slug "$REPO" --arg branch "$DEFAULT_BRANCH" \
 			--argjson protection "$protection" --argjson rules "$rules" \
 			'{slug: $slug, default_branch: $branch, protection: $protection, rules: $rules}'

@@ -92,7 +92,9 @@ remediate_community() {
 	branch="${BRANCH:-git-best-practice-check/${id}-$(date -u +%Y%m%d%H%M%S)}"
 
 	STEP="resolve-default-branch-head"
-	head_response=$(gh_request GET "/repos/$REPO/git/ref/heads/$DEFAULT_BRANCH")
+	# One path segment: a default branch named "release/2026" would otherwise
+	# address a different path and the head lookup would 404.
+	head_response=$(gh_request GET "/repos/$REPO/git/ref/heads/$(urlencode_path_component "$DEFAULT_BRANCH")")
 	head_sha=$(jq -r '.body.object.sha // ""' <<<"$head_response")
 	if [[ -z "$head_sha" ]]; then
 		printf 'remediate: cannot resolve the head of %s (HTTP %s)\n' "$DEFAULT_BRANCH" "$(jq -r '.status' <<<"$head_response")" >&2

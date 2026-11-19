@@ -23,7 +23,7 @@ GH_STATE="$GH_STATE_DIR/state.json"
 mkdir -p "$GH_BODY_DIR" "$GH_STATE_DIR"
 touch "$GH_LOG"
 if [[ ! -f "$GH_STATE" ]]; then
-	printf '%s\n' '{"admin":true,"default_branch":"main","secret_scanning":"disabled","vulnerability_alerts":"disabled","code_scanning":"not-configured","analyses":0,"protection":null,"rules":[],"files":[],"health_percentage":0,"head_sha":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}' >"$GH_STATE"
+	printf '%s\n' '{"admin":true,"default_branch":"main","secret_scanning":"disabled","vulnerability_alerts":"disabled","code_scanning":"not-configured","analyses":0,"analyses_age_days":0,"protection":null,"rules":[],"files":[],"health_percentage":0,"head_sha":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}' >"$GH_STATE"
 fi
 
 # A transport-layer failure (auth, DNS, TLS) has no HTTP response at all: gh
@@ -193,7 +193,12 @@ handle() { # <method> <normalized path> — prints a response object or nothing
 	if [[ "$p" =~ ^repos/[^/]+/[^/]+/code-scanning/analyses$ ]]; then
 		case "$m" in
 		GET)
-			jq -c '{status:200, body:[range(0; (.analyses // 0)) | {id:., state:"completed"}]}' "$GH_STATE"
+			# created_at is derived from the real clock so the recency window in
+			# evaluate.jq can be exercised: .analyses_age_days shifts the newest
+			# analysis into the past (0 = a fresh run).
+			jq -c '. as $s | ($s.analyses_age_days // 0) as $age
+				| {status:200, body:[range(0; ($s.analyses // 0))
+					| {id:., state:"completed", created_at: ((now - ($age * 86400)) | todate)}]}' "$GH_STATE"
 			return 0
 			;;
 		esac

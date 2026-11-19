@@ -47,7 +47,7 @@ remove a practice, edit this table **and** the matching rule in
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | `branch-protection`               | Default branch protected: ≥1 approving review, admins not exempt                                            | branch protection endpoint plus effective rules for the branch |
 | `dependabot-alerts`               | Dependabot alerts enabled                                                                                   | vulnerability-alerts endpoint status                           |
-| `code-scanning`                   | Code scanning enabled: default setup with a completed run, or a scanning workflow that has uploaded results | code-scanning default setup plus analyses                      |
+| `code-scanning`                   | Code scanning enabled: default setup with a completed run, or a scanning workflow whose newest analysis is within the 90-day window | code-scanning default setup plus analyses (with the newest analysis age) |
 | `secret-scanning`                 | Secret scanning enabled                                                                                     | `security_and_analysis.secret_scanning.status` on the repo     |
 | `community-readme`                | Community standards: README                                                                                 | community profile, then contents lookups (symlinks included)   |
 | `community-code-of-conduct`       | Community standards: code of conduct                                                                        | community profile, then contents lookups                       |
@@ -70,6 +70,18 @@ remove a practice, edit this table **and** the matching rule in
 `unknown` fails closed: the audit exits non-zero, the table is still printed, and
 nothing is offered for remediation.
 
+Two rules are worth knowing because they change the verdict:
+
+- **Code-scanning recency.** With default setup `configured`, a completed run is
+  enough. With default setup `not-configured`, the newest analysis must be from
+  the last 90 days (`code_scanning_max_age_days` in `scripts/evaluate.jq`) —
+  analyses that stopped arriving months ago mean nothing is scanning now, so the
+  practice fails and remediation is offered. analyses without a readable
+  timestamp, or a run without a clock input, are `unknown`.
+- **Branch names are path segments.** The default branch is read from the
+  repository (never assumed `main`) and percent-encoded into every request path,
+  so `release/2026` works exactly like `main`.
+
 ## Phase 1 — audit (read-only)
 
 The audit issues GET requests only. Run it and read the rows:
@@ -80,7 +92,10 @@ bash .pi/skills/git-best-practice-check/scripts/audit.sh
 
 Optional flags: `--json` (machine-readable array of
 `{id, practice, status, evidence, remediable}`), `--check <id>` (one practice),
-`--repo owner/repo` (override `supervisor.repo`), `--settings <path>`.
+`--repo owner/repo` (override `supervisor.repo`), `--settings <path>`. An
+`--repo` value that is empty or not `owner/repo` is rejected — it never falls
+back to `supervisor.repo`, so the audit and the later writes always target the
+repository the user named.
 
 Present the result as a table with one row per practice and the evidence cell
 intact — the evidence is what makes the verdict auditable:

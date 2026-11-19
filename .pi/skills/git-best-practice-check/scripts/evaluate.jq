@@ -5,6 +5,11 @@
 #
 #   {id, practice, status, evidence: [string...], remediable}
 #
+# The one time-dependent rule (code-scanning recency) takes the current time as
+# an input — `--argjson now <epoch-seconds>` — instead of reading a clock, so
+# the same evidence always yields the same verdict. Without `now` that rule
+# reports `unknown` rather than guessing.
+#
 # status is one of pass | fail | pending | not-available | unknown:
 #   pass          — the practice is satisfied
 #   fail          — the practice is not satisfied and can be remediated
@@ -53,6 +58,14 @@ def community_specs:
 	];
 
 def as_array: if type == "array" then . else [] end;
+
+# Wall clock, supplied by the caller (`--argjson now`). null when absent.
+def now_epoch: ($ARGS.named.now // null);
+
+# An analysis older than this many days is history, not an active scanner, so
+# `not-configured` + stale analyses does not satisfy the code-scanning practice.
+# 90 days is the documented window; change it here and nowhere else.
+def code_scanning_max_age_days: 90;
 
 def status_of: (.status // 0);
 
@@ -139,6 +152,15 @@ def eval_branch_protection($ev):
 		{status: "unknown", evidence: ($probe + ["unexpected response from the branch protection endpoint"])}
 	end;
 
+# Missing or unparseable: null (the caller decides what that means).
+def analysis_epoch($a):
+	(($a.created_at // $a.updated_at // null)) as $stamp
+	| if ($stamp | type) == "string" then (try ($stamp | fromdateiso8601) catch null) else null end;
+
+def latest_analysis_epoch($analyses):
+	[$analyses[] | analysis_epoch(.)] | map(select(. != null))
+	| if length == 0 then null else max end;
+
 # --- security features -----------------------------------------------------
 
 def eval_dependabot_alerts($ev):
@@ -171,31 +193,59 @@ def eval_secret_scanning($ev):
 def eval_code_scanning($ev):
 	($ev.default_setup // {status: 0, body: null}) as $ds
 	| (($ev.analyses // {status: 0, body: []}).body) as $raw
-	| (if ($raw | type) == "array" then ($raw | length)
+	| ($raw | as_array) as $list
+	| (if ($raw | type) == "array" then ($list | length)
 		elif ($raw | type) == "object" then (($raw.total_count) // 0)
 		else 0 end) as $runs
+	| (latest_analysis_epoch($list)) as $latest
+	| (if $latest == null or now_epoch == null then null
+		else (now_epoch - $latest) / 86400 | floor end) as $age
 	| ["GET /repos/\($ev.slug)/code-scanning/default-setup -> \($ds.status)"] as $probe
 	| (($ds.body // {}).state) as $state
 	| if ($ds | http_ok) and $state == "configured" then
 		if $runs > 0 then
-			{status: "pass", evidence: ($probe + ["state=configured", "completed analyses=\($runs)"])}
+			{
+				status: "pass",
+				evidence: ($probe + ["state=configured", "completed analyses=\($runs)"]
+					+ (if $age == null then [] else ["newest analysis is \($age) days old"] end))
+			}
 		else
 			{status: "pending", evidence: ($probe + ["state=configured", "completed analyses=0 (waiting for the first CodeQL run)"])}
 		end
 	elif ($ds | http_ok) and $state == "not-configured" then
-		# Default setup off, but a scanning workflow can be uploading results to
-		# the same alerts — the checklist accepts either. Recency is not judged
-		# here (a clock would break purity); the run count is the evidence.
-		if $runs > 0 then
+		# Default setup off: a scanning workflow can still be uploading results
+		# to the same alerts, so the checklist accepts either. What it does not
+		# accept is history alone — an analysis that stopped arriving months ago
+		# means nothing is scanning now, so the newest analysis is compared with
+		# the documented window (code_scanning_max_age_days).
+		if $runs == 0 then
+			{status: "fail", evidence: ($probe + ["state=not-configured", "completed analyses=0 (no default setup and no scanning workflow)"])}
+		elif $age == null then
 			{
-				status: "pass",
-				evidence: (
-					$probe
-					+ ["state=not-configured (scanning comes from a workflow, not default setup)", "completed analyses=\($runs)"]
-				)
+				status: "unknown",
+				evidence: ($probe + [
+					"state=not-configured (scanning comes from a workflow, not default setup)",
+					"completed analyses=\($runs) but without a usable timestamp, so recency cannot be judged"
+				])
+			}
+		elif $age > code_scanning_max_age_days then
+			{
+				status: "fail",
+				evidence: ($probe + [
+					"state=not-configured (scanning comes from a workflow, not default setup)",
+					"newest analysis is \($age) days old",
+					"no analysis within the last \(code_scanning_max_age_days) days (window: code_scanning_max_age_days); nothing is scanning this repository right now"
+				])
 			}
 		else
-			{status: "fail", evidence: ($probe + ["state=not-configured", "completed analyses=0 (no default setup and no scanning workflow)"])}
+			{
+				status: "pass",
+				evidence: ($probe + [
+					"state=not-configured (scanning comes from a workflow, not default setup)",
+					"completed analyses=\($runs)",
+					"newest analysis is \($age) days old (within the \(code_scanning_max_age_days)-day window)"
+				])
+			}
 		end
 	elif ($ds | denied) or $ds.status == 404 then
 		{status: "not-available", evidence: ($probe + ["code scanning is not available for this repository (plan or licensing)"])}

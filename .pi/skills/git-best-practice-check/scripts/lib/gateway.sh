@@ -13,6 +13,17 @@
 #   * a non-2xx response is returned to the caller, never folded into a pass.
 #     Only a missing status line (no HTTP response) is treated as a failure.
 
+# urlencode_path_component <value> — percent-encode one URL path segment.
+#
+# A default branch may legally contain "/" (e.g. "release/2026") or other
+# characters that are reserved inside a path. Interpolating it raw changes the
+# shape of the request path, so GitHub answers 404 for a branch that does exist
+# — a false audit failure and a failing remediation. Every branch name that
+# goes into a URL goes through here.
+urlencode_path_component() {
+	printf '%s' "$1" | jq -sR -r '@uri'
+}
+
 gh_request() {
 	local method="${1:-}"
 	local path="${2:-}"

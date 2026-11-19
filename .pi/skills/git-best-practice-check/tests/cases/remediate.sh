@@ -211,3 +211,23 @@ expect_err_has "branch-protection"
 expect_err_has "re-verify"
 expect_out_lacks "fail → pass"
 
+
+reset_all
+begin "remediation refuses an explicitly empty --repo instead of touching another repo"
+run remediate dependabot-alerts --consent --repo ""
+expect_rc_nonzero
+expect_err_has "empty --repo"
+expect_eq "requests" "$(log_count)" "0"
+
+reset_all
+set_state .default_branch '"release/2026"'
+begin "branch protection remediation encodes a slash-containing default branch"
+run remediate branch-protection --consent
+expect_rc 0
+expect_eq "writes" "$(write_lines | tr '\n' '|')" "PUT /repos/owner/repo/branches/release%2F2026/protection|"
+if log_paths | grep -Eq '/branches/release/2026'; then
+	nok "$CUR sent an unencoded branch path"
+else
+	ok "$CUR encodes the branch path"
+fi
+expect_out_has "fail → pass"

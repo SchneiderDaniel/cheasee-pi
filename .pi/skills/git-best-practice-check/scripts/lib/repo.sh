@@ -47,3 +47,16 @@ resolve_repo() {
 
 	printf '%s' "$repo"
 }
+
+# resolve_repo_arg <0|1> <value> — resolve_repo for a parsed command line.
+#
+# The caller reports whether `--repo` was supplied at all, so an explicitly
+# empty value is rejected by resolve_repo instead of silently falling back to
+# `supervisor.repo` (which would audit, or worse write to, the wrong repo).
+resolve_repo_arg() {
+	if [[ "${1:-0}" == "1" ]]; then
+		resolve_repo "${2:-}"
+	else
+		resolve_repo
+	fi
+}

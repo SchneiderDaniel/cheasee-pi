@@ -38,6 +38,7 @@ usage() {
 JSON_OUT=0
 CHECK_ID=""
 REPO_ARG=""
+REPO_SET=0
 SETTINGS=""
 
 while (($# > 0)); do
@@ -52,6 +53,7 @@ while (($# > 0)); do
 		;;
 	--repo)
 		REPO_ARG="${2:-}"
+		REPO_SET=1
 		shift 2
 		;;
 	--settings)
@@ -90,7 +92,18 @@ else
 	IDS=("${ALL_IDS[@]}")
 fi
 
-if ! REPO=$(resolve_repo ${REPO_ARG:+"$REPO_ARG"}); then
+# Wall clock for the recency rule in evaluate.jq. It is an input to the pure
+# rules, not something they read; GBPC_NOW pins it for tests.
+NOW_EPOCH="${GBPC_NOW:-$(date -u +%s)}"
+
+# An explicit --repo is passed through even when empty, so `resolve_repo` can
+# reject it instead of silently falling back to supervisor.repo (auditing — and
+# later remediating — a repository the user did not ask for).
+if ((REPO_SET == 1)); then
+	if ! REPO=$(resolve_repo "$REPO_ARG"); then
+		exit 2
+	fi
+elif ! REPO=$(resolve_repo); then
 	exit 2
 fi
 
@@ -115,7 +128,7 @@ DEFAULT_BRANCH=$(jq -r '.body.default_branch // "main"' <<<"$preflight")
 ROWS='[]'
 for id in "${IDS[@]}"; do
 	evidence=$(gather_evidence "$id")
-	if ! row=$(printf '%s' "$evidence" | jq -c -f "$EVALUATE" --arg id "$id"); then
+	if ! row=$(printf '%s' "$evidence" | jq -c -f "$EVALUATE" --arg id "$id" --argjson now "$NOW_EPOCH"); then
 		printf 'audit: cannot evaluate "%s" from the gathered evidence\n' "$id" >&2
 		exit 2
 	fi
