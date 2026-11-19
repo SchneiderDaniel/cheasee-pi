@@ -138,7 +138,10 @@ function sliceBlock(html, start, end, label) {
 // Extract `function <name>(...) {...}` verbatim by balancing braces. Strings,
 // template literals and comments are skipped so braces inside them do not
 // count. shortcut: no regex-literal handling, generateReport has none.
-function extractFunction(html, name) {
+//
+// Exported so a fixture generator slices the pinned page exactly like the
+// producer does (test/fixtures/generate-dashboard-seam-fixture.mjs).
+export function extractFunction(html, name) {
 	const match = new RegExp(`function\\s+${name}\\s*\\(`).exec(html);
 	if (!match) return null;
 	const open = html.indexOf("{", match.index);
