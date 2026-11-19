@@ -357,7 +357,7 @@ seed_gh_config() {
     local config_dir="${GH_CONFIG_DIR:-/home/agentuser/.config/gh}"
 
     if [ ! -f "$auth_path" ]; then
-        echo "Warning: GitHub credential file ${auth_path} is missing — gh/git push will not authenticate while it is absent (run cheasee-pi auth on the host, then cheasee-pi start --build)"
+        echo "Warning: GitHub credential file ${auth_path} is missing — gh/git push will not authenticate while it is absent (run cheasee-pi init --reauth on the host, then cheasee-pi start --build)"
         return 0
     fi
 
@@ -375,7 +375,7 @@ seed_gh_config() {
     if printf '%s' "$token" | gosu agentuser gh auth login --with-token >/dev/null 2>&1; then
         return 0
     fi
-    echo "Warning: could not import the GitHub credential into ${config_dir} — gh/git push may not authenticate (non-fatal; run cheasee-pi auth on the host, then cheasee-pi start --build)"
+    echo "Warning: could not import the GitHub credential into ${config_dir} — gh/git push may not authenticate (non-fatal; run cheasee-pi init --reauth on the host, then cheasee-pi start --build)"
 }
 seed_gh_config
 # Mark the bare repo safe for container git ops — a host-owned .bare mount
