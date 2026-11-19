@@ -23,6 +23,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 import { after, describe, it } from "node:test";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -153,10 +154,13 @@ const commandExecutionOf = (data: { securityIssues: Array<{ title: string; path:
 
 // The producer's own reader, so the replay below exercises the real path-keyed
 // resolution instead of a test-only source expansion: a gap the split opened has
-// to fail here exactly as it would in a produced report.
-const { makeReadFile } = (await import(RUNNER)) as {
-	makeReadFile: (dir: string) => (path: unknown) => string | null;
-};
+// to fail here exactly as it would in a produced report. The specifier is a
+// literal like `RUNNER` above but resolvable statically, so the dead-code gate
+// sees this export consumed instead of reporting it unused.
+const { makeReadFile } =
+	(await import("../cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs")) as {
+		makeReadFile: (dir: string) => (path: unknown) => string | null;
+	};
 const makeRepoReadFile = (): ((path: unknown) => string | null) => makeReadFile(REPO_ROOT);
 
 const UI_DIR = "cmd/cheasee-pi/embedded/docker/ui";
@@ -374,6 +378,61 @@ describe("fp-filter — acceptance against pinned-analyzer output", () => {
 			data.stats.dead,
 			data.deadFunctions.length,
 			"the count must agree with the list",
+		);
+	});
+
+	// Issue #2147: the gap this issue names. The dashboard scored the raw analyzer
+	// output while the report was built from filtered data (72/C on screen vs
+	// 94/A in the report). The browser path — the served policy modules plus the
+	// application step the analysis seam calls — must therefore produce the same
+	// score the headless report carries for the same snapshot.
+	it("scores the dashboard and the headless report identically for one snapshot", () => {
+		const recorded = JSON.parse(readFileSync(FIXTURE, "utf8"));
+
+		// Headless path: the producer's own filter call, then upstream's calcHealth.
+		const served = servedShape(recorded);
+		const headless = sanitizeAnalysisData(served, readFileFrom(served)).data;
+		const reportScore = calcHealth(headless);
+
+		// Browser path: load the served policy and glue exactly as the page's script
+		// tags do, then score the same object the dashboard renders.
+		const sandbox: Record<string, any> = { console: { info() {}, error() {} } };
+		vm.createContext(sandbox);
+		const moduleDir = resolve(REPO_ROOT, "cmd/cheasee-pi/embedded/docker/codeflow/fp-filter");
+		for (const name of readdirSync(moduleDir, { recursive: true }) as string[]) {
+			if (!name.endsWith(".js")) continue;
+			vm.runInContext(readFileSync(resolve(moduleDir, name), "utf-8"), sandbox, {
+				filename: `${name}.js`,
+			});
+		}
+		vm.runInContext(readFileSync(FILTER, "utf-8"), sandbox, { filename: "fp-filter.js" });
+		vm.runInContext(readFileSync(resolve(moduleDir, "browser-glue.js"), "utf-8"), sandbox, {
+			filename: "browser-glue.js",
+		});
+
+		const pageData = servedShape(recorded);
+		const before = calcHealth(pageData);
+		assert.ok(
+			before.score < 90,
+			`the served shape must not already score an A, or this passes vacuously: ${before.score}`,
+		);
+		sandbox.piFpFilterBrowserGlue.applyFalsePositiveFilter(pageData);
+		const dashboardScore = calcHealth(pageData);
+
+		assert.strictEqual(
+			dashboardScore.score,
+			reportScore.score,
+			"the dashboard score must equal the report score for the same snapshot",
+		);
+		assert.strictEqual(dashboardScore.grade, reportScore.grade, "and the same grade");
+		assert.ok(dashboardScore.score >= 90, `expected an A (>= 90), got ${dashboardScore.score}`);
+		assert.strictEqual(dashboardScore.grade, "A");
+		// The rendered terms come from the same stats object the report carries (the
+		// vm realm owns the glue's objects, so compare the serialised shape).
+		assert.strictEqual(
+			JSON.stringify(pageData.stats),
+			JSON.stringify(headless.stats),
+			"the dashboard's stats must be the report's stats",
 		);
 	});
 

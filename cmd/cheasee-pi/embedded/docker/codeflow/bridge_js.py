@@ -45,8 +45,9 @@ BRIDGE_JS = br"""(function () {
     } catch (e) {}
   }
 
-  // The served false-positive filter wrapper (see _FP_WRAPPER_BODY) calls this
-  // so a sanitizer failure is shown in the banner, not only logged to console.
+  // The served false-positive application step (see _FP_SEAM_HEAD in
+  // ui_rewrites.py and fp-filter/browser-glue.js) calls this so a sanitizer
+  // failure is shown in the banner, not only logged to console.
   try { window.__codeflowBridgeReportError = reportError; } catch (e) {}
 
   function post(url, text) {

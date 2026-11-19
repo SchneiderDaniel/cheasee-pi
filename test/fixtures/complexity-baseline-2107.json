@@ -89,8 +89,8 @@
 		}
 	},
 	"controls": {
-		"codeFiles": 988,
+		"codeFiles": 993,
 		"criticalCount": 196,
-		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), then to 959 by #2097 (the Python parse-spec module and parser regression suite). #2137 adds twenty-one below-ceiling scored files for deprecated-package retirement (eleven production modules plus ten `_test.go` files), reaching 980. #2098 adds eight below-ceiling GitHub adapter, error-panel and tool-call-text modules, reaching 988; its refactor also moves two former critical paths below the ceiling, so criticalCount is 196."
+		"note": "The codeFiles control was reconciled from 948 to 951 by #2093, from 951 to 953 by #2136, from 953 to 957 by #2096 (four below-ceiling Dependency/PackageRecord scenario modules), then to 959 by #2097 (the Python parse-spec module and parser regression suite). #2137 adds twenty-one below-ceiling scored files for deprecated-package retirement (eleven production modules plus ten `_test.go` files), reaching 980. #2098 adds eight below-ceiling GitHub adapter, error-panel and tool-call-text modules, reaching 988; its refactor also moves two former critical paths below the ceiling, so criticalCount is 196. #2147 adds five below-ceiling scored files: the served application step codeflow/fp-filter/browser-glue.js (28), its seam fixture generator test/fixtures/generate-dashboard-seam-fixture.mjs, and the codeflow shim's testdata/fp_filter_rewrite_pure.py, testdata/fp_filter_seam_harness.py and testdata/fp_filter_suggestions_harness.py (the emitted CommonJS harnesses) — no flag moves, so the delivered tree measures 1849 tracked files and 993 scored files, with criticalCount still 196 (`after.files`, `after.codeFiles` and `partition.scored` are re-anchored to that)."
 	}
 }
