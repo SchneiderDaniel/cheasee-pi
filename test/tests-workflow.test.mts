@@ -414,7 +414,7 @@ describe("Prettier format gate", () => {
 			}
 		});
 
-		it("holds only build/vendor ignores plus the golden carve-out", () => {
+		it("holds only build/vendor ignores plus the generated-artifact carve-outs", () => {
 			const allowed = new Set([
 				"node_modules/",
 				"dist/",
@@ -427,6 +427,11 @@ describe("Prettier format gate", () => {
 				"package-lock.json",
 				GOLDENS,
 				"cmd/cheasee-pi/embedded/docker/ui/provider_env_map.json",
+				// #2147: the recorded upstream analysis seam, sliced verbatim from the
+				// pinned CodeFlow index.html and compared byte-for-byte by
+				// codeflow-analysis-seam-2147.test.mts — reflowing it would break the
+				// anchor the served rewrite splices into.
+				"test/fixtures/codeflow-dashboard-seam.html",
 			]);
 			for (const entry of entries()) {
 				assert.ok(allowed.has(entry), `unexpected .prettierignore entry: ${entry}`);
