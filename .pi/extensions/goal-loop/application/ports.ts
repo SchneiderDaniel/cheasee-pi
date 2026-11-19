@@ -83,7 +83,7 @@ export interface GoalWorkspace {
 	 * and branch are retained until the user explicitly confirms cleanup
 	 * (R3.AC5).
 	 */
-	cleanupWorktree(input: { path: string; confirmed: boolean }): Promise<Result<void>>;
+	discardGoalWorktree(input: { path: string; confirmed: boolean }): Promise<Result<void>>;
 }
 
 // ─── Pull requests ───────────────────────────────────────────────

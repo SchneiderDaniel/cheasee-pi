@@ -291,7 +291,7 @@ describe("user journey: maintainer runs a verified goal", () => {
 				store: new MarkdownGoalStore(repo.checkout),
 				workspace: {
 					prepare: async () => ({ ok: true, value: { clean: false, reason: "unused" } }),
-					cleanupWorktree: async () => ({ ok: true, value: undefined }),
+					discardGoalWorktree: async () => ({ ok: true, value: undefined }),
 				},
 				pr: wired.pr,
 				runtime: wired.runtime,

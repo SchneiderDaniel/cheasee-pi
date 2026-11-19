@@ -10,7 +10,7 @@ import type { GoalWorkspace } from "./ports.ts";
 const SOURCE = "goal-loop";
 
 /** Remove the goal worktree once the user confirms (never automatically). */
-export async function cleanupWorktree(input: {
+export async function performGoalCleanup(input: {
 	keeper: RecordKeeper;
 	workspace: GoalWorkspace;
 	notify?: NotifyFn;
@@ -20,7 +20,7 @@ export async function cleanupWorktree(input: {
 	if (!record) return failure("no goal to clean up", SOURCE);
 	if (!record.worktree) return failure(`goal ${record.id} has no worktree to remove`, SOURCE);
 
-	const removed = await input.workspace.cleanupWorktree({
+	const removed = await input.workspace.discardGoalWorktree({
 		path: record.worktree,
 		confirmed: input.confirmed,
 	});

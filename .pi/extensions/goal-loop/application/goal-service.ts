@@ -13,7 +13,7 @@ import { failure, type NotifyFn, type Result } from "../../shared/result.ts";
 import { renderStatus } from "./goal-prompts.ts";
 import { BoundaryRunner, type BoundaryOutcome } from "./goal-boundary.ts";
 import { GoalClarifier } from "./goal-clarify.ts";
-import { cleanupWorktree } from "./goal-cleanup.ts";
+import { performGoalCleanup } from "./goal-cleanup.ts";
 import { GoalControl } from "./goal-control.ts";
 import { GoalPublisher } from "./goal-publication.ts";
 import {
@@ -191,7 +191,7 @@ export class GoalService {
 
 	/** `/goal cleanup --confirm`: remove the worktree on explicit confirmation. */
 	async cleanup(input: { confirmed: boolean }): Promise<Result<void>> {
-		return await cleanupWorktree({
+		return await performGoalCleanup({
 			keeper: this.keeper,
 			workspace: this.deps.workspace,
 			notify: this.deps.notify,

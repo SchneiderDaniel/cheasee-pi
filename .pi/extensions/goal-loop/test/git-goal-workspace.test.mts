@@ -171,7 +171,7 @@ describe("GitGoalWorkspace.prepare", () => {
 	});
 });
 
-describe("GitGoalWorkspace.cleanupWorktree", () => {
+describe("GitGoalWorkspace.discardGoalWorktree", () => {
 	it("refuses to remove without explicit confirmation", async () => {
 		const repo = await makeRepo();
 		try {
@@ -184,7 +184,7 @@ describe("GitGoalWorkspace.cleanupWorktree", () => {
 			assert.equal(prepared.ok, true);
 			if (!prepared.ok || !prepared.value.clean) return;
 
-			const refused = await workspace.cleanupWorktree({
+			const refused = await workspace.discardGoalWorktree({
 				path: prepared.value.path,
 				confirmed: false,
 			});
@@ -208,7 +208,7 @@ describe("GitGoalWorkspace.cleanupWorktree", () => {
 			assert.equal(prepared.ok, true);
 			if (!prepared.ok || !prepared.value.clean) return;
 
-			const removed = await workspace.cleanupWorktree({
+			const removed = await workspace.discardGoalWorktree({
 				path: prepared.value.path,
 				confirmed: true,
 			});
@@ -233,7 +233,7 @@ describe("GitGoalWorkspace.cleanupWorktree", () => {
 				worktreeBase: repo.worktreeBase,
 				exec: realGitExec(repo.dir),
 			});
-			const refused = await workspace.cleanupWorktree({ path: repo.dir, confirmed: true });
+			const refused = await workspace.discardGoalWorktree({ path: repo.dir, confirmed: true });
 			assert.equal(refused.ok, false);
 			assert.equal(worktreeList(repo).includes(repo.dir), true);
 		} finally {

@@ -142,7 +142,7 @@ export class GitGoalWorkspace implements GoalWorkspace {
 	 * the user explicitly asks. The removal itself is gated by the shared
 	 * removal guard, so a tampered record path cannot delete the checkout.
 	 */
-	async cleanupWorktree(input: { path: string; confirmed: boolean }): Promise<Result<void>> {
+	async discardGoalWorktree(input: { path: string; confirmed: boolean }): Promise<Result<void>> {
 		if (!input.confirmed) {
 			return failure(
 				`worktree ${input.path} retained — run /goal cleanup --confirm to remove it`,

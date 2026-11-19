@@ -123,8 +123,8 @@ export class FakeGoalWorkspace implements GoalWorkspace {
 		return ok(this.outcome);
 	}
 
-	async cleanupWorktree(input: { path: string; confirmed: boolean }): Promise<Result<void>> {
-		this.log.record("workspace.cleanupWorktree");
+	async discardGoalWorktree(input: { path: string; confirmed: boolean }): Promise<Result<void>> {
+		this.log.record("workspace.discardGoalWorktree");
 		this.cleanupCalls.push(input);
 		if (!input.confirmed) return fail(`worktree ${input.path} retained`);
 		return ok(undefined);
