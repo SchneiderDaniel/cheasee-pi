@@ -96,14 +96,10 @@ fi
 # rules, not something they read; GBPC_NOW pins it for tests.
 NOW_EPOCH="${GBPC_NOW:-$(date -u +%s)}"
 
-# An explicit --repo is passed through even when empty, so `resolve_repo` can
-# reject it instead of silently falling back to supervisor.repo (auditing — and
-# later remediating — a repository the user did not ask for).
-if ((REPO_SET == 1)); then
-	if ! REPO=$(resolve_repo "$REPO_ARG"); then
-		exit 2
-	fi
-elif ! REPO=$(resolve_repo); then
+# An explicit --repo is passed through even when empty, so `resolve_repo_arg`
+# can reject it instead of silently falling back to supervisor.repo (auditing —
+# and later remediating — a repository the user did not ask for).
+if ! REPO=$(resolve_repo_arg "$REPO_SET" "$REPO_ARG"); then
 	exit 2
 fi
 
