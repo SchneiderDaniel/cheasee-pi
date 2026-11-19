@@ -228,6 +228,15 @@ check "default setup not configured" code-scanning \
 	\"analyses\":{\"status\":200,\"body\":[]}}"
 expect_status fail
 
+check "default setup not configured but a scanning workflow has uploaded analyses" code-scanning \
+	"{
+	$CTX,
+	\"default_setup\":{\"status\":200,\"body\":{\"state\":\"not-configured\"}},
+	\"analyses\":{\"status\":200,\"body\":[{\"id\":7,\"state\":\"completed\"}]}}"
+expect_status pass
+expect_evidence "completed analyses=1"
+expect_evidence "workflow"
+
 check "default setup 403 is not-available" code-scanning \
 	"{
 	$CTX,

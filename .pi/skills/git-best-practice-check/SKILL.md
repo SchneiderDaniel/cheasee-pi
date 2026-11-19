@@ -43,19 +43,19 @@ The list below is the definition of "best practice" for this project. To add or
 remove a practice, edit this table **and** the matching rule in
 `scripts/evaluate.jq` — the contract test asserts the two stay in sync.
 
-| Check id                          | Practice                                                             | Evidence                                                       |
-| --------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `branch-protection`               | Default branch protected: ≥1 approving review, admins not exempt     | branch protection endpoint plus effective rules for the branch |
-| `dependabot-alerts`               | Dependabot alerts enabled                                            | vulnerability-alerts endpoint status                           |
-| `code-scanning`                   | Code scanning enabled (default setup, with a completed analysis run) | code-scanning default setup plus analyses                      |
-| `secret-scanning`                 | Secret scanning enabled                                              | `security_and_analysis.secret_scanning.status` on the repo     |
-| `community-readme`                | Community standards: README                                          | community profile, then contents lookups (symlinks included)   |
-| `community-code-of-conduct`       | Community standards: code of conduct                                 | community profile, then contents lookups                       |
-| `community-contributing`          | Community standards: contributing guide                              | community profile, then contents lookups                       |
-| `community-license`               | Community standards: license                                         | community profile, then contents lookups                       |
-| `community-security-policy`       | Community standards: security policy (SECURITY.md)                   | contents lookups at the root, `.github/` and `docs/`           |
-| `community-issue-templates`       | Community standards: issue templates                                 | community profile, then `.github/ISSUE_TEMPLATE`               |
-| `community-pull-request-template` | Community standards: pull request template                           | community profile, then contents lookups                       |
+| Check id                          | Practice                                                                                                    | Evidence                                                       |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `branch-protection`               | Default branch protected: ≥1 approving review, admins not exempt                                            | branch protection endpoint plus effective rules for the branch |
+| `dependabot-alerts`               | Dependabot alerts enabled                                                                                   | vulnerability-alerts endpoint status                           |
+| `code-scanning`                   | Code scanning enabled: default setup with a completed run, or a scanning workflow that has uploaded results | code-scanning default setup plus analyses                      |
+| `secret-scanning`                 | Secret scanning enabled                                                                                     | `security_and_analysis.secret_scanning.status` on the repo     |
+| `community-readme`                | Community standards: README                                                                                 | community profile, then contents lookups (symlinks included)   |
+| `community-code-of-conduct`       | Community standards: code of conduct                                                                        | community profile, then contents lookups                       |
+| `community-contributing`          | Community standards: contributing guide                                                                     | community profile, then contents lookups                       |
+| `community-license`               | Community standards: license                                                                                | community profile, then contents lookups                       |
+| `community-security-policy`       | Community standards: security policy (SECURITY.md)                                                          | contents lookups at the root, `.github/` and `docs/`           |
+| `community-issue-templates`       | Community standards: issue templates                                                                        | community profile, then `.github/ISSUE_TEMPLATE`               |
+| `community-pull-request-template` | Community standards: pull request template                                                                  | community profile, then contents lookups                       |
 
 ## Status vocabulary
 

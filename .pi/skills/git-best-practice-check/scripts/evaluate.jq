@@ -183,7 +183,20 @@ def eval_code_scanning($ev):
 			{status: "pending", evidence: ($probe + ["state=configured", "completed analyses=0 (waiting for the first CodeQL run)"])}
 		end
 	elif ($ds | http_ok) and $state == "not-configured" then
-		{status: "fail", evidence: ($probe + ["state=not-configured"])}
+		# Default setup off, but a scanning workflow can be uploading results to
+		# the same alerts — the checklist accepts either. Recency is not judged
+		# here (a clock would break purity); the run count is the evidence.
+		if $runs > 0 then
+			{
+				status: "pass",
+				evidence: (
+					$probe
+					+ ["state=not-configured (scanning comes from a workflow, not default setup)", "completed analyses=\($runs)"]
+				)
+			}
+		else
+			{status: "fail", evidence: ($probe + ["state=not-configured", "completed analyses=0 (no default setup and no scanning workflow)"])}
+		end
 	elif ($ds | denied) or $ds.status == 404 then
 		{status: "not-available", evidence: ($probe + ["code scanning is not available for this repository (plan or licensing)"])}
 	elif ($ds | http_ok) then

@@ -101,7 +101,10 @@ else
 fi
 
 reset_all
-set_state .analyses '1'
+# Default setup off and no analyses yet: the practice fails, so remediation runs.
+# The first analyses read (re-audit) is still empty; the second (re-verify) shows
+# the completed run GitHub produces after default setup is switched on.
+plan_seq GET /repos/owner/repo/code-scanning/analyses '[{"status":200,"body":[]},{"status":200,"body":[{"id":1,"state":"completed"}]}]'
 begin "code scanning remediation PATCHes default setup"
 run remediate code-scanning --consent
 expect_rc 0
@@ -116,7 +119,7 @@ fi
 expect_out_has "fail → pass"
 
 reset_all
-set_state .analyses '1'
+plan_seq GET /repos/owner/repo/code-scanning/analyses '[{"status":200,"body":[]},{"status":200,"body":[{"id":1,"state":"completed"}]}]'
 plan_seq GET /repos/owner/repo/code-scanning/default-setup '[{"status":200,"body":{"state":"not-configured"}},{"status":200,"body":{"state":"not-configured"}},{"status":200,"body":{"state":"not-configured"}},{"status":200,"body":{"state":"configured"}}]'
 begin "code scanning polling waits for default setup to become configured"
 GBPC_POLL_ATTEMPTS=5 GBPC_POLL_INTERVAL=0 run remediate code-scanning --consent
