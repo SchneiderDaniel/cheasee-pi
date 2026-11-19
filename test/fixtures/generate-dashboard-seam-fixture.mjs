@@ -109,7 +109,10 @@ for (const block of blocks) {
 }
 lines.push("");
 
-writeFileSync(join(dirname(new URL(import.meta.url).pathname), "codeflow-dashboard-seam.html"), lines.join("\n"));
+writeFileSync(
+	join(dirname(new URL(import.meta.url).pathname), "codeflow-dashboard-seam.html"),
+	lines.join("\n"),
+);
 console.log(
 	`wrote codeflow-dashboard-seam.html from ${uiPath}: ${blocks
 		.map((b) => `${b.id} (${b.code.split("\n").length} lines)`)

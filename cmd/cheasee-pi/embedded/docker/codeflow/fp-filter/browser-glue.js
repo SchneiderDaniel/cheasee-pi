@@ -46,29 +46,13 @@
 	if (root) root.piFpFilterBrowserGlue = api;
 	if (typeof module === "object") module.exports = api;
 
-	/** First truthy entry, else undefined. */
-	function first(list) {
-		return list.filter(function (entry) {
-			return entry;
-		})[0];
-	}
-
-	/** `opts[key]`, tolerating a missing/non-object `opts`. */
-	function pluck(opts, key) {
-		return (opts ?? {})[key];
-	}
-
-	function isObject(value) {
-		return Boolean(value) && typeof value === "object";
-	}
-
 	function isFunction(value) {
 		return typeof value === "function";
 	}
 
 	/** The object the bridge's visible error surface lives on. */
 	function scopeOf(opts) {
-		return first([pluck(opts, "global"), root]) ?? null;
+		return opts?.global ?? root ?? null;
 	}
 
 	/** The headless runner's policy, once loaded by `require`. */
@@ -80,17 +64,11 @@
 		}
 	}
 
-	function isPolicy(value) {
-		if (!isObject(value)) return false;
-		if (!isFunction(value.sanitizeAnalysisData)) return false;
-		return isFunction(value.readFileFrom);
-	}
-
 	/** An explicit override, the require path, else the page's `piFpFilter` global. */
 	function policyOf(opts) {
 		var scope = scopeOf(opts);
-		var policy = first([pluck(opts, "piFpFilter"), nodePolicy(), scope?.piFpFilter]);
-		if (!isPolicy(policy)) {
+		var policy = opts?.piFpFilter ?? nodePolicy() ?? scope?.piFpFilter;
+		if (!policy || !isFunction(policy.sanitizeAnalysisData) || !isFunction(policy.readFileFrom)) {
 			throw new TypeError(
 				"fp-filter browser glue: piFpFilter is not loaded (missing module / script order)",
 			);
@@ -114,11 +92,9 @@
 	 * turns into "no cards" rather than stale ones.
 	 */
 	function deriverOf(opts) {
-		var explicit = pluck(opts, "deriveSuggestions");
-		if (isFunction(explicit)) return explicit;
-		var parser = first([pluck(opts, "Parser"), pageParser()]);
-		if (!parser) return null;
-		if (!isFunction(parser.generateSuggestions)) return null;
+		if (isFunction(opts?.deriveSuggestions)) return opts.deriveSuggestions;
+		var parser = opts?.Parser ?? pageParser();
+		if (!parser || !isFunction(parser.generateSuggestions)) return null;
 		return function (filtered) {
 			return parser.generateSuggestions(filtered);
 		};
@@ -134,7 +110,7 @@
 
 	function logLine(opts, text) {
 		try {
-			(first([pluck(opts, "console"), pageConsole()]) ?? QUIET).info(text);
+			(opts?.console ?? pageConsole() ?? QUIET).info(text);
 		} catch (error) {
 			// A page without a working console surface must still get its report.
 		}
@@ -142,22 +118,16 @@
 
 	/** The visible, catchable failure: banner plus state first, rethrow by caller. */
 	function fail(e, opts) {
-		var message = String(pluck(e, "message") ?? e);
+		var message = String(e?.message ?? e);
 		var scope = scopeOf(opts);
-		banner(scope, "false-positive filter failed; report not exported: " + message);
-		remember(scope, message);
-	}
-
-	function banner(scope, text) {
 		try {
-			scope.__codeflowBridgeReportError(text);
+			scope.__codeflowBridgeReportError(
+				"false-positive filter failed; report not exported: " + message,
+			);
 		} catch (error) {
 			// The banner is best-effort: the rethrow in `applyFalsePositiveFilter`
 			// is the contract.
 		}
-	}
-
-	function remember(scope, message) {
 		try {
 			scope.__codeflowFpFilterError = message;
 		} catch (error) {
@@ -169,55 +139,52 @@
 		return Array.isArray(list) ? list.length : 0;
 	}
 
-	function sumOf(counts) {
-		return counts.reduce(function (total, count) {
-			return total + count;
-		}, 0);
-	}
-
-	/** Byte-identical to the headless runner's stderr line. */
-	function suppressionLine(counts) {
-		return (
-			"fp-filter: suppressed " +
-			counts[0] +
-			" security issue(s), " +
-			counts[1] +
-			" layer violation(s), " +
-			counts[2] +
-			" hygiene finding(s), " +
-			counts[3] +
-			" unused function(s), " +
-			counts[4] +
-			" duplicate group(s)"
-		);
-	}
-
+	/** Byte-identical to the headless runner's stderr lines. */
 	function reportSuppressed(opts, suppressed) {
 		var counts = BUCKETS.map(function (bucket) {
 			return countOf(suppressed[bucket]);
 		});
-		if (sumOf(counts) > 0) logLine(opts, suppressionLine(counts));
+		var total = counts.reduce(function (sum, count) {
+			return sum + count;
+		}, 0);
+		if (total > 0) {
+			logLine(
+				opts,
+				"fp-filter: suppressed " +
+					counts[0] +
+					" security issue(s), " +
+					counts[1] +
+					" layer violation(s), " +
+					counts[2] +
+					" hygiene finding(s), " +
+					counts[3] +
+					" unused function(s), " +
+					counts[4] +
+					" duplicate group(s)",
+			);
+		}
 		// Same wording as the headless runner: a missing deriver is never silent.
 		var dropped = countOf(suppressed.suggestions);
 		if (dropped > 0) {
-			logLine(opts, "fp-filter: dropped " + dropped + " derived suggestion(s): derivation unavailable");
+			logLine(
+				opts,
+				"fp-filter: dropped " + dropped + " derived suggestion(s): derivation unavailable",
+			);
 		}
 	}
 
 	/** Overwrite the fields the page rendered, never rebinding `data`. */
 	function copyFields(data, filtered) {
-		FIELDS.filter(function (field) {
-			return field in filtered;
-		}).forEach(function (field) {
-			data[field] = filtered[field];
+		FIELDS.forEach(function (field) {
+			if (field in filtered) data[field] = filtered[field];
 		});
 	}
 
 	/** Upstream frees this text on purpose: a large scan must not pin it. */
 	function releaseSources(data) {
 		var files = Array.isArray(data.files) ? data.files : [];
-		files.filter(Boolean).forEach(function (file) {
-			file.piFpSource = null;
+		files.forEach(function (file) {
+			if (file) file.piFpSource = null;
 		});
 	}
 
@@ -229,7 +196,7 @@
 	 */
 	function applyFalsePositiveFilter(data, opts) {
 		var policy = policyOf(opts);
-		if (!isObject(data)) return data;
+		if (!data || typeof data !== "object") return data;
 		var result = null;
 		try {
 			result = policy.sanitizeAnalysisData(data, policy.readFileFrom(data), {

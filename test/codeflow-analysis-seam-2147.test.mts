@@ -129,7 +129,11 @@ describe("dashboard score alignment #2147 — the analysis seam", () => {
 			new RegExp(`ARG CODEFLOW_REF=${PINNED_REF}`),
 			"the fixture and the served revision must not drift",
 		);
-		assert.match(BLOCKS["run-analysis-data"] ?? "", /^function runAnalysisData\(options\)\{/, "the analysis seam must be recorded verbatim");
+		assert.match(
+			BLOCKS["run-analysis-data"] ?? "",
+			/^function runAnalysisData\(options\)\{/,
+			"the analysis seam must be recorded verbatim",
+		);
 		assert.match(
 			BLOCKS["dashboard-score"] ?? "",
 			/calcHealth\(data\)/,
@@ -169,7 +173,13 @@ describe("dashboard score alignment #2147 — the analysis seam", () => {
 		);
 		assert.equal(reportBody.includes("piFpSource = null"), false);
 		assert.equal(reportBody.includes("data.securityIssues ="), false);
-		for (const stale of ["__piFpGenerateReport", "__piFp.data", "__piFpDead", "__piFpSugg", "__piFpDup"]) {
+		for (const stale of [
+			"__piFpGenerateReport",
+			"__piFp.data",
+			"__piFpDead",
+			"__piFpSugg",
+			"__piFpDup",
+		]) {
 			assert.equal(
 				rewritten.includes(stale),
 				false,
@@ -228,12 +238,17 @@ describe("dashboard score alignment #2147 — the analysis seam", () => {
 		const names = modules.split(",");
 		assert.equal(names[names.length - 1], "browser-glue", "the glue is the last module tag");
 		assert.ok(names.includes("browser-glue"));
-		const tags = [...bridge.matchAll(/<script src="fp-filter\/([\w/-]+)\.js" defer><\/script>/g)].map((m) => m[1]);
+		const tags = [
+			...bridge.matchAll(/<script src="fp-filter\/([\w/-]+)\.js" defer><\/script>/g),
+		].map((m) => m[1]);
 		assert.deepEqual(tags, names, "one tag per allowlisted module, in load order");
 		const indexTag = '<script src="fp-filter.js" defer></script>';
 		assert.equal(bridge.split(indexTag).length - 1, 1, "exactly one index tag");
 		const indexAt = bridge.indexOf(indexTag);
-		assert.ok(bridge.indexOf('src="fp-filter/browser-glue.js"') < indexAt, "the glue must load before the index");
+		assert.ok(
+			bridge.indexOf('src="fp-filter/browser-glue.js"') < indexAt,
+			"the glue must load before the index",
+		);
 		assert.ok(bridge.indexOf('src="codeflow-bridge.js"') > indexAt, "the bridge follows the index");
 		assert.equal(bridge.split('src="fp-filter.js"').length - 1, 1, "the index is referenced once");
 	});
@@ -265,6 +280,10 @@ describe("dashboard score alignment #2147 — the analysis seam", () => {
 		// must not load it, or the headless runner would filter twice.
 		const index = readFileSync(FILTER, "utf-8");
 		assert.equal(index.includes("browser-glue"), false, "the policy index does not load the glue");
-		assert.equal(index.includes("applyFalsePositiveFilter"), false, "no application step in the policy");
+		assert.equal(
+			index.includes("applyFalsePositiveFilter"),
+			false,
+			"no application step in the policy",
+		);
 	});
 });

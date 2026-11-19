@@ -232,7 +232,11 @@ describe("dashboard score parity #2147 — recorded upstream page", () => {
 			"the visible score must be the score the export reports",
 		);
 		assert.equal(dashboard.grade, report.json.summary.healthGrade, "and the same grade");
-		assert.equal(dashboard.score, EXPECTED_SCORE, `expected the corrected score, got ${dashboard.score}`);
+		assert.equal(
+			dashboard.score,
+			EXPECTED_SCORE,
+			`expected the corrected score, got ${dashboard.score}`,
+		);
 		assert.equal(dashboard.grade, EXPECTED_GRADE);
 	});
 
@@ -382,7 +386,11 @@ describe("dashboard score parity #2147 — served page end to end", () => {
 			"a large scan must not pin its sources in the tab",
 		);
 		// One analysis, one suppression line — the seam is the only filter site.
-		assert.equal(logs.filter((l) => l.startsWith("fp-filter: suppressed ")).length, 1, logs.join("\n"));
+		assert.equal(
+			logs.filter((l) => l.startsWith("fp-filter: suppressed ")).length,
+			1,
+			logs.join("\n"),
+		);
 		assert.equal(
 			logs.filter((l) => l.includes("derivation unavailable")).length,
 			0,
@@ -424,7 +432,10 @@ describe("dashboard score parity #2147 — headless runner stays the same path",
 			1,
 			"the producer must call the policy exactly once",
 		);
-		assert.match(runner, /const \{ markdown, json \} = captureExports\(reportSrc, helpers, filtered,/);
+		assert.match(
+			runner,
+			/const \{ markdown, json \} = captureExports\(reportSrc, helpers, filtered,/,
+		);
 		// Byte-parity of the suppression line is what keeps the two paths' logs equal;
 		// the glue's copy is asserted in codeflow-fp-browser-glue-2147.test.mts.
 		assert.match(

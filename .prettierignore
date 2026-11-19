@@ -13,3 +13,7 @@ package-lock.json
 # Generated snapshot the Rust ui crate embeds via include_str! and Go pins
 # byte-for-byte in TestUIProviderEnvMapParity — must stay 2-space JSON.
 cmd/cheasee-pi/embedded/docker/ui/provider_env_map.json
+# Recorded upstream seam bytes: generate-dashboard-seam-fixture.mjs slices them
+# out of the pinned CodeFlow index.html and codeflow-analysis-seam-2147.test.mts
+# compares them verbatim, so Prettier must not reflow them.
+test/fixtures/codeflow-dashboard-seam.html

@@ -154,7 +154,15 @@ function analysis(): Record<string, any> {
 			{ from: "src/c.ts", to: "src/d.ts", fromLayer: "db", toLayer: "ui", fn: "load" },
 		],
 		deadFunctions: [
-			{ name: "deadCall", file: "def.ts", folder: "root", line: 1, code: "", codeLines: 0, ext: "ts" },
+			{
+				name: "deadCall",
+				file: "def.ts",
+				folder: "root",
+				line: 1,
+				code: "",
+				codeLines: 0,
+				ext: "ts",
+			},
 		],
 		issues: [
 			{
@@ -268,7 +276,9 @@ describe("dashboard score alignment #2147 — browser glue", () => {
 
 	it("drops the cards and says so when no deriver is available", () => {
 		const logs: string[] = [];
-		nodeGlue().applyFalsePositiveFilter(analysis(), { console: { info: (m: string) => logs.push(String(m)) } });
+		nodeGlue().applyFalsePositiveFilter(analysis(), {
+			console: { info: (m: string) => logs.push(String(m)) },
+		});
 		assert.ok(
 			logs.includes("fp-filter: dropped 2 derived suggestion(s): derivation unavailable"),
 			`the degradation must be visible, got: ${JSON.stringify(logs)}`,
@@ -323,7 +333,14 @@ describe("dashboard score alignment #2147 — browser glue", () => {
 		const minimal: Record<string, any> = {};
 		const returned = nodeGlue().applyFalsePositiveFilter(minimal, { console: { info() {} } });
 		assert.equal(returned, minimal);
-		for (const key of ["securityIssues", "layerViolations", "duplicates", "suggestions", "stats", "files"]) {
+		for (const key of [
+			"securityIssues",
+			"layerViolations",
+			"duplicates",
+			"suggestions",
+			"stats",
+			"files",
+		]) {
 			assert.equal(key in minimal, false, `${key} must not appear out of thin air`);
 		}
 		assert.deepEqual(Object.keys(minimal), [], "the object stays empty");
@@ -429,7 +446,15 @@ describe("dashboard score alignment #2147 — browser glue", () => {
 			file.content = null;
 		}
 		data.deadFunctions = [
-			{ name: "deadCall", file: "def.ts", folder: "root", line: 1, code: "", codeLines: 0, ext: "ts" },
+			{
+				name: "deadCall",
+				file: "def.ts",
+				folder: "root",
+				line: 1,
+				code: "",
+				codeLines: 0,
+				ext: "ts",
+			},
 		];
 		glue.applyFalsePositiveFilter(data, { console: { info() {} } });
 		assert.equal(

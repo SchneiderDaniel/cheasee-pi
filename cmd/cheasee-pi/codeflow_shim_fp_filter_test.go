@@ -43,9 +43,11 @@ func stageFPFilterModules(t *testing.T, dir string) {
 }
 
 // TestCodeFlowServer_FpFilterRewritePure drives the browser-parity rewrite for
-// the false-positive filter directly (no HTTP): the page's own generateReport is
-// wrapped in the same filter the headless runner applies, a second pass is a
-// byte-identical no-op, and bytes without the anchor are untouched.
+// the false-positive filter directly (no HTTP): the analysis seam calls the
+// glue once, the old export-time wrapper is gone, a second pass is a
+// byte-identical no-op, and bytes without the anchor are untouched. The
+// assertion payload is `testdata/fp_filter_rewrite_pure.py`, kept out of this
+// file so its JS snippets are not counted as this file's own functions (#2031).
 func TestCodeFlowServer_FpFilterRewritePure(t *testing.T) {
 	python, err := exec.LookPath("python3")
 	if err != nil {
@@ -53,49 +55,7 @@ func TestCodeFlowServer_FpFilterRewritePure(t *testing.T) {
 	}
 	dir := t.TempDir()
 	serverPath := stageCodeflowShim(t, dir)
-	script := `import runpy, sys
-
-m = runpy.run_path(sys.argv[1])
-pat, repl = m["_UI_REWRITES"][0]
-
-# Issue #2147: the filter runs at analysis completion, not at export time, so the
-# dashboard score and the exported report read the same filtered data.
-src = b"<script>function runAnalysisData(options){return buildAnalysisData(options);}</script>"
-out = pat.sub(lambda _: repl, src)
-assert out.count(b"function __piFpRunAnalysisData(options){return buildAnalysisData(options);}</script>") == 1, out
-assert out.count(b"piFpFilterBrowserGlue.applyFalsePositiveFilter(__piFpData)") == 1, out
-assert b"function runAnalysisData(options) { \"use strict\";" in out, out
-assert b"__piFpGenerateReport" not in out, "the export wrapper must be gone: %r" % out
-assert b"sanitizeAnalysisData" not in out, "the seam only calls the glue: %r" % out
-assert b"data.securityIssues =" not in out, "the seam writes no fields itself: %r" % out
-assert pat.sub(lambda _: repl, out) == out, "not idempotent"
-
-raw = b"<script>no analysis seam here</script>"
-assert pat.sub(lambda _: repl, raw) == raw, "anchor-free bytes altered: %r" % pat.sub(lambda _: repl, raw)
-
-# The analyzer frees each file's source before the filter can read it; the served
-# page must keep it on piFpSource.
-src_keep = [rw for rw in m["_UI_REWRITES"] if b"f.piFpSource=f.content" in rw[1]]
-assert len(src_keep) == 1, src_keep
-keep_pat, keep_repl = src_keep[0]
-freed = b"analyzed.forEach(function(f){f.content=null;});"
-kept = keep_pat.sub(lambda _: keep_repl, freed)
-assert kept == b"analyzed.forEach(function(f){f.piFpSource=f.content;f.content=null;});", kept
-assert keep_pat.sub(lambda _: keep_repl, kept) == kept, "source-keep rewrite not idempotent"
-assert keep_pat.sub(lambda _: keep_repl, b"nothing to keep here") == b"nothing to keep here", "anchor-free bytes altered"
-
-bridge = m["_BRIDGE_SCRIPT"]
-assert bridge.count(b"fp-filter.js") == 1, bridge
-assert bridge.count(b'<script src="fp-filter/browser-glue.js" defer></script>') == 1, bridge
-glue_at = bridge.index(b'<script src="fp-filter/browser-glue.js" defer></script>')
-assert glue_at < bridge.index(b'<script src="fp-filter.js" defer></script>'), "the glue loads before the index"
-print("OK")
-`
-	scriptPath := filepath.Join(dir, "check_fp_filter.py")
-	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
-		t.Fatalf("write check script: %v", err)
-	}
-	out, err := exec.Command(python, scriptPath, serverPath).CombinedOutput()
+	out, err := exec.Command(python, "testdata/fp_filter_rewrite_pure.py", serverPath).CombinedOutput()
 	if err != nil {
 		t.Fatalf("false-positive seam checks failed: %v\n%s", err, out)
 	}
@@ -122,58 +82,16 @@ func TestCodeFlowServer_FpFilterSeamBehavior(t *testing.T) {
 	}
 	dir := t.TempDir()
 	serverPath := stageCodeflowShim(t, dir)
-	filterPath := filepath.Join(dir, "fp-filter.js")
 
 	// Three CommonJS harnesses: a healthy analysis, a frozen `data` (the write a
-	// page can reject) and a policy that throws at the application step.
-	script := `import os, runpy, sys
-
-m = runpy.run_path(sys.argv[1])
-pat, repl = m["_UI_REWRITES"][0]
-rewritten = pat.sub(lambda _: repl, b"function runAnalysisData(options){ return buildAnalysisData(options); }").decode()
-# The page's glue tag publishes one global; the harness publishes the same one.
-glue = "globalThis.piFpFilterBrowserGlue = require(%r);" % os.path.join(
-    os.path.dirname(sys.argv[1]), "fp-filter", "browser-glue.js")
-
-ok = """const data = { stats: { security: 1, violations: 0 }, securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' }, { severity: 'low', title: 'Code Comments', code: '', path: 'src/widget.test.ts' } ], layerViolations: [] };
-function buildAnalysisData() { return Promise.resolve(data); }
-""" + glue + rewritten + """
-runAnalysisData({}).then(function (filtered) {
-  process.stdout.write('RESULT' + JSON.stringify({ same: filtered === data, security: data.securityIssues.length, layers: data.layerViolations.length, stats: data.stats }));
-}).catch(function (e) { process.stdout.write('THREW:' + e.message); });
-"""
-open(sys.argv[3], "w").write(ok)
-
-banner = """globalThis.__bridgeSaw = null;
-globalThis.__codeflowBridgeReportError = function (m) { globalThis.__bridgeSaw = m; };
-"""
-frozen = """const data = Object.freeze({ securityIssues: [ { severity: 'high', title: 'Hardcoded Secret', code: '', path: 'x.ts' } ], layerViolations: [] });
-function buildAnalysisData() { return Promise.resolve(data); }
-""" + banner + glue + rewritten + """
-runAnalysisData({}).then(function () { process.stdout.write('FROZENNO_THROW'); })
-  .catch(function (e) { process.stdout.write('FROZEN:' + e.constructor.name + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw); });
-"""
-open(sys.argv[4], "w").write(frozen)
-
-throwing = """const data = { securityIssues: [] };
-""" + banner + glue + """
-try {
-  globalThis.piFpFilterBrowserGlue.applyFalsePositiveFilter(data, { piFpFilter: { sanitizeAnalysisData: function () { throw new Error('fp-filter exploded'); }, readFileFrom: function () { return function () { return null; }; } } });
-  process.stdout.write('RESULTNO_THROW');
-} catch (e) {
-  process.stdout.write('RESULTTHREW:' + e.message + ':' + globalThis.__codeflowFpFilterError + ':' + globalThis.__bridgeSaw);
-}
-"""
-open(sys.argv[5], "w").write(throwing)
-`
-	scriptPath := filepath.Join(dir, "emit_harness.py")
-	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
-		t.Fatalf("write emit script: %v", err)
-	}
+	// page can reject) and a policy that throws at the application step. The
+	// emitter lives in `testdata/` so its JS payload is not counted against this
+	// file's function ceiling (#2031).
 	okHarness := filepath.Join(dir, "ok.cjs")
 	frozenHarness := filepath.Join(dir, "frozen.cjs")
 	throwingHarness := filepath.Join(dir, "throwing.cjs")
-	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, okHarness, frozenHarness, throwingHarness).CombinedOutput(); err != nil {
+	if out, err := exec.Command(python, "testdata/fp_filter_seam_harness.py",
+		serverPath, okHarness, frozenHarness, throwingHarness).CombinedOutput(); err != nil {
 		t.Fatalf("emit harnesses: %v\n%s", err, out)
 	}
 
@@ -417,54 +335,13 @@ func TestCodeFlowServer_FpFilterSuggestions(t *testing.T) {
 	}
 	dir := t.TempDir()
 	serverPath := stageCodeflowShim(t, dir)
-	filterPath := filepath.Join(dir, "fp-filter.js")
 
-	script := `import os, runpy, sys
-
-m = runpy.run_path(sys.argv[1])
-pat, repl = m["_UI_REWRITES"][0]
-rewritten = pat.sub(lambda _: repl, b"function runAnalysisData(options){ return buildAnalysisData(options); }").decode()
-# The page's glue tag publishes one global; the harness publishes the same one.
-glue = "globalThis.piFpFilterBrowserGlue = require(%r);" % os.path.join(
-    os.path.dirname(sys.argv[1]), "fp-filter", "browser-glue.js")
-
-# The page exposes its own deriver; it must also see the *filtered* arrays.
-deriver = """const data = {
-  suggestions: [ { title: 'Fix Architecture Violations', desc: '375 layer violations found.' } ],
-  layerViolations: [ { from: 'a.ts', to: 'b.ts', fromLayer: 'ui', toLayer: 'db' } ],
-  duplicates: [ { type: 'code', name: 'withEnv, exec, cacheGet', files: [ { file: 'a.ts' } ] } ],
-  issues: [], stats: { dead: 3 }, securityIssues: [], files: []
-};
-globalThis.Parser = { generateSuggestions: function (d) {
-  globalThis.__deriverSaw = { layers: d.layerViolations.length, duplicates: d.duplicates.length };
-  return [ { title: 'Remove Dead Code', desc: d.stats.dead + ' unused functions detected.' } ];
-} };
-function buildAnalysisData() { return Promise.resolve(data); }
-""" + glue + rewritten + """
-runAnalysisData({}).then(function () {
-  process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions, seen: globalThis.__deriverSaw }));
-}).catch(function (e) { process.stdout.write('THREW:' + e.message); });
-"""
-open(sys.argv[3], "w").write(deriver)
-
-# A page with Parser but no deriver: the analysis still completes, empty, and says so.
-missing = """const data = { suggestions: [ { title: 'Fix Security Issues', desc: '9 high-severity issues found.' } ], issues: [], stats: { dead: 0 }, files: [], securityIssues: [], layerViolations: [] };
-globalThis.Parser = { functionKey: function (fn) { return fn.name; } };
-function buildAnalysisData() { return Promise.resolve(data); }
-""" + glue + rewritten + """
-runAnalysisData({}).then(function () {
-  process.stdout.write('RESULT' + JSON.stringify({ suggestions: data.suggestions }));
-}).catch(function (e) { process.stdout.write('THREW:' + e.message); });
-"""
-open(sys.argv[4], "w").write(missing)
-`
-	scriptPath := filepath.Join(dir, "emit_suggestions.py")
-	if err := os.WriteFile(scriptPath, []byte(script), 0644); err != nil {
-		t.Fatalf("write emit script: %v", err)
-	}
+	// The emitter lives in `testdata/` so its JS payload is not counted against
+	// this file's function ceiling (#2031).
 	withDeriver := filepath.Join(dir, "with-deriver.cjs")
 	withoutDeriver := filepath.Join(dir, "without-deriver.cjs")
-	if out, err := exec.Command(python, scriptPath, serverPath, filterPath, withDeriver, withoutDeriver).CombinedOutput(); err != nil {
+	if out, err := exec.Command(python, "testdata/fp_filter_suggestions_harness.py",
+		serverPath, withDeriver, withoutDeriver).CombinedOutput(); err != nil {
 		t.Fatalf("emit harnesses: %v\n%s", err, out)
 	}
 

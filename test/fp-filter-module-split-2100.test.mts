@@ -867,11 +867,9 @@ describe("fp-filter module split #2100 — served page parity", () => {
 		if (!seam) return t.skip("python3 is not available to emit the served rewrite");
 		// The served page loads the policy modules, then the index, then the glue.
 		const sandbox = loadFilter();
-		vm.runInContext(
-			readFileSync(resolve(MODULE_DIR, `${GLUE_MODULE}.js`), "utf-8"),
-			sandbox,
-			{ filename: `${GLUE_MODULE}.js` },
-		);
+		vm.runInContext(readFileSync(resolve(MODULE_DIR, `${GLUE_MODULE}.js`), "utf-8"), sandbox, {
+			filename: `${GLUE_MODULE}.js`,
+		});
 		sandbox.console = { info: () => {}, error: () => {} };
 		const files = servedShape().files;
 		sandbox.__fixture = read("test/fixtures/codeflow-real-analysis-fp.json");
