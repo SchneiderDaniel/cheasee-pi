@@ -202,14 +202,14 @@ describe("test-split inventory #2099 — the fixture describes the four cited su
 		const callSites = Object.fromEntries(inventory.families.map((f) => [f.family, f.itCallSites]));
 		assert.deepEqual(callSites, {
 			"developer-pr": 19,
-			"gh-client": 43,
+			"gh-client": 45,
 			"octokit-client": 29,
 			validation: 24,
 		});
 		assert.equal(
 			inventory.families.reduce((sum, f) => sum + f.itCallSites, 0),
-			115,
-			"115 `it()` call sites must survive the split",
+			117,
+			"117 `it()` call sites must survive the split",
 		);
 	});
 

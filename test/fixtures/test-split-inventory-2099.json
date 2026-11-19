@@ -72,7 +72,7 @@
 				"resolveGitHubToken() — single resolution policy",
 				"resolveGitHubToken() — CHEASEE_AUTH_PATH credential file"
 			],
-			"itCallSites": 43,
+			"itCallSites": 45,
 			"productionImports": [
 				".pi/extensions/lib/port-types.ts",
 				".pi/extensions/supervisor/github/gh-client.ts",
@@ -96,6 +96,7 @@
 				"falls back to hosts.yml when the secret file is malformed JSON",
 				"falls back when CHEASEE_AUTH_PATH points at a missing file",
 				"falls back when github_token is empty or not a string",
+				"falls through to the gh store when CHEASEE_AUTH_PATH is unset, blank or unreadable",
 				"generic type parameter compiles correctly",
 				"gh() — low-level CLI wrapper",
 				"gh()/ghRaw() — GH_TOKEN injected as a per-child env var, never a shell string",
@@ -108,6 +109,7 @@
 				"non-zero exit: gh() throws and the pre-existing env value is untouched",
 				"passes opts.signal and opts.timeout through to pi.exec",
 				"prefers GH_TOKEN over hosts.yml",
+				"reads CHEASEE_AUTH_PATH before the unmounted legacy path (secret-backed token)",
 				"resolveGitHubToken() — CHEASEE_AUTH_PATH credential file",
 				"resolveGitHubToken() — single resolution policy",
 				"resolves github_token from the file named by CHEASEE_AUTH_PATH",
@@ -133,7 +135,7 @@
 			],
 			"expectedItCallSites": {
 				"gh-client.test.mts": 24,
-				"gh-client-token.test.mts": 19
+				"gh-client-token.test.mts": 21
 			},
 			"note": "Generated pre-split by AST + TAP over the original suite; expectedItCallSites is the architecture's post-split placement."
 		},

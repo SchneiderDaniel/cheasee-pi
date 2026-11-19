@@ -78,6 +78,47 @@ describe("detectTokenClass() — remediation hint keying", () => {
 			rmSync(home, { recursive: true, force: true });
 		}
 	});
+
+	it("reads CHEASEE_AUTH_PATH before the unmounted legacy path (secret-backed token)", () => {
+		// The regression this pins: in the agent container the host config dir is
+		// NOT mounted (issue #2076), so only the secret is readable there — while
+		// the entrypoint seeds the same init-minted token into the gh tmpfs. A
+		// legacy-path-only probe answered "gh" and sent the operator to
+		// `gh auth refresh`, a hint that cannot grant the scope and that a
+		// container recreate reverts.
+		const home = mkdtempSync(join(tmpdir(), "gh-class-secret-"));
+		const secretDir = mkdtempSync(join(tmpdir(), "gh-class-secret-file-"));
+		const secret = join(secretDir, "cheasee_auth");
+		try {
+			writeHosts(home, "gho_seeded_into_tmpfs");
+			writeFileSync(secret, JSON.stringify({ github_token: "gho_init_minted" }));
+			assert.equal(
+				detectTokenClass(home, { CHEASEE_AUTH_PATH: secret }),
+				"cheasee-pi",
+				"the secret is the container's real credential source, not the seeded gh store",
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+			rmSync(secretDir, { recursive: true, force: true });
+		}
+	});
+
+	it("falls through to the gh store when CHEASEE_AUTH_PATH is unset, blank or unreadable", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-class-secret-none-"));
+		try {
+			writeHosts(home, "gho_gh_minted");
+			for (const secret of [undefined, "  ", join(home, "no-such-secret")]) {
+				const env = secret === undefined ? {} : { CHEASEE_AUTH_PATH: secret };
+				assert.equal(
+					detectTokenClass(home, env),
+					"gh",
+					`CHEASEE_AUTH_PATH=${JSON.stringify(secret)} must fall through to hosts.yml`,
+				);
+			}
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
 });
 
 // ─── Tests: resolveGitHubToken() — one resolution policy ──────────
