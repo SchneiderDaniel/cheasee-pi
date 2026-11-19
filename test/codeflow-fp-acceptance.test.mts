@@ -154,10 +154,13 @@ const commandExecutionOf = (data: { securityIssues: Array<{ title: string; path:
 
 // The producer's own reader, so the replay below exercises the real path-keyed
 // resolution instead of a test-only source expansion: a gap the split opened has
-// to fail here exactly as it would in a produced report.
-const { makeReadFile } = (await import(RUNNER)) as {
-	makeReadFile: (dir: string) => (path: unknown) => string | null;
-};
+// to fail here exactly as it would in a produced report. The specifier is a
+// literal like `RUNNER` above but resolvable statically, so the dead-code gate
+// sees this export consumed instead of reporting it unused.
+const { makeReadFile } =
+	(await import("../cmd/cheasee-pi/embedded/docker/codeflow/run-analysis.mjs")) as {
+		makeReadFile: (dir: string) => (path: unknown) => string | null;
+	};
 const makeRepoReadFile = (): ((path: unknown) => string | null) => makeReadFile(REPO_ROOT);
 
 const UI_DIR = "cmd/cheasee-pi/embedded/docker/ui";
