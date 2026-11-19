@@ -86,7 +86,7 @@ func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
 	if inspectCalls != 1 {
 		t.Errorf("expected exactly 1 health poll, got %d", inspectCalls)
 	}
-	if dockerCalls != 5 { // containerRunning ps + state probe + compose build + compose up + inspect
-		t.Errorf("unexpected docker call count %d (want 2×ps+2×compose+inspect)", dockerCalls)
+	if dockerCalls != 6 { // containerRunning ps + credential-existence ps + state probe + compose build + compose up + inspect
+		t.Errorf("unexpected docker call count %d (want 3×ps+2×compose+inspect)", dockerCalls)
 	}
 }

@@ -123,3 +123,52 @@ func TestStartSession_AuthGateAfterAutoInit(t *testing.T) {
 		t.Errorf("start after auto-init must not report missing credentials, got: %q", stderr)
 	}
 }
+
+// TestEnsureContainerReady_LegacyStoppedContainerWarns pins the credential
+// drift check to pre-existing containers in EVERY state (issue #2076 audit). A
+// stopped container predating the read-only credential mount is only started,
+// never recreated, so its read-write config-dir mounts stay in place. Gating
+// the check on `running` let that legacy state pass silently on the first start
+// after a CLI upgrade.
+func TestEnsureContainerReady_LegacyStoppedContainerWarns(t *testing.T) {
+	_, root := mkWorkspace(t, `{}`)
+	setUpReady(t)
+	name := containerName(root)
+	c := stubReadyFlow(t, root, legacyStoppedInspectFn)
+	services := stackServices(root)
+	c.states = map[string]string{
+		name:                  "exited",
+		services[1].container: "running",
+		services[2].container: "running",
+	}
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+	wantSubstrings(t, stderr, "credential", authRecoveryHint)
+	if !slices.Contains(c.starts, name) {
+		t.Errorf("the stopped container must still be started as-is, got starts %v", c.starts)
+	}
+}
+
+// TestEnsureContainerReady_FreshContainerSilent is the counterpart guard:
+// widening the drift check to every pre-existing container must not make each
+// start noisy — a container created on this run carries the fresh stamp.
+func TestEnsureContainerReady_FreshContainerSilent(t *testing.T) {
+	_, root := mkWorkspace(t, `{}`)
+	setUpReady(t)
+	name := containerName(root)
+	c := stubReadyFlow(t, root, readyHealthInspectFn)
+	c.states = map[string]string{}
+
+	stderr := testutil.CaptureStderr(t, func() {
+		if _, err := ensureContainerReady(context.Background(), root, name, false); err != nil {
+			t.Fatalf("ensureContainerReady: %v", err)
+		}
+	})
+	if strings.Contains(stderr, "Credentials:") {
+		t.Errorf("a container created from the current credentials must not warn, got: %q", stderr)
+	}
+}

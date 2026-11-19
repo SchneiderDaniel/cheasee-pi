@@ -164,3 +164,18 @@ func TestWarnIfAuthDrift_NoSecretInOutput(t *testing.T) {
 		t.Errorf("drift warning must never print the credential value, got: %q", stderr)
 	}
 }
+
+func TestWarnIfAuthDrift_StoppedContainerWarns(t *testing.T) {
+	// The stamp is creation-time metadata, readable on a stopped container —
+	// which is precisely the one a start reuses as-is (issue #2076 audit).
+	fixtureAuthPath(t)
+	_, root := mkWorkspace(t, `{}`)
+	doc := authInspectDoc("0123456789abcdef")
+	doc["State"] = map[string]any{"Running": false}
+	stubDockerInspect(t, authInspectJSON(doc), nil)
+
+	stderr := testutil.CaptureStderr(t, func() {
+		warnIfAuthDrift(context.Background(), root)
+	})
+	wantSubstrings(t, stderr, authRecoveryHint, "auth.json")
+}

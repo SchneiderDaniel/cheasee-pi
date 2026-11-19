@@ -33,9 +33,6 @@ type authLiveSpec struct {
 	Config  struct {
 		Labels map[string]string
 	}
-	State struct {
-		Running bool
-	}
 }
 
 // inspectAuthLive reads the live agent container's labels via one read-only
@@ -94,10 +91,9 @@ func warnIfAuthDrift(ctx context.Context, root string) {
 		fmt.Fprintf(os.Stderr, "  ⚠ Credentials: container %s does not exist while pi runs — %s\n", name, authRecoveryHint)
 		return
 	}
-	if !live.State.Running {
-		fmt.Fprintf(os.Stderr, "  ⚠ Credentials: container %s is stopped while pi runs — %s\n", name, authRecoveryHint)
-		return
-	}
+	// No running-state gate: the stamp is a creation-time label, readable on a
+	// stopped container too — and a stopped container is exactly the one a start
+	// reuses as-is, so its stale mount policy matters most (issue #2076 audit).
 	stamp := live.Config.Labels[authSpecLabel]
 	if stamp == "" {
 		fmt.Fprintf(os.Stderr, "  ⚠ Credentials: %s predates the read-only credential mount (its host config dirs are still writable mounts) — %s\n", name, authRecoveryHint)

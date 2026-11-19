@@ -141,8 +141,11 @@ cheasee-pi auth add <provider>   # or: cheasee-pi init --reauth
 cheasee-pi start --build         # recreates the containers
 ```
 
-`cheasee-pi start` warns (it never recreates on its own) when the running
-container was built from a different credential file than the one on the host.
+`cheasee-pi start` warns (it never recreates on its own) for every container
+that already exists — running or stopped — when it was created from a
+different credential file than the one now on the host. A container that is
+merely started after a CLI upgrade keeps the mounts it was created with (the
+pre-#2076 read-write config directories), so that case warns too.
 
 The recreate requirement is specific to the file-backed path. Exec-time
 delivery stays live: `GH_TOKEN` and provider keys are resolved on the host on

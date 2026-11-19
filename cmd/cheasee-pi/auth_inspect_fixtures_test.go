@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +49,32 @@ func liveAuthSpec(t *testing.T, path string) string {
 		t.Fatalf("authSpec(%s): %v", path, err)
 	}
 	return spec
+}
+
+// legacyStoppedInspectFn answers both inspect seams for a container that
+// predates the read-only credential mount: a label-less credential stamp on the
+// drift probe, a healthy status on the ready probe.
+func legacyStoppedInspectFn(_ context.Context, arg []string) runner {
+	if slices.Contains(arg, "{{json .}}") {
+		return authInspectRunner(authInspectJSON(authInspectDoc("")))
+	}
+	return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
+}
+
+// readyHealthInspectFn is the ready probe alone (no drift answer): a container
+// created on this run is never drift-checked.
+func readyHealthInspectFn(_ context.Context, _ []string) runner {
+	return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
+}
+
+// wantSubstrings fails the test unless every want appears verbatim in got.
+func wantSubstrings(t *testing.T, got string, want ...string) {
+	t.Helper()
+	for _, w := range want {
+		if !strings.Contains(got, w) {
+			t.Errorf("output must contain %q, got: %q", w, got)
+		}
+	}
 }
 
 // stubDockerInspect answers every docker inspect call with out/err.

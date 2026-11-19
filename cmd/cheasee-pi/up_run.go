@@ -108,6 +108,20 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 	if err != nil {
 		return "", fmt.Errorf("check container: %w", err)
 	}
+	// Whether the agent container pre-exists in ANY state. A running container
+	// obviously does; a STOPPED one is started as-is by ensureStackUp below, so
+	// it keeps the credential mounting policy it was created with. Gating the
+	// credential drift check on `running` alone made the first start after a CLI
+	// upgrade — a stopped legacy container with read-write config-dir mounts —
+	// pass silently (issue #2076 audit). Probed only when not running: a running
+	// container needs no second listing.
+	preExisting := running
+	if !preExisting {
+		preExisting, err = containerExists(ctx, name)
+		if err != nil {
+			return "", fmt.Errorf("check container: %w", err)
+		}
+	}
 	if build {
 		// Explicit rebuild: build every service, then up every service — the
 		// one path allowed to recreate containers and refresh images.
@@ -139,10 +153,15 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 		// sidecar it just created is already matching.
 		if running {
 			warnIfCodeflowDrift(ctx, root, cacheDir)
-			// Same read-only inspect shape, different container: the credential
-			// stamp says whether this container was created from the auth.json
-			// currently on the host. Warn only — a surprise recreate would break
-			// the zero-compose contract and interrupt a live session.
+		}
+		// Same read-only inspect shape, different container: the credential
+		// stamp says whether this container was created from the auth.json
+		// currently on the host. Gated on pre-EXISTENCE, not on running: a
+		// container created on this run carries the fresh stamp (silent), while
+		// every pre-existing one — running or started just above — keeps the
+		// credential mounts it was created with. Warn only — a surprise recreate
+		// would break the zero-compose contract and interrupt a live session.
+		if preExisting {
 			warnIfAuthDrift(ctx, root)
 		}
 	}
