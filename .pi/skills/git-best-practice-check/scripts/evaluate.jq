@@ -192,7 +192,13 @@ def eval_secret_scanning($ev):
 
 def eval_code_scanning($ev):
 	($ev.default_setup // {status: 0, body: null}) as $ds
-	| (($ev.analyses // {status: 0, body: []}).body) as $raw
+	| ($ev.analyses // {status: 0, body: null}) as $analyses
+	# The analyses endpoint has its own status line: an unreadable list is not
+	# an empty list. Reading a 403/404 body as "zero analyses" would turn a
+	# permission or licensing gap into "no scanner configured" and offer a
+	# remediation the user cannot apply, so the status decides how the body is
+	# used and the verdict says which evidence was missing.
+	| (if ($analyses | http_ok) then ($analyses.body) else null end) as $raw
 	| ($raw | as_array) as $list
 	| (if ($raw | type) == "array" then ($list | length)
 		elif ($raw | type) == "object" then (($raw.total_count) // 0)
@@ -200,18 +206,43 @@ def eval_code_scanning($ev):
 	| (latest_analysis_epoch($list)) as $latest
 	| (if $latest == null or now_epoch == null then null
 		else (now_epoch - $latest) / 86400 | floor end) as $age
-	| ["GET /repos/\($ev.slug)/code-scanning/default-setup -> \($ds.status)"] as $probe
+	| (["GET /repos/\($ev.slug)/code-scanning/default-setup -> \($ds.status)",
+		"GET /repos/\($ev.slug)/code-scanning/analyses -> \($analyses.status)"]) as $probe
 	| (($ds.body // {}).state) as $state
+	| (($analyses | http_ok) | not) as $history_unreadable
+	# 401/403 = the token may not read analyses; 404 = the code-scanning alert
+	# API is not available here (plan/licensing). Either way history is unknown,
+	# not empty, so the run count below is never a zero-evidence verdict.
+	| (if ($analyses | denied) then "denied"
+		elif $analyses.status == 404 then "absent"
+		else "unexpected" end) as $gap
+	| (if $history_unreadable then
+		["scanning history is not readable (\($gap)); the analyses list was not treated as empty"]
+		else [] end) as $gap_note
 	| if ($ds | http_ok) and $state == "configured" then
+		# Default setup on is the authoritative "alerts enabled" signal; the
+		# analyses list only adds recency, so unreadable history cannot make
+		# this a failure.
 		if $runs > 0 then
 			{
 				status: "pass",
 				evidence: ($probe + ["state=configured", "completed analyses=\($runs)"]
 					+ (if $age == null then [] else ["newest analysis is \($age) days old"] end))
 			}
+		elif $history_unreadable then
+			{status: "pass", evidence: ($probe + ["state=configured (default setup is on)"] + $gap_note)}
 		else
 			{status: "pending", evidence: ($probe + ["state=configured", "completed analyses=0 (waiting for the first CodeQL run)"])}
 		end
+	elif ($ds | http_ok) and $state == "not-configured" and $history_unreadable then
+		# Without default setup the only evidence left is the analyses list, and
+		# it could not be read: fail closed instead of claiming no scanner
+		# exists (which would prompt for an unnecessary setup change).
+		(if $gap == "absent" then "not-available" else "unknown" end) as $status
+		| {
+			status: $status,
+			evidence: ($probe + ["state=not-configured (scanning would come from a workflow, not default setup)"] + $gap_note)
+		}
 	elif ($ds | http_ok) and $state == "not-configured" then
 		# Default setup off: a scanning workflow can still be uploading results
 		# to the same alerts, so the checklist accepts either. What it does not
@@ -249,6 +280,8 @@ def eval_code_scanning($ev):
 		end
 	elif ($ds | denied) or $ds.status == 404 then
 		{status: "not-available", evidence: ($probe + ["code scanning is not available for this repository (plan or licensing)"])}
+	elif ($ds | http_ok) and $history_unreadable then
+		{status: "unknown", evidence: ($probe + ["state=\($state // "absent")"] + $gap_note)}
 	elif ($ds | http_ok) then
 		{status: "unknown", evidence: ($probe + ["state=\($state // "absent")"])}
 	else
@@ -316,6 +349,10 @@ def evaluate($id; $ev):
 	(practices | map(.id)[])
 elif $mode == "list" then
 	practices
+elif $mode == "community-fields" then
+	# id <TAB> community/profile files.* field, for the gatherer. Practices the
+	# profile cannot answer (the security policy) are absent on purpose.
+	(community_specs[] | select(.field != null) | "\(.id)\t\(.field)")
 else
 	evaluate($ARGS.named.id; .)
 end

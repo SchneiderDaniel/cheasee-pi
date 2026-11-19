@@ -35,7 +35,8 @@ remediate_code_scanning() {
 	interval="${GBPC_POLL_INTERVAL:-2}"
 	state=""
 	for ((attempt = 1; attempt <= attempts; attempt++)); do
-		state=$(jq -r '.body.state // ""' <<<"$(gh_request GET "/repos/$REPO/code-scanning/default-setup")")
+		response=$(gh_request GET "/repos/$REPO/code-scanning/default-setup")
+		state=$(response_body "$response" | jq -r '.state // ""' 2>/dev/null) || state=""
 		if [[ "$state" == "configured" ]]; then
 			break
 		fi

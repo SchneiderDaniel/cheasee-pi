@@ -18,6 +18,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/gateway.sh"
 # shellcheck source=lib/repo.sh
 source "$SCRIPT_DIR/lib/repo.sh"
+
+trap gateway_cleanup EXIT
 # shellcheck source=lib/evidence.sh
 source "$SCRIPT_DIR/lib/evidence.sh"
 # shellcheck source=lib/report.sh
@@ -108,28 +110,42 @@ fi
 # permission gap separate from "practice failed" stops the audit from telling
 # the user to fix something it cannot see.
 preflight=$(gh_request GET "/repos/$REPO")
-preflight_status=$(jq -r '.status' <<<"$preflight")
+# One jq for the three facts the rest of the run needs: the status line decides
+# whether the repo is readable at all, `permissions.admin` whether the token may
+# audit security settings, and `default_branch` keeps the branch checks honest.
+IFS=$'\t' read -r preflight_status preflight_admin DEFAULT_BRANCH < <(
+	jq -r '[.status, (.body.permissions.admin // false | tostring), (.body.default_branch // "main")] | @tsv' <<<"$preflight"
+) || true
 if [[ "$preflight_status" != "200" ]]; then
 	printf 'audit: cannot read %s (GET /repos/%s -> %s); check that the token is authenticated for this repository\n' "$REPO" "$REPO" "$preflight_status" >&2
 	exit 2
 fi
-if [[ "$(jq -r '.body.permissions.admin // false' <<<"$preflight")" != "true" ]]; then
+if [[ "$preflight_admin" != "true" ]]; then
 	printf 'audit: missing admin permission on %s (GET /repos/%s -> permissions.admin is not true); branch protection and security settings require admin\n' "$REPO" "$REPO" >&2
 	exit 2
 fi
-DEFAULT_BRANCH=$(jq -r '.body.default_branch // "main"' <<<"$preflight")
+
+# --- evidence --------------------------------------------------------------
+
+# The community profile is one document describing every community check, so
+# it is read once for the run instead of once per check (see lib/evidence.sh).
+ensure_community_profile "${IDS[@]}"
 
 # --- evaluate --------------------------------------------------------------
 
-ROWS='[]'
+# Rows are appended as the compact JSON objects jq prints, so the array is
+# assembled by the shell: eleven checks would otherwise cost eleven more jq
+# processes for string concatenation.
+rows=()
 for id in "${IDS[@]}"; do
 	evidence=$(gather_evidence "$id")
 	if ! row=$(printf '%s' "$evidence" | jq -c -f "$EVALUATE" --arg id "$id" --argjson now "$NOW_EPOCH"); then
 		printf 'audit: cannot evaluate "%s" from the gathered evidence\n' "$id" >&2
 		exit 2
 	fi
-	ROWS=$(jq -c --argjson row "$row" '. + [$row]' <<<"$ROWS")
+	rows+=("$row")
 done
+ROWS=$(printf '[%s]' "$(IFS=,; printf '%s' "${rows[*]}")")
 
 # --- report ----------------------------------------------------------------
 

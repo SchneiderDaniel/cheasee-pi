@@ -22,6 +22,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/gateway.sh
 source "$SCRIPT_DIR/lib/gateway.sh"
+
+trap gateway_cleanup EXIT
 # shellcheck source=lib/repo.sh
 source "$SCRIPT_DIR/lib/repo.sh"
 # shellcheck source=lib/remediate-common.sh
@@ -58,6 +60,7 @@ LICENSE_KEY="mit"
 BRANCH=""
 SKIP_VERIFY=0
 STEP="audit"
+repo_status=""
 
 while (($# > 0)); do
 	case "$1" in
@@ -146,18 +149,27 @@ if [[ "$ID" == "community-license" && -z "$FULLNAME" ]]; then
 fi
 
 repo_payload=$(gh_request GET "/repos/$REPO")
-if [[ "$(jq -r '.status' <<<"$repo_payload")" != "200" ]]; then
-	printf 'remediate: cannot read %s (GET /repos/%s -> %s)\n' "$REPO" "$REPO" "$(jq -r '.status' <<<"$repo_payload")" >&2
+if ! repo_status=$(response_status "$repo_payload"); then
+	printf 'remediate: unexpected gateway response for GET /repos/%s\n' "$REPO" >&2
 	exit 2
 fi
-DEFAULT_BRANCH=$(jq -r '.body.default_branch // "main"' <<<"$repo_payload")
+if [[ "$repo_status" != "200" ]]; then
+	printf 'remediate: cannot read %s (GET /repos/%s -> %s)\n' "$REPO" "$REPO" "$repo_status" >&2
+	exit 2
+fi
+if ! DEFAULT_BRANCH=$(jq -r '.body.default_branch // "main"' <<<"$repo_payload"); then
+	printf 'remediate: cannot read the default branch of %s\n' "$REPO" >&2
+	exit 2
+fi
 
 # --- re-audit before any write ---------------------------------------------
 
 STEP="re-audit"
 row=$(reaudit "$ID")
-STATUS=$(jq -r '.[0].status // "unknown"' <<<"$row")
-REMEDIABLE=$(jq -r '.[0].remediable // false' <<<"$row")
+if ! IFS=$'\t' read -r STATUS REMEDIABLE < <(jq -r '.[0] | [.status // "unknown", (.remediable // false | tostring)] | @tsv' <<<"$row"); then
+	printf 'remediate: cannot read the re-audit row for %s\n' "$ID" >&2
+	exit 2
+fi
 
 if [[ "$STATUS" != "fail" || "$REMEDIABLE" != "true" ]]; then
 	printf 'remediate: refusing to change %s (step: %s, status: %s, remediable: %s); only failing practices are remediated\n' \

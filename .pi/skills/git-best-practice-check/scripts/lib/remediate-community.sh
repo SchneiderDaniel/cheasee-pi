@@ -72,7 +72,7 @@ open_pull_request() {
 }
 
 remediate_community() {
-	local id="$1" branch head_response head_sha path content
+	local id="$1" branch head_response head_sha head_status path content
 	local -a files=() contents=()
 	mapfile -t files < <(community_default_files "$id")
 	if ((${#files[@]} == 0)); then
@@ -95,9 +95,16 @@ remediate_community() {
 	# One path segment: a default branch named "release/2026" would otherwise
 	# address a different path and the head lookup would 404.
 	head_response=$(gh_request GET "/repos/$REPO/git/ref/heads/$(urlencode_path_component "$DEFAULT_BRANCH")")
-	head_sha=$(jq -r '.body.object.sha // ""' <<<"$head_response")
+	if ! head_status=$(response_status "$head_response"); then
+		printf 'remediate: unexpected gateway response for the head of %s\n' "$DEFAULT_BRANCH" >&2
+		return 1
+	fi
+	if ! head_sha=$(jq -r '.body.object.sha // ""' <<<"$head_response"); then
+		printf 'remediate: cannot read the head of %s (HTTP %s)\n' "$DEFAULT_BRANCH" "$head_status" >&2
+		return 1
+	fi
 	if [[ -z "$head_sha" ]]; then
-		printf 'remediate: cannot resolve the head of %s (HTTP %s)\n' "$DEFAULT_BRANCH" "$(jq -r '.status' <<<"$head_response")" >&2
+		printf 'remediate: cannot resolve the head of %s (HTTP %s)\n' "$DEFAULT_BRANCH" "$head_status" >&2
 		return 1
 	fi
 

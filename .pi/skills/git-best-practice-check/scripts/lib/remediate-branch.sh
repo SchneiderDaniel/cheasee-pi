@@ -7,14 +7,18 @@
 BRANCH_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 remediate_branch_protection() {
-	local current current_body payload response branch_path
+	local current current_body payload response branch_path status
 	# One path segment: a branch named "release/2026" must be encoded, or the
 	# request addresses a different path and GitHub answers 404.
 	branch_path=$(urlencode_path_component "$DEFAULT_BRANCH")
 	current=$(gh_request GET "/repos/$REPO/branches/$branch_path/protection")
 	current_body='{}'
-	if [[ "$(jq -r '.status' <<<"$current")" == "200" ]]; then
-		current_body=$(jq -c '.body' <<<"$current")
+	if ! status=$(response_status "$current"); then
+		printf 'remediate: unexpected gateway response for GET /repos/%s/branches/%s/protection\n' "$REPO" "$DEFAULT_BRANCH" >&2
+		return 1
+	fi
+	if [[ "$status" == "200" ]]; then
+		current_body=$(response_body "$current") || return 1
 	fi
 	payload=$(jq -c -n -f "$BRANCH_LIB_DIR/branch-protection.jq" --argjson current "$current_body")
 	STEP="write-branch-protection"
