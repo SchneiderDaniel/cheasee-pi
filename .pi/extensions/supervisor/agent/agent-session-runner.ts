@@ -6,7 +6,7 @@
 // Subprocess path retained as backward-compatible fallback.
 
 import type { AgentRunOptions, AgentRunResult, ParsedAgent } from "../config/types.ts";
-import { getBuiltinModel } from "@earendil-works/pi-ai/providers/all";
+import { resolveModel } from "../../shared/model/model-ref.ts";
 import { agentSessionEventToNormalizedEvent, createForwardChatState } from "../event/adapter.ts";
 import { pushLog, createAgentRunState } from "./state-helpers.ts";
 import { buildWidgetLines } from "../session/widget.ts";
@@ -43,28 +43,10 @@ async function ensureSDK(): Promise<void> {
 	}
 }
 
-// ─── resolveModel: resolve model string → Model object ────────────
-// Uses getModel from @earendil-works/pi-ai to resolve "provider/model-id" strings.
-// Throws on failure with clear error message including the model string.
-
-function resolveModel(modelStr: string | undefined): { id: string; provider: string; api: string } {
-	if (!modelStr || !modelStr.trim()) {
-		throw new Error(`Agent has no model configured (config.model = "${modelStr ?? "undefined"}")`);
-	}
-	const parts = modelStr.split("/");
-	if (parts.length < 2) {
-		throw new Error(`Invalid model format "${modelStr}" — expected "provider/model-id"`);
-	}
-	const provider = parts[0]!;
-	const modelId = parts.slice(1).join("/");
-	try {
-		return getBuiltinModel(provider as any, modelId as any);
-	} catch (err: unknown) {
-		throw new Error(
-			`Model "${modelStr}" could not be resolved: ${err instanceof Error ? err.message : String(err)}`,
-		);
-	}
-}
+// ─── resolveModel: shared model-reference resolution ──────────────
+// Moved to `.pi/extensions/shared/model/model-ref.ts` (issue #2138) so the
+// goal-loop extension resolves `provider/model-id` with the same convention and
+// the same error messages. Imported at the top of this file.
 
 // ─── buildToolList: merge agent tools + extension tools ───────────
 // Uses resolveTools from lib/extensions.ts (same as subprocess path).

@@ -74,7 +74,12 @@ describe("pipeline/helpers.ts — no local ExecFn, imports canonical", () => {
 	});
 
 	it("(entity) still exports NotifyFn", () => {
-		assert.ok(/export\s+interface\s+NotifyFn/.test(src), "NotifyFn stays in helpers.ts");
+		// The definition moved to shared/result.ts (issue #2138); helpers.ts keeps
+		// exporting it as the Supervisor's historical import path.
+		assert.ok(
+			/export\s+interface\s+NotifyFn/.test(src) || /export\s+type\s*\{[^}]*\bNotifyFn\b/.test(src),
+			"NotifyFn stays exported from helpers.ts",
+		);
 	});
 
 	it("(entity) imports ExecFn from ../../lib/port-types.ts", () => {

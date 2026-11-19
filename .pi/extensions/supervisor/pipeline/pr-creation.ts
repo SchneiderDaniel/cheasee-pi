@@ -12,6 +12,10 @@ import type {
 
 import { generateBranchName } from "../lib/branch-name.ts";
 import type { GitHubPort } from "../github/ports.ts";
+import {
+	updatePullRequestBody as sharedUpdatePullRequestBody,
+	upsertPullRequest as sharedUpsertPullRequest,
+} from "../../shared/github/pull-request.ts";
 import { tryRebaseOntoBase } from "./rebase.ts";
 import { buildPrBody } from "../pipeline/output.ts";
 import { getDebugLogger } from "../lib/debug.ts";
@@ -106,36 +110,13 @@ export type PrNotify = (message: string, level: "info" | "warning" | "error") =>
 export { buildPrBody };
 
 /**
- * Update an existing PR, mapping failures to a PrCreationResult. Module-local:
- * `upsertPullRequest` and `publishPrBody` are the only ways into it, so every
- * PR write stays inside this module (issue #1831 boundary).
- */
-async function updateExistingPr(
-	port: GitHubPort,
-	repo: string,
-	prNumber: number,
-	title: string,
-	body: string,
-	notify?: PrNotify,
-): Promise<PrCreationResult> {
-	const log = getDebugLogger();
-	try {
-		notify?.(`Updating PR #${prNumber} with latest changes`, "info");
-		await port.updatePullRequest(prNumber, repo, body, title);
-		notify?.(`PR #${prNumber} updated`, "info");
-		return { success: true, prNumber, wasUpdate: true, source: "pr-creation" };
-	} catch (editErr: unknown) {
-		const editMsg = editErr instanceof Error ? editErr.message : String(editErr);
-		log.error("pr-creation", `Failed to update PR #${prNumber}: ${editMsg}`);
-		notify?.(`Failed to update PR #${prNumber}: ${editMsg}`, "error");
-		return { success: false, error: `Failed to update PR: ${editMsg}`, source: "pr-creation" };
-	}
-}
-
-/**
  * Idempotent create-or-update of the PR for one branch: list → update, else
  * create with retries. Callable both right after the developer's push (early
  * upsert, so pre-audit CI has a PR to evaluate) and at approval.
+ *
+ * The create-or-update sequence lives in `shared/github/pull-request.ts`
+ * (issue #2138) so the goal-loop extension publishes PRs identically. This
+ * wrapper only injects the Supervisor's debug logger.
  */
 export async function upsertPullRequest(input: {
 	repo: string;
@@ -146,88 +127,7 @@ export async function upsertPullRequest(input: {
 	port?: GitHubPort;
 	notify?: PrNotify;
 }): Promise<PrCreationResult> {
-	const log = getDebugLogger();
-	const { repo, base, head, title, body, port, notify } = input;
-
-	if (!port) {
-		log.warn("pr-creation", "Port not available — cannot create or update PR");
-		notify?.("GitHubPort not available for PR creation", "error");
-		return {
-			success: false,
-			error: "GitHubPort not available for PR creation",
-			source: "pr-creation",
-		};
-	}
-
-	// ─── Phase 4: Check for existing PR ────────────────────────────
-	let existingPr: PrConflictInfo | null = null;
-	try {
-		existingPr = await port.listPullRequestsForBranch(head, repo);
-	} catch (checkErr: unknown) {
-		const checkMsg = checkErr instanceof Error ? checkErr.message : String(checkErr);
-		log.warn("pr-creation", `PR conflict check failed: ${checkMsg}`);
-		notify?.(`PR conflict check failed: ${checkMsg} — attempting PR creation anyway`, "warning");
-	}
-
-	// ─── Phase 5: Update existing PR ───────────────────────────────
-	if (existingPr) {
-		log.info("pr-creation", `PR #${existingPr.number} already exists — updating body`);
-		return await updateExistingPr(port, repo, existingPr.number, title, body, notify);
-	}
-
-	// ─── Phase 5b: Create PR (with retry) ──────────────────────────
-	let lastError: string | undefined;
-	for (let attempt = 0; attempt < MAX_PR_CREATE_RETRIES; attempt++) {
-		try {
-			if (attempt > 0) {
-				const delayMs = RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-				log.info(
-					"pr-creation",
-					`Retry attempt ${attempt + 1}/${MAX_PR_CREATE_RETRIES} after ${delayMs}ms`,
-				);
-				await new Promise((resolve) => setTimeout(resolve, delayMs));
-			}
-
-			const prResult = await port.createPullRequest({ repo, base, head, title, body });
-			log.info("pr-creation", `PR #${prResult.number} created`);
-			notify?.(`PR #${prResult.number} created`, "info");
-			return { success: true, prNumber: prResult.number, source: "pr-creation" };
-		} catch (prErr: unknown) {
-			lastError = prErr instanceof Error ? prErr.message : String(prErr);
-			log.warn(
-				"pr-creation",
-				`Attempt ${attempt + 1}/${MAX_PR_CREATE_RETRIES} failed: ${lastError}`,
-			);
-
-			// Race: a PR for this head appeared after our list call. Re-list once
-			// and update instead of burning the retry budget on a create that can
-			// never succeed. No PR found → fail fast with the original message.
-			if (/already exists/i.test(lastError)) {
-				let raced: PrConflictInfo | null = null;
-				try {
-					raced = await port.listPullRequestsForBranch(head, repo);
-				} catch (relErr: unknown) {
-					log.warn(
-						"pr-creation",
-						`Re-list after "already exists" failed: ${relErr instanceof Error ? relErr.message : String(relErr)}`,
-					);
-				}
-				if (!raced) {
-					log.error("pr-creation", `PR exists per create error but not on re-list: ${lastError}`);
-					notify?.(`Failed to create PR: ${lastError}`, "error");
-					return { success: false, error: lastError, source: "pr-creation" };
-				}
-				log.info("pr-creation", `PR #${raced.number} appeared — updating instead of creating`);
-				return await updateExistingPr(port, repo, raced.number, title, body, notify);
-			}
-		}
-	}
-
-	// All retries exhausted
-	const errorMsg = lastError || "Unknown error during PR creation";
-	log.error("pr-creation", `All ${MAX_PR_CREATE_RETRIES} attempts failed: ${errorMsg}`);
-	notify?.(`Failed to create PR after ${MAX_PR_CREATE_RETRIES} attempts: ${errorMsg}`, "error");
-	return { success: false, error: errorMsg, source: "pr-creation" };
+	return await sharedUpsertPullRequest({ ...input, log: getDebugLogger() });
 }
 
 /**
@@ -256,16 +156,6 @@ export async function publishPrBody(input: {
 			source: "pr-creation",
 		};
 	}
-	let prNumber = input.prNumber;
-	if (!prNumber) {
-		try {
-			prNumber = (await port.listPullRequestsForBranch(head, repo))?.number;
-		} catch (err: unknown) {
-			const msg = err instanceof Error ? err.message : String(err);
-			return { success: false, error: `PR lookup failed: ${msg}`, source: "pr-creation" };
-		}
-	}
-	if (!prNumber) return { success: false, error: `No PR found for ${head}`, source: "pr-creation" };
 	const { title, body } = buildPrBody(
 		input.issueNum,
 		input.issueTitle,
@@ -273,7 +163,17 @@ export async function publishPrBody(input: {
 		input.config,
 		input.body,
 	);
-	return await updateExistingPr(port, repo, prNumber, title, body, notify);
+	// Update-only path, shared with the goal-loop extension (issue #2138).
+	return await sharedUpdatePullRequestBody({
+		repo,
+		head,
+		title,
+		body,
+		prNumber: input.prNumber,
+		port,
+		notify,
+		log: getDebugLogger(),
+	});
 }
 
 /**
