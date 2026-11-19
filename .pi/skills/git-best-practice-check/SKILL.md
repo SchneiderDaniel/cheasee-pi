@@ -33,7 +33,9 @@ If the user asked for something else, stop: do not run an audit to fill the gap.
   argument. The repository is resolved in one place only, `scripts/lib/repo.sh`.
 
 `gh` is never called directly. All transport goes through
-`scripts/lib/gateway.sh`; all status rules live in `scripts/evaluate.jq`.
+`scripts/lib/gateway.sh` (whose response parsing lives in
+`scripts/lib/gateway-response.sh`); all status rules live in
+`scripts/evaluate.jq`.
 Never paste a REST call into this flow — delegate to the scripts so the
 read-only guarantee and the consent gate stay intact.
 
@@ -181,3 +183,8 @@ covers repository resolution, the transport gateway, the read-only audit, the
 consent gate and the maintainer journey, and `tests/skill-md.test.mts` asserts
 this document's contract (frontmatter, user-invocation gate, checklist parity
 with `scripts/evaluate.jq`).
+
+Both shell suites are schedulers: the cases live in `tests/cases/`, one file per
+rule family or journey, and each file runs in its own process. A new case file
+is the unit of growth — add it to the suite's `SLICES` list instead of growing an
+existing one, so no file drifts past the project's long-file ceiling.

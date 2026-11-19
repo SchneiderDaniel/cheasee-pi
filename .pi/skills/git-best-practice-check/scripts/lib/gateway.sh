@@ -16,6 +16,14 @@
 # Everything that is not a JSON transform (status line, body split, path
 # encoding) is done in the shell: one `jq` per request keeps an audit of eleven
 # checks fast enough to be run interactively.
+#
+# The request half lives here; the response half (status line, payload split,
+# JSON-shape check) lives in gateway-response.sh, sourced below. Both halves stay
+# small enough to be read in one sitting, and neither duplicates the other's
+# `gh` call site — there is exactly one in the skill.
+
+# shellcheck source=lib/gateway-response.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gateway-response.sh"
 
 # json_quote <destvar> <value> — store <value> as a JSON string literal.
 #
@@ -59,32 +67,6 @@ urlencode_path_component() {
 	printf '%s' "$out"
 }
 
-# response_status <gateway-response> — the HTTP status of a gateway response.
-#
-# The gateway emits exactly {"status":<int>,"body":...}, so the status is a
-# prefix and does not need a jq process. Prints the status and returns 0, or
-# prints nothing and returns 1 when the argument is not a gateway response.
-response_status() {
-	if [[ "${1-}" =~ ^\{\"status\":([0-9]+), ]]; then
-		printf '%s' "${BASH_REMATCH[1]}"
-		return 0
-	fi
-	return 1
-}
-
-# response_body <gateway-response> — the body of a gateway response, verbatim.
-#
-# Used to re-embed a response body in an evidence bundle without re-parsing it:
-# the last character is always the wrapper's "}".
-response_body() {
-	local response="${1-}" body
-	if [[ "$response" != *'"body":'* ]]; then
-		return 1
-	fi
-	body="${response#*\"body\":}"
-	printf '%s' "${body%?}"
-}
-
 # gateway_cleanup — remove this process's scratch file.
 #
 # The scratch is created once per process instead of once per request: two
@@ -126,48 +108,5 @@ gh_request() {
 		response_text=$(gh api --include --method "$method" "$path" 2>"$GBPC_GATEWAY_ERR") || gh_rc=$?
 	fi
 
-	local status=""
-	# A JSON body starts with one of these tokens; anything else (an HTML error
-	# page, a proxy banner) is not worth passing on to the rules.
-	local json_shape='^(\{|\[|"|[0-9-]|true$|false$|null$)'
-	if [[ "$response_text" =~ ^HTTP/[0-9.]+[[:space:]]+([0-9][0-9][0-9]) ]]; then
-		status="${BASH_REMATCH[1]}"
-	fi
-
-	if [[ -z "$status" ]]; then
-		printf 'gateway: no HTTP response for %s %s (gh exit %s)\n' "$method" "$path" "$gh_rc" >&2
-		cat "$GBPC_GATEWAY_ERR" >&2
-		return 1
-	fi
-
-	# The payload is everything after the blank line that ends the headers.
-	local payload=""
-	if [[ "$response_text" == *$'\r\n\r\n'* ]]; then
-		payload="${response_text#*$'\r\n\r\n'}"
-	elif [[ "$response_text" == *$'\n\n'* ]]; then
-		payload="${response_text#*$'\n\n'}"
-	fi
-
-	# Compact without a jq process: valid JSON never carries a raw newline (they
-	# are escaped inside strings), so joining the lines is lossless. Full
-	# structural validation belongs to the jq consumer — the audit stops with
-	# exit 2 instead of reporting a verdict from evidence it cannot parse — while
-	# a body that is not even JSON-shaped is rejected here.
-	payload="${payload//$'\r'/}"
-	payload="${payload//$'\n'/ }"
-	payload="${payload#"${payload%%[![:space:]]*}"}"
-	payload="${payload%"${payload##*[![:space:]]}"}"
-
-	if [[ -z "$payload" ]]; then
-		printf '{"status":%s,"body":null}\n' "$status"
-		return 0
-	fi
-
-	if [[ ! "$payload" =~ $json_shape ]]; then
-		printf 'gateway: response body for %s %s is not JSON\n' "$method" "$path" >&2
-		printf '%s\n' "$response_text" >&2
-		return 1
-	fi
-
-	printf '{"status":%s,"body":%s}\n' "$status" "$payload"
+	parse_http_response "$method" "$path" "$response_text" "$gh_rc"
 }

@@ -36,19 +36,11 @@ source "$SCRIPT_DIR/lib/remediate-security.sh"
 source "$SCRIPT_DIR/lib/remediate-community.sh"
 # shellcheck source=lib/remediate-verify.sh
 source "$SCRIPT_DIR/lib/remediate-verify.sh"
+# shellcheck source=lib/remediate-args.sh
+source "$SCRIPT_DIR/lib/remediate-args.sh"
 
 EVALUATE="$SCRIPT_DIR/evaluate.jq"
 AUDIT="$SCRIPT_DIR/audit.sh"
-
-usage() {
-	printf '%s\n' \
-		'usage: remediate.sh <check-id> --consent [--repo owner/repo] [--settings <path>]' \
-		'                    [--fullname "Name"] [--license-key mit] [--branch name]' \
-		'' \
-		'Applies exactly one remediation for a failing practice and re-verifies it.' \
-		'--consent is mandatory: the SKILL.md flow only passes it after the user' \
-		'answered yes to "Remediate <practice>? (y/n)".'
-}
 
 CONSENT=0
 ID=""
@@ -62,52 +54,8 @@ SKIP_VERIFY=0
 STEP="audit"
 repo_status=""
 
-while (($# > 0)); do
-	case "$1" in
-	--consent)
-		CONSENT=1
-		shift
-		;;
-	--repo)
-		REPO_ARG="${2:-}"
-		REPO_SET=1
-		shift 2
-		;;
-	--settings)
-		SETTINGS="${2:-}"
-		shift 2
-		;;
-	--fullname)
-		FULLNAME="${2:-}"
-		shift 2
-		;;
-	--license-key)
-		LICENSE_KEY="${2:-}"
-		shift 2
-		;;
-	--branch)
-		BRANCH="${2:-}"
-		shift 2
-		;;
-	-h | --help)
-		usage
-		exit 0
-		;;
-	-*)
-		printf 'remediate: unknown option "%s"\n' "$1" >&2
-		usage >&2
-		exit 64
-		;;
-	*)
-		if [[ -n "$ID" ]]; then
-			printf 'remediate: only one check id may be remediated per invocation (got "%s" and "%s")\n' "$ID" "$1" >&2
-			exit 64
-		fi
-		ID="$1"
-		shift
-		;;
-	esac
-done
+# argv parsing lives in remediate-args.sh (remediate_usage + parse_remediate_args).
+parse_remediate_args "$@"
 
 mapfile -t ALL_IDS < <(jq -n -r -f "$EVALUATE" --arg mode list-ids)
 
@@ -121,14 +69,7 @@ if [[ -z "$ID" ]]; then
 	exit 64
 fi
 
-known=0
-for candidate in "${ALL_IDS[@]}"; do
-	if [[ "$candidate" == "$ID" ]]; then known=1; fi
-done
-if ((known == 0)); then
-	printf 'remediate: unknown check id "%s"; valid ids: %s\n' "$ID" "${ALL_IDS[*]}" >&2
-	exit 64
-fi
+require_known_id "$ID" "${ALL_IDS[@]}"
 
 if [[ -n "$SETTINGS" ]]; then
 	export GBPC_SETTINGS_FILE="$SETTINGS"

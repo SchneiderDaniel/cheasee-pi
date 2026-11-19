@@ -15,43 +15,13 @@ import type { GitHubPort } from "../github/ports.ts";
 import { parseAgentFile } from "../agent/loader.ts";
 import type { ErrorCollector } from "./error-collector.ts";
 
-/**
- * NotifyFn: notification callbacks for UI status updates.
- */
-export interface NotifyFn {
-	info: (msg: string) => void;
-	error: (msg: string) => void;
-}
-
-/**
- * Structural shape `toNotifyFn` needs: `ctx` (ExtensionContext) satisfies it
- * without importing any pi type, keeping this module pi-type-free.
- */
-export interface NotifyTarget {
-	hasUI: boolean;
-	notify: (msg: string, level: "info" | "error") => void;
-}
-
-/** A NotifyFn whose calls are deliberately dropped (no UI / rejected worktree). */
-export function nullNotify(): NotifyFn {
-	return { info: () => {}, error: () => {} };
-}
-
-/**
- * Adapt a UI-bearing context to the NotifyFn port. `info`/`error` literals
- * live here once; the `hasUI` gate mirrors the original preflight behaviour
- * (ctx.ui.notify is fire-and-forget and silently drops when no UI is present).
- */
-export function toNotifyFn(target: NotifyTarget): NotifyFn {
-	return {
-		info: (msg) => {
-			if (target.hasUI) target.notify(msg, "info");
-		},
-		error: (msg) => {
-			if (target.hasUI) target.notify(msg, "error");
-		},
-	};
-}
+// NotifyFn and its adapters moved to shared/result.ts (issue #2138) so the
+// goal-loop extension shares the exact same port. Re-exported here so the
+// Supervisor's historical import paths (`./helpers.ts`) keep working.
+import { nullNotify, toNotifyFn } from "../../shared/result.ts";
+import type { NotifyFn, NotifyTarget } from "../../shared/result.ts";
+export { nullNotify, toNotifyFn };
+export type { NotifyFn, NotifyTarget };
 
 // ─── Fetch Issue ─────────────────────────────────────────────────
 
