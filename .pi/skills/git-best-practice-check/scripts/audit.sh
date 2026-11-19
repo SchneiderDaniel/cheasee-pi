@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# audit.sh — read-only evidence gathering for git-best-practice-check.
+# audit.sh — read-only audit of one repository against the skill checklist.
 #
 # usage: audit.sh [--repo owner/repo] [--check <id>] [--settings <path>] [--json]
 #
-# Every practice is gathered independently through the gateway, then handed to
-# evaluate.jq for the pass/fail verdict. This script issues GET requests only.
+# Evidence gathering lives in lib/evidence.sh, the verdict rules in evaluate.jq,
+# the table in lib/report.sh. This file is the use case: resolve, preflight,
+# gather, evaluate, report.
 #
 # exit 0 — every check evaluated (fail rows are a normal outcome)
 # exit 1 — at least one check is `unknown` (the report is still printed)
@@ -17,6 +18,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib/gateway.sh"
 # shellcheck source=lib/repo.sh
 source "$SCRIPT_DIR/lib/repo.sh"
+# shellcheck source=lib/evidence.sh
+source "$SCRIPT_DIR/lib/evidence.sh"
+# shellcheck source=lib/report.sh
+source "$SCRIPT_DIR/lib/report.sh"
 
 EVALUATE="$SCRIPT_DIR/evaluate.jq"
 
@@ -24,9 +29,9 @@ usage() {
 	printf '%s\n' \
 		'usage: audit.sh [--repo owner/repo] [--check <id>] [--settings <path>] [--json]' \
 		'' \
-		'Read-only audit of a GitHub repository against the git-best-practice-check' \
-		'checklist. Default output is a table with one row per practice and the' \
-		'evidence behind each verdict; --json prints the same rows as a JSON array.' \
+		'Read-only audit against the git-best-practice-check checklist. Default output' \
+		'is a table with one row per practice plus the evidence behind each verdict;' \
+		'--json prints the same rows as a JSON array.' \
 		'Exits 1 when any practice could not be evaluated (status "unknown").'
 }
 
@@ -90,9 +95,9 @@ if ! REPO=$(resolve_repo ${REPO_ARG:+"$REPO_ARG"}); then
 fi
 
 # --- preflight -------------------------------------------------------------
-# Admin is required for branch protection and security settings. Separating a
-# permission gap from a "practice failed" verdict keeps the audit from telling
-# the user to fix something it simply cannot see.
+# Admin is required for branch protection plus the security settings. Keeping a
+# permission gap separate from "practice failed" stops the audit from telling
+# the user to fix something it cannot see.
 preflight=$(gh_request GET "/repos/$REPO")
 preflight_status=$(jq -r '.status' <<<"$preflight")
 if [[ "$preflight_status" != "200" ]]; then
@@ -104,80 +109,6 @@ if [[ "$(jq -r '.body.permissions.admin // false' <<<"$preflight")" != "true" ]]
 	exit 2
 fi
 DEFAULT_BRANCH=$(jq -r '.body.default_branch // "main"' <<<"$preflight")
-
-# --- evidence gathering ----------------------------------------------------
-
-community_probe_paths() {
-	case "$1" in
-	community-readme) printf '%s\n' "README.md" "docs/README.md" ;;
-	community-code-of-conduct) printf '%s\n' "CODE_OF_CONDUCT.md" ".github/CODE_OF_CONDUCT.md" "docs/CODE_OF_CONDUCT.md" ;;
-	community-contributing) printf '%s\n' "CONTRIBUTING.md" ".github/CONTRIBUTING.md" "docs/CONTRIBUTING.md" ;;
-	community-license) printf '%s\n' "LICENSE" "LICENSE.md" "COPYING" ;;
-	community-security-policy) printf '%s\n' "SECURITY.md" ".github/SECURITY.md" "docs/SECURITY.md" ;;
-	community-issue-templates) printf '%s\n' ".github/ISSUE_TEMPLATE" ;;
-	community-pull-request-template) printf '%s\n' ".github/PULL_REQUEST_TEMPLATE.md" "PULL_REQUEST_TEMPLATE.md" "docs/PULL_REQUEST_TEMPLATE.md" ;;
-	*)
-		printf 'audit: no contents probes defined for "%s"\n' "$1" >&2
-		return 64
-		;;
-	esac
-}
-
-gather_community() {
-	local id="$1" profile probes='[]' path resp
-	profile=$(gh_request GET "/repos/$REPO/community/profile")
-	while IFS= read -r path; do
-		resp=$(gh_request GET "/repos/$REPO/contents/$path")
-		probes=$(jq -c --arg p "$path" --argjson r "$resp" '. + [{path: $p, status: $r.status, body: $r.body}]' <<<"$probes")
-	done < <(community_probe_paths "$id")
-	jq -c -n \
-		--arg slug "$REPO" --arg branch "$DEFAULT_BRANCH" \
-		--argjson profile "$profile" --argjson probes "$probes" \
-		'{slug: $slug, default_branch: $branch, profile: $profile, probes: $probes}'
-}
-
-gather_evidence() {
-	case "$1" in
-	branch-protection)
-		local protection rules
-		protection=$(gh_request GET "/repos/$REPO/branches/$DEFAULT_BRANCH/protection")
-		rules=$(gh_request GET "/repos/$REPO/rules/branches/$DEFAULT_BRANCH")
-		jq -c -n --arg slug "$REPO" --arg branch "$DEFAULT_BRANCH" \
-			--argjson protection "$protection" --argjson rules "$rules" \
-			'{slug: $slug, default_branch: $branch, protection: $protection, rules: $rules}'
-		;;
-	dependabot-alerts)
-		local alerts
-		alerts=$(gh_request GET "/repos/$REPO/vulnerability-alerts")
-		jq -c -n --arg slug "$REPO" --arg branch "$DEFAULT_BRANCH" --argjson alerts "$alerts" \
-			'{slug: $slug, default_branch: $branch, vulnerability_alerts: $alerts}'
-		;;
-	secret-scanning)
-		# Fetched per check so `--check secret-scanning` gathers its own
-		# evidence and the 401/403 branch is reachable (that is the only way
-		# GitHub says "not available to this plan").
-		local payload
-		payload=$(gh_request GET "/repos/$REPO")
-		jq -c -n --arg slug "$REPO" --arg branch "$DEFAULT_BRANCH" --argjson payload "$payload" \
-			'{slug: $slug, default_branch: $branch, repo: $payload}'
-		;;
-	code-scanning)
-		local setup analyses
-		setup=$(gh_request GET "/repos/$REPO/code-scanning/default-setup")
-		analyses=$(gh_request GET "/repos/$REPO/code-scanning/analyses")
-		jq -c -n --arg slug "$REPO" --arg branch "$DEFAULT_BRANCH" \
-			--argjson setup "$setup" --argjson analyses "$analyses" \
-			'{slug: $slug, default_branch: $branch, default_setup: $setup, analyses: $analyses}'
-		;;
-	community-*)
-		gather_community "$1"
-		;;
-	*)
-		printf 'audit: no evidence gatherer for "%s"\n' "$1" >&2
-		return 64
-		;;
-	esac
-}
 
 # --- evaluate --------------------------------------------------------------
 
@@ -192,19 +123,6 @@ for id in "${IDS[@]}"; do
 done
 
 # --- report ----------------------------------------------------------------
-
-print_table() {
-	local rows="$1" row
-	printf '%-36s %-14s %s\n' "CHECK" "STATUS" "EVIDENCE"
-	while IFS= read -r row; do
-		printf '%-36s %-14s %s\n' \
-			"$(jq -r '.id' <<<"$row")" \
-			"$(jq -r '.status' <<<"$row")" \
-			"$(jq -r 'if (.evidence | length) > 0 then (.evidence | join("; ")) else "-" end' <<<"$row")"
-	done < <(jq -c '.[]' <<<"$rows")
-	printf '\n'
-	printf 'summary: %s\n' "$(jq -r 'group_by(.status) | map("\(.[0].status)=\(length)") | join(" ")' <<<"$rows")"
-}
 
 if ((JSON_OUT == 1)); then
 	printf '%s\n' "$ROWS"
