@@ -80,6 +80,16 @@ Socratic interview via `ask_user` — one question at a time — to sharpen vagu
 - **Requires:** `gh` CLI, `ask_user` extension
 - **Invocation:** `/skill:git-issue-refinement <number>`
 
+### git-best-practice-check
+
+Audit a GitHub repository against this project's best-practice checklist — default-branch protection, Dependabot / code-scanning / secret-scanning alerts and the community standards — then remediate each failure only after the user answers yes to that practice. The audit is strictly read-only; every remediation is one write followed by a re-verification.
+
+- **Mode:** Manual — agent cannot auto-invoke; use `/skill:git-best-practice-check [owner/repo]`
+- **Skills:** `gh` API evidence gathering, per-practice consent loop, fail-closed re-verification
+- **Requires:** `gh` CLI with admin on the target repository, `jq`, `supervisor.repo` in `.pi/settings.json` (or an `owner/repo` argument)
+- **Output:** A `pass` / `fail` / `pending` / `not-available` / `unknown` table with the evidence behind each verdict; remediations land as repository settings writes or as a feature branch plus pull request
+- **Invocation:** `/skill:git-best-practice-check [owner/repo]`
+
 ### model-select
 
 Research and recommend coding models per agent role (architect, developer, test-designer, auditor, researcher) based on benchmarks, pricing, and platform restrictions.
