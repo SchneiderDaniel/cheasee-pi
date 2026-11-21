@@ -85,6 +85,18 @@ func publishResolvedPorts(ctx context.Context, root string, env *sessionEnv) {
 // stack (reusing existing containers unless --build asks for a rebuild) and
 // waits for the entrypoint ready marker.
 func ensureContainerReady(ctx context.Context, root, name string, build bool) (cacheDir string, err error) {
+	// Credential gate FIRST (fail closed): Compose builds the auth.json secret
+	// mount with CreateMountpoint:false, so an absent host file surfaces as an
+	// opaque bind error at container start, after a ~1GB image build. Runs
+	// after the auto-init phase, which is what writes auth.json on a fresh
+	// machine — so a workspace init just created can start immediately.
+	authPath, err := (&fileRepository{}).Path()
+	if err != nil {
+		return "", fmt.Errorf("resolve credential file: %w", err)
+	}
+	if err := ensureAuthFile(authPath); err != nil {
+		return "", err
+	}
 	cacheDir, err = ensureCacheDir(ctx)
 	if err != nil {
 		return "", fmt.Errorf("cache dir: %w", err)
@@ -95,6 +107,20 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 	running, err := containerRunning(ctx, name)
 	if err != nil {
 		return "", fmt.Errorf("check container: %w", err)
+	}
+	// Whether the agent container pre-exists in ANY state. A running container
+	// obviously does; a STOPPED one is started as-is by ensureStackUp below, so
+	// it keeps the credential mounting policy it was created with. Gating the
+	// credential drift check on `running` alone made the first start after a CLI
+	// upgrade — a stopped legacy container with read-write config-dir mounts —
+	// pass silently (issue #2076 audit). Probed only when not running: a running
+	// container needs no second listing.
+	preExisting := running
+	if !preExisting {
+		preExisting, err = containerExists(ctx, name)
+		if err != nil {
+			return "", fmt.Errorf("check container: %w", err)
+		}
 	}
 	if build {
 		// Explicit rebuild: build every service, then up every service — the
@@ -127,6 +153,16 @@ func ensureContainerReady(ctx context.Context, root, name string, build bool) (c
 		// sidecar it just created is already matching.
 		if running {
 			warnIfCodeflowDrift(ctx, root, cacheDir)
+		}
+		// Same read-only inspect shape, different container: the credential
+		// stamp says whether this container was created from the auth.json
+		// currently on the host. Gated on pre-EXISTENCE, not on running: a
+		// container created on this run carries the fresh stamp (silent), while
+		// every pre-existing one — running or started just above — keeps the
+		// credential mounts it was created with. Warn only — a surprise recreate
+		// would break the zero-compose contract and interrupt a live session.
+		if preExisting {
+			warnIfAuthDrift(ctx, root)
 		}
 	}
 	// Gate the exec behind first-run setup: compose up -d returns as soon as

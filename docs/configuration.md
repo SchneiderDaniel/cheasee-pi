@@ -103,3 +103,53 @@ API key without recreating the clone or settings scaffold.
 Provider-to-environment-variable mappings and other CLI environment
 variables are listed in the [CLI reference](cli.md#environment-variables).
 The full command behavior is documented in the [CLI reference](cli.md).
+
+### How the containers receive credentials
+
+Containers never receive the host config directories. Compose mounts exactly
+one file, read-only:
+
+| What                         | Host source                            | Inside the container        |
+| ---------------------------- | -------------------------------------- | --------------------------- |
+| Provider keys + GitHub token | `<UserConfigDir>/cheasee-pi/auth.json` | `/run/secrets/cheasee_auth` |
+
+The source is `secrets.cheasee_auth.file`, which the CLI resolves from the same
+`auth.json` path it writes (`CHEASEEPI_AUTH_FILE`, defaulting to
+`~/.config/cheasee-pi/auth.json`). Outside Swarm a `file:` secret is a
+read-only bind mount of that single host file: a process inside the container
+can read it and cannot write it, and no other host configuration is exposed.
+
+gh still needs a writable config directory, so `entrypoint.sh` seeds a
+container-local tmpfs from the mounted secret (`GH_CONFIG_DIR=
+/home/agentuser/.config/gh`). `hosts.yml` lives in memory and disappears with
+the container.
+
+No credential value is written into Compose configuration, image layers, or
+container environment metadata: `docker compose config` can only ever print
+the file path, and provider keys reach pi through `docker exec -e` at session
+start.
+
+#### Changing credentials requires a container recreate
+
+`cheasee-pi auth` remains the only writer and `auth.json` the single source of
+truth. Because a single-file bind mount is pinned to the inode that existed at
+container creation, a credential change is NOT visible to the file-backed
+consumers until the container is recreated:
+
+```bash
+cheasee-pi auth add <provider>   # or: cheasee-pi init --reauth
+cheasee-pi start --build         # recreates the containers
+```
+
+`cheasee-pi start` warns (it never recreates on its own) for every container
+that already exists — running or stopped — when it was created from a
+different credential file than the one now on the host. A container that is
+merely started after a CLI upgrade keeps the mounts it was created with (the
+pre-#2076 read-write config directories), so that case warns too.
+
+The recreate requirement is specific to the file-backed path. Exec-time
+delivery stays live: `GH_TOKEN` and provider keys are resolved on the host on
+every start and handed to pi per `docker exec`, so those take effect without a
+recreate. The consumers that only see the change after one are the UI's
+spawned pi RPC children, the gh tmpfs seed, and the supervisor's `auth.json`
+fallback.

@@ -161,8 +161,7 @@ func readyFlowDockerFn(root string, running bool) func(context.Context, []string
 		}
 		if slices.Contains(arg, "inspect") {
 			if slices.Contains(arg, "{{json .}}") {
-				cacheDir, _ := CacheDir()
-				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+				return driftInspectStub(root, arg)
 			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
 		}
@@ -206,13 +205,12 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 		}
 		if name == "docker" && slices.Contains(arg, "inspect") {
 			// Ready-marker healthcheck: entrypoint setup assumed complete. On
-			// the running&&!build path the drift check calls the same inspect
-			// seam with `--format {{json .}}` — answer a matching sidecar
-			// (label-less old-container form: mount matches the current cache
-			// dir, no explicit port) so existing tests stay warning-free.
+			// the running&&!build path the drift checks call the same inspect
+			// seam with `--format {{json .}}` — answer BOTH a matching sidecar
+			// and a current credential stamp so existing tests stay
+			// warning-free.
 			if slices.Contains(arg, "{{json .}}") {
-				cacheDir, _ := CacheDir()
-				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+				return driftInspectStub(root, arg)
 			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
 		}
@@ -221,10 +219,53 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 	return c
 }
 
+// currentAuthStampOrEmpty is the credential stamp a running agent container
+// must carry to be considered current ("" when the fixture has no credential
+// file — the start gate covers that case separately).
+func currentAuthStampOrEmpty() string {
+	path, err := (&fileRepository{}).Path()
+	if err != nil {
+		return ""
+	}
+	spec, err := authSpec(path)
+	if err != nil {
+		return ""
+	}
+	return spec
+}
+
+// driftInspectStub answers a `docker inspect --format '{{json .}}'` call for
+// EITHER drift check: the agent container's credential stamp document, or the
+// codeflow sidecar document. One helper so a new drift check cannot silently
+// receive the wrong container's answer (which would read as permanent drift).
+func driftInspectStub(root string, arg []string) runner {
+	if name := arg[len(arg)-1]; name == containerName(root) {
+		return authInspectRunner(authInspectJSON(authInspectDoc(currentAuthStampOrEmpty())))
+	}
+	cacheDir, _ := CacheDir()
+	return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+}
+
 // setUpRun pins the package state a runUpE test needs: hermetic config/cache
 // homes, hermetic git identity, dry-run mode, and the workdir flag.
 func setUpRun(t *testing.T, workdir string) {
 	setUpRunMode(t, workdir, true)
+}
+
+// startAuthFile writes the host credential file the start gate requires into a
+// fresh (test-scoped) config home and returns its path.
+func startAuthFile(t *testing.T) string {
+	t.Helper()
+	dir := testutil.RedirectConfigHome(t)
+	path := filepath.Join(dir, "cheasee-pi", "auth.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	content := `{"github_token":"` + FakeGitHubToken + `"}`
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // setUpRunMode is setUpRun with an explicit dry-run flag. Non-dry-run tests
@@ -250,6 +291,9 @@ func setUpRunMode(t *testing.T, workdir string, dryRun bool) {
 	t.Setenv("CODEFLOW_PORT", "")
 	// Same for the UI port — derived-case assertions must not see a host value.
 	t.Setenv("PI_UI_PORT", "")
+	// Credentials: the start gate fails closed without the host auth.json, so
+	// every start-flow fixture ships one in its own config home.
+	startAuthFile(t)
 	t.Cleanup(func() {
 		upWorkdir = savedWorkdir
 		upDryRun = savedDryRun

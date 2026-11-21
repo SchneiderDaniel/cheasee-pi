@@ -18,6 +18,25 @@
 
 name: cheasee-pi
 
+# Credential secret (issue #2076). NOTHING else from the host config dir is
+# mounted: a `file:` secret is the only source that yields a READ-ONLY bind
+# mount outside Swarm (`content:`/`environment:` tar the value into the
+# container's writable layer; `external:`/`driver:` are hard errors). Compose
+# resolves `~` and expands it exactly like a bind source, so the CLI passes an
+# absolute CHEASEEPI_AUTH_FILE and direct usage still works. Secret content is
+# stripped when Compose marshals its model, so `docker compose config` can only
+# ever print this path — never a credential value.
+#
+# The host file stays the single source of truth: `cheasee-pi auth` is the only
+# writer, and the mounted file is pinned to the inode resolved at container
+# creation, so a credential change requires a container recreate
+# (`cheasee-pi start --build`) for the file-backed readers (ui child env, the
+# gh tmpfs seed, the supervisor's file fallback). Exec-time GH_TOKEN and
+# provider keys stay live.
+secrets:
+  cheasee_auth:
+    file: ${CHEASEEPI_AUTH_FILE:-~/.config/cheasee-pi/auth.json}
+
 services:
   cheasee-pi:
     build:
@@ -43,11 +62,24 @@ services:
     container_name: ${CHEASEEPI_CONTAINER:-cheasee-pi}
     labels:
       - com.cheaseepi.managed=true
+      # CLI-owned credential stamp (sha256 over the host auth.json's identity:
+      # inode, size, mtime_ns — never its content). The drift check on the
+      # running&&!build path compares it against a freshly computed value and
+      # warns with the recovery command.
+      - com.cheaseepi.auth-spec=${CHEASEEPI_AUTH_SPEC:-}
     environment:
       - HOST_UID=${HOST_UID:-}
       - HOST_GID=${HOST_GID:-}
       - HOST_GIT_NAME=${HOST_GIT_NAME:-Cheasee-Pi}
       - HOST_GIT_EMAIL=${HOST_GIT_EMAIL:-cheasee-pi@localhost}
+      # The credential arrives as ONE read-only file (the cheasee_auth secret),
+      # never as a directory and never as a value. Same override name the ui
+      # sidecar already honours (ui/src/auth.rs load_child_env).
+      - CHEASEE_AUTH_PATH=/run/secrets/cheasee_auth
+      # gh still needs a WRITABLE config dir for hosts.yml: point it at the
+      # container-local tmpfs below and the entrypoint seeds it from the
+      # read-only secret. No host write path exists.
+      - GH_CONFIG_DIR=/home/agentuser/.config/gh
       # pi.dev's update check nags inside the container: "Run pi update"
       # is misleading there (npm-global updates are wiped on rebuild), and
       # the image's pi version is owned by the PI_VERSION build arg + stamp,
@@ -56,8 +88,13 @@ services:
     volumes:
       - ${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}
       - ${WORKSPACE_BARE_PATH}:/workspaces/.bare${VOLUME_RELABEL:-}
-      - ~/.config/gh:/home/agentuser/.config/gh:rw${VOLUME_RELABEL:-}
-      - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:rw${VOLUME_RELABEL:-}
+    tmpfs:
+      # Memory-only, root-owned at creation (entrypoint hands it to agentuser
+      # and seeds hosts.yml): a container-local gh config with no host write
+      # path, gone on every container removal.
+      - /home/agentuser/.config/gh:mode=0700
+    secrets:
+      - cheasee_auth
     mem_limit: ${CHEASEEPI_MEMORY:-5G}
     cpus: ${CHEASEEPI_CPUS:-4.0}
     init: true
@@ -138,17 +175,24 @@ services:
     container_name: ${PI_UI_CONTAINER:-ui}
     labels:
       - com.cheaseepi.managed=true
+      # Same CLI-owned credential stamp as the agent: a stale sidecar reads a
+      # stale auth.json for its spawned pi RPC children.
+      - com.cheaseepi.auth-spec=${CHEASEEPI_AUTH_SPEC:-}
+    environment:
+      - CHEASEE_AUTH_PATH=/run/secrets/cheasee_auth
     restart: unless-stopped
-    # Run as the host uid/gid so the server can traverse the host-owned 0700
-    # ~/.config/cheasee-pi bind mount and read auth.json (AC1). HOST_UID/GID
+    # Run as the host uid/gid: the credential secret is a bind mount of the
+    # host's 0600 auth.json, and Compose ignores uid/gid/mode outside Swarm, so
+    # the host file's ownership carries through unchanged (AC1). HOST_UID/GID
     # are the same seam the agent service uses; unset defaults to 1000.
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - ${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}
-      # Read-only: gh hosts.yml can hold a plaintext OAuth token when no system
-      # keyring is available, and the UI server is network-reachable.
-      - ~/.config/gh:/home/agentuser/.config/gh:ro${VOLUME_RELABEL:-}
-      - ~/.config/cheasee-pi:/home/agentuser/.config/cheasee-pi:ro${VOLUME_RELABEL:-}
+    secrets:
+      # Read-only by construction, and the server is network-reachable. No gh
+      # config mount: the ui reads provider keys only (no `.config/gh`,
+      # `hosts.yml` or "gh" reference under ui/src).
+      - cheasee_auth
     ports:
       - "127.0.0.1:${PI_UI_PORT:-9500}:3000"
     healthcheck:

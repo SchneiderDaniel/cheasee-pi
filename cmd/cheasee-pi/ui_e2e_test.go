@@ -350,6 +350,11 @@ func seedComposeHarnessWorkspace(t *testing.T) string {
 	parent := t.TempDir()
 	root := filepath.Join(parent, slug)
 	bareDir := cloneWorktreeLayout(t, src, parent, root)
+	// Credentials: the stack mounts ONE read-only file-backed secret sourced from
+	// the CLI-resolved auth.json, and the start gate fails closed without it.
+	// t.Setenv keeps both sides (the gate + the compose interpolation) on the
+	// same hermetic fixture.
+	t.Setenv(authFileEnv, startAuthFile(t))
 	// Owner-less remote so the derived slug equals the workspace basename: the
 	// project/container/image names all derive from this one unique identity.
 	runGit(t, "--git-dir", bareDir, "config", "remote.origin.url",

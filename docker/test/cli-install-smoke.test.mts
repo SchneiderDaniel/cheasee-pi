@@ -50,6 +50,19 @@ function composeFile(): string {
 	return join(composeDir(), "docker-compose.yml");
 }
 
+// The credential file `cheasee-pi init --api-key` writes, resolved exactly like
+// the binary does (os.UserConfigDir honours XDG_CONFIG_HOME, which this suite
+// redirects above). The stack no longer bind-mounts the host config
+// DIRECTORY (issue #2076): it mounts this ONE file read-only as the
+// `cheasee_auth` compose secret, sourced from CHEASEEPI_AUTH_FILE — the same
+// env key `applyComposeEnv` exports. Raw `docker compose up` therefore has to
+// be handed the path too, or Compose builds the secret mount with no source and
+// the container fails to start. The file lives under /tmp (tmpdir()), which the
+// DinD service container shares with the runner, so the daemon can read it.
+function authFile(): string {
+	return join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "cheasee-pi", "auth.json");
+}
+
 interface ExecResult {
 	stdout: string;
 	stderr: string;
@@ -207,6 +220,14 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			result.stderr.includes("Init complete!"),
 			`expected "Init complete!" in stderr, got: ${result.stderr}`,
 		);
+		// The credential file is the ONLY credential channel into the containers
+		// (one read-only compose secret, no host config directory mount), so it
+		// must exist after init — otherwise the docker steps below have no
+		// secret source to mount.
+		assert.ok(
+			existsSync(authFile()),
+			`expected init to write the credential file the stack mounts: ${authFile()}`,
+		);
 	});
 
 	// ── Checkpoint 3: dedicated settings file, no docker files ──
@@ -286,6 +307,12 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 				COMPOSE_PROJECT_NAME: COMPOSE_PROJECT,
 				CHEASEEPI_CONTAINER: CONTAINER_NAME,
 				CODEFLOW_CONTAINER,
+				// applyComposeEnv also exports the CLI-resolved absolute
+				// credential path that `secrets.cheasee_auth.file` interpolates.
+				// Raw compose has no CLI to derive it, so pass it here — omitting
+				// it makes Compose build the secret mount without a source and
+				// the container fail to start.
+				CHEASEEPI_AUTH_FILE: authFile(),
 			},
 		});
 		assert.strictEqual(result.status, 0, `compose up exited ${result.status}: ${result.stderr}`);

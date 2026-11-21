@@ -20,20 +20,25 @@ export interface TokenResolutionOptions {
 }
 
 /**
- * Resolve the GitHub token from GH_TOKEN or ~/.config/gh/hosts.yml.
+ * Resolve the GitHub token: `GH_TOKEN` → the `CHEASEE_AUTH_PATH` file →
+ * `~/.config/gh/hosts.yml`.
  *
- * Env wins (trimmed, whitespace-only treated as unset), else the
- * `oauth_token:` line in the gh credential store, else null. Intentionally
+ * Env wins (trimmed; whitespace-only counts as unset). Second is the
+ * `github_token` in the file `CHEASEE_AUTH_PATH` names — the container mounts
+ * `auth.json` read-only there, mounts no host gh config dir, so that file beats
+ * the `hosts.yml` the entrypoint seeds into the container-local tmpfs. Last is
+ * the gh credential store's `oauth_token:` line, then null. Intentionally
  * uncached: a memoised null would poison later calls once `gh auth login`
- * or an exported GH_TOKEN lands mid-session. GH_TOKEN is passed to
- * `gh`/`ghRaw` as a per-child env option to work around WSL auth context
- * mismatch where pi.exec can return 401 even though the gh binary itself is
- * authenticated.
+ * lands mid-session. GH_TOKEN is passed to `gh`/`ghRaw` as a per-child env
+ * option, working around a WSL auth-context mismatch where pi.exec can return
+ * 401 even though the gh binary itself is authenticated.
  */
 export function resolveGitHubToken(opts?: TokenResolutionOptions): string | null {
 	const env = opts?.env ?? process.env;
 	const envToken = env.GH_TOKEN?.trim();
 	if (envToken) return envToken;
+	const secretToken = tokenFromAuthFile(env.CHEASEE_AUTH_PATH?.trim());
+	if (secretToken) return secretToken;
 	try {
 		const configPath = join(opts?.home ?? homedir(), ".config", "gh", "hosts.yml");
 		const yml = readFileSync(configPath, "utf8");
@@ -45,26 +50,56 @@ export function resolveGitHubToken(opts?: TokenResolutionOptions): string | null
 }
 
 /**
+ * Read `github_token` from a cheasee-pi auth file: the read-only secret the
+ * container mounts (`CHEASEE_AUTH_PATH`) or, host-side, the legacy
+ * `~/.config/cheasee-pi/auth.json`.
+ *
+ * An unset path, unreadable file, malformed JSON, non-string token, empty
+ * token: all mean "no token here". The caller falls through to `hosts.yml` — a
+ * credential file this code does not own is never a throw.
+ */
+function tokenFromAuthFile(path: string | undefined): string | null {
+	if (!path) return null;
+	try {
+		const parsed = JSON.parse(readFileSync(path, "utf8")) as { github_token?: unknown };
+		const token = parsed.github_token;
+		if (typeof token !== "string") return null;
+		const trimmed = token.trim();
+		return trimmed.length > 0 ? trimmed : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Which OAuth flow minted the active credential — key for the workflow-scope
- * remediation hint. cheasee-pi tokens live in auth.json and can only gain the
- * scope by re-running the device flow (`cheasee-pi init --reauth`); gh-minted
- * tokens are upgradable via `gh auth refresh -h github.com -s workflow`.
- * Heuristic is a cheap fs check; unknown prints both hints.
+ * remediation hint. cheasee-pi tokens live in auth.json: only the device flow
+ * (`cheasee-pi init --reauth`) grants the missing scope. gh-minted tokens
+ * upgrade via `gh auth refresh -h github.com -s workflow`. Cheap fs probe;
+ * unknown prints both hints.
+ *
+ * Probe order mirrors {@link resolveGitHubToken}, because the hint must name
+ * the store the failed push used: `CHEASEE_AUTH_PATH` (the container's
+ * read-only secret), then `~/.config/cheasee-pi/auth.json`, then
+ * `~/.config/gh/hosts.yml`. The agent container mounts no host config
+ * directory (issue #2076), so the legacy path never resolves there — probing
+ * it alone reported `gh` for an init-minted token, sending the operator to a
+ * refresh the next container recreate reverts.
  */
 export type TokenClass = "cheasee-pi" | "gh" | "unknown";
 
-export function detectTokenClass(home: string = homedir()): TokenClass {
-	// auth.json is the cheasee-pi init/--reauth source of truth. entrypoint.sh
-	// re-imports it into gh, so a gh-hosted token may still be init-minted —
-	// auth.json must win over hosts.yml.
-	try {
-		const authPath = join(home, ".config", "cheasee-pi", "auth.json");
-		const auth = JSON.parse(readFileSync(authPath, "utf8")) as { github_token?: unknown };
-		if (typeof auth.github_token === "string" && auth.github_token.length > 0) {
-			return "cheasee-pi";
-		}
-	} catch {
-		// not a cheasee-pi install — fall through
+/**
+ * @param home Home directory the legacy `~/.config` stores hang off.
+ * @param env Environment carrying `CHEASEE_AUTH_PATH` (defaults to the process
+ *   env, which is what the container sets).
+ */
+export function detectTokenClass(
+	home: string = homedir(),
+	env: NodeJS.ProcessEnv = process.env,
+): TokenClass {
+	if (tokenFromAuthFile(env.CHEASEE_AUTH_PATH?.trim()) !== null) return "cheasee-pi";
+	if (tokenFromAuthFile(join(home, ".config", "cheasee-pi", "auth.json")) !== null) {
+		return "cheasee-pi";
 	}
 	try {
 		const configPath = join(home, ".config", "gh", "hosts.yml");

@@ -33,8 +33,7 @@ func TestEnsureContainerReady_runningStackNoComposeNoStart(t *testing.T) {
 	c := stubReadyFlow(t, root, func(_ context.Context, arg []string) runner {
 		if slices.Contains(arg, "inspect") {
 			if slices.Contains(arg, "{{json .}}") {
-				cacheDir, _ := CacheDir()
-				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, "", "")))
+				return driftInspectStub(root, arg)
 			}
 			healthPolls++
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}

@@ -78,6 +78,47 @@ describe("detectTokenClass() — remediation hint keying", () => {
 			rmSync(home, { recursive: true, force: true });
 		}
 	});
+
+	it("reads CHEASEE_AUTH_PATH before the unmounted legacy path (secret-backed token)", () => {
+		// The regression this pins: in the agent container the host config dir is
+		// NOT mounted (issue #2076), so only the secret is readable there — while
+		// the entrypoint seeds the same init-minted token into the gh tmpfs. A
+		// legacy-path-only probe answered "gh" and sent the operator to
+		// `gh auth refresh`, a hint that cannot grant the scope and that a
+		// container recreate reverts.
+		const home = mkdtempSync(join(tmpdir(), "gh-class-secret-"));
+		const secretDir = mkdtempSync(join(tmpdir(), "gh-class-secret-file-"));
+		const secret = join(secretDir, "cheasee_auth");
+		try {
+			writeHosts(home, "gho_seeded_into_tmpfs");
+			writeFileSync(secret, JSON.stringify({ github_token: "gho_init_minted" }));
+			assert.equal(
+				detectTokenClass(home, { CHEASEE_AUTH_PATH: secret }),
+				"cheasee-pi",
+				"the secret is the container's real credential source, not the seeded gh store",
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+			rmSync(secretDir, { recursive: true, force: true });
+		}
+	});
+
+	it("falls through to the gh store when CHEASEE_AUTH_PATH is unset, blank or unreadable", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-class-secret-none-"));
+		try {
+			writeHosts(home, "gho_gh_minted");
+			for (const secret of [undefined, "  ", join(home, "no-such-secret")]) {
+				const env = secret === undefined ? {} : { CHEASEE_AUTH_PATH: secret };
+				assert.equal(
+					detectTokenClass(home, env),
+					"gh",
+					`CHEASEE_AUTH_PATH=${JSON.stringify(secret)} must fall through to hosts.yml`,
+				);
+			}
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
 });
 
 // ─── Tests: resolveGitHubToken() — one resolution policy ──────────
@@ -154,6 +195,139 @@ describe("resolveGitHubToken() — single resolution policy", () => {
 				"gho_file",
 				"second call sees the newly written credential — null was not cached",
 			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+});
+
+// ─── Tests: resolveGitHubToken() — CHEASEE_AUTH_PATH (read-only secret) ──
+// The container mounts the host auth.json read-only at CHEASEE_AUTH_PATH and
+// does NOT mount ~/.config/gh, so that file is the container's source of truth
+// and must beat the gh store the entrypoint seeds into the tmpfs.
+
+describe("resolveGitHubToken() — CHEASEE_AUTH_PATH credential file", () => {
+	/** Write an auth.json-shaped secret file and return its path. */
+	function writeSecret(body: string): string {
+		const dir = mkdtempSync(join(tmpdir(), "gh-tok-secret-"));
+		const path = join(dir, "cheasee_auth");
+		writeFileSync(path, body);
+		return path;
+	}
+
+	it("resolves github_token from the file named by CHEASEE_AUTH_PATH", () => {
+		const secret = writeSecret(JSON.stringify({ github_token: "gho_secret" }));
+		try {
+			const home = mkdtempSync(join(tmpdir(), "gh-tok-secret-home-"));
+			try {
+				assert.equal(
+					resolveGitHubToken({ home, env: { CHEASEE_AUTH_PATH: secret } }),
+					"gho_secret",
+				);
+			} finally {
+				rmSync(home, { recursive: true, force: true });
+			}
+		} finally {
+			rmSync(join(secret, ".."), { recursive: true, force: true });
+		}
+	});
+
+	it("GH_TOKEN wins over the secret file", () => {
+		const secret = writeSecret(JSON.stringify({ github_token: "gho_secret" }));
+		try {
+			assert.equal(
+				resolveGitHubToken({
+					home: tmpdir(),
+					env: { GH_TOKEN: "gho_env", CHEASEE_AUTH_PATH: secret },
+				}),
+				"gho_env",
+			);
+		} finally {
+			rmSync(join(secret, ".."), { recursive: true, force: true });
+		}
+	});
+
+	it("the secret file wins over hosts.yml", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-secret-both-"));
+		const secret = writeSecret(JSON.stringify({ github_token: "gho_secret" }));
+		try {
+			writeHosts(home, "gho_hosts");
+			assert.equal(
+				resolveGitHubToken({ home, env: { CHEASEE_AUTH_PATH: secret } }),
+				"gho_secret",
+				"auth.json is the single source of truth in the container",
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+			rmSync(join(secret, ".."), { recursive: true, force: true });
+		}
+	});
+
+	it("falls back to hosts.yml when the secret file is malformed JSON", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-secret-bad-"));
+		const secret = writeSecret("{not json");
+		try {
+			writeHosts(home, "gho_hosts");
+			assert.equal(resolveGitHubToken({ home, env: { CHEASEE_AUTH_PATH: secret } }), "gho_hosts");
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+			rmSync(join(secret, ".."), { recursive: true, force: true });
+		}
+	});
+
+	it("falls back when CHEASEE_AUTH_PATH points at a missing file", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-secret-missing-"));
+		try {
+			writeHosts(home, "gho_hosts");
+			assert.equal(
+				resolveGitHubToken({
+					home,
+					env: { CHEASEE_AUTH_PATH: join(home, "no-such-secret") },
+				}),
+				"gho_hosts",
+			);
+			assert.equal(
+				resolveGitHubToken({ home: tmpdir(), env: { CHEASEE_AUTH_PATH: "/nope/nope" } }),
+				null,
+			);
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("falls back when github_token is empty or not a string", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-secret-shape-"));
+		try {
+			writeHosts(home, "gho_hosts");
+			for (const body of [
+				JSON.stringify({ github_token: "" }),
+				JSON.stringify({ github_token: "   " }),
+				JSON.stringify({ github_token: 42 }),
+				JSON.stringify({ github_token: { nested: "x" } }),
+				JSON.stringify({ github_user: "me" }),
+			]) {
+				const secret = writeSecret(body);
+				try {
+					assert.equal(
+						resolveGitHubToken({ home, env: { CHEASEE_AUTH_PATH: secret } }),
+						"gho_hosts",
+						`${body} must fall through to hosts.yml`,
+					);
+				} finally {
+					rmSync(join(secret, ".."), { recursive: true, force: true });
+				}
+			}
+		} finally {
+			rmSync(home, { recursive: true, force: true });
+		}
+	});
+
+	it("ignores CHEASEE_AUTH_PATH when it is unset or blank (existing behavior)", () => {
+		const home = mkdtempSync(join(tmpdir(), "gh-tok-secret-unset-"));
+		try {
+			writeHosts(home, "gho_hosts");
+			assert.equal(resolveGitHubToken({ home, env: {} }), "gho_hosts");
+			assert.equal(resolveGitHubToken({ home, env: { CHEASEE_AUTH_PATH: "  " } }), "gho_hosts");
 		} finally {
 			rmSync(home, { recursive: true, force: true });
 		}

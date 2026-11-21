@@ -31,6 +31,19 @@ func containerRunning(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
+// containerExists reports whether the named container exists in any state —
+// running, exited, created. `docker ps -a` is the only listing that sees a
+// stopped container: such a container is started as-is, never recreated, so it
+// keeps the configuration it was created with, credential mounts included.
+func containerExists(ctx context.Context, name string) (bool, error) {
+	states, err := containerStates(ctx, []string{name})
+	if err != nil {
+		return false, err
+	}
+	_, exists := states[name]
+	return exists, nil
+}
+
 // containerStates reports the docker state (running, exited, created, …) of
 // each requested container. A name absent from the map does not exist on the
 // host; a docker failure is an error, never an all-missing map. One `docker ps

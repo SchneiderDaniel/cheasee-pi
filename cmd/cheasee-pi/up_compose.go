@@ -374,6 +374,10 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		"PI_UI_PORT", "PI_UI_CONTAINER",
 		"PI_BUILD_STAMP", "CHEASEE_COMMIT",
 		codeflowSpecEnv,
+		// Credential path + stamp are derived from THIS host's auth.json every
+		// run; an inherited value would point Compose at another host's file or
+		// pin a stale label.
+		authFileEnv, authSpecEnv,
 	)
 	env = append(env,
 		"WORKSPACE_HOST_PATH="+workspaceHostPath,
@@ -399,6 +403,13 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		// name: is the only sane fallback for direct usage.
 		"COMPOSE_PROJECT_NAME="+composeProjectName(workspaceHostPath),
 	)
+	// Credential secret source + identity stamp. The path is the CLI-resolved
+	// absolute auth.json (never a hardcoded ~/.config/cheasee-pi/auth.json — the
+	// two diverge on XDG-config and macOS hosts, and Compose would mount a file
+	// the CLI never writes); the stamp is content-free, so it is safe in a
+	// compose label. Values never enter this env — provider keys reach pi through
+	// `docker exec -e` at session start.
+	env = append(env, authComposeEnv()...)
 	// CodeFlow spec stamp: the codeflow container carries the CLI-owned config
 	// hash as a compose label at creation, so a later plain `start` can detect
 	// sidecar drift without re-deriving Compose's own hash (unstable

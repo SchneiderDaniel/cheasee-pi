@@ -25,6 +25,11 @@ func TestRunUpE_runningStaleSidecarWarnsAndProceeds(t *testing.T) {
 	c := stubReadyFlow(t, root, func(_ context.Context, arg []string) runner {
 		if slices.Contains(arg, "inspect") {
 			if slices.Contains(arg, "{{json .}}") {
+				// Both drift checks hit this seam: keep the codeflow sidecar
+				// stale and the agent credential current.
+				if name := arg[len(arg)-1]; name == containerName(root) {
+					return authInspectRunner(authInspectJSON(authInspectDoc(currentAuthStampOrEmpty())))
+				}
 				return codeflowInspectRunner(staleJSON)
 			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
