@@ -13,10 +13,10 @@
 #
 # exit 0  — applied and reported (including "pending" for async work)
 # exit 1  — a write or the re-verification failed
-# exit 2  — repo could not be resolved / read
+# exit 2  — repo could not be resolved / read, or the re-audit could not run
 # exit 3  — consent missing
 # exit 4  — practice is not remediable in its current state
-# exit 64 — bad invocation
+# exit 64 — bad invocation (unknown option, unknown check id)
 set -euo pipefail
 
 # Fork-free script dir: two processes saved per run, on a path that cannot
@@ -61,7 +61,13 @@ repo_status=""
 # argv parsing lives in remediate-args.sh (remediate_usage + parse_remediate_args).
 parse_remediate_args "$@"
 
-mapfile -t ALL_IDS < <(jq -n -r -f "$EVALUATE" --arg mode list-ids)
+# valid_ids — the checklist ids, read from the rules on demand.
+#
+# Only the failure paths need them: the re-audit that every remediation performs
+# anyway rejects an unknown id (audit.sh exits 64 and prints the valid ones), so
+# parsing the evaluate.jq program here on every run would be a cost paid for a
+# message that is never printed.
+valid_ids() { jq -n -r -f "$EVALUATE" --arg mode list-ids; }
 
 if ((CONSENT == 0)); then
 	printf 'remediate: consent missing; refusing to change "%s" without an explicit yes from the user (pass --consent)\n' "${ID:-<none>}" >&2
@@ -69,11 +75,9 @@ if ((CONSENT == 0)); then
 fi
 
 if [[ -z "$ID" ]]; then
-	printf 'remediate: missing check id; valid ids: %s\n' "${ALL_IDS[*]}" >&2
+	printf 'remediate: missing check id; valid ids: %s\n' "$(valid_ids | tr '\n' ' ')" >&2
 	exit 64
 fi
-
-require_known_id "$ID" "${ALL_IDS[@]}"
 
 if [[ -n "$SETTINGS" ]]; then
 	export GBPC_SETTINGS_FILE="$SETTINGS"
@@ -110,7 +114,13 @@ fi
 # --- re-audit before any write ---------------------------------------------
 
 STEP="re-audit"
-row=$(reaudit "$ID")
+if ! row=$(reaudit "$ID"); then
+	# An unknown id is the common cause: name the valid ids, then fail closed
+	# before any write.
+	require_known_id "$ID" $(valid_ids)
+	printf 'remediate: cannot re-audit "%s" (step: %s)\n' "$ID" "$STEP" >&2
+	exit 2
+fi
 if ! IFS=$'\t' read -r STATUS REMEDIABLE < <(jq -r '.[0] | [.status // "unknown", (.remediable // false | tostring)] | @tsv' <<<"$row"); then
 	printf 'remediate: cannot read the re-audit row for %s\n' "$ID" >&2
 	exit 2

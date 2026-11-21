@@ -58,6 +58,17 @@ check "community: issue templates missing" community-issue-templates \
 	\"probes\":[{\"path\":\".github/ISSUE_TEMPLATE\",\"status\":404,\"body\":null}]}"
 expect_status fail
 
+# A contents lookup for a directory answers with an array, not an object. The
+# evidence line must not try to read `type` off it (indexing an array aborts the
+# whole evaluation), and the practice still passes.
+check "community: issue-template directory listing counts as present" community-issue-templates \
+	"{
+	$CTX,
+	\"profile\":$ALL_MISSING_PROFILE,
+	\"probes\":[{\"path\":\".github/ISSUE_TEMPLATE\",\"status\":200,\"body\":[{\"type\":\"file\",\"path\":\".github/ISSUE_TEMPLATE/bug_report.md\"}]}]}"
+expect_status pass
+expect_evidence ".github/ISSUE_TEMPLATE exists (a directory listing)"
+
 check "community: pull request template missing" community-pull-request-template \
 	"{
 	$CTX,

@@ -290,10 +290,23 @@ def eval_code_scanning($ev):
 
 # --- community standards ---------------------------------------------------
 
+# probe_desc — one evidence line per contents probe.
+#
+# A contents response is an object for a file and an array when the path is a
+# directory (e.g. `.github/ISSUE_TEMPLATE`, which GitHub answers with a listing).
+# Only the object shape carries `type`/`target`, so the fields are read through
+# an object guard: indexing an array with "type" aborts the whole evaluation.
+def probe_body_object: if (.body | type) == "object" then .body else {} end;
+
 def probe_desc:
 	if http_ok then
-		"\(.path) exists (type=\(.body.type // "unknown"))"
-		+ (if (.body.type // "") == "symlink" then " -> \(.body.target // "?")" else "" end)
+		if (.body | type) == "array" then
+			"\(.path) exists (a directory listing)"
+		else
+			probe_body_object as $b
+			| "\(.path) exists (type=\($b.type // "unknown"))"
+				+ (if ($b.type // "") == "symlink" then " -> \($b.target // "?")" else "" end)
+		end
 	else
 		"\(.path) -> \(.status)"
 	end;

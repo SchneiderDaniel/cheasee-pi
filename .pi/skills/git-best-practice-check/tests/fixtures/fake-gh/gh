@@ -102,8 +102,9 @@ printf '%s\n' "$argv" >>"$GH_LOG.argv"
 # fast_get <path> — serve the read-only shapes an audit issues most without
 # starting jq. A full audit is a dozen requests, a remediation two audits' worth,
 # and against a bare repo the community checks probe up to eighteen contents
-# paths: the repo object and the contents probes are more than half of them, and
-# they need nothing but a flat lookup in the state file.
+# paths: the repo object, the contents probes, the default-setup/analyses pair,
+# the protection 404 and the community profile are most of them, and they need
+# nothing but a flat lookup in the state file.
 #
 # Faithfulness rules:
 #   * GET only — every write still runs through github.jq;
@@ -152,6 +153,56 @@ fast_contents() { # <state> <requested path>
 		return 0
 	fi
 	printf '{"status":404,"body":{"message":"Not Found"}}'
+}
+
+fast_profile() { # <state> -> the community/profile body
+	local files health profile rest item readme coc contributing license issue pr
+	files=$(flat_array "$1" files) || return 1
+	health=$(flat_scalar "$1" health_percentage) || return 1
+	[[ "$health" =~ ^[0-9]+$ ]] || return 1
+	# A fork has no community profile; that is the one non-default scripted value
+	# this path serves, and it has no body to build.
+	profile=$(flat_scalar "$1" community_profile) || profile='"ok"'
+	readme=null coc=null contributing=null license=null issue=null pr=null
+	rest="$files"
+	while [[ -n "$rest" ]]; do
+		item="${rest%%,*}"
+		if [[ "$rest" == *,* ]]; then rest="${rest#*,}"; else rest=""; fi
+		case "$item" in
+		\"README.md\") readme='{"path":"README.md","html_url":"https://example.invalid/README.md"}' ;;
+		\"CODE_OF_CONDUCT.md\") coc='{"path":"CODE_OF_CONDUCT.md","name":"Contributor Covenant"}' ;;
+		\"CONTRIBUTING.md\") contributing='{"path":"CONTRIBUTING.md","html_url":"https://example.invalid/CONTRIBUTING.md"}' ;;
+		\"LICENSE\") license='{"path":"LICENSE","spdx_id":"MIT"}' ;;
+		\".github/ISSUE_TEMPLATE/*) issue='{"path":".github/ISSUE_TEMPLATE/bug_report.md"}' ;;
+		\".github/PULL_REQUEST_TEMPLATE.md\") pr='{"path":".github/PULL_REQUEST_TEMPLATE.md"}' ;;
+		esac
+	done
+	case "$profile" in
+	'"ok"' | '"unavailable"' | null) ;;
+	*) return 1 ;;
+	esac
+	if [[ "$profile" == '"unavailable"' ]]; then
+		printf '{"status":404,"body":{"message":"Not Found"}}'
+		return 0
+	fi
+	printf '{"status":200,"body":{"health_percentage":%s,"files":{"readme":%s,"code_of_conduct":%s,"contributing":%s,"license":%s,"issue_template":%s,"pull_request_template":%s}}}' \
+		"$health" "$readme" "$coc" "$contributing" "$license" "$issue" "$pr"
+}
+
+fast_analyses() { # <state> -> the code-scanning/analyses body
+	local count age epoch created out="" sep="" i
+	count=$(flat_scalar "$1" analyses) || return 1
+	age=$(flat_scalar "$1" analyses_age_days) || return 1
+	[[ "$count" =~ ^[0-9]+$ && "$age" =~ ^[0-9]+$ ]] || return 1
+	local TZ=UTC
+	printf -v epoch '%(%s)T' -1
+	epoch=$((epoch - age * 86400))
+	printf -v created '%(%Y-%m-%dT%H:%M:%SZ)T' "$epoch"
+	for ((i = 0; i < count; i++)); do
+		out+="${sep}{\"id\":$i,\"state\":\"completed\",\"created_at\":\"$created\"}"
+		sep=","
+	done
+	printf '{"status":200,"body":[%s]}' "$out"
 }
 
 fast_get() { # <path> -> response JSON on stdout, 1 to fall back to jq
@@ -210,6 +261,38 @@ fast_get() { # <path> -> response JSON on stdout, 1 to fall back to jq
 		rules=$(flat_scalar "$state" rules) || return 1
 		[[ "$rules" == "[]" ]] || return 1
 		printf '{"status":200,"body":[]}'
+		return 0
+	fi
+	# /repos/{o}/{r}/branches/{branch}/protection — the unprotected case. A
+	# configured protection object is served by github.jq, which owns the shape.
+	if ((n == 6)) && [[ "${seg[3]}" == "branches" && "${seg[5]}" == "protection" ]]; then
+		local protection
+		protection=$(flat_scalar "$state" protection) || return 1
+		[[ "$protection" == "null" ]] || return 1
+		printf '{"status":404,"body":{"message":"Branch not protected"}}'
+		return 0
+	fi
+	# /repos/{o}/{r}/code-scanning/default-setup — the state carries the setup
+	# state as a flat string; an object-shaped override falls back to github.jq.
+	if ((n == 5)) && [[ "${seg[3]}" == "code-scanning" && "${seg[4]}" == "default-setup" ]]; then
+		local setup
+		setup=$(flat_scalar "$state" code_scanning) || return 1
+		case "$setup" in
+		'"configured"' | '"not-configured"') ;;
+		*) return 1 ;;
+		esac
+		printf '{"status":200,"body":{"state":%s,"query_suite":"default","languages":["bash"]}}' "$setup"
+		return 0
+	fi
+	# /repos/{o}/{r}/code-scanning/analyses — derived from the analysis count.
+	if ((n == 5)) && [[ "${seg[3]}" == "code-scanning" && "${seg[4]}" == "analyses" ]]; then
+		fast_analyses "$state" || return 1
+		return 0
+	fi
+	# /repos/{o}/{r}/community/profile — every audit reads it, and the bare-repo
+	# case (all files missing) is the shape most cases script.
+	if ((n == 5)) && [[ "${seg[3]}" == "community" && "${seg[4]}" == "profile" ]]; then
+		fast_profile "$state" || return 1
 		return 0
 	fi
 	return 1

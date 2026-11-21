@@ -12,6 +12,13 @@
 # that records every invocation in $GH_LOG and serves responses from a small
 # state file plus an optional per-endpoint override plan. No network, no
 # mutation of the real repository.
+#
+# Budget: the test plan gives this suite < 15s wall clock. It measures ~5s on an
+# 8-core container, and the slices are already scheduled in parallel, so what
+# moves this number is a subprocess added to the scripts or to the stub — a jq
+# start-up per request, not the logic under test. tests/lib/harness.sh and the
+# stub's fast paths exist for that reason; keep them in step with the shapes the
+# audit actually requests.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

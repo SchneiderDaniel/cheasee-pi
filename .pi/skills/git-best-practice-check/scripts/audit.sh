@@ -103,8 +103,13 @@ else
 fi
 
 # Wall clock for the recency rule in evaluate.jq. It is an input to the pure
-# rules, not something they read; GBPC_NOW pins it for tests.
-NOW_EPOCH="${GBPC_NOW:-$(date -u +%s)}"
+# rules, not something they read; GBPC_NOW pins it for tests. printf's %(%s)T
+# is a shell builtin, so reading the clock costs no fork.
+if [[ -n "${GBPC_NOW:-}" ]]; then
+	NOW_EPOCH="$GBPC_NOW"
+else
+	printf -v NOW_EPOCH '%(%s)T' -1
+fi
 
 # An explicit --repo is passed through even when empty, so `resolve_repo_arg`
 # can reject it instead of silently falling back to supervisor.repo (auditing —
@@ -134,12 +139,6 @@ if [[ "$preflight_admin" != "true" ]]; then
 fi
 
 # --- evidence --------------------------------------------------------------
-
-# The community profile is one document describing every community check, so
-# it is read once for the run instead of once per check (see lib/evidence.sh).
-ensure_community_profile "${IDS[@]}"
-
-# --- evaluate --------------------------------------------------------------
 
 # The community profile is one document describing every community check, so
 # it is read once for the run instead of once per check (see lib/evidence.sh).
