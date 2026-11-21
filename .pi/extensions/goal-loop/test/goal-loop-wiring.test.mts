@@ -94,6 +94,22 @@ describe("registration", () => {
 });
 
 describe("agent_before_settle", () => {
+	it("does not run a work boundary while the goal is clarifying", async () => {
+		const state: StubState = {
+			record: buildRecord({ status: "clarifying", iterations: 0, generation: 0 }),
+			decision: { kind: "continue" },
+			boundaries: 0,
+			steers: [],
+			clarifyMessages: [],
+		};
+		const { recording } = wire(state);
+		const ui = createUiCtx();
+
+		const result = await recording.emit("agent_before_settle", {}, ui.ctx);
+		assert.equal(result, undefined);
+		assert.equal(state.boundaries, 0);
+	});
+
 	it("returns no continuation when no goal exists", async () => {
 		const { recording } = wire({
 			record: null,
