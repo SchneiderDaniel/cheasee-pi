@@ -25,7 +25,9 @@ SLICES=(
 	"$HERE/cases/audit-checks.sh"
 	"$HERE/cases/remediate-gate.sh"
 	"$HERE/cases/remediate-writes.sh"
+	"$HERE/cases/remediate-scanning.sh"
 	"$HERE/cases/remediate-community.sh"
+	"$HERE/cases/remediate-verify.sh"
 	"$HERE/cases/journey.sh"
 	"$HERE/cases/hygiene.sh"
 )

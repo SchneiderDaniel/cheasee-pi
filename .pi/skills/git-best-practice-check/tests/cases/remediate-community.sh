@@ -10,9 +10,9 @@ reset_all
 begin "community remediation opens one branch and one PR for the missing files"
 run remediate community-issue-templates --consent
 expect_rc 0
-expect_eq "refs created" "$(write_lines | grep -c 'git/refs' || true)" "1"
-expect_eq "pulls opened" "$(write_lines | grep -c 'pulls' || true)" "1"
-expect_eq "file writes" "$(write_lines | grep -c 'contents/' || true)" "2"
+expect_eq "refs created" "$(count_write_lines 'git/refs')" "1"
+expect_eq "pulls opened" "$(count_write_lines 'pulls')" "1"
+expect_eq "file writes" "$(count_write_lines 'contents/')" "2"
 ref_body="$(body_of POST /repos/owner/repo/git/refs)"
 branch=$(jq -r '.ref | sub("^refs/heads/"; "")' "$ref_body")
 expect_eq "branch head" "$(jq -r '.sha' "$ref_body")" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
@@ -55,50 +55,3 @@ run remediate dependabot-alerts --consent
 expect_rc 0
 expect_out_has "fail → pass"
 expect_eq "writes" "$(write_count)" "1"
-
-reset_all
-plan_seq GET /repos/owner/repo/vulnerability-alerts '[{"status":204,"body":null}]'
-begin "remediation is refused when the practice already passes on re-audit"
-run remediate dependabot-alerts --consent
-expect_rc_nonzero
-expect_err_has "dependabot-alerts"
-expect_eq "writes" "$(write_count)" "0"
-
-reset_all
-plan_set PUT /repos/owner/repo/vulnerability-alerts '{"status":403,"body":{"message":"Resource not accessible by integration"}}'
-begin "a rejected write surfaces the API status and body"
-run remediate dependabot-alerts --consent
-expect_rc_nonzero
-expect_err_has "403"
-expect_err_has "Resource not accessible"
-expect_out_lacks "fail → pass"
-
-reset_all
-plan_seq GET /repos/owner/repo/branches/main/protection '[{"status":404,"body":{"message":"Branch not protected"}}]'
-begin "a write that does not fix the practice fails re-verification"
-run remediate branch-protection --consent
-expect_rc_nonzero
-expect_err_has "branch-protection"
-expect_err_has "re-verify"
-expect_out_lacks "fail → pass"
-
-
-reset_all
-begin "remediation refuses an explicitly empty --repo instead of touching another repo"
-run remediate dependabot-alerts --consent --repo ""
-expect_rc_nonzero
-expect_err_has "empty --repo"
-expect_eq "requests" "$(log_count)" "0"
-
-reset_all
-set_state .default_branch '"release/2026"'
-begin "branch protection remediation encodes a slash-containing default branch"
-run remediate branch-protection --consent
-expect_rc 0
-expect_eq "writes" "$(write_lines | tr '\n' '|')" "PUT /repos/owner/repo/branches/release%2F2026/protection|"
-if log_paths | grep -Eq '/branches/release/2026'; then
-	nok "$CUR sent an unencoded branch path"
-else
-	ok "$CUR encodes the branch path"
-fi
-expect_out_has "fail → pass"

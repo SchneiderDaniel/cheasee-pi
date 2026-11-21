@@ -34,12 +34,12 @@ set_state .default_branch '"develop"'
 begin "the default branch is read from the repo, never hardcoded"
 run audit --json --check branch-protection
 expect_rc 0
-if log_paths | grep -q '/branches/develop/protection'; then
+if log_path_has '/branches/develop/protection'; then
 	ok "$CUR targets /branches/develop/protection"
 else
 	nok "$CUR: expected a /branches/develop/protection request (got: $(log_paths | tr '\n' '|'))"
 fi
-if log_paths | grep -q 'main'; then
+if log_path_has '/branches/main'; then
 	nok "$CUR: unexpected reference to main"
 else
 	ok "$CUR never mentions main"

@@ -13,8 +13,8 @@ plan_seq GET /repos/owner/repo '[{"status":200,"body":{"default_branch":"main","
 begin "plan-gated security features report not-available, not fail"
 run audit --json
 expect_rc 0
-expect_eq "code-scanning" "$(jq -r '.[] | select(.id == "code-scanning") | .status' <<<"$LAST_OUT")" "not-available"
-expect_eq "secret-scanning" "$(jq -r '.[] | select(.id == "secret-scanning") | .status' <<<"$LAST_OUT")" "not-available"
+expect_eq "code-scanning" "$(status_of code-scanning)" "not-available"
+expect_eq "secret-scanning" "$(status_of secret-scanning)" "not-available"
 expect_eq "remediable flags" "$(jq -r '[.[] | select(.id == "code-scanning" or .id == "secret-scanning") | .remediable] | unique | join(",")' <<<"$LAST_OUT")" "false"
 
 
@@ -31,17 +31,17 @@ set_state .default_branch '"release/2026"'
 begin "a default branch containing a slash is percent-encoded in request paths"
 run audit --json --check branch-protection
 expect_rc 0
-if log_paths | grep -q '/branches/release%2F2026/protection'; then
+if log_path_has '/branches/release%2F2026/protection'; then
 	ok "$CUR encodes the branch in the protection path"
 else
 	nok "$CUR: expected /branches/release%2F2026/protection (got: $(log_paths | tr '\n' '|'))"
 fi
-if log_paths | grep -q '/rules/branches/release%2F2026'; then
+if log_path_has '/rules/branches/release%2F2026'; then
 	ok "$CUR encodes the branch in the effective-rules path"
 else
 	nok "$CUR: expected /rules/branches/release%2F2026 (got: $(log_paths | tr '\n' '|'))"
 fi
-if log_paths | grep -Eq '/branches/release/2026|/rules/branches/release/2026'; then
+if log_path_has '/branches/release/2026' || log_path_has '/rules/branches/release/2026'; then
 	nok "$CUR sends an unencoded branch path"
 else
 	ok "$CUR never sends an unencoded branch path"
@@ -54,7 +54,7 @@ set_state .analyses_age_days '2'
 begin "workflow-mode scanning with a recent analysis passes"
 run audit --json --check code-scanning
 expect_rc 0
-expect_eq "status" "$(jq -r '.[0].status' <<<"$LAST_OUT")" "pass"
+expect_eq "status" "$(first_status)" "pass"
 
 reset_all
 set_state .code_scanning '"not-configured"'
@@ -63,7 +63,7 @@ set_state .analyses_age_days '400'
 begin "workflow-mode scanning with only stale analyses fails"
 run audit --json --check code-scanning
 expect_rc 0
-expect_eq "status" "$(jq -r '.[0].status' <<<"$LAST_OUT")" "fail"
+expect_eq "status" "$(first_status)" "fail"
 expect_out_has "days old"
 
 reset_all
@@ -73,5 +73,5 @@ set_state .analyses_age_days '2'
 begin "the audit hands its clock to the recency rule (GBPC_NOW pins it)"
 run env GBPC_NOW="$(( $(date -u +%s) + 400 * 86400 ))" bash "$AUDIT" --json --check code-scanning
 expect_rc 0
-expect_eq "status" "$(jq -r '.[0].status' <<<"$LAST_OUT")" "fail"
+expect_eq "status" "$(first_status)" "fail"
 expect_out_has "days old"

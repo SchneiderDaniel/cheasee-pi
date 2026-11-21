@@ -106,7 +106,8 @@ run() { # <command...>
 	LAST_ERR=""
 	LAST_RC=0
 	LAST_OUT=$("$@" 2>"$WORK/.stderr") || LAST_RC=$?
-	LAST_ERR=$(cat "$WORK/.stderr")
+	# $(<file) is a subshell read; $(cat file) would exec a process per call.
+	LAST_ERR=$(<"$WORK/.stderr")
 }
 
 # ---------------------------------------------------------------------------
@@ -143,35 +144,22 @@ reset_all() {
 }
 
 make_all_pass() {
-	set_state .vulnerability_alerts '"enabled"'
-	set_state .secret_scanning '"enabled"'
-	set_state .code_scanning '"configured"'
-	set_state .analyses '1'
-	set_state .health_percentage '100'
-	set_state .protection '{"required_status_checks":null,"enforce_admins":{"enabled":true},"required_pull_request_reviews":{"required_approving_review_count":1,"dismiss_stale_reviews":false,"require_code_owner_reviews":false},"restrictions":null}'
-	set_state .files '["README.md","CODE_OF_CONDUCT.md","CONTRIBUTING.md","LICENSE","SECURITY.md",".github/ISSUE_TEMPLATE/bug_report.md",".github/PULL_REQUEST_TEMPLATE.md"]'
+	# One write instead of seven jq passes: every all-pass case calls this.
+	printf '%s' '{"admin":true,"default_branch":"main","secret_scanning":"enabled","vulnerability_alerts":"enabled","code_scanning":"configured","analyses":1,"analyses_age_days":0,"protection":{"required_status_checks":null,"enforce_admins":{"enabled":true},"required_pull_request_reviews":{"required_approving_review_count":1,"dismiss_stale_reviews":false,"require_code_owner_reviews":false},"restrictions":null},"rules":[],"files":["README.md","CODE_OF_CONDUCT.md","CONTRIBUTING.md","LICENSE","SECURITY.md",".github/ISSUE_TEMPLATE/bug_report.md",".github/PULL_REQUEST_TEMPLATE.md"],"health_percentage":100,"head_sha":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}' >"$STATE_FILE"
 }
 
-log_count() {
-	local n
-	n=$(wc -l <"$GH_LOG")
-	printf '%s' "${n//[!0-9]/}"
-}
-log_methods() { awk -F'\t' '{print $1}' "$GH_LOG"; }
-log_paths() { awk -F'\t' '{print $1" "$2}' "$GH_LOG"; }
-write_lines() { awk -F'\t' '$1 != "GET" {print $1" "$2}' "$GH_LOG"; }
-write_count() { write_lines | grep -c . || true; }
-body_of() { awk -F'\t' -v m="$1" -v p="$2" '$1 == m && $2 == p {print $3}' "$GH_LOG" | head -1; }
-get_count() { awk -F'\t' -v p="$1" '$1 == "GET" && index($2, p) > 0 {n++} END {print n+0}' "$GH_LOG"; }
-argv_log() { cat "$GH_LOG.argv"; }
+# Fork-free lib dir for the sibling reader (see tests/lib/log.sh).
+case "${BASH_SOURCE[0]}" in
+*/*) HARNESS_DIR="${BASH_SOURCE[0]%/*}" ;;
+*) HARNESS_DIR="." ;;
+esac
+# shellcheck source=log.sh
+source "$HARNESS_DIR/log.sh"
 
 audit() { bash "$AUDIT" "$@"; }
 remediate() { bash "$REMEDIATE" "$@"; }
 gateway() { (source "$GATEWAY" && gh_request "$@"); }
 resolve_repo_via_lib() { (source "$REPO_LIB" && resolve_repo "$@"); }
-
-row_status() { jq -r ".[$1].status" <<<"$LAST_OUT"; }
-
 
 # finish — print this slice's summary and fail when it saw a failure.
 finish() {

@@ -23,7 +23,14 @@
 # `gh` call site — there is exactly one in the skill.
 
 # shellcheck source=lib/gateway-response.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/gateway-response.sh"
+# The sibling is resolved without a $(cd $(dirname ...) && pwd) pair: this file is
+# sourced once per script run, and the two processes would buy a path that
+# cannot change while the run lasts.
+case "${BASH_SOURCE[0]}" in
+*/*) GBPC_GATEWAY_DIR="${BASH_SOURCE[0]%/*}" ;;
+*) GBPC_GATEWAY_DIR="." ;;
+esac
+source "$GBPC_GATEWAY_DIR/gateway-response.sh"
 
 # json_quote <destvar> <value> — store <value> as a JSON string literal.
 #

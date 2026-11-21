@@ -353,6 +353,24 @@ elif $mode == "community-fields" then
 	# id <TAB> community/profile files.* field, for the gatherer. Practices the
 	# profile cannot answer (the security policy) are absent on purpose.
 	(community_specs[] | select(.field != null) | "\(.id)\t\(.field)")
+elif $mode == "checklist" then
+	# id <TAB> files.* field (empty where the profile cannot answer) for every
+	# practice. One process gives audit.sh both the id list and the gatherer's
+	# id -> files.* field map.
+	(practices[] as $p
+		| [
+			$p.id,
+			((community_specs | map(select(.id == $p.id)) | .[0].field) // "")
+		]
+		| @tsv)
+elif $mode == "evaluate-all" then
+	# The whole checklist in one process: stdin is [{id, evidence}], stdout is two
+	# lines — the check objects in the same order, then the number of `unknown`
+	# rows. Purity is unchanged (each rule still sees only its own evidence), but
+	# an eleven-check audit pays one jq start-up instead of eleven and the caller
+	# gets the fail-closed count without a second process.
+	map(evaluate(.id; .evidence)) as $rows
+	| $rows, ($rows | map(select(.status == "unknown")) | length)
 else
 	evaluate($ARGS.named.id; .)
 end

@@ -18,7 +18,23 @@ def done($body; $state): {response: {status: 200, body: $body}, state: $state};
 # updated state) out. null when no handler covers the method+path, so the
 # caller falls back to the plan's default.
 def handle($m; $p; $body; $s):
-	if ($p | test("^repos/[^/]+/[^/]+$")) then
+	# Dispatch on path segments, not regular expressions: jq compiles a regex per
+	# call, and this stub runs once per gateway request, so a dozen `test()`s cost
+	# more than the rest of the request put together.
+	($p | split("/")) as $seg
+	| ($seg | length) as $n
+	| if $n == 2 and $seg[0] == "licenses" then
+		if $m == "GET" then
+			done({
+				key: $seg[1],
+				name: "MIT License",
+				spdx_id: "MIT",
+				body: "MIT License\n\nCopyright (c) [year] [fullname]\n\nPermission is hereby granted, free of charge.\n"
+			}; $s)
+		else null end
+	elif $n < 3 or $seg[0] != "repos" or $seg[1] == "" or $seg[2] == "" then
+		null
+	elif $n == 3 then
 		if $m == "GET" then
 			done({
 				full_name: "owner/repo",
@@ -33,7 +49,7 @@ def handle($m; $p; $body; $s):
 			| ($s | if $new == null then . else .secret_scanning = $new end) as $s2
 			| done({full_name: "owner/repo", security_and_analysis: {secret_scanning: {status: $s2.secret_scanning}}}; $s2)
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/branches/[^/]+/protection$")) then
+	elif $seg[3] == "branches" and $n == 6 and $seg[5] == "protection" then
 		if $m == "GET" then
 			if ($s.protection // null) == null then
 				{response: {status: 404, body: {message: "Branch not protected"}}}
@@ -52,9 +68,9 @@ def handle($m; $p; $body; $s):
 			}) as $protection
 			| {response: {status: 200, body: {message: "Branch protection updated"}}, state: ($s | .protection = $protection)}
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/rules/branches/[^/]+$")) then
+	elif $seg[3] == "rules" and $n == 6 and $seg[4] == "branches" then
 		if $m == "GET" then done(($s.rules // []); $s) else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/vulnerability-alerts$")) then
+	elif $seg[3] == "vulnerability-alerts" and $n == 4 then
 		if $m == "GET" then
 			if $s.vulnerability_alerts == "enabled" then
 				{response: {status: 204, body: null}}
@@ -66,14 +82,14 @@ def handle($m; $p; $body; $s):
 		elif $m == "DELETE" then
 			{response: {status: 204, body: null}, state: ($s | .vulnerability_alerts = "disabled")}
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/code-scanning/default-setup$")) then
+	elif $seg[3] == "code-scanning" and $n == 5 and $seg[4] == "default-setup" then
 		if $m == "GET" then
 			done({state: $s.code_scanning, query_suite: "default", languages: ["bash"]}; $s)
 		elif $m == "PATCH" then
 			($s | .code_scanning = "configured") as $s2
 			| done({state: $s2.code_scanning}; $s2)
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/code-scanning/analyses$")) then
+	elif $seg[3] == "code-scanning" and $n == 5 and $seg[4] == "analyses" then
 		if $m == "GET" then
 			# created_at is derived from the real clock so the recency window in
 			# evaluate.jq can be exercised: analyses_age_days shifts the newest
@@ -83,7 +99,7 @@ def handle($m; $p; $body; $s):
 				| {id: ., state: "completed", created_at: ((now - (($s.analyses_age_days // 0) * 86400)) | todate)}
 			]; $s)
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/community/profile$")) then
+	elif $seg[3] == "community" and $n == 5 and $seg[4] == "profile" then
 		if $m != "GET" then null
 		elif ($s.community_profile // "ok") == "unavailable" then
 			{response: {status: 404, body: {message: "Not Found"}}}
@@ -100,8 +116,8 @@ def handle($m; $p; $body; $s):
 				}
 			}; $s)
 		end
-	elif ($p | test("^repos/[^/]+/[^/]+/contents/.+$")) then
-		($p | capture("^repos/[^/]+/[^/]+/contents/(?<path>.+)$").path) as $file
+	elif $seg[3] == "contents" and $n >= 5 then
+		($seg[4:] | join("/")) as $file
 		| if $m == "GET" then
 			if ($s.files | index($file)) != null then
 				done({type: "file", path: $file, name: $file}; $s)
@@ -116,27 +132,17 @@ def handle($m; $p; $body; $s):
 				state: ($s | .files = (((.files // []) + [$file]) | unique))
 			}
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/git/ref/heads/.+$")) then
+	elif $seg[3] == "git" and $n == 7 and $seg[4] == "ref" and $seg[5] == "heads" then
 		if $m == "GET" then
 			done({ref: "refs/heads/x", object: {sha: $s.head_sha, type: "commit"}}; $s)
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/git/refs$")) then
+	elif $seg[3] == "git" and $n == 5 and $seg[4] == "refs" then
 		if $m == "POST" then
 			done({ref: $body.ref, object: {sha: $body.object.sha}}; $s)
 		else null end
-	elif ($p | test("^repos/[^/]+/[^/]+/pulls$")) then
+	elif $seg[3] == "pulls" and $n == 4 then
 		if $m == "POST" then
 			done({number: 1, html_url: "https://example.invalid/pull/1"}; $s)
-		else null end
-	elif ($p | test("^licenses/[^/]+$")) then
-		if $m == "GET" then
-			($p | capture("^licenses/(?<key>[^/]+)$").key) as $key
-			| done({
-				key: $key,
-				name: "MIT License",
-				spdx_id: "MIT",
-				body: "MIT License\n\nCopyright (c) [year] [fullname]\n\nPermission is hereby granted, free of charge.\n"
-			}; $s)
 		else null end
 	else null end;
 

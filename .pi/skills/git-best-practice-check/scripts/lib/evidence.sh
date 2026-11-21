@@ -8,8 +8,45 @@
 # responses: re-parsing them with jq would add a subprocess per request and
 # change nothing, because the gateway output is JSON by contract.
 
-# id -> community/profile files.* field, loaded from the rules on demand.
+# id -> community/profile files.* field, filled by load_checklist.
 declare -A COMMUNITY_FIELD=()
+
+# load_checklist — fill ALL_IDS plus COMMUNITY_FIELD from one jq process.
+#
+# The rules own the checklist: the practice ids plus the community/profile field
+# that answers each community practice. Reading them together keeps the gatherer
+# from duplicating the mapping; one process avoids a jq start-up per line. An
+# empty field string behaves exactly like an absent map entry at the use sites.
+load_checklist() {
+	local id field out
+	if ! out=$(jq -n -r -f "$EVALUATE" --arg mode checklist); then
+		printf 'audit: cannot read the checklist from %s\n' "$EVALUATE" >&2
+		return 1
+	fi
+	ALL_IDS=()
+	declare -gA COMMUNITY_FIELD=()
+	while IFS=$'\t' read -r id field; do
+		ALL_IDS+=("$id")
+		COMMUNITY_FIELD["$id"]="$field"
+	done <<<"$out"
+}
+
+# load_profile_facts — the two facts the per-practice probe decision needs (the
+# profile status plus the list of files.* fields the profile leaves null), read
+# once per run instead of once per community practice.
+load_profile_facts() {
+	local facts
+	if ! GBPC_PROFILE_STATUS=$(response_status "$GBPC_COMMUNITY_PROFILE"); then
+		printf 'audit: unexpected gateway response for community/profile\n' >&2
+		return 1
+	fi
+	if ! facts=$(jq -r '((.body // {}).files // {})
+		| to_entries | map(select(.value == null) | .key) | join(" ")' <<<"$GBPC_COMMUNITY_PROFILE"); then
+		printf 'audit: cannot read the community profile response\n' >&2
+		return 1
+	fi
+	GBPC_PROFILE_NULL_FIELDS=" $facts "
+}
 
 community_probe_paths() {
 	case "$1" in
@@ -33,18 +70,21 @@ gather_community() {
 	# seven community checks, and all seven describe the same profile document.
 	if [[ -z "${GBPC_COMMUNITY_PROFILE:-}" ]]; then
 		GBPC_COMMUNITY_PROFILE=$(gh_request GET "/repos/$REPO/community/profile")
+		load_profile_facts
 	fi
-	# The profile is the primary source for the six practices it reports. The
-	# contents probes exist for the practice it does not report (the security
-	# policy) and for what it cannot answer: a fork with no profile, or a field it
-	# leaves null (a README at a non-standard path, a symlink). Probing anyway
-	# would spend up to three requests per practice on evidence the rules never
-	# prefer over the profile.
+	# The profile is the primary source for the six practices it reports, so their
+	# contents probes would be spent on evidence the rules never prefer over it.
+	# A contents probe is still the only evidence for the practice the profile
+	# cannot report (the security policy), for a fork with no profile at all, and
+	# for a field the profile leaves null (a README at a non-standard path, a
+	# symlink).
 	local probes_needed=1
-	if [[ -n "$field" ]]; then
-		if jq -e --arg f "$field" '((.body // {}).files // {})[$f] != null' <<<"$GBPC_COMMUNITY_PROFILE" >/dev/null 2>&1; then
-			probes_needed=0
-		fi
+	if [[ "${GBPC_PROFILE_STATUS:-}" == "200" && -n "$field" ]]; then
+		# Null in the profile for this field: the probe is the only evidence left.
+		case "${GBPC_PROFILE_NULL_FIELDS:-} " in
+		*" $field "*) ;;
+		*) probes_needed=0 ;;
+		esac
 	fi
 	if ((probes_needed)); then
 		# A fork has no community profile (404); the evidence bundle carries the
@@ -73,17 +113,6 @@ gather_community() {
 		"$slug" "$branch_name" "$GBPC_COMMUNITY_PROFILE" "$probes"
 }
 
-# community_field_map — load id -> community/profile files.* field from the
-# rules, so the gatherer knows which practice the profile can answer without
-# duplicating the mapping in a second place.
-community_field_map() {
-	local id field
-	while IFS=$'\t' read -r id field; do
-		[[ -z "$id" ]] && continue
-		COMMUNITY_FIELD["$id"]="$field"
-	done < <(jq -n -r -f "$EVALUATE" --arg mode community-fields)
-}
-
 # ensure_community_profile <ids...> — read the profile once for the run, but
 # only when at least one community practice is being audited.
 ensure_community_profile() {
@@ -93,8 +122,8 @@ ensure_community_profile() {
 		community-*) ;;
 		*) continue ;;
 		esac
-		community_field_map
 		GBPC_COMMUNITY_PROFILE=$(gh_request GET "/repos/$REPO/community/profile")
+		load_profile_facts
 		return 0
 	done
 	return 0

@@ -4,7 +4,12 @@
 # The body comes from lib/branch-protection.jq: a read-modify-write of the live
 # config, because the endpoint replaces the whole protection object.
 
-BRANCH_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Fork-free library dir: two processes saved per sourced module, on a path that
+# cannot change while the file runs.
+case "${BASH_SOURCE[0]}" in
+*/*) BRANCH_LIB_DIR="${BASH_SOURCE[0]%/*}" ;;
+*) BRANCH_LIB_DIR="." ;;
+esac
 
 remediate_branch_protection() {
 	local current current_body payload response branch_path status

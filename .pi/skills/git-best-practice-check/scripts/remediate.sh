@@ -19,7 +19,12 @@
 # exit 64 — bad invocation
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Fork-free script dir: two processes saved per run, on a path that cannot
+# change during the run.
+case "${BASH_SOURCE[0]}" in
+*/*) SCRIPT_DIR="${BASH_SOURCE[0]%/*}" ;;
+*) SCRIPT_DIR="." ;;
+esac
 # shellcheck source=lib/gateway.sh
 source "$SCRIPT_DIR/lib/gateway.sh"
 
@@ -41,7 +46,6 @@ source "$SCRIPT_DIR/lib/remediate-args.sh"
 
 EVALUATE="$SCRIPT_DIR/evaluate.jq"
 AUDIT="$SCRIPT_DIR/audit.sh"
-
 CONSENT=0
 ID=""
 REPO_ARG=""

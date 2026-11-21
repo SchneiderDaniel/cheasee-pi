@@ -6,7 +6,12 @@
 # then one pull request is opened. A bare contents write would land on the
 # default branch, which the skill forbids.
 
-COMMUNITY_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Fork-free library dir: two processes saved per sourced module, on a path that
+# cannot change while the file runs.
+case "${BASH_SOURCE[0]}" in
+*/*) COMMUNITY_LIB_DIR="${BASH_SOURCE[0]%/*}" ;;
+*) COMMUNITY_LIB_DIR="." ;;
+esac
 
 community_default_files() {
 	case "$1" in

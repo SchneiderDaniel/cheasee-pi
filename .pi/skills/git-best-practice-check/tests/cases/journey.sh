@@ -23,7 +23,7 @@ expect_out_has "fail → pass"
 run remediate dependabot-alerts --consent
 expect_rc 0
 expect_out_has "fail → pass"
-if write_lines | grep -q 'contents/'; then
+if write_lines_have 'contents/'; then
 	nok "$CUR: the community files were touched without consent"
 else
 	ok "$CUR community files untouched"
@@ -32,9 +32,9 @@ fi
 begin "journey: re-running the audit shows the two fixes and the remaining fails"
 run audit --json
 expect_rc 0
-expect_eq "branch-protection" "$(jq -r '.[] | select(.id == "branch-protection") | .status' <<<"$LAST_OUT")" "pass"
-expect_eq "dependabot-alerts" "$(jq -r '.[] | select(.id == "dependabot-alerts") | .status' <<<"$LAST_OUT")" "pass"
-expect_eq "community-readme" "$(jq -r '.[] | select(.id == "community-readme") | .status' <<<"$LAST_OUT")" "fail"
+expect_eq "branch-protection" "$(status_of branch-protection)" "pass"
+expect_eq "dependabot-alerts" "$(status_of dependabot-alerts)" "pass"
+expect_eq "community-readme" "$(status_of community-readme)" "fail"
 
 begin "journey: declining remediation leaves the repo untouched and says why"
 reset_all

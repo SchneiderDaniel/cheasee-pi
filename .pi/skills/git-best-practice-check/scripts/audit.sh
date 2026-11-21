@@ -13,7 +13,12 @@
 # exit 64 — bad invocation (unknown check id, unknown argument)
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Fork-free script dir: two processes saved per run, on a path that cannot
+# change during the run.
+case "${BASH_SOURCE[0]}" in
+*/*) SCRIPT_DIR="${BASH_SOURCE[0]%/*}" ;;
+*) SCRIPT_DIR="." ;;
+esac
 # shellcheck source=lib/gateway.sh
 source "$SCRIPT_DIR/lib/gateway.sh"
 # shellcheck source=lib/repo.sh
@@ -78,7 +83,10 @@ if [[ -n "$SETTINGS" ]]; then
 	export GBPC_SETTINGS_FILE="$SETTINGS"
 fi
 
-mapfile -t ALL_IDS < <(jq -n -r -f "$EVALUATE" --arg mode list-ids)
+# The checklist — ids plus the community/profile field mapped to each — comes out
+# of the rules in one process. Reading it one line per jq start-up was measurable
+# in an interactive audit.
+load_checklist
 
 if [[ -n "$CHECK_ID" ]]; then
 	known=0
@@ -133,19 +141,30 @@ ensure_community_profile "${IDS[@]}"
 
 # --- evaluate --------------------------------------------------------------
 
-# Rows are appended as the compact JSON objects jq prints, so the array is
-# assembled by the shell: eleven checks would otherwise cost eleven more jq
-# processes for string concatenation.
-rows=()
+# The community profile is one document describing every community check, so
+# it is read once for the run instead of once per check (see lib/evidence.sh).
+ensure_community_profile "${IDS[@]}"
+
+# --- evaluate --------------------------------------------------------------
+
+# Rows are assembled as the compact JSON jq prints; the whole checklist is then
+# evaluated in one jq process instead of one per check.
+bundles=()
 for id in "${IDS[@]}"; do
-	evidence=$(gather_evidence "$id")
-	if ! row=$(printf '%s' "$evidence" | jq -c -f "$EVALUATE" --arg id "$id" --argjson now "$NOW_EPOCH"); then
-		printf 'audit: cannot evaluate "%s" from the gathered evidence\n' "$id" >&2
+	evidence=$(gather_evidence "$id") || {
+		printf 'audit: cannot gather evidence for "%s"\n' "$id" >&2
 		exit 2
-	fi
-	rows+=("$row")
+	}
+	bundles+=("{\"id\":\"$id\",\"evidence\":$evidence}")
 done
-ROWS=$(printf '[%s]' "$(IFS=,; printf '%s' "${rows[*]}")")
+if ! EVALUATED=$(printf '[%s]' "$(IFS=,; printf '%s' "${bundles[*]}")" |
+	jq -r -c -f "$EVALUATE" --arg mode evaluate-all --argjson now "$NOW_EPOCH"); then
+	printf 'audit: cannot evaluate the gathered evidence\n' >&2
+	exit 2
+fi
+# evaluate-all answers in two lines: the rows, then a count of `unknown` rows.
+ROWS="${EVALUATED%%$'\n'*}"
+UNKNOWN_ROWS="${EVALUATED##*$'\n'}"
 
 # --- report ----------------------------------------------------------------
 
@@ -155,7 +174,7 @@ else
 	print_table "$ROWS"
 fi
 
-if jq -e 'any(.[]; .status == "unknown")' <<<"$ROWS" >/dev/null; then
+if [[ "$UNKNOWN_ROWS" != "0" ]]; then
 	printf 'audit: at least one practice could not be evaluated (status "unknown"); resolve the permission or API gap and re-run\n' >&2
 	exit 1
 fi
