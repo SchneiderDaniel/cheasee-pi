@@ -56,6 +56,19 @@ expect_status pass
 expect_evidence "ruleset"
 expect_evidence "required_approving_review_count=1"
 
+# Same policy on the ruleset-only branch: a non-admin bypass actor is not an
+# admin exemption (it is still named in the evidence), while an admin one fails.
+check "ruleset-only protection with a non-admin bypass actor" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":404,\"body\":null},
+	\"rules\":{\"status\":200,\"body\":[{
+		\"type\":\"pull_request\",\"enforcement\":\"active\",
+		\"parameters\":{\"required_approving_review_count\":1},
+		\"bypass_actors\":[{\"actor_id\":7,\"actor_type\":\"DeployKey\",\"bypass_mode\":\"always\"}]}]}}"
+expect_status pass
+expect_evidence "DeployKey"
+
 check "ruleset with admin bypass actors" branch-protection \
 	"{
 	$CTX,
@@ -67,8 +80,67 @@ check "ruleset with admin bypass actors" branch-protection \
 expect_status fail
 expect_evidence "OrganizationAdmin"
 
-check "no protection at all (404 + 404)" branch-protection \
+# Audit regression: classic protection can look perfect (1 reviewer, admins
+# enforced) while an active ruleset hands admins a bypass, so the classic-200
+# path must read the effective rules too.
+check "classic protection + ruleset OrganizationAdmin bypass" branch-protection \
 	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":true},
+		\"required_status_checks\":null,
+		\"restrictions\":null}},
+	\"rules\":{\"status\":200,\"body\":[{
+		\"type\":\"pull_request\",\"enforcement\":\"active\",
+		\"parameters\":{\"required_approving_review_count\":1},
+		\"bypass_actors\":[{\"actor_id\":5,\"actor_type\":\"OrganizationAdmin\",\"bypass_mode\":\"always\"}]}]}}"
+expect_status fail
+expect_evidence "OrganizationAdmin"
+expect_evidence "admins exempt"
+
+check "classic protection + ruleset RepositoryRole admin bypass" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":true}}},
+	\"rules\":{\"status\":200,\"body\":[{
+		\"type\":\"pull_request\",\"enforcement\":\"active\",
+		\"parameters\":{\"required_approving_review_count\":1},
+		\"bypass_actors\":[{\"actor_id\":5,\"actor_type\":\"RepositoryRole\",\"bypass_mode\":\"always\"}]}]}}"
+expect_status fail
+expect_evidence "RepositoryRole"
+
+# An approval-gated bypass keeps the review requirement, and a non-admin bypass
+# is not an admin exemption: both pass, with the actors named as evidence.
+check "classic protection + approval-gated admin bypass" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":true}}},
+	\"rules\":{\"status\":200,\"body\":[{
+		\"type\":\"pull_request\",\"enforcement\":\"active\",
+		\"parameters\":{\"required_approving_review_count\":1},
+		\"bypass_actors\":[{\"actor_id\":5,\"actor_type\":\"OrganizationAdmin\",\"bypass_mode\":\"pull_request\"}]}]}}"
+expect_status pass
+expect_evidence "bypass_mode=pull_request"
+
+check "classic protection + non-admin ruleset bypass" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":true}}},
+	\"rules\":{\"status\":200,\"body\":[{
+		\"type\":\"pull_request\",\"enforcement\":\"active\",
+		\"parameters\":{\"required_approving_review_count\":1},
+		\"bypass_actors\":[{\"actor_id\":7,\"actor_type\":\"DeployKey\",\"bypass_mode\":\"always\"}]}]}}"
+expect_status pass
+expect_evidence "DeployKey"
+
+check "no protection at all (404 + 404)" branch-protection \	"{
 	$CTX,
 	\"protection\":{\"status\":404,\"body\":null},
 	\"rules\":{\"status\":404,\"body\":null}}"
@@ -102,5 +174,21 @@ check "legacy contexts-only required checks" branch-protection \
 	\"rules\":{\"status\":404,\"body\":null}}"
 expect_status pass
 expect_evidence "ci/legacy"
+
+# Classic protection exempts admins, but an active ruleset covers them and its
+# bypass is approval-gated: the review requirement still applies, so this passes.
+check "admins exempt by classic, covered by a ruleset rule" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":false}}},
+	\"rules\":{\"status\":200,\"body\":[{
+		\"type\":\"pull_request\",\"enforcement\":\"active\",
+		\"parameters\":{\"required_approving_review_count\":2},
+		\"bypass_actors\":[{\"actor_id\":5,\"actor_type\":\"OrganizationAdmin\",\"bypass_mode\":\"pull_request\"}]}]}}"
+expect_status pass
+expect_evidence "admins covered by an active ruleset rule"
+expect_evidence "2 required review(s)"
 
 finish

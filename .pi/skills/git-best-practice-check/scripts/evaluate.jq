@@ -88,6 +88,32 @@ def rules_min_reviews($rules):
 
 def rules_bypass($rules): [active_pr_rules($rules)[] | (.bypass_actors // [])[]];
 
+# The repository role GitHub calls "admin" in a ruleset bypass_actors entry.
+def repo_admin_role_id: 5;
+
+# bypass_mode "pull_request" only applies once the pull request already has an
+# approving review, so such an actor does not lift the review requirement; every
+# other mode (including the absent default, "always") bypasses unconditionally.
+def bypass_is_unconditional: (.bypass_mode // "always") != "pull_request";
+
+def unconditional_bypass($bypass): [$bypass[] | select(bypass_is_unconditional)];
+
+# approval_gated_bypass — actors that still need an approving review. Reported as
+# evidence: it explains why an admin actor did not fail the check.
+def approval_gated_bypass($bypass): [$bypass[] | select(bypass_is_unconditional | not)];
+
+# admin_bypass — the actors that make the checklist's "admins not exempt" clause
+# false: an org admin, or the repository admin role. A classic protection config
+# carries a bypass list but not the actor types, so the effective rules are the
+# place where an admin exemption is visible; the rule therefore reads them on
+# both the classic-200 and the ruleset-only path. A classic config that looks
+# perfect while a ruleset hands admins a bypass is a failure, not a pass.
+def admin_actor:
+	(.actor_type // "") == "OrganizationAdmin"
+	or ((.actor_type // "") == "RepositoryRole" and (.actor_id // 0) == repo_admin_role_id);
+
+def admin_bypass($bypass): [unconditional_bypass($bypass)[] | select(admin_actor)];
+
 def required_checks($p):
 	(($p.required_status_checks // {})) as $rsc
 	| ([($rsc.checks // [])[] | .context] + [($rsc.contexts // [])[]] | unique);
@@ -102,6 +128,9 @@ def eval_branch_protection($ev):
 	| (required_checks($p)) as $checks
 	| (rules_min_reviews($rules)) as $rule_reviews
 	| (rules_bypass($rules)) as $bypass
+	| (unconditional_bypass($bypass)) as $bypass_always
+	| (admin_bypass($bypass)) as $admin_exempt
+	| (approval_gated_bypass($bypass)) as $gated_bypass
 	| (active_pr_rules($rules) | length) as $rule_count
 	| [
 		"GET /repos/\($ev.slug)/branches/\($ev.default_branch)/protection -> \($prot.status)",
@@ -114,14 +143,20 @@ def eval_branch_protection($ev):
 				"enforce_admins.enabled=\($admins)"
 			]
 			+ (if ($checks | length) > 0 then ["required_checks=\($checks | join(","))"] else [] end)
-			+ (if ($bypass | length) > 0 then ["ruleset bypass_actors=\($bypass | tojson)"] else [] end)
+			+ (if ($bypass_always | length) > 0 then ["ruleset bypass_actors=\($bypass_always | tojson)"] else [] end)
+			+ (if ($gated_bypass | length) > 0 then ["ruleset bypass_actors=\($gated_bypass | tojson) use bypass_mode=pull_request (an approving review is still required)"] else [] end)
 		) as $facts
-		| if $reviews >= 1 and $admins then
+		| if $reviews >= 1 and $admins and ($admin_exempt | length) == 0 then
 			{status: "pass", evidence: ($probe + $facts)}
 		elif $reviews < 1 then
 			{status: "fail", evidence: ($probe + $facts + ["classic protection requires \($reviews) approving review(s); the checklist requires at least 1"])}
-		elif $rule_count > 0 and $rule_reviews >= 1 and ($bypass | length) == 0 then
-			{status: "pass", evidence: ($probe + $facts + ["admins covered by an active ruleset rule with \($rule_reviews) required review(s) and no bypass actors"])}
+		elif $admins and ($admin_exempt | length) > 0 then
+			# Classic protection looks correct, but an active ruleset still hands
+			# admins a bypass: the branch is not protected in the sense the
+			# checklist means, so passing here would be a false negative.
+			{status: "fail", evidence: ($probe + $facts + ["admins exempt: enforce_admins.enabled=true but an active ruleset lets admin actors bypass always (\($admin_exempt | map(.actor_type) | unique | join(",")))"])}
+		elif $rule_count > 0 and $rule_reviews >= 1 and ($bypass_always | length) == 0 then
+			{status: "pass", evidence: ($probe + $facts + ["admins covered by an active ruleset rule with \($rule_reviews) required review(s) and no unconditional bypass actors"])}
 		else
 			{status: "fail", evidence: ($probe + $facts + ["admins exempt: enforce_admins.enabled=false and no covering ruleset rule"])}
 		end
@@ -132,10 +167,12 @@ def eval_branch_protection($ev):
 			"ruleset required_approving_review_count=\($rule_reviews)"
 		] as $rfacts
 		| if $rules_resp.status == 200 then
-			if $rule_reviews >= 1 and ($bypass | length) == 0 then
-				{status: "pass", evidence: ($rfacts + (if ($checks | length) > 0 then ["required_checks=\($checks | join(","))"] else [] end))}
-			elif ($bypass | length) > 0 then
-				{status: "fail", evidence: ($rfacts + ["ruleset bypass_actors=\($bypass | tojson) exempts actors from the review requirement"])}
+			if $rule_reviews >= 1 and ($admin_exempt | length) == 0 then
+				{status: "pass", evidence: ($rfacts + (if ($checks | length) > 0 then ["required_checks=\($checks | join(","))"] else [] end)
+					+ (if ($bypass_always | length) > 0 then ["ruleset bypass_actors=\($bypass_always | tojson)"] else [] end)
+					+ (if ($gated_bypass | length) > 0 then ["ruleset bypass_actors=\($gated_bypass | tojson) use bypass_mode=pull_request (an approving review is still required)"] else [] end))}
+			elif ($admin_exempt | length) > 0 then
+				{status: "fail", evidence: ($rfacts + ["ruleset admin bypass_actors=\($admin_exempt | tojson) exempts admins from the review requirement"])}
 			else
 				{status: "fail", evidence: ($rfacts + ["no active pull_request ruleset rule requires an approving review"])}
 			end
