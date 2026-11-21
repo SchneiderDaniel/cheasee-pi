@@ -22,9 +22,13 @@ func TestEnsureContainerReady_alreadyRunningSkipsCompose(t *testing.T) {
 		if slices.Contains(arg, "inspect") {
 			inspectCalls++
 			if slices.Contains(arg, "{{json .}}") {
-				// Drift check: answer with the CURRENT spec (computed at call
-				// time — extraction precedes the running check), so a matching
-				// start stays silent.
+				// Drift checks: codeflow wants the CURRENT spec (computed at call
+				// time — extraction precedes the running check) and the agent
+				// container wants the current credential stamp, so a matching
+				// start stays silent for both.
+				if name := arg[len(arg)-1]; name == containerName(root) {
+					return authInspectRunner(authInspectJSON(authInspectDoc(currentAuthStampOrEmpty())))
+				}
 				cacheDir, _ := CacheDir()
 				spec, _ := codeflowSpecHash(root, cacheDir)
 				return codeflowInspectRunner(mustJSON(codeflowInspectDoc(cacheDir, spec, "")))
@@ -42,8 +46,8 @@ func TestEnsureContainerReady_alreadyRunningSkipsCompose(t *testing.T) {
 	if len(c.composeArgs) != 0 {
 		t.Errorf("running container must skip compose, got %d calls: %v", len(c.composeArgs), c.composeArgs)
 	}
-	if inspectCalls != 2 {
-		t.Errorf("running skip path must drift-check + ready-wait (2 inspects), got %d", inspectCalls)
+	if inspectCalls != 3 {
+		t.Errorf("running skip path must drift-check both containers + ready-wait (3 inspects), got %d", inspectCalls)
 	}
 	wantCache, _ := CacheDir()
 	if cacheDir != wantCache {

@@ -37,8 +37,12 @@ Before running pi via Docker, ensure the following are in place:
   later (revoked GitHub token, rotated API keys) with `cheasee-pi init --reauth`
   in the workspace — it redoes the GitHub OAuth and pi API-key authentications.
 
-The container mounts `~/.config/gh/` read-write, so host GitHub authentication works
-automatically inside the container.
+The container receives your GitHub credential as one read-only file
+(`/run/secrets/cheasee_auth`, sourced from
+`~/.config/cheasee-pi/auth.json`), and the entrypoint seeds gh's container-local
+config from it — so host GitHub authentication works automatically inside the
+container without exposing a writable path to the host. After changing
+credentials, recreate the container (`cheasee-pi start --build`).
 
 > **Note about UID/GID:** The entrypoint auto-detects `HOST_UID` and `HOST_GID` from the
 > `/workspaces/main` mount ownership. On macOS (OrbStack) and Windows (WSL2), bind-mount
@@ -554,7 +558,10 @@ interfere with new sessions.
 **Symptom:** `gh auth status` inside the container shows `not logged in`.
 
 **Fix:** Ensure `gh auth login -s repo,read:org,project,workflow` has been run on the host.
-The container mounts `~/.config/gh/` read-write automatically.
+The container reads the credential from `~/.config/cheasee-pi/auth.json` as a
+read-only file and seeds gh's container-local config from it on every container
+creation — recreate the container (`cheasee-pi start --build`) after changing
+credentials.
 
 ### Workflow-file pushes rejected
 

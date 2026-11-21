@@ -19,6 +19,10 @@ func setUpReady(t *testing.T) {
 	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	t.Setenv("CODEFLOW_PORT", "")
+	// `cheasee-pi start` fails closed without host credentials (Compose would
+	// otherwise fail on an unmountable secret source), so a ready-to-start
+	// fixture always ships the host-managed auth.json.
+	startAuthFile(t)
 }
 
 func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
@@ -82,7 +86,7 @@ func TestEnsureContainerReady_notRunningStartsAndWaits(t *testing.T) {
 	if inspectCalls != 1 {
 		t.Errorf("expected exactly 1 health poll, got %d", inspectCalls)
 	}
-	if dockerCalls != 5 { // containerRunning ps + state probe + compose build + compose up + inspect
-		t.Errorf("unexpected docker call count %d (want 2×ps+2×compose+inspect)", dockerCalls)
+	if dockerCalls != 6 { // containerRunning ps + credential-existence ps + state probe + compose build + compose up + inspect
+		t.Errorf("unexpected docker call count %d (want 3×ps+2×compose+inspect)", dockerCalls)
 	}
 }

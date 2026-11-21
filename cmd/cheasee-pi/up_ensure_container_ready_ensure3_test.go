@@ -105,6 +105,11 @@ func TestEnsureContainerReady_runningStaleSidecarWarns(t *testing.T) {
 		if slices.Contains(arg, "inspect") {
 			inspectCalls++
 			if slices.Contains(arg, "{{json .}}") {
+				// The agent container answers with its current credential stamp;
+				// only the codeflow sidecar is stale here.
+				if name := arg[len(arg)-1]; name == containerName(root) {
+					return authInspectRunner(authInspectJSON(authInspectDoc(currentAuthStampOrEmpty())))
+				}
 				return codeflowInspectRunner(staleJSON)
 			}
 			return &mockCmd{outputFn: func() ([]byte, error) { return []byte("healthy"), nil }}
@@ -121,8 +126,8 @@ func TestEnsureContainerReady_runningStaleSidecarWarns(t *testing.T) {
 	if len(c.composeArgs) != 0 {
 		t.Errorf("stale sidecar must still skip compose (warn-don't-act), got %d calls: %v", len(c.composeArgs), c.composeArgs)
 	}
-	if inspectCalls != 2 {
-		t.Errorf("running path must drift-check + ready-wait (2 inspects), got %d", inspectCalls)
+	if inspectCalls != 3 {
+		t.Errorf("running path must drift-check both containers + ready-wait (3 inspects), got %d", inspectCalls)
 	}
 	for _, want := range []string{"stale", "config.json", "9000", "9100", "cheasee-pi start --build", "cheasee-pi down"} {
 		if !strings.Contains(stderr, want) {

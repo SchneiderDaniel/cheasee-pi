@@ -130,9 +130,11 @@ build/recreate fallback.
 The compose stack runs a third managed service alongside `cheasee-pi` and
 `codeflow`: a local `ui` sidecar — the cheasee-pi web control center (a Leptos
 shell served by Axum). It mounts the workspace at `/workspaces/main` read-write
-so it can list, attach to, and stop pi sessions, and mounts `~/.config/gh` +
-`~/.config/cheasee-pi` **read-only** because those can hold plaintext
-credentials and the server is reachable from the host browser.
+so it can list, attach to, and stop pi sessions, and receives the provider
+credentials as the same read-only, file-backed secret the agent gets
+(`/run/secrets/cheasee_auth`, sourced from `~/.config/cheasee-pi/auth.json`)
+because the server is reachable from the host browser. No host config directory
+is mounted, so the sidecar has no write path to host credentials.
 
 **Loopback-bound publish.** The compose mapping is
 `127.0.0.1:${PI_UI_PORT:-9500}:3000`. The explicit `127.0.0.1` host prefix is
