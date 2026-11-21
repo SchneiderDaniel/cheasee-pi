@@ -184,6 +184,13 @@ describe("user journey: maintainer runs a verified goal", () => {
 				"at most five focused questions",
 			);
 
+			// Settling after asking for clarification must not run a work boundary.
+			await assert.doesNotReject(() =>
+				wired.recording.emit("agent_before_settle", {}, wired.ui.ctx),
+			);
+			assert.equal(wired.service.current()!.status, "clarifying");
+			assert.equal(wired.service.current()!.iterations, 0);
+
 			// ── 4. Answering starts work with no extra confirmation ─
 			await wired.recording.tools.get("goal_submit_clarification")!.execute(
 				{},

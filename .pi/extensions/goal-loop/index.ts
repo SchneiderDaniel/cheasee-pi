@@ -103,7 +103,9 @@ export function registerGoalLoop(pi: ExtensionAPI, options: GoalLoopWiringOption
 		if (!resolved.ok) return undefined;
 		const { service } = resolved.value;
 		const record = service.current();
-		if (!record || !service.hasActiveGoal()) return undefined;
+		// Clarification is not a work iteration: there is no worktree or verifier
+		// evidence yet, so settling the clarification response must not run a boundary.
+		if (!record || record.status === "clarifying" || !service.hasActiveGoal()) return undefined;
 
 		const key = `${record.generation}:${record.iterations}`;
 		if (continuedKeys.has(key)) return undefined;
