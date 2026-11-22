@@ -30,8 +30,10 @@ use crate::subscribe::{
     BoxFuture, Cursor, CursorStore, ReplayData, ReplayError, ReplaySource,
 };
 
+mod describe;
 mod replay;
 
+pub use describe::{describe, MAX_DESCRIPTION_CHARS};
 pub use replay::FileReplaySource;
 use replay::{entry_id_of, leaf_id_of, session_records};
 
@@ -53,14 +55,23 @@ pub struct SessionEntry {
     pub message_count: usize,
     pub in_use: bool,
     pub unavailable: bool,
+    /// The first user message's text, as written by pi. Kept raw so the
+    /// description rule (normalize + truncate) lives in one place.
+    pub first_message: Option<String>,
 }
 
 impl SessionEntry {
+    /// The row's display text, by the same rule pi's `/resume` list uses.
+    pub fn description(&self) -> Option<String> {
+        describe(self.name.as_deref(), self.first_message.as_deref())
+    }
+
     /// The browser DTO: ids and metadata only — no host path, no marker.
     pub fn to_row(&self) -> SessionRow {
         SessionRow {
             id: self.id.clone(),
             name: self.name.clone(),
+            description: self.description(),
             modified: self.modified,
             created: self.created.clone(),
             message_count: self.message_count,
@@ -71,7 +82,7 @@ impl SessionEntry {
 }
 
 /// The pure parse of one session file: the first `{"type":"session",...}`
-/// header plus the last non-empty `session_info.name`.
+/// header, the last non-empty `session_info.name`, and the first user message.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ParsedSession {
     pub id: Option<String>,
@@ -79,6 +90,9 @@ pub struct ParsedSession {
     pub created: Option<String>,
     pub name: Option<String>,
     pub message_count: usize,
+    /// Raw text of the first user message, string content or joined `text`
+    /// blocks, exactly as pi's `buildSessionInfo` collects it.
+    pub first_message: Option<String>,
 }
 
 /// Parse a session file's bytes without touching the filesystem.
@@ -108,20 +122,50 @@ pub fn parse_session_entry(bytes: &[u8]) -> ParsedSession {
                 }
             }
             Some("session_info") => {
-                if let Some(name) = value.get("name").and_then(Value::as_str) {
-                    if !name.is_empty() {
-                        parsed.name = Some(name.to_string());
-                    }
-                }
+                // Pi's rule: `name = entry.name?.trim() || undefined` — the last
+                // `session_info` wins, and a blank name clears it rather than
+                // leaving the previous one in place.
+                parsed.name = value
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_string);
             }
             // pi counts only transcript `message` records as messages; state
             // records (`model_change`, `custom`, `thinking_level_change`, …)
             // are not messages.
-            Some("message") => parsed.message_count += 1,
+            Some("message") => {
+                parsed.message_count += 1;
+                if parsed.first_message.is_none() {
+                    parsed.first_message = first_user_text(value.get("message"));
+                }
+            }
             _ => {}
         }
     }
     parsed
+}
+
+/// The text of one `message` record when it is a user message pi's list would
+/// show: string content as-is, array content as its `text` blocks joined by one
+/// space. Anything else (or an empty text) yields no first message.
+fn first_user_text(message: Option<&Value>) -> Option<String> {
+    let message = message?;
+    if message.get("role").and_then(Value::as_str) != Some("user") {
+        return None;
+    }
+    let text = match message.get("content")? {
+        Value::String(text) => text.clone(),
+        Value::Array(blocks) => blocks
+            .iter()
+            .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+            .filter_map(|block| block.get("text").and_then(Value::as_str))
+            .collect::<Vec<&str>>()
+            .join(" "),
+        _ => return None,
+    };
+    (!text.is_empty()).then_some(text)
 }
 
 fn trim_ascii(line: &[u8]) -> &[u8] {
@@ -151,6 +195,7 @@ fn unavailable_row(path: &Path, modified: u64) -> SessionEntry {
         message_count: 0,
         in_use: false,
         unavailable: true,
+        first_message: None,
     }
 }
 
@@ -225,6 +270,7 @@ impl SessionsStore {
                 message_count: parsed.message_count,
                 in_use,
                 unavailable: false,
+                first_message: parsed.first_message,
             });
         }
         // Newest first; the id breaks ties so the order is deterministic across
