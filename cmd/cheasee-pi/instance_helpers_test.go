@@ -52,11 +52,12 @@ func discoveryRequireContains(t *testing.T, what, text string, want ...string) {
 // discoveryRecord is a complete registry record for adapter tests.
 func discoveryRecord(key string) InstanceRecord {
 	return InstanceRecord{
-		Key:          key,
-		Label:        "alice-foo (ws1)",
-		UIPort:       "9501",
-		CodeflowPort: "8471",
-		StartedAt:    "2024-01-02T03:04:05Z",
+		Key:            key,
+		Label:          "alice-foo (ws1)",
+		UIPort:         "9501",
+		CodeflowPort:   "8471",
+		StartedAt:      "2024-01-02T03:04:05Z",
+		AgentContainer: containerNameFromKey(key),
 	}
 }
 

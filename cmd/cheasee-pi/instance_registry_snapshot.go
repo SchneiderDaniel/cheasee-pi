@@ -55,7 +55,7 @@ func writeInstanceSnapshot(ctx context.Context, reg InstanceRegistry, path strin
 	}
 	rows := make([]instanceSnapshotRow, 0, len(records))
 	for _, rec := range records {
-		state, exists := states[containerNameFromKey(rec.Key)]
+		state, exists := states[rec.liveContainerName()]
 		if !exists {
 			// The container is gone: the record is stale (host crash, manual
 			// rm). A stale record must not surface as an available instance.
@@ -80,7 +80,7 @@ func registeredContainerStates(ctx context.Context, records []InstanceRecord) (m
 	}
 	names := make([]string, 0, len(records))
 	for _, rec := range records {
-		names = append(names, containerNameFromKey(rec.Key))
+		names = append(names, rec.liveContainerName())
 	}
 	return containerStates(ctx, names)
 }

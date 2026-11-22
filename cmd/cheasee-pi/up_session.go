@@ -99,8 +99,9 @@ func startSession(ctx context.Context, opts startOptions) error {
 	publishResolvedPorts(ctx, root, env)
 
 	// Phase 6a: register this instance so peer sidecars (and this one) can list
-	// and link it.
-	registerInstanceWithWarning(ctx, root)
+	// and link it. The name is the run's effective agent container (`--name`
+	// wins), which is what the snapshot probes for liveness.
+	registerInstanceWithWarning(ctx, root, name)
 
 	// One-line cheatsheet so a fresh session has the in-pi help and the
 	// stop/cleanup commands in front of it the moment pi launches.

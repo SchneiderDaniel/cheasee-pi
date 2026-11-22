@@ -161,14 +161,20 @@ shared workspace mount, not the daemon.
 finding peers is a CLI job: the CLI is the only layer that owns container
 identity, docker liveness and a host filesystem view. `cheasee-pi start` records
 the instance in `<user cache>/cheasee-pi/instances/<instance-key>.json`
-(`{key, label, uiPort, codeflowPort, startedAt}` — labels and ports, never a host
-path), `cheasee-pi down` removes it, and the CLI publishes a read-only snapshot
+(`{key, label, uiPort, codeflowPort, startedAt, agentContainer}` — labels, ports
+and the one container name the run used, never a host path), `cheasee-pi down`
+removes it, and the CLI publishes a read-only snapshot
 (`<user cache>/cheasee-pi/instances.json`) that the `ui` service bind-mounts at
-`/run/cheaseepi/instances.json:ro`. Liveness is resolved from `docker ps -a` at
-snapshot-write time, so a record left behind by a host crash is dropped instead
-of surfacing as an available instance. The sidecar renders the snapshot and
-links to each peer's own loopback UI port; it never probes the host, never
-scans port bands and never gains a daemon view.
+`/run/cheaseepi/instances.json:ro`. Both ports are the ones the sidecars
+actually published (`docker port`), not the derive+probe result: at registration
+time the containers already hold their binds, so a probe would read its own
+sidecar as occupancy and shift to the next free port. Liveness is resolved from
+`docker ps -a` at snapshot-write time against the recorded `agentContainer`
+(`start --name` overrides the derived name), so a record left behind by a host
+crash is dropped instead of surfacing as an available instance, and a
+custom-named instance is never mistaken for a missing one. The sidecar renders
+the snapshot and links to each peer's own loopback UI port; it never probes the
+host, never scans port bands and never gains a daemon view.
 
 ## Shared extension library (`lib/`)
 

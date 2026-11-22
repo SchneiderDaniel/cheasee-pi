@@ -119,6 +119,41 @@ func TestDiscovery_snapshotReportsStoppedContainer(t *testing.T) {
 	}
 }
 
+// TestDiscovery_snapshotListsCustomNamedInstance pins finding 2 of the #2155
+// audit: `start --name <custom>` renames the agent container, so probing the
+// key-derived name reports a live instance as missing and drops it from the
+// sidecar's list — the reported symptom, one flag away.
+func TestDiscovery_snapshotListsCustomNamedInstance(t *testing.T) {
+	rec := discoveryRecord("alice-foo-00000000")
+	rec.AgentContainer = "my-custom-agent"
+	reg := discoverySnapshotRegistry(t, rec)
+	// The key-derived name does not exist on the host; only the custom name does.
+	stubSnapshotStates(t, "my-custom-agent|running\n", nil)
+
+	doc := writeSnapshotTo(t, reg)
+	if len(doc) != 1 || doc[0]["key"] != rec.Key {
+		t.Fatalf("snapshot = %v, want the custom-named instance %q", doc, rec.Key)
+	}
+	if doc[0]["running"] != true {
+		t.Errorf("a running custom-named container must be listed as running, got %v", doc[0])
+	}
+}
+
+// TestDiscovery_snapshotFallsBackToTheKeyDerivedName keeps records written
+// before the agent-container field existed discoverable: an absent name is the
+// derived default, not a reason to hide the instance.
+func TestDiscovery_snapshotFallsBackToTheKeyDerivedName(t *testing.T) {
+	rec := discoveryRecord("alice-foo-00000000")
+	rec.AgentContainer = ""
+	reg := discoverySnapshotRegistry(t, rec)
+	stubSnapshotStates(t, containerNameFromKey(rec.Key)+"|exited\n", nil)
+
+	doc := writeSnapshotTo(t, reg)
+	if len(doc) != 1 || doc[0]["running"] != false {
+		t.Fatalf("snapshot = %v, want one not-running entry for the derived name", doc)
+	}
+}
+
 func TestDiscovery_snapshotProbeFailureWritesNothing(t *testing.T) {
 	reg := discoverySnapshotRegistry(t, discoveryRecord("alice-foo-00000000"))
 	stubSnapshotStates(t, "", errDaemonGone)

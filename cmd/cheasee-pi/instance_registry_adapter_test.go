@@ -67,7 +67,7 @@ func TestDiscovery_registryPersistedJSONShape(t *testing.T) {
 		got = append(got, key)
 	}
 	slices.Sort(got)
-	if want := []string{"codeflowPort", "key", "label", "startedAt", "uiPort"}; !slices.Equal(got, want) {
+	if want := []string{"agentContainer", "codeflowPort", "key", "label", "startedAt", "uiPort"}; !slices.Equal(got, want) {
 		t.Errorf("persisted keys = %v, want exactly %v", got, want)
 	}
 }
@@ -77,7 +77,7 @@ func TestDiscovery_registryRecordCarriesNoHostPath(t *testing.T) {
 	root := discoveryStartFixture(t, "https://github.com/alice/foo.git")
 	dir := t.TempDir()
 	reg := newFileInstanceRegistry(dir)
-	discoveryRequireNoErr(t, "recordInstance", recordInstance(context.Background(), reg, root))
+	discoveryRequireNoErr(t, "recordInstance", recordInstance(context.Background(), reg, root, containerName(root)))
 
 	raw, err := os.ReadFile(filepath.Join(dir, instanceKey(root)+".json"))
 	discoveryRequireNoErr(t, "read record", err)

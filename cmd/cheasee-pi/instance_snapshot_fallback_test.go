@@ -25,7 +25,7 @@ func TestDiscovery_snapshotIsDeterministicAndPathFree(t *testing.T) {
 	parent, root := mkWorkspace(t, `{}`)
 	writeBareRemote(t, parent, "https://github.com/alice/foo.git")
 	reg := newFileInstanceRegistry(mustRegistryDir(t))
-	discoveryRequireNoErr(t, "recordInstance", recordInstance(context.Background(), reg, root))
+	discoveryRequireNoErr(t, "recordInstance", recordInstance(context.Background(), reg, root, containerName(root)))
 	stubSnapshotStates(t, containerName(root)+"|running\n", nil)
 
 	path := discoverySnapshotPath(t)

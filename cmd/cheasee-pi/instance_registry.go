@@ -28,14 +28,30 @@ import (
 // ──────────────────────────────────────────────
 
 // InstanceRecord is one running stack as discovered by a peer sidecar. It
-// carries labels and ports only: never a host path (the snapshot is readable by
-// every sidecar container on the host).
+// carries labels, ports and one container name: never a host path (the snapshot
+// is readable by every sidecar container on the host).
+//
+// AgentContainer is the container name the run actually used — `start --name`
+// overrides the key-derived default, and a liveness probe against the derived
+// name would then report a live instance as gone. Absent (a record written
+// before the field existed) means the derived default; see liveContainerName.
 type InstanceRecord struct {
-	Key          string `json:"key"`
-	Label        string `json:"label"`
-	UIPort       string `json:"uiPort"`
-	CodeflowPort string `json:"codeflowPort"`
-	StartedAt    string `json:"startedAt"`
+	Key            string `json:"key"`
+	Label          string `json:"label"`
+	UIPort         string `json:"uiPort"`
+	CodeflowPort   string `json:"codeflowPort"`
+	StartedAt      string `json:"startedAt"`
+	AgentContainer string `json:"agentContainer,omitempty"`
+}
+
+// liveContainerName is the container whose docker state decides whether a
+// record is still an instance: the name the run used, falling back to the
+// key-derived default for records written before the field existed.
+func (r InstanceRecord) liveContainerName() string {
+	if r.AgentContainer != "" {
+		return r.AgentContainer
+	}
+	return containerNameFromKey(r.Key)
 }
 
 // InstanceRegistry is the discovery port owned by the CLI application layer. It

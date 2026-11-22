@@ -30,7 +30,7 @@ func discoveryDownFixture(t *testing.T, psOutput string) (root string, reg Insta
 	parent, root := mkWorkspace(t, `{}`)
 	writeBareRemote(t, parent, "https://github.com/alice/repo-a.git")
 	reg = newFileInstanceRegistry(mustRegistryDir(t))
-	discoveryRequireNoErr(t, "recordInstance", recordInstance(context.Background(), reg, root))
+	discoveryRequireNoErr(t, "recordInstance", recordInstance(context.Background(), reg, root, containerName(root)))
 	chdir(t, root)
 	downCmd, _ = stubDownFlow(t, psOutput)
 	return root, reg, downCmd

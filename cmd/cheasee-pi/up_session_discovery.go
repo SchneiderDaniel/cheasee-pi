@@ -23,10 +23,12 @@ func materializeInstanceSnapshot(ctx context.Context) {
 	}
 }
 
-// registerInstanceWithWarning records this workspace and refreshes the shared
-// snapshot so peer sidecars (and this one) can list and link it.
-func registerInstanceWithWarning(ctx context.Context, root string) {
-	if err := registerRunningInstance(ctx, root); err != nil {
+// registerInstanceWithWarning records this workspace — under the agent
+// container name the run actually used, so `--name` cannot make the instance
+// invisible — and refreshes the shared snapshot so peer sidecars (and this one)
+// can list and link it.
+func registerInstanceWithWarning(ctx context.Context, root, agentContainer string) {
+	if err := registerRunningInstance(ctx, root, agentContainer); err != nil {
 		fmt.Fprintf(os.Stderr, "  ⚠ instance discovery: %v\n", err)
 	}
 }
