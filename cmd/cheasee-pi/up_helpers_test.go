@@ -117,36 +117,6 @@ func (c *upCapture) psOutput(root string, running bool, arg []string) []byte {
 	return []byte(b.String())
 }
 
-// stubMountProbe answers the CLI's mount-source probe: one
-// `<name>|<source>` line per requested container, source defaulting to root.
-func (c *upCapture) stubMountProbe(root string, arg []string) runner {
-	c.mountProbes++
-	c.mountArgv = append(c.mountArgv, append([]string(nil), arg...))
-	if c.mountErr != nil {
-		err := c.mountErr
-		return &mockCmd{outputFn: func() ([]byte, error) { return nil, err }}
-	}
-	var names []string
-	for i, a := range arg {
-		if a == containerMountProbeFormat && i+1 < len(arg) {
-			names = arg[i+1:]
-			break
-		}
-	}
-	var b strings.Builder
-	for _, name := range names {
-		if c.mountSkipped[name] {
-			continue
-		}
-		source, ok := c.mounts[name]
-		if !ok {
-			source = root
-		}
-		b.WriteString("/" + name + "|" + source + "\n")
-	}
-	return &mockCmd{outputFn: func() ([]byte, error) { return []byte(b.String()), nil }}
-}
-
 // stubReadyFlow stubs the docker+git seams for the container-ready tests.
 func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context, arg []string) runner) *upCapture {
 	t.Helper()

@@ -20,7 +20,7 @@ import (
 // onto one container name and one compose project, so a second worktree's
 // `up` reused the first worktree's container — bound to the FIRST workspace's
 // host path — and its sessions never became visible to any sidecar
-// (docs/daily-usage.md).
+// (docs/daily-usage.md). instanceKey itself lives in instance_key.go.
 // ──────────────────────────────────────────────
 
 // containerName returns the daemon container name for a workspace: the
@@ -71,40 +71,6 @@ func truncateSlug(slug string, max int) string {
 	}
 	sum := sha256.Sum256([]byte(slug))
 	return slug[:max-7] + "-" + hex.EncodeToString(sum[:3])
-}
-
-// instanceKey is the per-workspace instance identity: the display repo slug
-// plus the first 8 hex characters of sha256 over the workspace's absolute
-// path. Two worktrees of one repo share the slug but never the path, so they
-// get distinct container names, compose projects and derived ports — which is
-// what lets a sidecar see (and a second `up` not hijack) each of them.
-//
-// Path normalization (Abs + Clean) happens before hashing so lexical variants
-// of the same folder — a trailing slash, an embedded /./ or /…/ segment —
-// resolve to one identity instead of looking like a second instance. The key
-// stays docker-safe because the slug prefix is sanitizeSlug output and the
-// suffix is lowercase hex.
-func instanceKey(workspaceRoot string) string {
-	path := instancePath(workspaceRoot)
-	slug := repoSlug(path)
-	if slug == "" {
-		// A folder name with no alphanumeric character sanitizes to "": the
-		// key must still be docker-safe, never start with a separator.
-		slug = "workspace"
-	}
-	sum := sha256.Sum256([]byte(path))
-	return slug + "-" + hex.EncodeToString(sum[:4])
-}
-
-// instancePath is the identity input: the workspace absolute path, cleaned.
-// An Abs failure falls back to the cleaned input (deterministic either way — a
-// relative path only arises from a caller that never resolved the workdir).
-func instancePath(workspaceRoot string) string {
-	abs, err := filepath.Abs(workspaceRoot)
-	if err != nil {
-		abs = workspaceRoot
-	}
-	return filepath.Clean(abs)
 }
 
 // repoSlug is the docker-safe repo identity for a workspace: owner/repo from

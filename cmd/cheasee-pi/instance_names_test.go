@@ -2,14 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/SchneiderDaniel/cheasee-pi/cmd/cheasee-pi/testutil"
 )
 
 // ──────────────────────────────────────────────
@@ -28,60 +23,15 @@ func stubPortProbe(t *testing.T, alwaysFree bool) *int {
 	saved := portProbe
 	probes := new(int)
 	portProbe = func(port int) error {
-		*probes++
 		if alwaysFree {
+			*probes++
 			return nil
 		}
+		*probes++
 		return fmt.Errorf("address already in use: 127.0.0.1:%d", port)
 	}
 	t.Cleanup(func() { portProbe = saved })
 	return probes
-}
-
-// discoveryPortSiblings returns four sibling worktree roots (one remote) whose
-// DERIVED UI ports are pairwise distinct. Derived ports are `base +
-// hash(key) % 1024` with a next-free probe fallback, so two keys can collide in
-// principle; the real resolver shifts on the occupied port. This test asserts
-// the collision-free fixture, so it walks candidate parents until the four keys
-// land on four ports (bounded — a 1024-port band makes a collision unlikely per
-// candidate).
-func discoveryPortSiblings(t *testing.T) (string, []string) {
-	t.Helper()
-	base := t.TempDir()
-	for attempt := 0; attempt < 200; attempt++ {
-		parent := filepath.Join(base, fmt.Sprintf("p%03d", attempt))
-		if err := os.MkdirAll(filepath.Join(parent, ".bare"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		// The remote exists BEFORE the ports are derived: repoSlug feeds the
-		// key, and a slug that changes after derivation would invalidate the
-		// collision check below.
-		writeBareRemote(t, parent, "https://github.com/alice/foo.git")
-		roots := make([]string, 0, 4)
-		seen := map[string]bool{}
-		collision := false
-		for i := 1; i <= 4; i++ {
-			root := filepath.Join(parent, fmt.Sprintf("ws%d", i))
-			if err := os.MkdirAll(root, 0o755); err != nil {
-				t.Fatal(err)
-			}
-			testutil.WriteCheaseeSettingsFile(t, root, `{}`)
-			port, err := uiHostPort(root)
-			if err != nil {
-				t.Fatalf("uiHostPort(%q): %v", root, err)
-			}
-			if seen[port] {
-				collision = true
-			}
-			seen[port] = true
-			roots = append(roots, root)
-		}
-		if !collision {
-			return parent, roots
-		}
-	}
-	t.Fatal("no collision-free four-worktree fixture found")
-	return "", nil
 }
 
 func TestDiscovery_stackServicesDeriveFromInstanceKey(t *testing.T) {
@@ -91,9 +41,8 @@ func TestDiscovery_stackServicesDeriveFromInstanceKey(t *testing.T) {
 	slug := repoSlug(root)
 
 	services := stackServices(root)
-	wantOrder := []string{"cheasee-pi", "codeflow", "ui"}
-	if got := serviceKeys(services); !slices.Equal(got, wantOrder) {
-		t.Fatalf("stack order = %v, want %v", got, wantOrder)
+	if got, want := serviceKeys(services), []string{"cheasee-pi", "codeflow", "ui"}; !slices.Equal(got, want) {
+		t.Fatalf("stack order = %v, want %v", got, want)
 	}
 	for _, s := range services {
 		if !strings.Contains(s.container, key) {
@@ -150,122 +99,5 @@ func TestDiscovery_composeProjectDiffersPerWorktree(t *testing.T) {
 		if len(project) > 54 {
 			t.Errorf("compose project %q is %d chars, want <= 54 (<project>_default fits a 63-char label)", project, len(project))
 		}
-	}
-}
-
-func TestDiscovery_hostPortsDistinctPerWorktree(t *testing.T) {
-	t.Setenv("PI_UI_PORT", "")
-	t.Setenv("CODEFLOW_PORT", "")
-	probes := stubPortProbe(t, true)
-	if *probes != 0 {
-		t.Fatalf("fixture resolution must not probe yet, probed %d times", *probes)
-	}
-
-	_, roots := discoveryPortSiblings(t)
-	uiSeen, codeflowSeen := map[string]string{}, map[string]string{}
-	for _, root := range roots {
-		uiPortValue, err := uiHostPort(root)
-		if err != nil {
-			t.Fatalf("uiHostPort(%q): %v", root, err)
-		}
-		codeflowPortValue, err := codeflowHostPort(root)
-		if err != nil {
-			t.Fatalf("codeflowHostPort(%q): %v", root, err)
-		}
-		for _, c := range []struct {
-			what, value string
-			low, high   int
-			seen        map[string]string
-		}{
-			{"UI", uiPortValue, uiPortBase, uiPortBase + uiPortRange - 1, uiSeen},
-			{"CodeFlow", codeflowPortValue, codeflowPortBase, codeflowPortBase + codeflowPortRange - 1, codeflowSeen},
-		} {
-			port, convErr := strconv.Atoi(c.value)
-			if convErr != nil {
-				t.Fatalf("%s port %q is not numeric: %v", c.what, c.value, convErr)
-			}
-			if port < c.low || port > c.high {
-				t.Errorf("%s port %d for %s outside [%d, %d]", c.what, port, root, c.low, c.high)
-			}
-			if other, dup := c.seen[c.value]; dup {
-				t.Errorf("%s port %s shared by %s and %s", c.what, c.value, other, root)
-			}
-			c.seen[c.value] = root
-		}
-	}
-
-	// Stable: a second resolution of the same workspace returns the same port
-	// (the compose env, the hint and the in-container exec env must agree).
-	for _, root := range roots {
-		first, err := uiHostPort(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		second, err := uiHostPort(root)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if first != second {
-			t.Errorf("uiHostPort(%q) not stable: %q then %q", root, first, second)
-		}
-	}
-}
-
-func TestDiscovery_hostPortExplicitWins(t *testing.T) {
-	t.Run("env var", func(t *testing.T) {
-		probes := stubPortProbe(t, true)
-		_, root := mkWorkspace(t, `{}`)
-		t.Setenv("PI_UI_PORT", "9700")
-		got, err := uiHostPort(root)
-		if err != nil {
-			t.Fatalf("uiHostPort: %v", err)
-		}
-		if got != "9700" {
-			t.Errorf("PI_UI_PORT=9700 must win, got %q", got)
-		}
-		if *probes != 0 {
-			t.Errorf("an explicit port must never probe, probed %d times", *probes)
-		}
-	})
-
-	t.Run("settings beat env", func(t *testing.T) {
-		probes := stubPortProbe(t, true)
-		_, root := mkWorkspace(t, `{"docker":{"uiPort":"9800"}}`)
-		t.Setenv("PI_UI_PORT", "9700")
-		got, err := uiHostPort(root)
-		if err != nil {
-			t.Fatalf("uiHostPort: %v", err)
-		}
-		if got != "9800" {
-			t.Errorf("docker.uiPort=9800 must beat PI_UI_PORT, got %q", got)
-		}
-		if *probes != 0 {
-			t.Errorf("an explicit port must never probe, probed %d times", *probes)
-		}
-	})
-}
-
-func TestDiscovery_hostPortRangeExhaustionFailsClosed(t *testing.T) {
-	stubPortProbe(t, false)
-	_, root := mkWorkspace(t, `{}`)
-	t.Setenv("PI_UI_PORT", "")
-	t.Setenv("CODEFLOW_PORT", "")
-
-	_, err := uiHostPort(root)
-	if err == nil {
-		t.Fatal("an exhausted UI port band must fail closed, got nil error")
-	}
-	if !strings.Contains(err.Error(), "PI_UI_PORT") {
-		t.Errorf("UI exhaustion error must name PI_UI_PORT, got %q", err.Error())
-	}
-	if !strings.Contains(err.Error(), strconv.Itoa(uiPortBase)) {
-		t.Errorf("UI exhaustion error must name the band, got %q", err.Error())
-	}
-	_, err = codeflowHostPort(root)
-	if err == nil {
-		t.Fatal("an exhausted CodeFlow port band must fail closed, got nil error")
-	}
-	if !strings.Contains(err.Error(), "CODEFLOW_PORT") {
-		t.Errorf("CodeFlow exhaustion error must name CODEFLOW_PORT, got %q", err.Error())
 	}
 }

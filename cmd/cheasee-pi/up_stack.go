@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 )
 
 // stackService is one service of the cheasee-pi compose stack: the compose
@@ -54,39 +53,29 @@ type stackPlan struct {
 // images Compose would need to create a container. Existing containers are only
 // ever started — stale Compose config is deliberately left alone
 // (reconciliation is out of scope) — but a container that exists is reused ONLY
-// when its workspace mount source is this workspace's path. A mismatch (another
-// worktree's container) or an unverifiable mount fails closed with a
-// zero-valued plan, so nothing is started, built or created before the operator
-// recovers.
+// when its workspace mount source is this workspace's path (see
+// containers_mount.go). A mismatch (another worktree's container) or an
+// unverifiable mount fails closed with a zero-valued plan, so nothing is
+// started, built or created before the operator recovers.
 //
 // Pure: no docker, no I/O.
 func planStack(services []stackService, states, mounts map[string]string, images map[string]bool) (stackPlan, error) {
 	var plan stackPlan
 	for _, s := range services {
-		if state, exists := states[s.container]; exists {
-			found, verified := mounts[s.container]
-			// "Cannot verify" must never read as "verified": a missing mount
-			// entry means the probe could not report the source.
-			if !verified {
-				return stackPlan{}, fmt.Errorf("container %s exists but its workspace mount could not be verified — refusing to reuse it; run `cheasee-pi down` in this workspace and `cheasee-pi start` again", s.container)
-			}
-			if filepath.Clean(found) != filepath.Clean(s.mount) {
-				if found == "" {
-					return stackPlan{}, fmt.Errorf("container %s has no %s mount — refusing to reuse it; run `cheasee-pi down` in this workspace and `cheasee-pi start` again", s.container, workspaceMountTarget)
-				}
-				return stackPlan{}, fmt.Errorf("container %s belongs to another workspace: expected the workspace mount %s, found %s — run `cheasee-pi down` in that workspace first (its container name is derived from its path, so a stale name can only come from a pre-upgrade stack)", s.container, s.mount, found)
-			}
-			if state != "running" {
-				plan.start = append(plan.start, s)
+		state, exists := states[s.container]
+		if !exists {
+			plan.create = append(plan.create, s)
+			if !images[s.image] {
+				plan.build = append(plan.build, s)
+				plan.firstBuild = plan.firstBuild || s.service == "cheasee-pi"
 			}
 			continue
 		}
-		plan.create = append(plan.create, s)
-		if !images[s.image] {
-			plan.build = append(plan.build, s)
-			if s.service == "cheasee-pi" {
-				plan.firstBuild = true
-			}
+		if err := verifyWorkspaceMount(s, mounts); err != nil {
+			return stackPlan{}, err
+		}
+		if state != "running" {
+			plan.start = append(plan.start, s)
 		}
 	}
 	return plan, nil

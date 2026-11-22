@@ -30,14 +30,15 @@
 	"after": {
 		"criticalCount": 196,
 		"expectedDrop": 8,
-		"files": 1934,
-		"codeFiles": 1060
+		"files": 1960,
+		"codeFiles": 1086
 	},
 	"partition": {
-		"scored": 1060,
+		"scored": 1086,
 		"critical": 196,
 		"notScored": 93,
-		"belowCeiling": 860
+		"belowCeiling": 890,
+		"note": "Reconciled by #2155: the browser-sidecar discovery fix adds 26 below-ceiling scored Go modules in cmd/cheasee-pi (instance identity, mount verification, registry port + file adapter + snapshot, the discovery test siblings, and the up-session/stack splits they needed to stay under the god-object and complexity ceilings), reaching 1086 scored files and 1960 tracked files. No flag moved: the measured critical set is unchanged at 196, and every new module scores <= 30."
 	},
 	"reducedBy": [
 		{
