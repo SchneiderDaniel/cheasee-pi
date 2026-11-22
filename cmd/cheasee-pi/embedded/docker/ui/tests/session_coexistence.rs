@@ -142,7 +142,7 @@ async fn coexist_running_ui_lists_the_claimed_session_and_refuses_the_attach() {
         }))
         .unwrap();
     match next_message(&mut received).await {
-        ServerMessage::SessionList { id, sessions } => {
+        ServerMessage::SessionList { id, sessions, .. } => {
             assert_eq!(id.as_deref(), Some("coexist-list"));
             let row = sessions
                 .iter()

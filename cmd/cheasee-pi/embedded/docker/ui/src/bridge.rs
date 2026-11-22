@@ -189,6 +189,11 @@ pub struct SessionRow {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// The row's display text: the trimmed session name, else the first user
+    /// message, else absent — the panel then falls back to the id. Computed by
+    /// the server so the browser never re-derives what a description is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Session `modified` time in epoch milliseconds; rows sort on it.
     pub modified: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]

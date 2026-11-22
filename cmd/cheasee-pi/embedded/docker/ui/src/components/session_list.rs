@@ -109,6 +109,18 @@ fn InstanceList() -> impl IntoView {
     }
 }
 
+/// The row's display text: the server-computed description, else the id. The
+/// browser never decides what a description is — a blank one can only come from
+/// a server bug, and the id is a better title than nothing.
+pub fn session_title(row: &SessionRow) -> String {
+    let description = row.description.as_deref().map(str::trim).unwrap_or_default();
+    if description.is_empty() {
+        row.id.clone()
+    } else {
+        description.to_string()
+    }
+}
+
 /// The session list panel with its resume/clone/stop controls.
 #[component]
 pub fn SessionList(status: RwSignal<ConnectionStatus>) -> impl IntoView {
@@ -170,11 +182,7 @@ pub fn SessionList(status: RwSignal<ConnectionStatus>) -> impl IntoView {
                             let clone_id = row.id.clone();
                             let stop_id = row.id.clone();
                             let blocked = row.in_use || row.unavailable;
-                            let title = row
-                                .name
-                                .clone()
-                                .filter(|name| !name.is_empty())
-                                .unwrap_or_else(|| row.id.clone());
+                            let title = session_title(&row);
                             let meta = format!("{} msgs", row.message_count);
                             view! {
                                 <li class="session-row" data-session-id=id>
@@ -209,3 +217,6 @@ pub fn SessionList(status: RwSignal<ConnectionStatus>) -> impl IntoView {
         </section>
     }
 }
+
+#[cfg(test)]
+mod tests;

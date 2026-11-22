@@ -194,6 +194,7 @@ fn stream_session_envelopes_round_trip() {
     let row = SessionRow {
         id: "abc".into(),
         name: Some("My session".into()),
+        description: Some("My session".into()),
         modified: 7,
         created: None,
         message_count: 3,
@@ -203,6 +204,7 @@ fn stream_session_envelopes_round_trip() {
     let message = ServerMessage::SessionList {
         id: None,
         sessions: vec![row],
+        instances: Vec::new(),
     };
     let value = serde_json::to_value(&message).unwrap();
     assert_eq!(value["type"], "session_list");
