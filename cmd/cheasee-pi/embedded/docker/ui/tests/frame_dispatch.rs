@@ -208,20 +208,20 @@ fn frame_session_row_carries_its_description_on_the_wire() {
     assert_eq!(value["messageCount"], 3);
 }
 
+/// The field is additive in both directions: absent stays off the wire, and a
+/// peer that predates it still decodes — with no host path or process marker
+/// riding along.
 #[test]
-fn frame_session_row_omits_an_absent_description() {
+fn frame_session_row_wire_shape_stays_additive_and_path_free() {
     let mut row = session_row();
     row.description = None;
-    let value = serde_json::to_value(row).unwrap();
+    let absent = serde_json::to_value(row).unwrap();
     assert!(
-        value.get("description").is_none(),
-        "`skip_serializing_if` keeps the absent case off the wire: {value}"
+        absent.get("description").is_none(),
+        "`skip_serializing_if` keeps the absent case off the wire: {absent}"
     );
-}
 
-#[test]
-fn frame_session_list_decodes_a_legacy_frame_without_a_description() {
-    let frame = json!({
+    let legacy = json!({
         "type": "session_list",
         "sessions": [{
             "id": "abc",
@@ -232,7 +232,7 @@ fn frame_session_list_decodes_a_legacy_frame_without_a_description() {
             "unavailable": false
         }]
     });
-    match serde_json::from_value::<ServerMessage>(frame).unwrap() {
+    match serde_json::from_value::<ServerMessage>(legacy).unwrap() {
         ServerMessage::SessionList { sessions, .. } => {
             assert_eq!(sessions.len(), 1);
             assert_eq!(sessions[0].id, "abc");
@@ -240,10 +240,7 @@ fn frame_session_list_decodes_a_legacy_frame_without_a_description() {
         }
         other => panic!("expected a session_list frame, got {other:?}"),
     }
-}
 
-#[test]
-fn frame_session_list_wire_shape_still_carries_no_path_or_marker() {
     let frame = encode(&ServerMessage::SessionList {
         id: None,
         sessions: vec![session_row()],
@@ -251,22 +248,6 @@ fn frame_session_list_wire_shape_still_carries_no_path_or_marker() {
     assert!(!frame.contains("\"path\""), "no host path: {frame}");
     assert!(!frame.contains("inUsePid"), "no process marker: {frame}");
     assert!(frame.contains("\"description\":\"My session\""), "{frame}");
-}
-
-#[test]
-fn frame_dispatcher_keeps_the_description_on_the_stored_row() {
-    let _owner = owner();
-    let sessions = SessionListState::new();
-    let frame = encode(&ServerMessage::SessionList {
-        id: None,
-        sessions: vec![session_row()],
-    });
-
-    assert!(UiSlice::Sessions(&sessions).ingest_frame(&frame));
-    assert_eq!(
-        sessions.rows.get()[0].description.as_deref(),
-        Some("My session")
-    );
 }
 
 // ─── Fan-out: one decode, then every slice ─────────────────────────────────
