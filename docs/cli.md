@@ -176,10 +176,10 @@ container. The agent and CodeFlow services are not rebuilt or restarted. During
 UI development, we run `go run ./cmd/cheasee-pi rebuild-ui` so the extracted
 build context includes the current embedded UI sources.
 
-|            |                                                                                                                   |
-| ---------- | --------------------------------------------------------------------------------------------------------------- |
-| **Does**   | Builds the `ui` Compose service, then applies the image with `--no-deps`; only the UI container is recreated.   |
-| **Checks** | Docker availability, workspace and sibling bare-repository paths, and the host credential file.                 |
+|            |                                                                                                                  |
+| ---------- | ---------------------------------------------------------------------------------------------------------------- |
+| **Does**   | Builds the `ui` Compose service, then applies the image with `--no-deps`; only the UI container is recreated.    |
+| **Checks** | Docker availability, workspace and sibling bare-repository paths, and the host credential file.                  |
 | **Inputs** | Flags: `--workdir`, `--no-docker-check`. Reads workspace settings and credentials; uses the cached build layers. |
 
 ## `cheasee-pi down`
