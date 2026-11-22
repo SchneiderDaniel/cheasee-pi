@@ -1,0 +1,370 @@
+#!/usr/bin/env bash
+# Test stub for the `gh` CLI: a tiny stateful GitHub double.
+#
+# The gateway under test is the only caller. Every invocation is appended to
+# $GH_LOG as "<METHOD>\t<path>\t<request-body-file>" so tests can assert on the
+# exact transport (`--method`, `--input`, read-only-ness) and on request bodies.
+#
+# Response resolution order (see tests/fixtures/fake-gh/github.jq):
+#   1. $GH_PLAN ".responses[\"<METHOD> <path>\"]" — explicit override, either a
+#      single {"status","body"} object or {"sequence":[ ... ]} (last entry
+#      repeats once exhausted). Sequences are counted in the state file.
+#   2. the stateful handler, which serves the repo's current state so a write
+#      followed by a re-read reflects that write (the remediation contract).
+#   3. $GH_PLAN ".default", else 404.
+#
+# The whole request is served by a single jq process: the stub runs once per
+# gateway call, so a second or third fork per call is the difference between a
+# test suite that finishes in seconds and one that takes minutes.
+set -uo pipefail
+
+: "${GH_LOG:?fake-gh: GH_LOG is required}"
+: "${GH_PLAN:?fake-gh: GH_PLAN is required}"
+: "${GH_STATE_DIR:?fake-gh: GH_STATE_DIR is required}"
+GH_BODY_DIR="${GH_BODY_DIR:-$GH_STATE_DIR/request-bodies}"
+GH_STATE="$GH_STATE_DIR/state.json"
+GH_REQUESTS="$GH_STATE_DIR/requests.count"
+# Fork-free location: this stub runs once per gateway request, so a
+# $(cd "$(dirname ...)" && pwd) pair would spend two extra processes per call
+# on a path that cannot change while it runs.
+case "${BASH_SOURCE[0]}" in
+*/*) HERE="${BASH_SOURCE[0]%/*}" ;;
+*) HERE="." ;;
+esac
+
+[[ -d "$GH_BODY_DIR" ]] || mkdir -p "$GH_BODY_DIR"
+[[ -d "$GH_STATE_DIR" ]] || mkdir -p "$GH_STATE_DIR"
+if [[ ! -f "$GH_STATE" ]]; then
+	printf '%s\n' '{"admin":true,"default_branch":"main","secret_scanning":"disabled","vulnerability_alerts":"disabled","code_scanning":"not-configured","analyses":0,"analyses_age_days":0,"protection":null,"rules":[],"files":[],"health_percentage":0,"head_sha":"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"}' >"$GH_STATE"
+fi
+[[ -f "$GH_LOG" ]] || : >"$GH_LOG"
+
+# A transport-layer failure (auth, DNS, TLS) has no HTTP response at all: gh
+# writes to stderr and exits non-zero without printing headers.
+if [[ -n "${GH_FAKE_TRANSPORT_ERROR:-}" ]]; then
+	printf 'gh: %s\n' "$GH_FAKE_TRANSPORT_ERROR" >&2
+	exit 1
+fi
+
+argv="$*"
+method="GET"
+include=0
+input=""
+path=""
+
+while (($# > 0)); do
+	case "$1" in
+	--method)
+		method="${2:-}"
+		shift 2
+		;;
+	--include | -i)
+		include=1
+		shift
+		;;
+	--input)
+		input="${2:-}"
+		shift 2
+		;;
+	-*)
+		printf 'fake-gh: unsupported flag %s\n' "$1" >&2
+		exit 64
+		;;
+	*)
+		path="$1"
+		shift
+		;;
+	esac
+done
+
+req_body=""
+if [[ -n "$input" ]]; then
+	if [[ "$input" == "-" ]]; then
+		# read is a builtin; $(cat) would fork once per request body.
+		IFS= read -r -d '' req_body || true
+	else
+		req_body=$(<"$input")
+	fi
+fi
+
+request_no=0
+[[ -f "$GH_REQUESTS" ]] && request_no=$(<"$GH_REQUESTS")
+request_no=$((request_no + 1))
+printf '%s' "$request_no" >"$GH_REQUESTS"
+REQ_BODY="$GH_BODY_DIR/$request_no.json"
+printf '%s' "$req_body" >"$REQ_BODY"
+printf '%s\t%s\t%s\n' "$method" "$path" "$REQ_BODY" >>"$GH_LOG"
+# Full argv on its own line so tests can assert transport shape (--method,
+# --input) and the absence of the -f/-F flags that would silently flip the
+# request to POST and stringify every value.
+printf '%s\n' "$argv" >>"$GH_LOG.argv"
+
+# fast_get <path> — serve the read-only shapes an audit issues most without
+# starting jq. A full audit is a dozen requests, a remediation two audits' worth,
+# and against a bare repo the community checks probe up to eighteen contents
+# paths: the repo object, the contents probes, the default-setup/analyses pair,
+# the protection 404 and the community profile are most of them, and they need
+# nothing but a flat lookup in the state file.
+#
+# Faithfulness rules:
+#   * GET only — every write still runs through github.jq;
+#   * any planned override for this exact request falls back to jq, so
+#     sequences and scripted bodies keep their semantics;
+#   * any state that does not carry the expected keys falls back to jq, so a
+#     test that scripts an unusual state still gets the real handler.
+# Prints the response object on stdout and returns 0; returns 1 to fall back.
+flat_scalar() { # <state> <key> -> raw scalar text (strings keep their quotes)
+	local rest="${1#*\"$2\":}"
+	[[ "$rest" == "$1" ]] && return 1
+	rest="${rest%%,*}"
+	rest="${rest%\}}"
+	[[ -z "$rest" ]] && return 1
+	printf '%s' "$rest"
+}
+
+flat_array() { # <state> <key> -> raw array body, e.g. "a","b" (empty for [])
+	local rest="${1#*\"$2\":}"
+	[[ "$rest" == "$1" ]] && return 1
+	[[ "$rest" == \[* ]] || return 1
+	rest="${rest#\[}"
+	printf '%s' "${rest%%\]*}"
+}
+
+fast_contents() { # <state> <requested path>
+	local files item list="" out="" sep="" rest
+	files=$(flat_array "$1" files) || return 1
+	if [[ ",$files," == *",\"$2\","* ]]; then
+		printf '{"status":200,"body":{"type":"file","path":"%s","name":"%s"}}' "$2" "$2"
+		return 0
+	fi
+	rest="$files"
+	while [[ -n "$rest" ]]; do
+		item="${rest%%,*}"
+		if [[ "$rest" == *,* ]]; then rest="${rest#*,}"; else rest=""; fi
+		item="${item#\"}"
+		item="${item%\"}"
+		if [[ "$item" == "$2"/* ]]; then
+			out+="${sep}{\"type\":\"file\",\"path\":\"$item\"}"
+			sep=","
+		fi
+	done
+	if [[ -n "$out" ]]; then
+		printf '{"status":200,"body":[%s]}' "$out"
+		return 0
+	fi
+	printf '{"status":404,"body":{"message":"Not Found"}}'
+}
+
+fast_profile() { # <state> -> the community/profile body
+	local files health profile rest item readme coc contributing license issue pr
+	files=$(flat_array "$1" files) || return 1
+	health=$(flat_scalar "$1" health_percentage) || return 1
+	[[ "$health" =~ ^[0-9]+$ ]] || return 1
+	# A fork has no community profile; that is the one non-default scripted value
+	# this path serves, and it has no body to build.
+	profile=$(flat_scalar "$1" community_profile) || profile='"ok"'
+	readme=null coc=null contributing=null license=null issue=null pr=null
+	rest="$files"
+	while [[ -n "$rest" ]]; do
+		item="${rest%%,*}"
+		if [[ "$rest" == *,* ]]; then rest="${rest#*,}"; else rest=""; fi
+		case "$item" in
+		\"README.md\") readme='{"path":"README.md","html_url":"https://example.invalid/README.md"}' ;;
+		\"CODE_OF_CONDUCT.md\") coc='{"path":"CODE_OF_CONDUCT.md","name":"Contributor Covenant"}' ;;
+		\"CONTRIBUTING.md\") contributing='{"path":"CONTRIBUTING.md","html_url":"https://example.invalid/CONTRIBUTING.md"}' ;;
+		\"LICENSE\") license='{"path":"LICENSE","spdx_id":"MIT"}' ;;
+		\".github/ISSUE_TEMPLATE/*) issue='{"path":".github/ISSUE_TEMPLATE/bug_report.md"}' ;;
+		\".github/PULL_REQUEST_TEMPLATE.md\") pr='{"path":".github/PULL_REQUEST_TEMPLATE.md"}' ;;
+		esac
+	done
+	case "$profile" in
+	'"ok"' | '"unavailable"' | null) ;;
+	*) return 1 ;;
+	esac
+	if [[ "$profile" == '"unavailable"' ]]; then
+		printf '{"status":404,"body":{"message":"Not Found"}}'
+		return 0
+	fi
+	printf '{"status":200,"body":{"health_percentage":%s,"files":{"readme":%s,"code_of_conduct":%s,"contributing":%s,"license":%s,"issue_template":%s,"pull_request_template":%s}}}' \
+		"$health" "$readme" "$coc" "$contributing" "$license" "$issue" "$pr"
+}
+
+fast_analyses() { # <state> -> the code-scanning/analyses body
+	local count age epoch created out="" sep="" i
+	count=$(flat_scalar "$1" analyses) || return 1
+	age=$(flat_scalar "$1" analyses_age_days) || return 1
+	[[ "$count" =~ ^[0-9]+$ && "$age" =~ ^[0-9]+$ ]] || return 1
+	local TZ=UTC
+	printf -v epoch '%(%s)T' -1
+	epoch=$((epoch - age * 86400))
+	printf -v created '%(%Y-%m-%dT%H:%M:%SZ)T' "$epoch"
+	for ((i = 0; i < count; i++)); do
+		out+="${sep}{\"id\":$i,\"state\":\"completed\",\"created_at\":\"$created\"}"
+		sep=","
+	done
+	printf '{"status":200,"body":[%s]}' "$out"
+}
+
+fast_get() { # <path> -> response JSON on stdout, 1 to fall back to jq
+	local path="$1" state plan seg_txt
+	local -a seg=()
+	[[ -n "$path" ]] || return 1
+	plan=$(<"$GH_PLAN")
+	[[ "$plan" == *"\"GET $path\""* ]] && return 1
+	state=$(<"$GH_STATE")
+	seg_txt="${path#/}"
+	IFS=/ read -r -a seg <<<"$seg_txt"
+	local n=${#seg[@]}
+	case "${seg[0]}" in
+	repos) ;;
+	*) return 1 ;;
+	esac
+	# /repos/{o}/{r}
+	if ((n == 3)); then
+		local branch admin secret
+		branch=$(flat_scalar "$state" default_branch) || return 1
+		admin=$(flat_scalar "$state" admin) || return 1
+		secret=$(flat_scalar "$state" secret_scanning) || return 1
+		# Closing quote required: a branch name carrying a comma would otherwise
+		# be served half-parsed. Anything unexpected falls back to github.jq.
+		[[ "$branch" == \"*\" && "$secret" == \"*\" ]] || return 1
+		case "$admin" in
+		true | false) ;;
+		*) return 1 ;;
+		esac
+		printf '{"status":200,"body":{"full_name":"owner/repo","default_branch":%s,"permissions":{"admin":%s},"security_and_analysis":{"secret_scanning":{"status":%s}}}}' \
+			"$branch" "$admin" "$secret"
+		return 0
+	fi
+	# /repos/{o}/{r}/contents/<path>
+	if ((n >= 5)) && [[ "${seg[3]}" == "contents" ]]; then
+		local file
+		file="${seg_txt#repos/*/*/contents/}"
+		fast_contents "$state" "$file" || return 1
+		return 0
+	fi
+	# /repos/{o}/{r}/vulnerability-alerts
+	if ((n == 4)) && [[ "${seg[3]}" == "vulnerability-alerts" ]]; then
+		local alerts
+		alerts=$(flat_scalar "$state" vulnerability_alerts) || return 1
+		if [[ "$alerts" == '"enabled"' ]]; then
+			printf '{"status":204,"body":null}'
+		else
+			printf '{"status":404,"body":{"message":"Not Found"}}'
+		fi
+		return 0
+	fi
+	# /repos/{o}/{r}/rules/branches/{branch} — only the empty rule set, which is
+	# what every case without a scripted ruleset uses.
+	if ((n == 6)) && [[ "${seg[3]}" == "rules" && "${seg[4]}" == "branches" ]]; then
+		local rules
+		rules=$(flat_scalar "$state" rules) || return 1
+		[[ "$rules" == "[]" ]] || return 1
+		printf '{"status":200,"body":[]}'
+		return 0
+	fi
+	# /repos/{o}/{r}/branches/{branch}/protection — the unprotected case. A
+	# configured protection object is served by github.jq, which owns the shape.
+	if ((n == 6)) && [[ "${seg[3]}" == "branches" && "${seg[5]}" == "protection" ]]; then
+		local protection
+		protection=$(flat_scalar "$state" protection) || return 1
+		[[ "$protection" == "null" ]] || return 1
+		printf '{"status":404,"body":{"message":"Branch not protected"}}'
+		return 0
+	fi
+	# /repos/{o}/{r}/code-scanning/default-setup — the state carries the setup
+	# state as a flat string; an object-shaped override falls back to github.jq.
+	if ((n == 5)) && [[ "${seg[3]}" == "code-scanning" && "${seg[4]}" == "default-setup" ]]; then
+		local setup
+		setup=$(flat_scalar "$state" code_scanning) || return 1
+		case "$setup" in
+		'"configured"' | '"not-configured"') ;;
+		*) return 1 ;;
+		esac
+		printf '{"status":200,"body":{"state":%s,"query_suite":"default","languages":["bash"]}}' "$setup"
+		return 0
+	fi
+	# /repos/{o}/{r}/code-scanning/analyses — derived from the analysis count.
+	if ((n == 5)) && [[ "${seg[3]}" == "code-scanning" && "${seg[4]}" == "analyses" ]]; then
+		fast_analyses "$state" || return 1
+		return 0
+	fi
+	# /repos/{o}/{r}/community/profile — every audit reads it, and the bare-repo
+	# case (all files missing) is the shape most cases script.
+	if ((n == 5)) && [[ "${seg[3]}" == "community" && "${seg[4]}" == "profile" ]]; then
+		fast_profile "$state" || return 1
+		return 0
+	fi
+	return 1
+}
+
+if [[ "$method" == "GET" ]] && fast=$(fast_get "$path"); then
+	# A fast path never changes the repo state, so the state file is untouched.
+	state_json=$(<"$GH_STATE")
+	response="$fast"
+elif ! result=$(jq -n -c \
+	--slurpfile plan "$GH_PLAN" \
+	--slurpfile state "$GH_STATE" \
+	--slurpfile req "$REQ_BODY" \
+	--arg method "$method" \
+	--arg path "$path" \
+	-f "$HERE/github.jq"); then
+	printf 'fake-gh: cannot resolve a response for %s %s\n' "$method" "$path" >&2
+	exit 70
+fi
+
+if [[ -z "${state_json:-}" ]]; then
+	mapfile -t resolved <<<"$result"
+	state_json="${resolved[0]:-}"
+	response="${resolved[1]:-}"
+fi
+
+if [[ -z "$state_json" || -z "$response" ]]; then
+	printf 'fake-gh: handler returned no state/response pair for %s %s\n' "$method" "$path" >&2
+	exit 70
+fi
+
+# Persist the state the handler produced (a write followed by a read reflects
+# it) without a second jq process: jq emitted it as its own compact line.
+printf '%s' "$state_json" >"$GH_STATE"
+
+status=""
+if [[ "$response" =~ \"status\":([0-9]+) ]]; then
+	status="${BASH_REMATCH[1]}"
+fi
+if [[ -z "$status" ]]; then
+	printf 'fake-gh: handler returned a response without a status for %s %s\n' "$method" "$path" >&2
+	exit 70
+fi
+
+body=""
+if [[ "$response" == *'"body":'* ]]; then
+	body="${response#*\"body\":}"
+	body="${body%?}"
+	[[ "$body" == "null" ]] && body=""
+fi
+
+reason="Status"
+case "$status" in
+200) reason="OK" ;;
+201) reason="Created" ;;
+204) reason="No Content" ;;
+401) reason="Unauthorized" ;;
+403) reason="Forbidden" ;;
+404) reason="Not Found" ;;
+422) reason="Unprocessable Entity" ;;
+esac
+
+if ((include)); then
+	printf 'HTTP/2.0 %s %s\r\n' "$status" "$reason"
+	printf '\r\n'
+fi
+
+[[ -n "$body" ]] && printf '%s\n' "$body"
+
+if [[ "$status" =~ ^[0-9]+$ ]] && ((status >= 400)); then
+	printf 'gh: HTTP %s\n' "$status" >&2
+	exit 1
+fi
+
+exit 0
