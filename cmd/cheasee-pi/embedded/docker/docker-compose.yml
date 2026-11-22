@@ -180,6 +180,11 @@ services:
       - com.cheaseepi.auth-spec=${CHEASEEPI_AUTH_SPEC:-}
     environment:
       - CHEASEE_AUTH_PATH=/run/secrets/cheasee_auth
+      # Peer-instance discovery snapshot (read-only, CLI-written): the sidecar
+      # renders the instances other workspaces registered. Labels and ports
+      # only — the file never carries a host path, and `ui` still has no host or
+      # docker access of its own.
+      - CHEASEEPI_INSTANCES=/run/cheaseepi/instances.json
     restart: unless-stopped
     # Run as the host uid/gid: the credential secret is a bind mount of the
     # host's 0600 auth.json, and Compose ignores uid/gid/mode outside Swarm, so
@@ -188,6 +193,12 @@ services:
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       - ${WORKSPACE_HOST_PATH}:/workspaces/main${VOLUME_RELABEL:-}
+      # Host-wide discovery snapshot, written by the CLI on every start/stop.
+      # NOT workspace-scoped and NOT the docker socket: peer discovery is a
+      # read-only label view the CLI already owns (docs/security.md). The CLI
+      # always sets the env var; the /dev/null default keeps direct
+      # `docker compose up` runs valid (the sidecar then lists no peers).
+      - ${CHEASEEPI_INSTANCE_SNAPSHOT:-/dev/null}:/run/cheaseepi/instances.json:ro
     secrets:
       # Read-only by construction, and the server is network-reachable. No gh
       # config mount: the ui reads provider keys only (no `.config/gh`,

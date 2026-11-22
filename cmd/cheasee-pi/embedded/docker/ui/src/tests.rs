@@ -83,7 +83,7 @@ async fn root_serves_hydration_shell() {
     );
     let body = to_bytes(res.into_body(), 1024 * 1024).await.unwrap();
     let html = String::from_utf8_lossy(&body);
-    // Hydration bootstrap marker + the counter/echo mount points.
+    // Hydration bootstrap marker + the transcript/echo mount points.
     assert!(html.contains("rel=\"modulepreload\""), "no hydration bootstrap: {html}");
     assert!(html.contains("cheasee-pi control center"), "no shell heading: {html}");
     assert!(html.contains("Send"), "no echo control: {html}");

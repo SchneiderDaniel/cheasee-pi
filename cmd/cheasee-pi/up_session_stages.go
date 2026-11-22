@@ -85,6 +85,27 @@ func retireStage(root string) error {
 	return nil
 }
 
+// warnMissingProviderKeys surfaces the start warning for an env with no provider
+// key: pi stays usable, but models may not be available.
+func warnMissingProviderKeys(env *sessionEnv) {
+	if len(env.Map()) > 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "  ⚠ No provider keys found. Models may not be available.\n")
+	fmt.Fprintf(os.Stderr, "  ℹ Use: cheasee-pi auth add <provider>\n")
+}
+
+// dryRunStop prints the dry-run output and reports whether the run must stop:
+// a dry-run touches nothing past this point (no scaffold, no cache extraction,
+// no compose, no exec).
+func dryRunStop(opts startOptions, env *sessionEnv, name, target string) bool {
+	if !opts.DryRun {
+		return false
+	}
+	printEnvAndCommand(env.Map(), name, target)
+	return true
+}
+
 // printEnvAndCommand is the dry-run output: the env vars to inject (secrets
 // redacted) and the exact docker command.
 func printEnvAndCommand(env map[string]string, name, target string) {

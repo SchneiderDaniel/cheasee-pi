@@ -34,10 +34,10 @@ func TestApplyComposeEnv_ignoresPISettings(t *testing.T) {
 		t.Errorf("WORKSPACE_BARE_PATH must resolve the sibling .bare, got %v", cmd.env)
 	}
 	if !slices.Contains(cmd.env, "CHEASEEPI_CONTAINER="+containerName(workdir)) {
-		t.Errorf("CHEASEEPI_CONTAINER must carry the repo-slug container name, got %v", cmd.env)
+		t.Errorf("CHEASEEPI_CONTAINER must carry the instance-key container name, got %v", cmd.env)
 	}
 	if !slices.Contains(cmd.env, "CODEFLOW_CONTAINER="+codeflowContainerName(workdir)) {
-		t.Errorf("CODEFLOW_CONTAINER must carry the repo-slug codeflow name, got %v", cmd.env)
+		t.Errorf("CODEFLOW_CONTAINER must carry the instance-key codeflow name, got %v", cmd.env)
 	}
 	if !slices.Contains(cmd.env, "COMPOSE_PROJECT_NAME="+composeProjectName(workdir)) {
 		t.Errorf("compose env must carry the per-repo COMPOSE_PROJECT_NAME, got %v", cmd.env)

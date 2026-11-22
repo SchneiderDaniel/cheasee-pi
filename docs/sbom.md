@@ -97,6 +97,28 @@ releases of their crates, and neither advisory has a patched version — nothing
 to update, nothing to remove, so the acceptance stands rather than being
 silently inherited.
 
+One transitive advisory is fixed rather than accepted, because it has a patched
+release: `url` `2.5.8` (RUSTSEC-2026-0592 — `Url::origin()` recursed once per
+`blob:` prefix, so a 50 KB nested-`blob:` URL aborted the process on the default
+2 MiB stack; `catch_unwind()` does not catch it). `url` reached `Cargo.lock`
+through `leptos_router` and `server_fn`, never as a direct dependency. The lock
+now pins `url` 2.5.9 — the release the advisory names as fixed — together with
+`form_urlencoded` 1.2.3, which 2.5.9 requires (`^1.2.3`). Both `checksum`
+entries are the crates.io index values, so the bump is a lock-only change; the
+pipeline image carries no Rust toolchain, so the wasm/SSR build is verified by
+the `docker` job that compiles the sidecar image, not in-gate.
+
+Reachability of the vulnerable function was verified against the crate sources
+this graph compiles: nothing under `ui/src/` calls `Url::origin()` (the sidecar
+speaks WebSocket, and has no router, no server-function form actions and no
+`leptos_router` dependency), and `server_fn` only parses a URL to rewrite its
+query pairs. The `origin()` call sites all live in `leptos_router`'s
+router/history/form paths, which this crate never instantiates. The bump is
+still the right fix — a lock pin of a fixable advisory is not a decision to
+re-take later — and `go test ./cmd/cheasee-pi/ -run
+OsvAllowlist` fails if the lock drops below 2.5.9 or if the advisory ever
+appears as a `[[IgnoredVulns]]` entry.
+
 ## System dependencies
 
 | Tool                       | Version | License        | Purpose                                 |

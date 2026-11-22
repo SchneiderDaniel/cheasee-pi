@@ -47,6 +47,7 @@ fn reduce_sessions_keeps_the_description_intact() {
     assert!(state.reduce_sessions(&ServerMessage::SessionList {
         id: None,
         sessions: vec![row(Some("Plan the fix"))],
+        instances: Vec::new(),
     }));
     assert_eq!(
         state.rows.get()[0].description.as_deref(),
@@ -61,6 +62,7 @@ fn reduce_sessions_surfaces_a_failed_action_and_leaves_the_rows_untouched() {
     state.reduce_sessions(&ServerMessage::SessionList {
         id: None,
         sessions: vec![row(Some("Plan the fix"))],
+        instances: Vec::new(),
     });
 
     assert!(state.reduce_sessions(&ServerMessage::SessionAction {

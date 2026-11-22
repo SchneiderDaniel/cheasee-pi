@@ -7,11 +7,14 @@ import (
 )
 
 // stackService is one service of the cheasee-pi compose stack: the compose
-// service key, the derived container name and the derived image ref.
+// service key, the derived container name, the derived image ref and the host
+// path the service must be bound to (`mount`, the workspace host path — the
+// reuse guard compares it against the container's actual source).
 type stackService struct {
 	service   string
 	container string
 	image     string
+	mount     string
 }
 
 // stackServices is the single ordered table of services the start flow
@@ -28,9 +31,9 @@ func uiImageRef(workspaceRoot string) string {
 
 func stackServices(root string) []stackService {
 	return []stackService{
-		{"cheasee-pi", containerName(root), cheaseeImageRef(root)},
-		{"codeflow", codeflowContainerName(root), codeflowImageRef(root)},
-		{"ui", uiContainerName(root), uiImageRef(root)},
+		{"cheasee-pi", containerName(root), cheaseeImageRef(root), root},
+		{"codeflow", codeflowContainerName(root), codeflowImageRef(root), root},
+		{"ui", uiContainerName(root), uiImageRef(root), root},
 	}
 }
 
@@ -45,34 +48,43 @@ type stackPlan struct {
 	firstBuild bool
 }
 
-// planStack classifies every service from the probed container states and the
-// presence of the images Compose would need to create a container. Existing
-// containers are only ever started — stale Compose config is deliberately left
-// alone (reconciliation is out of scope), which is also what keeps "no
-// recreate" structural rather than conditional. Pure: no docker, no I/O.
-func planStack(services []stackService, states map[string]string, images map[string]bool) stackPlan {
+// planStack classifies every service from the probed container states, the
+// mount sources of the containers that already exist, and the presence of the
+// images Compose would need to create a container. Existing containers are only
+// ever started — stale Compose config is deliberately left alone
+// (reconciliation is out of scope) — but a container that exists is reused ONLY
+// when its workspace mount source is this workspace's path (see
+// containers_mount.go). A mismatch (another worktree's container) or an
+// unverifiable mount fails closed with a zero-valued plan, so nothing is
+// started, built or created before the operator recovers.
+//
+// Pure: no docker, no I/O.
+func planStack(services []stackService, states, mounts map[string]string, images map[string]bool) (stackPlan, error) {
 	var plan stackPlan
 	for _, s := range services {
-		if state, exists := states[s.container]; exists {
-			if state != "running" {
-				plan.start = append(plan.start, s)
+		state, exists := states[s.container]
+		if !exists {
+			plan.create = append(plan.create, s)
+			if !images[s.image] {
+				plan.build = append(plan.build, s)
+				plan.firstBuild = plan.firstBuild || s.service == "cheasee-pi"
 			}
 			continue
 		}
-		plan.create = append(plan.create, s)
-		if !images[s.image] {
-			plan.build = append(plan.build, s)
-			if s.service == "cheasee-pi" {
-				plan.firstBuild = true
-			}
+		if err := verifyWorkspaceMount(s, mounts); err != nil {
+			return stackPlan{}, err
+		}
+		if state != "running" {
+			plan.start = append(plan.start, s)
 		}
 	}
-	return plan
+	return plan, nil
 }
 
-// ensureStackUp is the normal-start executor: start existing containers as they
-// are, then — only for missing services — build absent images and let Compose
-// create the missing containers. Fail-fast: the first docker error is returned
+// ensureStackUp is the normal-start executor: verify that every existing
+// container is bound to THIS workspace, start them as they are, then — only for
+// missing services — build absent images and let Compose create the missing
+// containers. Fail-fast: the first docker error or mount mismatch is returned
 // and never triggers a rebuild/recreate fallback.
 func ensureStackUp(ctx context.Context, cacheDir, root, containerName string) error {
 	services := stackServices(root)
@@ -86,6 +98,19 @@ func ensureStackUp(ctx context.Context, cacheDir, root, containerName string) er
 	states, err := containerStates(ctx, names)
 	if err != nil {
 		return fmt.Errorf("check container: %w", err)
+	}
+	// Mount sources are probed for the containers that already exist, in one
+	// docker call: reusing a container created by another worktree is the bug
+	// this check exists to prevent.
+	existing := make([]string, 0, len(services))
+	for _, s := range services {
+		if _, exists := states[s.container]; exists {
+			existing = append(existing, s.container)
+		}
+	}
+	mounts, err := containerMountSources(ctx, existing)
+	if err != nil {
+		return fmt.Errorf("check container mount: %w", err)
 	}
 	// Image presence is probed only for services Compose must create: existing
 	// containers need no build and a probe there would only add round trips.
@@ -101,7 +126,10 @@ func ensureStackUp(ctx context.Context, cacheDir, root, containerName string) er
 		images[s.image] = exists
 	}
 
-	plan := planStack(services, states, images)
+	plan, err := planStack(services, states, mounts, images)
+	if err != nil {
+		return err
+	}
 	for _, s := range plan.start {
 		if _, err := runCommandContext(ctx, "docker", "start", s.container).CombinedOutput(); err != nil {
 			return fmt.Errorf("start container %s: %w", s.container, err)

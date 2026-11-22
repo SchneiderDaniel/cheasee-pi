@@ -9,25 +9,33 @@ import (
 // ──────────────────────────────────────────────
 // Identity derivation (pure — no docker I/O)
 //
-// The container name, the codeflow sidecar name and the compose project name
-// all derive from ONE identity: the bare repo's remote URL (owner/repo), with
-// a fallback chain to the repo name, then the workspace folder basename.
-// Distinct repos → distinct containers/projects/networks on the same host;
-// the same repo in two folders keeps one container (parallel sessions share
-// it, per docs/daily-usage.md).
+// The container name, the codeflow sidecar name, the ui name and the compose
+// project name all derive from ONE identity: instanceKey — the display repo
+// slug (bare repo's remote URL, with a fallback chain to the repo name, then
+// the workspace folder basename) PLUS a digest of the workspace's absolute
+// path.
+//
+// The path digest is what makes two worktrees of one repo distinct. Deriving
+// from the remote alone (the pre-fix behavior) mapped every worktree of a repo
+// onto one container name and one compose project, so a second worktree's
+// `up` reused the first worktree's container — bound to the FIRST workspace's
+// host path — and its sessions never became visible to any sidecar
+// (docs/daily-usage.md). instanceKey itself lives in instance_key.go.
 // ──────────────────────────────────────────────
 
-// containerName returns the daemon container name for a workspace: the repo
-// slug suffixed to the service prefix, length-capped to the RFC 1034 63-char
-// label limit (over-long names fail embedded-DNS resolution silently).
+// containerName returns the daemon container name for a workspace: the
+// instance key suffixed to the service prefix, length-capped to the RFC 1034
+// 63-char label limit (over-long names fail embedded-DNS resolution silently).
+// The cap accounts for the 12-char "cheasee-pi-" prefix so the whole name —
+// not just the slug — stays inside the limit.
 func containerName(workspaceRoot string) string {
-	return "cheasee-pi-" + truncateSlug(repoSlug(workspaceRoot), 52)
+	return containerNameFromKey(instanceKey(workspaceRoot))
 }
 
-// codeflowContainerName follows the same repo-slug scheme for the codeflow
-// sidecar service.
+// codeflowContainerName follows the same instance-key scheme for the codeflow
+// sidecar service (9-char prefix + 54 = 63).
 func codeflowContainerName(workspaceRoot string) string {
-	return "codeflow-" + truncateSlug(repoSlug(workspaceRoot), 54)
+	return "codeflow-" + truncateSlug(instanceKey(workspaceRoot), 54)
 }
 
 // composeProjectName derives the compose project name for a workspace — the
@@ -38,7 +46,7 @@ func codeflowContainerName(workspaceRoot string) string {
 // so <project>_default fits the 63-char DNS label. The charset contract is
 // ^[a-z0-9][a-z0-9_-]*$ (compose ≥ v2.17) — sanitizeSlug output satisfies it.
 func composeProjectName(workspaceRoot string) string {
-	return "cheasee-pi-" + truncateSlug(repoSlug(workspaceRoot), 43)
+	return "cheasee-pi-" + truncateSlug(instanceKey(workspaceRoot), 43)
 }
 
 // cheaseeImageRef derives the compose-built image reference for a workspace:

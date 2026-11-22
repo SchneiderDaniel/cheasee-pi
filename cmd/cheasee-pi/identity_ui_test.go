@@ -26,18 +26,19 @@ func TestUiHostPort_rangeExhaustedFailsClosed(t *testing.T) {
 
 func TestUiContainerName(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "ws")
-	want := "ui-" + truncateSlug(repoSlug(root), 54)
+	want := "ui-" + truncateSlug(instanceKey(root), 60)
 	if got := uiContainerName(root); got != want {
 		t.Errorf("uiContainerName = %q, want %q", got, want)
 	}
 	if uiContainerName(root) == codeflowContainerName(root) {
 		t.Error("ui and codeflow container names must differ")
 	}
-	// Over-long slug truncates to <=57 chars and gains a hashed suffix.
+	// Over-long slug truncates to the RFC 1034 63-char label limit (ui- + 60)
+	// and gains a hashed suffix.
 	long := filepath.Join(t.TempDir(), strings.Repeat("a", 70))
 	got := uiContainerName(long)
-	if len(got) > 57 {
-		t.Errorf("over-long slug must truncate to <=57 chars (ui- + 54), got %d (%q)", len(got), got)
+	if len(got) > 63 {
+		t.Errorf("over-long slug must truncate to <=63 chars (ui- + 60), got %d (%q)", len(got), got)
 	}
 	if !regexp.MustCompile(`-[0-9a-f]{6}$`).MatchString(got) {
 		t.Errorf("over-long slug must gain a hashed suffix, got %q", got)

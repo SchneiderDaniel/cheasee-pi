@@ -260,6 +260,7 @@ func checkTestLayout(subject []string, want map[string]string, rules []prefixRul
 // uncatalogued up_*.go test decl fails TestUpFileLayout.
 var upSplitFiles = []string{
 	"up_helpers_test.go",
+	"up_helpers_mount_test.go",
 	"up_env_test.go",
 	"up_env_flags_test.go",
 	"up_env_auth_test.go",
@@ -277,7 +278,9 @@ var upSplitFiles = []string{
 // Prefix rules cannot cover non-Test decls, so the shared fixtures (single
 // home: up_helpers_test.go — enforced by the package-wide namespace and the
 // checker's duplicate detection) and the local helpers that moved with their
-// test groups are inventoried explicitly.
+// test groups are inventoried explicitly. The mount-probe stubs live in their
+// own sibling (up_helpers_mount_test.go) so the shared up-capture module stays
+// under the god-object function ceiling.
 var wantUpDecls = map[string]string{
 	"func:stubUpFlow":              "up_helpers_test.go",
 	"func:stubReadyFlow":           "up_helpers_test.go",
@@ -288,6 +291,9 @@ var wantUpDecls = map[string]string{
 	"func:mkWorkspace":             "up_helpers_test.go",
 	"func:stubAutoInitDeps":        "up_helpers_test.go",
 	"func:stubImageGate":           "up_helpers_test.go",
+	"func:stubMountProbe":          "up_helpers_mount_test.go",
+	"func:mountProbeNames":         "up_helpers_mount_test.go",
+	"func:mountSource":             "up_helpers_mount_test.go",
 	"func:stackStates":             "up_helpers_test.go",
 	"func:psOutput":                "up_helpers_test.go",
 	"func:allStackStates":          "up_helpers_test.go",

@@ -205,6 +205,22 @@ pub struct SessionRow {
     pub unavailable: bool,
 }
 
+/// One peer Cheasee-Pi instance the CLI discovered on this host. Labels and
+/// ports only: the CLI never publishes a host path, and the sidecar never asks
+/// docker anything itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstanceRow {
+    /// The CLI's per-workspace instance key (repo slug + path digest).
+    pub key: String,
+    /// Display name: repo slug plus worktree folder, never a host path.
+    pub label: String,
+    /// The peer's own UI host port — the connect target.
+    pub ui_port: String,
+    /// Container liveness as resolved by the CLI when it wrote the snapshot.
+    pub running: bool,
+}
+
 /// How a prompt issued mid-stream is handled. The wire values are exactly
 /// `"steer"` and `"followUp"` (`docs/rpc-commands.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,6 +275,10 @@ pub enum ServerMessage {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
         sessions: Vec<SessionRow>,
+        /// Peer Cheasee-Pi instances the CLI published in its discovery
+        /// snapshot (read-only; the sidecar never probes the host).
+        #[serde(default)]
+        instances: Vec<InstanceRow>,
     },
     /// The outcome of a resume/fork/clone/stop request. `success: false` carries
     /// the refusal reason (in-use guard, missing cwd, unknown child) and must be

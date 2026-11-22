@@ -107,7 +107,7 @@ usage must pass it too:
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) \
 WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -p cheasee-pi-<repo-slug> \
+  docker compose -p cheasee-pi-<instance-key> \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
@@ -301,7 +301,8 @@ injects API keys as env vars, and launches pi with your repo mounted at
 ### Using docker exec (native)
 
 ```bash
-# The container is named cheasee-pi-<repo-slug> (repo slug, not plain cheasee-pi)
+# The container is named cheasee-pi-<instance-key> (repo slug plus a digest of
+# the workspace path, not plain cheasee-pi)
 CONTAINER=$(docker ps --format '{{.Names}}' | grep '^cheasee-pi-')
 docker exec -it --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --approve
 ```
@@ -326,12 +327,26 @@ docker exec -it \
 
 ## Parallel workspaces
 
-Each workspace/repository gets its own container (`cheasee-pi-<repo-slug>`
-plus the `codeflow-<repo-slug>` sidecar, and a per-repo compose project name)
-— two different repos on one host run side by side without interfering.
-Within one repo you can run multiple pi sessions against the same container
-simultaneously from different terminals. Each `docker exec` creates an
-independent process on the same container — they do not share a TUI or stdin.
+Containers, compose projects and derived ports are keyed by **per-worktree
+identity**: the repo slug plus a digest of the workspace's absolute path
+(`<repo-slug>-<path-digest>`). Every workspace — including several worktrees of
+the SAME repo — therefore owns its own `cheasee-pi-…` container, its own
+`codeflow-…` and `ui-…` sidecars, its own compose project and its own ports.
+Two different repos, and two worktrees of one repo, run side by side without
+interfering.
+
+> **Migration.** A stack created before per-worktree identity keeps its old
+> slug-only container and compose project names — `cheasee-pi down` resolves
+> the path-derived name, so it no longer finds that stack and reports nothing to
+> stop. Remove it once on the host (`cheasee-pi clean`, which removes every
+> cheasee-pi container, or `docker compose -p cheasee-pi-<repo-slug> down` from
+> that workspace), then run `cheasee-pi start`: the new stack's name and port
+> are re-derived from the path, and the instance registers itself for discovery.
+
+Within one workspace you can run multiple pi sessions against the same
+container simultaneously from different terminals. Each `docker exec` creates
+an independent process on the same container — they do not share a TUI or
+stdin.
 
 ```bash
 # Terminal 1 (use the CONTAINER var from "Using docker exec" above)
@@ -340,6 +355,16 @@ docker exec -it --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --
 # Terminal 2 (same container, independent session)
 docker exec -it --user agentuser -w /workspaces/main "$CONTAINER" /usr/bin/pi --approve
 ```
+
+### Instance discovery
+
+The `ui` sidecar lists every Cheasee-Pi instance running on this host and links
+to each one (running or stopped). Discovery is CLI-owned: `cheasee-pi start`
+records the instance in a host state directory and `cheasee-pi down` removes it,
+and the CLI publishes a read-only **instance snapshot** that the `ui` service
+mounts read-only. The snapshot carries labels and ports only — no host paths —
+and `ui` only renders it. Both discovery inputs stay inside the CLI: the
+sidecar never talks to docker and never reads host state.
 
 ### Stale process cleanup
 
@@ -387,7 +412,7 @@ removes those.
 
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -p cheasee-pi-<repo-slug> \
+  docker compose -p cheasee-pi-<instance-key> \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml down
 ```
 
@@ -398,7 +423,7 @@ from scratch, including `npm install` (~30-60s).
 
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -p cheasee-pi-<repo-slug> \
+  docker compose -p cheasee-pi-<instance-key> \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml stop
 ```
 
@@ -416,9 +441,9 @@ When the embedded Dockerfile or any dependency changes, rebuild the image explic
 
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -p cheasee-pi-<repo-slug> \
+  docker compose -p cheasee-pi-<instance-key> \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build \
-  && docker compose -p cheasee-pi-<repo-slug> \
+  && docker compose -p cheasee-pi-<instance-key> \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 
@@ -453,7 +478,7 @@ cheasee-pi rebuild
 
 # Docker compose directly (same flags rebuild passes)
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
-  docker compose -p cheasee-pi-<repo-slug> \
+  docker compose -p cheasee-pi-<instance-key> \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml build --no-cache --pull
 ```
 
@@ -468,7 +493,7 @@ rebuild = no-cache full rebuild + prune. Use `rebuild` when:
 ### Freeing disk space
 
 Repeated `build`/`rebuild` runs leave one tagged image per repository
-(`cheasee-pi-<repo-slug>-<service>`, several GB each), and `clean` never
+(`cheasee-pi-<instance-key>-<service>`, several GB each), and `clean` never
 removes them — the Docker data root (`/var`) fills up over time. Reclaim the
 space in two steps:
 
@@ -500,7 +525,7 @@ user's UID/GID. The entrypoint auto-detects from `/workspaces/main`, but on macO
 ```bash
 WORKSPACE_HOST_PATH=$(pwd) WORKSPACE_BARE_PATH=$(dirname "$(pwd)")/.bare \
   HOST_UID=$(id -u) HOST_GID=$(id -g) \
-  docker compose -p cheasee-pi-<repo-slug> \
+  docker compose -p cheasee-pi-<instance-key> \
     -f ~/.cache/cheasee-pi/<version>/docker-compose.yml up -d
 ```
 

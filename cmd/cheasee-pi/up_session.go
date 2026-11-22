@@ -67,16 +67,10 @@ func startSession(ctx context.Context, opts startOptions) error {
 	if err != nil {
 		return err
 	}
-	if len(env.Map()) == 0 {
-		fmt.Fprintf(os.Stderr, "  ⚠ No provider keys found. Models may not be available.\n")
-		fmt.Fprintf(os.Stderr, "  ℹ Use: cheasee-pi auth add <provider>\n")
-	}
+	warnMissingProviderKeys(env)
 
 	// Phase 4: dry-run — print env vars + the docker command, then exit.
-	// Touches nothing: no scaffold, no cache extraction, no compose, no exec
-	// (a dry-run on a fresh machine must not kick off a 10-minute image build).
-	if opts.DryRun {
-		printEnvAndCommand(env.Map(), name, target)
+	if dryRunStop(opts, env, name, target) {
 		return nil
 	}
 
@@ -90,14 +84,24 @@ func startSession(ctx context.Context, opts startOptions) error {
 		return err
 	}
 
-	// Phases 5-6: extract the version-keyed compose cache, start the stack
+	// Phase 5-6: extract the version-keyed compose cache, start the stack
 	// (existing containers as they are, missing ones created, absent images
 	// built only with --build) and wait for the entrypoint ready marker before
 	// execing pi (see ensureContainerReady).
+	//
+	// The discovery snapshot is materialised first — the ui service bind-mounts
+	// that FILE, and docker would create a directory at a missing source (see
+	// up_session_discovery.go).
+	materializeInstanceSnapshot(ctx)
 	if _, err := ensureContainerReady(ctx, root, name, opts.Build); err != nil {
 		return err
 	}
 	publishResolvedPorts(ctx, root, env)
+
+	// Phase 6a: register this instance so peer sidecars (and this one) can list
+	// and link it. The name is the run's effective agent container (`--name`
+	// wins), which is what the snapshot probes for liveness.
+	registerInstanceWithWarning(ctx, root, name)
 
 	// One-line cheatsheet so a fresh session has the in-pi help and the
 	// stop/cleanup commands in front of it the moment pi launches.
@@ -115,15 +119,4 @@ func startSession(ctx context.Context, opts startOptions) error {
 
 	// Phase 8: exec pi, then reap the session by marker.
 	return execPiSession(ctx, name, env.Map(), target, env.sessionID())
-}
-
-// execTarget is the docker exec working directory. Best-effort --show-prefix: a
-// broken/corrupt worktree falls back to the root instead of refusing (the
-// settings gate already passed).
-func execTarget(workdir string) string {
-	target := "/workspaces/main"
-	if _, relCwd, err := repoRoot(workdir); err == nil && relCwd != "" && relCwd != "." {
-		target += "/" + relCwd
-	}
-	return target
 }

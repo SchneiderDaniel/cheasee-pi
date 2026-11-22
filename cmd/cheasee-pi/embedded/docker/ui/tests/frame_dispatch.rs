@@ -91,6 +91,7 @@ fn frame_dispatcher_routes_session_list_to_sessions_only() {
     let frame = encode(&ServerMessage::SessionList {
         id: None,
         sessions: vec![session_row()],
+        instances: Vec::new(),
     });
 
     assert!(UiSlice::Sessions(&sessions).ingest_frame(&frame));
@@ -244,6 +245,7 @@ fn frame_session_row_wire_shape_stays_additive_and_path_free() {
     let frame = encode(&ServerMessage::SessionList {
         id: None,
         sessions: vec![session_row()],
+        instances: Vec::new(),
     });
     assert!(!frame.contains("\"path\""), "no host path: {frame}");
     assert!(!frame.contains("inUsePid"), "no process marker: {frame}");

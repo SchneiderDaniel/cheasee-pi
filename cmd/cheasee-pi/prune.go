@@ -25,7 +25,7 @@ build cache they pin — the explicit "free the disk" step when repeated
 builds fill the Docker data root.
 
 Each repository build produces one ~GB tagged image (compose names it
-cheasee-pi-<slug>-<service>) and nothing removes them: 'cheasee-pi clean'
+cheasee-pi-<instance-key>-<service>) and nothing removes them: 'cheasee-pi clean'
 only prunes dangling images and build cache, so the tagged images accumulate
 forever and keep the build cache "in use". prune-images enumerates ALL
 tagged cheasee-pi-* images on the host (every repository, no keep-latest —

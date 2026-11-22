@@ -9,8 +9,8 @@ import (
 )
 
 // start --name must not advertise a literal `cheasee-pi` default: the real
-// container name is derived (cheasee-pi-<slug>) unless the flag is set. The
-// `cheasee-pi` in docker-compose.yml is the compose project-name fallback,
+// container name is derived (cheasee-pi-<instance-key>) unless the flag is set.
+// The `cheasee-pi` in docker-compose.yml is the compose project-name fallback,
 // not the container name.
 func TestStartNameFlag_helpHidesMisleadingDefault(t *testing.T) {
 	out, err := testutil.RunCobra(t, rootCmd, "start", "--help")
@@ -25,8 +25,8 @@ func TestStartNameFlag_helpHidesMisleadingDefault(t *testing.T) {
 	}
 	// After the fix the free-text description is the ONLY default information;
 	// cobra does not parse it, so it must be self-contained.
-	if !strings.Contains(out, "derived") || !strings.Contains(out, "cheasee-pi-<slug>") {
-		t.Errorf("--name description must carry the derived default, got:\n%s", out)
+	if !strings.Contains(out, "derived") || !strings.Contains(out, "cheasee-pi-<instance-key>") {
+		t.Errorf("--name description must carry the derived default (per-workspace instance key), got:\n%s", out)
 	}
 }
 

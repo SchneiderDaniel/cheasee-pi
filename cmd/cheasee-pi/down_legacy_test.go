@@ -76,7 +76,7 @@ func TestRunDownE_removesAllThreeServices(t *testing.T) {
 	writeBareRemote(t, parent, "https://github.com/alice/repo-a.git")
 	chdir(t, root)
 
-	members := "cheasee-pi-alice-repo-a\ncheasee-pi-alice-repo-a-codeflow\nui-alice-repo-a\n"
+	members := containerName(root) + "\n" + codeflowContainerName(root) + "\n" + uiContainerName(root) + "\n"
 	composeCmd, composeArgs := stubDownFlow(t, members)
 	stderr := testutil.CaptureStderr(t, func() {
 		if err := runDownE(&cobra.Command{}, nil); err != nil {
@@ -87,10 +87,10 @@ func TestRunDownE_removesAllThreeServices(t *testing.T) {
 	if !slices.Contains(*composeArgs, "down") {
 		t.Fatalf("compose down must be invoked, got %v", *composeArgs)
 	}
-	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != "cheasee-pi-alice-repo-a" {
-		t.Errorf("compose down must target the workspace project, got %q", got)
+	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != composeProjectName(root) {
+		t.Errorf("compose down must target the workspace project %q, got %q", composeProjectName(root), got)
 	}
-	for _, name := range []string{"cheasee-pi-alice-repo-a", "cheasee-pi-alice-repo-a-codeflow", "ui-alice-repo-a"} {
+	for _, name := range []string{containerName(root), codeflowContainerName(root), uiContainerName(root)} {
 		if !strings.Contains(stderr, name) {
 			t.Errorf("down must report all three project containers; %q missing from %q", name, stderr)
 		}

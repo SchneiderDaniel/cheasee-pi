@@ -204,6 +204,7 @@ fn stream_session_envelopes_round_trip() {
     let message = ServerMessage::SessionList {
         id: None,
         sessions: vec![row],
+        instances: Vec::new(),
     };
     let value = serde_json::to_value(&message).unwrap();
     assert_eq!(value["type"], "session_list");

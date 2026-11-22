@@ -42,7 +42,7 @@ async fn controls_journey_session_list_resume_and_stop() {
         }))
         .unwrap();
     match next_message(&mut received).await {
-        ServerMessage::SessionList { id, sessions } => {
+        ServerMessage::SessionList { id, sessions, .. } => {
             assert_eq!(id.as_deref(), Some("c1"));
             assert_eq!(sessions.len(), 1);
             assert_eq!(sessions[0].id, "aaaa");

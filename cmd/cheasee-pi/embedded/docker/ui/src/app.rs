@@ -77,7 +77,6 @@ pub fn App() -> impl IntoView {
         <main class="shell">
             <h1>"cheasee-pi control center"</h1>
             <StatusChrome/>
-            <Counter/>
             <SessionList status=status/>
             <ControlsPanel status=status/>
             <QueuePanel status=status/>
@@ -85,19 +84,6 @@ pub fn App() -> impl IntoView {
             <PromptInput status=status/>
             <Transcript/>
         </main>
-    }
-}
-
-/// Deterministic initial state (0) — the only shape hydration tolerates.
-#[component]
-fn Counter() -> impl IntoView {
-    let count = RwSignal::new(0);
-    view! {
-        <section class="counter">
-            <button on:click=move |_| *count.write() += 1>
-                "count: " {move || count.get()}
-            </button>
-        </section>
     }
 }
 

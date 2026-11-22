@@ -54,11 +54,11 @@ func TestRunDownE_targetsWorkspaceProjectOnly(t *testing.T) {
 		t.Fatalf("compose down args wrong: %v", *composeArgs)
 	}
 	project := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME")
-	if project != "cheasee-pi-alice-repo-a" {
-		t.Errorf("down must target the workspace's derived project, got %q (env %v)", project, composeCmd.env)
+	if project != composeProjectName(rootA) {
+		t.Errorf("down must target the workspace's derived project %q, got %q (env %v)", composeProjectName(rootA), project, composeCmd.env)
 	}
-	if !slices.Contains(composeCmd.env, "CHEASEEPI_CONTAINER=cheasee-pi-alice-repo-a") {
-		t.Errorf("down env must carry the workspace container name, got %v", composeCmd.env)
+	if !slices.Contains(composeCmd.env, "CHEASEEPI_CONTAINER="+containerName(rootA)) {
+		t.Errorf("down env must carry the workspace container name %q, got %v", containerName(rootA), composeCmd.env)
 	}
 	if !strings.Contains(stderr, "Container stopped and removed") {
 		t.Errorf("down must confirm removal, got %q", stderr)
@@ -66,8 +66,8 @@ func TestRunDownE_targetsWorkspaceProjectOnly(t *testing.T) {
 }
 
 func TestRunDownE_parallelWorkspaceUntouched(t *testing.T) {
-	// ws1's down must not carry ws2's project name (label-scoped compose down
-	// cannot touch the sibling project's container).
+	// ws1's down must not carry a sibling repo's project name (label-scoped
+	// compose down cannot touch another project's container).
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	parentA, rootA := mkWorkspace(t, `{}`)
 	writeBareRemote(t, parentA, "https://github.com/alice/repo-a.git")
@@ -79,11 +79,11 @@ func TestRunDownE_parallelWorkspaceUntouched(t *testing.T) {
 	if err := runDownE(&cobra.Command{}, nil); err != nil {
 		t.Fatalf("runDownE: %v", err)
 	}
-	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != "cheasee-pi-alice-repo-a" {
-		t.Errorf("down must target ws1's project only, got %q", got)
+	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != composeProjectName(rootA) {
+		t.Errorf("down must target ws1's project %q only, got %q", composeProjectName(rootA), got)
 	}
-	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got == "cheasee-pi-bob-repo-b" {
-		t.Errorf("down must not target the sibling workspace's project, got %q", got)
+	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); strings.HasPrefix(got, "cheasee-pi-bob-repo-b") {
+		t.Errorf("down must not target the sibling repo's project, got %q", got)
 	}
 }
 
@@ -104,8 +104,8 @@ func TestRunDownE_fromSubdirTargetsWorkspaceRoot(t *testing.T) {
 	if err := runDownE(&cobra.Command{}, nil); err != nil {
 		t.Fatalf("runDownE: %v", err)
 	}
-	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != "cheasee-pi-alice-repo-a" {
-		t.Errorf("down from a subdir must target the workspace's derived project, got %q (env %v)", got, composeCmd.env)
+	if got := composeEnvValue(composeCmd.env, "COMPOSE_PROJECT_NAME"); got != composeProjectName(root) {
+		t.Errorf("down from a subdir must target the workspace's derived project %q, got %q (env %v)", composeProjectName(root), got, composeCmd.env)
 	}
 	if !slices.Contains(composeCmd.env, "WORKSPACE_HOST_PATH="+root) {
 		t.Errorf("down from a subdir must mount the ancestor workspace root (not cwd), got %v", composeCmd.env)

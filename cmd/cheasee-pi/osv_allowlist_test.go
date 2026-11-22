@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -60,6 +61,64 @@ func TestUIOsvAllowlist_EntriesCarryReasonAndExpiry(t *testing.T) {
 			t.Error("allowlist entry without reason is an unexplained suppression")
 		}
 	}
+}
+
+// `url` 2.5.8 (RUSTSEC-2026-0592: stack overflow in `Url::origin()` on nested
+// `blob:` URLs) reached the lock through leptos_router and server_fn. The
+// advisory HAS a patched release, unlike the two unmaintained crates above, so
+// accepted risk is not the remedy: the lock must pin the fixed line and the
+// allowlist must never carry a suppression for it.
+func TestUIOsvAllowlist_UrlAdvisoryFixedInLockfile(t *testing.T) {
+	version, ok := cargoLockVersions(t)["url"]
+	if !ok {
+		t.Fatal("ui/Cargo.lock no longer lists url — delete this guard with the dependency")
+	}
+	if cmp, ok := compareDottedVersions(version, "2.5.9"); !ok {
+		t.Fatalf("url version %q is not dotted-numeric", version)
+	} else if cmp < 0 {
+		t.Errorf("ui/Cargo.lock pins url %s; RUSTSEC-2026-0592 is fixed in 2.5.9 (Url::origin on nested blob: URLs overflows the stack and aborts the process)", version)
+	}
+	if strings.Contains(uiAsset(t, "osv-scanner.toml"), "RUSTSEC-2026-0592") {
+		t.Error("the url advisory has a patched release — bump the lock instead of accepting it in osv-scanner.toml")
+	}
+}
+
+// compareDottedVersions compares two dotted-numeric versions ("2.5.9" vs
+// "2.5.10") without pulling a semver library into the CLI. ok=false when either
+// side carries a non-numeric component (a prerelease, which no lock here uses).
+func compareDottedVersions(a, b string) (int, bool) {
+	parse := func(v string) ([]int, bool) {
+		parts := strings.Split(v, ".")
+		out := make([]int, len(parts))
+		for i, part := range parts {
+			n, err := strconv.Atoi(part)
+			if err != nil {
+				return nil, false
+			}
+			out[i] = n
+		}
+		return out, true
+	}
+	left, okLeft := parse(a)
+	right, okRight := parse(b)
+	if !okLeft || !okRight {
+		return 0, false
+	}
+	for len(left) < len(right) {
+		left = append(left, 0)
+	}
+	for len(right) < len(left) {
+		right = append(right, 0)
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			if left[i] < right[i] {
+				return -1, true
+			}
+			return 1, true
+		}
+	}
+	return 0, true
 }
 
 // The allowlist is build-context noise if a COPY ever sweeps it into a layer.

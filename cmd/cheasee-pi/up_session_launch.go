@@ -8,6 +8,17 @@ import (
 	"time"
 )
 
+// execTarget is the docker exec working directory. Best-effort --show-prefix: a
+// broken/corrupt worktree falls back to the root instead of refusing (the
+// settings gate already passed).
+func execTarget(workdir string) string {
+	target := "/workspaces/main"
+	if _, relCwd, err := repoRoot(workdir); err == nil && relCwd != "" && relCwd != "." {
+		target += "/" + relCwd
+	}
+	return target
+}
+
 // claimLiveSession publishes the live-session claim and returns its release. A
 // failed claim write degrades the ui guard to advisory, never a failed start;
 // the release runs on every exit path of the caller.

@@ -96,8 +96,11 @@ where `localhost` resolves to `::1` first a `localhost` URL would not reach the
 published port.
 
 Resolution order for the host port: `docker.uiPort` in `cheasee-settings.json` →
-env `PI_UI_PORT` → derived `9500 + fnv32(repo-slug) % 1024` (range 9500–10523,
-probed next-free) so parallel workspaces never collide. The port the running
+env `PI_UI_PORT` → derived `9500 + fnv32(instance-key) % 1024` (range 9500–10523,
+probed next-free) so parallel workspaces never collide. The instance key is the
+repo slug plus a digest of the workspace's absolute path
+(`<repo-slug>-<path-digest>`), so two worktrees of one repo get distinct
+containers, projects and ports. The port the running
 sidecar actually published (`docker port`) is authoritative over that chain.
 
 The resolved host port is forwarded into the pi session as `PI_UI_PORT` so the
@@ -206,7 +209,7 @@ orphaned pi processes inside them.
 
 ## `cheasee-pi prune-images`
 
-Delete ALL tagged cheasee-pi images (every repo) — recreated on next build — the explicit "free the disk" step when repeated builds fill the Docker data root. `clean` removes containers; `prune-images` removes the regenerable per-repo images (`cheasee-pi-<slug>-cheasee-pi`, `cheasee-pi-<slug>-codeflow`) that `clean` never touches.
+Delete ALL tagged cheasee-pi images (every repo) — recreated on next build — the explicit "free the disk" step when repeated builds fill the Docker data root. `clean` removes containers; `prune-images` removes the regenerable per-workspace images (`cheasee-pi-<instance-key>-cheasee-pi`, `cheasee-pi-<instance-key>-codeflow`) that `clean` never touches.
 
 |            |                                                                                                                                                                                                                                                                                                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -280,24 +283,25 @@ Passthrough from the host environment (when set):
 
 Other variables the CLI reads:
 
-| Variable                | Meaning                                                                                                                                                                                                                                                                                           |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CODEFLOW_PORT`         | Host port for the CodeFlow sidecar. Resolution order: `docker.codeflowPort` in `cheasee-settings.json` → env `CODEFLOW_PORT` → derived `8470 + fnv32(repo-slug) % 1024`, probed next-free                                                                                                         |
-| `CODEFLOW_HOST_IP`      | Host-side bind IP for the CodeFlow sidecar's published port. Default `127.0.0.1` — loopback only, matching the printed `localhost` URL (the sidecar serves the workspace source read-only). `0.0.0.0` is the explicit remote-access opt-in                                                        |
-| `PI_UI_PORT`            | Host port for the `ui` control-center sidecar. Resolution order: `docker.uiPort` in `cheasee-settings.json` → env `PI_UI_PORT` → derived `9500 + fnv32(repo-slug) % 1024`, probed next-free. The host bind is bound to `127.0.0.1` by configuration (no opt-in). See [UI](#ui-web-control-center) |
-| `CHEASEEPI_MEMORY`      | Build arg passed by `build`/`rebuild` from `docker.memory` in `cheasee-settings.json`                                                                                                                                                                                                             |
-| OS user cache directory | CLI cache base from `os.UserCacheDir`: Linux uses `XDG_CACHE_HOME` or `~/.cache`, macOS uses `~/Library/Caches`, and Windows uses `%LocalAppData%`                                                                                                                                                |
+| Variable                | Meaning                                                                                                                                                                                                                                                                                              |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CODEFLOW_PORT`         | Host port for the CodeFlow sidecar. Resolution order: `docker.codeflowPort` in `cheasee-settings.json` → env `CODEFLOW_PORT` → derived `8470 + fnv32(instance-key) % 1024`, probed next-free                                                                                                         |
+| `CODEFLOW_HOST_IP`      | Host-side bind IP for the CodeFlow sidecar's published port. Default `127.0.0.1` — loopback only, matching the printed `localhost` URL (the sidecar serves the workspace source read-only). `0.0.0.0` is the explicit remote-access opt-in                                                           |
+| `PI_UI_PORT`            | Host port for the `ui` control-center sidecar. Resolution order: `docker.uiPort` in `cheasee-settings.json` → env `PI_UI_PORT` → derived `9500 + fnv32(instance-key) % 1024`, probed next-free. The host bind is bound to `127.0.0.1` by configuration (no opt-in). See [UI](#ui-web-control-center) |
+| `CHEASEEPI_MEMORY`      | Build arg passed by `build`/`rebuild` from `docker.memory` in `cheasee-settings.json`                                                                                                                                                                                                                |
+| OS user cache directory | CLI cache base from `os.UserCacheDir`: Linux uses `XDG_CACHE_HOME` or `~/.cache`, macOS uses `~/Library/Caches`, and Windows uses `%LocalAppData%`                                                                                                                                                   |
 
 ## Files and artifacts
 
-| Path                                   | Role                                                                                                                         |
-| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `<UserConfigDir>/cheasee-pi/auth.json` | Provider API keys + GitHub token/user (0600, atomic writes)                                                                  |
-| `<workspace>/cheasee-settings.json`    | Initialized marker; `defaultProvider`/`defaultModel`, docker settings, skill repos (tab-indented, never overwritten by init) |
-| `<UserCacheDir>/cheasee-pi/<version>`  | CLI-managed cache: `docker-compose.yml`, `Dockerfile` (extracted on demand)                                                  |
-| `<workspace>/.pi/`                     | pi agent config (settings, agent settings)                                                                                   |
-| `<workdir>/.bare`                      | Sibling bare clone, mounted at `/workspaces/.bare` in the container                                                          |
-| container `cheasee-pi-<repo-slug>`     | Per-repo Docker container (workspace mounts at `/workspaces/main`)                                                           |
+| Path                                   | Role                                                                                                                                                          |
+| -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `<UserConfigDir>/cheasee-pi/auth.json` | Provider API keys + GitHub token/user (0600, atomic writes)                                                                                                   |
+| `<workspace>/cheasee-settings.json`    | Initialized marker; `defaultProvider`/`defaultModel`, docker settings, skill repos (tab-indented, never overwritten by init)                                  |
+| `<UserCacheDir>/cheasee-pi/<version>`  | CLI-managed cache: `docker-compose.yml`, `Dockerfile` (extracted on demand)                                                                                   |
+| `<workspace>/.pi/`                     | pi agent config (settings, agent settings)                                                                                                                    |
+| `<workdir>/.bare`                      | Sibling bare clone, mounted at `/workspaces/.bare` in the container                                                                                           |
+| container `cheasee-pi-<instance-key>`  | Per-workspace Docker container (workspace mounts at `/workspaces/main`)                                                                                       |
+| `<UserCacheDir>/cheasee-pi/instances/` | Instance registry: one `<instance-key>.json` per running stack; `<UserCacheDir>/cheasee-pi/instances.json` is the read-only snapshot the `ui` sidecar renders |
 
 ## Where to go deeper
 
