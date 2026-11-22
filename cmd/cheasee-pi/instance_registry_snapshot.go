@@ -11,9 +11,9 @@ import (
 // ──────────────────────────────────────────────
 // Instance snapshot (the sidecar-facing read-only view)
 //
-// The ui service has no host and no docker access, so discovery reaches it as a
-// FILE the CLI writes and compose bind-mounts read-only: one JSON row per live
-// instance, with liveness resolved on the host at write time.
+// The ui service has neither host nor docker access, so discovery reaches it as
+// a FILE the CLI writes, compose bind-mounted read-only: one JSON row per live
+// instance; liveness is resolved on the host at write time.
 // ──────────────────────────────────────────────
 
 // instanceSnapshotPath is the file the CLI writes for the ui sidecars and the
@@ -38,27 +38,47 @@ type instanceSnapshotRow struct {
 // writeInstanceSnapshot publishes the read-only view of every registered
 // instance to path — the file the compose `ui` service bind-mounts. Liveness is
 // resolved from `docker ps -a` at write time (a registry file can survive a host
-// crash), a container that no longer exists is dropped, and a failing probe
-// writes nothing: a stale snapshot would lie about the host.
+// crash); a container that no longer exists is dropped.
+//
+// A failing resolution invalidates the previously published view instead of
+// leaving it in place: once the registry/docker state is unknown, every row
+// still held is a claim the CLI can no longer support, so a running row would
+// hand the operator a dead link. The file becomes an empty list ("no instance
+// available"); the fault is returned — fail closed, never silent.
 //
 // The file is rewritten in place rather than replaced: the ui service binds the
-// FILE, so a rename would swap the inode out from under the running container
-// and freeze it on the stale content.
+// FILE, so a rename would swap the inode out from under the running container,
+// freezing it on the stale content.
 func writeInstanceSnapshot(ctx context.Context, reg InstanceRegistry, path string) error {
+	rows, err := liveSnapshotRows(ctx, reg)
+	if err != nil {
+		return invalidateStaleSnapshot(path, err)
+	}
+	return writeSnapshotRows(path, rows)
+}
+
+// liveSnapshotRows resolves one row per registered instance whose container
+// still exists on the host.
+func liveSnapshotRows(ctx context.Context, reg InstanceRegistry) ([]instanceSnapshotRow, error) {
 	records, err := reg.List()
 	if err != nil {
-		return err
+		return nil, err
 	}
+	return snapshotRowsForRecords(ctx, records)
+}
+
+// snapshotRowsForRecords pairs the records to the liveness probe, dropping the
+// records whose container is gone: the record is stale (host crash, manual rm)
+// so a stale record must not surface as an available instance.
+func snapshotRowsForRecords(ctx context.Context, records []InstanceRecord) ([]instanceSnapshotRow, error) {
 	states, err := registeredContainerStates(ctx, records)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	rows := make([]instanceSnapshotRow, 0, len(records))
 	for _, rec := range records {
 		state, exists := states[rec.liveContainerName()]
 		if !exists {
-			// The container is gone: the record is stale (host crash, manual
-			// rm). A stale record must not surface as an available instance.
 			continue
 		}
 		rows = append(rows, instanceSnapshotRow{
@@ -68,7 +88,30 @@ func writeInstanceSnapshot(ctx context.Context, reg InstanceRegistry, path strin
 			Running: state == "running",
 		})
 	}
-	return writeSnapshotRows(path, rows)
+	return rows, nil
+}
+
+// invalidateStaleSnapshot clears an already-published snapshot before the
+// resolution fault is returned, so the sidecar stops advertising instances the
+// CLI can no longer confirm.
+func invalidateStaleSnapshot(path string, cause error) error {
+	if err := invalidateInstanceSnapshot(path); err != nil {
+		return fmt.Errorf("%w (stale snapshot %s could not be invalidated: %v)", cause, path, err)
+	}
+	return cause
+}
+
+// invalidateInstanceSnapshot rewrites an existing snapshot as an empty list. A
+// target that was never written is left unwritten: there is no stale claim to
+// correct; fabricating one would put a file where no view was published.
+func invalidateInstanceSnapshot(path string) error {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("stat instance snapshot %s: %w", path, err)
+	}
+	return writeEmptyInstanceSnapshot(path)
 }
 
 // registeredContainerStates probes the docker state of every recorded instance

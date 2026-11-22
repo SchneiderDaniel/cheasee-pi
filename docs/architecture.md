@@ -172,7 +172,10 @@ sidecar as occupancy and shift to the next free port. Liveness is resolved from
 `docker ps -a` at snapshot-write time against the recorded `agentContainer`
 (`start --name` overrides the derived name), so a record left behind by a host
 crash is dropped instead of surfacing as an available instance, and a
-custom-named instance is never mistaken for a missing one. The sidecar renders
+custom-named instance is never mistaken for a missing one. When that resolution
+fails — docker unreachable, a corrupt peer record — the published snapshot is
+invalidated to an empty list, so the `ui` stops advertising peers the CLI can no
+longer confirm, and the fault is reported on stderr. The sidecar renders
 the snapshot and links to each peer's own loopback UI port; it never probes the
 host, never scans port bands and never gains a daemon view.
 

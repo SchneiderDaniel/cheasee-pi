@@ -73,3 +73,72 @@ func TestDiscovery_ensureSnapshotFallsBackToEmptyOnCorruptRegistry(t *testing.T)
 	// after the stack is up).
 	discoveryRequireNoErr(t, "existing snapshot must satisfy the pre-compose step", ensureInstanceSnapshot(context.Background()))
 }
+
+// ──────────────────────────────────────────────
+// Snapshot invalidation on a failing resolution (#2155 audit finding 1)
+//
+// A snapshot published while the host view was known must not survive a later
+// failure: the sidecar would keep listing running peers and render connect
+// links to stacks the CLI can no longer confirm. The published view is
+// invalidated to an empty list and the fault is returned.
+// ──────────────────────────────────────────────
+
+// discoverySeedRunningSnapshot publishes a one-row snapshot claiming the
+// record's container is running, and returns the snapshot path.
+func discoverySeedRunningSnapshot(t *testing.T, reg InstanceRegistry, rec InstanceRecord) string {
+	t.Helper()
+	stubSnapshotStates(t, containerNameFromKey(rec.Key)+"|running\n", nil)
+	path := discoverySnapshotPath(t)
+	discoveryRequireNoErr(t, "writeInstanceSnapshot (seed)", writeInstanceSnapshot(context.Background(), reg, path))
+	if rows := readSnapshot(t, path); len(rows) != 1 || rows[0]["running"] != true {
+		t.Fatalf("seed snapshot = %v, want exactly one running entry", rows)
+	}
+	return path
+}
+
+// discoveryRequireInvalidatedSnapshot asserts path still exists as a FILE
+// carrying the empty list — the mount target survives, the stale claim does not.
+func discoveryRequireInvalidatedSnapshot(t *testing.T, path string) {
+	t.Helper()
+	info, err := os.Stat(path)
+	discoveryRequireNoErr(t, "stat snapshot", err)
+	if info.IsDir() {
+		t.Fatalf("snapshot target %s must stay a FILE (the ui bind mount)", path)
+	}
+	if rows := readSnapshot(t, path); len(rows) != 0 {
+		t.Errorf("snapshot = %v, want an empty list so no stale instance is advertised", rows)
+	}
+}
+
+func TestDiscovery_snapshotProbeFailureInvalidatesStaleSnapshot(t *testing.T) {
+	rec := discoveryRecord("alice-foo-00000000")
+	reg := discoverySnapshotRegistry(t, rec)
+	path := discoverySeedRunningSnapshot(t, reg, rec)
+
+	// Docker becomes unreachable: the fault surfaces AND the stale claim goes.
+	stubSnapshotStates(t, "", errDaemonGone)
+	err := writeInstanceSnapshot(context.Background(), reg, path)
+	if err == nil {
+		t.Fatal("a failing liveness probe must surface, got nil error")
+	}
+	discoveryRequireContains(t, "probe-failure error", err.Error(), "docker ps:")
+	discoveryRequireInvalidatedSnapshot(t, path)
+}
+
+func TestDiscovery_snapshotRegistryFailureInvalidatesStaleSnapshot(t *testing.T) {
+	// The same class of fault from the other side: a corrupt peer record makes
+	// the listing unknowable, so the published view must not survive either.
+	rec := discoveryRecord("alice-foo-00000000")
+	dir := t.TempDir()
+	reg := newFileInstanceRegistry(dir)
+	discoveryRequireNoErr(t, "Record", reg.Record(rec))
+	path := discoverySeedRunningSnapshot(t, reg, rec)
+	discoveryRequireNoErr(t, "write corrupt record", os.WriteFile(filepath.Join(dir, "broken-00000000.json"), []byte("{not json"), 0o644))
+
+	err := writeInstanceSnapshot(context.Background(), reg, path)
+	if err == nil {
+		t.Fatal("a corrupt registry must surface, got nil error")
+	}
+	discoveryRequireContains(t, "corrupt-registry error", err.Error(), "broken-00000000.json")
+	discoveryRequireInvalidatedSnapshot(t, path)
+}
