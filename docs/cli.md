@@ -23,6 +23,7 @@ covered in [Configuration](configuration.md).
 | `cheasee-pi init`                                  | Set up workspace: bare clone + main worktree + `cheasee-settings.json`     | empty folder, repo URL                |
 | `cheasee-pi auth add \| remove \| list \| envvars` | Manage provider API keys                                                   | provider, key                         |
 | `cheasee-pi build` (full: `rebuild`)               | Rebuild the Docker image                                                   | workspace settings                    |
+| `cheasee-pi rebuild-ui`                            | Rebuild and recreate only the UI sidecar                                   | workspace, credentials                |
 | `cheasee-pi down` (alias `stop`)                   | Stop/remove THIS workspace's container only                                | —                                     |
 | `cheasee-pi clean`                                 | Remove ALL cheasee-pi containers (every repo) — kills active sessions      | confirmation                          |
 | `cheasee-pi prune-images`                          | Delete ALL tagged cheasee-pi images (every repo) — recreated on next build | confirmation, `--dry-run` / `--yes`   |
@@ -167,6 +168,19 @@ Docker layer cache; `rebuild` is a full no-cache rebuild plus prune.
 | **Checks** | Runs from a git repo (settings + git identity come from it). Docker gate unless `--no-docker-check`. Refuses to build when free space on the Docker data root (`docker info --format '{{.DockerRootDir}}'`) is below 10 GiB, naming `cheasee-pi clean` / `cheasee-pi prune-images` to reclaim. Compose validates every volume spec, so the workspace path must resolve. |
 | **Inputs** | Flags: `--workdir`, `--no-docker-check`. Reads `cheasee-settings.json` (`docker.memory`).                                                                                                                                                                                                                                                                               |
 | **Note**   | A cached build does not apply the new image to a running container — apply with `cheasee-pi start --build` or `cheasee-pi down` + `cheasee-pi start`.                                                                                                                                                                                                                   |
+
+## `cheasee-pi rebuild-ui`
+
+Rebuild the UI sidecar with the Docker layer cache and recreate only its
+container. The agent and CodeFlow services are not rebuilt or restarted. During
+UI development, we run `go run ./cmd/cheasee-pi rebuild-ui` so the extracted
+build context includes the current embedded UI sources.
+
+|            |                                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------------------------- |
+| **Does**   | Builds the `ui` Compose service, then applies the image with `--no-deps`; only the UI container is recreated.   |
+| **Checks** | Docker availability, workspace and sibling bare-repository paths, and the host credential file.                 |
+| **Inputs** | Flags: `--workdir`, `--no-docker-check`. Reads workspace settings and credentials; uses the cached build layers. |
 
 ## `cheasee-pi down`
 

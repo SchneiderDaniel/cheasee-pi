@@ -119,5 +119,16 @@
 		"reveal": "always",
 		"hide": "never",
 		"tags": ["cheasee-pi", "go-cli", "container", "build", "rebuild"]
+	},
+	{
+		"label": "Cheasee-Pi: rebuild UI sidecar only",
+		"command": "go",
+		"args": ["run", "./cmd/cheasee-pi", "rebuild-ui"],
+		"cwd": "$ZED_WORKTREE_ROOT",
+		"use_new_terminal": true,
+		"allow_concurrent_runs": false,
+		"reveal": "always",
+		"hide": "never",
+		"tags": ["cheasee-pi", "go-cli", "container", "build", "ui"]
 	}
 ]
