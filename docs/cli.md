@@ -195,7 +195,7 @@ orphaned pi processes inside them.
 
 ## `cheasee-pi prune-images`
 
-Delete ALL tagged cheasee-pi images (every repo) — recreated on next build — the explicit "free the disk" step when repeated builds fill the Docker data root. `clean` removes containers; `prune-images` removes the regenerable per-repo images (`cheasee-pi-<slug>-cheasee-pi`, `cheasee-pi-<slug>-codeflow`) that `clean` never touches.
+Delete ALL tagged cheasee-pi images (every repo) — recreated on next build — the explicit "free the disk" step when repeated builds fill the Docker data root. `clean` removes containers; `prune-images` removes the regenerable per-workspace images (`cheasee-pi-<instance-key>-cheasee-pi`, `cheasee-pi-<instance-key>-codeflow`) that `clean` never touches.
 
 |            |                                                                                                                                                                                                                                                                                                                    |
 | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
