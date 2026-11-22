@@ -172,12 +172,17 @@ sidecar as occupancy and shift to the next free port. Liveness is resolved from
 `docker ps -a` at snapshot-write time against the recorded `agentContainer`
 (`start --name` overrides the derived name), so a record left behind by a host
 crash is dropped instead of surfacing as an available instance, and a
-custom-named instance is never mistaken for a missing one. When that resolution
-fails — docker unreachable, a corrupt peer record — the published snapshot is
-invalidated to an empty list, so the `ui` stops advertising peers the CLI can no
-longer confirm, and the fault is reported on stderr. The sidecar renders
-the snapshot and links to each peer's own loopback UI port; it never probes the
-host, never scans port bands and never gains a daemon view.
+custom-named instance is never mistaken for a missing one. Publication is a
+read–probe–write cycle and runs under one host-wide lock
+(`<user cache>/cheasee-pi/instances.json.lock`), with the registry listed
+_inside_ it: two starts finishing out of order can then never let a slower
+refresh overwrite a newer, more complete view — the last writer re-reads the
+registry, so a workspace that started in between is never dropped. When that
+resolution fails — docker unreachable, a corrupt peer record — the published
+snapshot is invalidated to an empty list, so the `ui` stops advertising peers the
+CLI can no longer confirm, and the fault is reported on stderr. The sidecar
+renders the snapshot and links to each peer's own loopback UI port; it never
+probes the host, never scans port bands and never gains a daemon view.
 
 ## Shared extension library (`lib/`)
 

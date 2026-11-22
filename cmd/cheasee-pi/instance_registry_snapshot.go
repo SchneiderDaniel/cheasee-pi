@@ -49,12 +49,19 @@ type instanceSnapshotRow struct {
 // The file is rewritten in place rather than replaced: the ui service binds the
 // FILE, so a rename would swap the inode out from under the running container,
 // freezing it on the stale content.
+//
+// The whole cycle runs under the publication lock (instance_publication_lock.go)
+// and lists the registry inside it: a refresh that read an older registry must
+// never overwrite a newer one, or a workspace that started in between drops out
+// of every sidecar's view.
 func writeInstanceSnapshot(ctx context.Context, reg InstanceRegistry, path string) error {
-	rows, err := liveSnapshotRows(ctx, reg)
-	if err != nil {
-		return invalidateStaleSnapshot(path, err)
-	}
-	return writeSnapshotRows(path, rows)
+	return withInstancePublicationLock(path, func() error {
+		rows, err := liveSnapshotRows(ctx, reg)
+		if err != nil {
+			return invalidateStaleSnapshot(path, err)
+		}
+		return writeSnapshotRows(path, rows)
+	})
 }
 
 // liveSnapshotRows resolves one row per registered instance whose container
@@ -104,6 +111,8 @@ func invalidateStaleSnapshot(path string, cause error) error {
 // invalidateInstanceSnapshot rewrites an existing snapshot as an empty list. A
 // target that was never written is left unwritten: there is no stale claim to
 // correct; fabricating one would put a file where no view was published.
+//
+// Callers already hold the publication lock, so this must not take it again.
 func invalidateInstanceSnapshot(path string) error {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -151,9 +160,24 @@ func writeSnapshotFile(path string, data []byte) error {
 }
 
 // writeEmptyInstanceSnapshot publishes an empty snapshot so the ui service's
-// bind-mount target exists as a file.
+// bind-mount target exists as a file. Callers hold the publication lock (see
+// invalidateInstanceSnapshot); ensureSnapshotFileExists is the locking entry
+// point for callers that do not.
 func writeEmptyInstanceSnapshot(path string) error {
 	return writeSnapshotFile(path, []byte("[]\n"))
+}
+
+// ensureSnapshotFileExists materialises path as an empty snapshot if nothing is
+// published there. The check runs under the publication lock, so a snapshot a
+// peer published in the meantime is kept instead of being overwritten with an
+// empty view.
+func ensureSnapshotFileExists(path string) error {
+	return withInstancePublicationLock(path, func() error {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		}
+		return writeEmptyInstanceSnapshot(path)
+	})
 }
 
 // refreshInstanceSnapshot writes the shared snapshot from the host registry.
@@ -188,7 +212,7 @@ func ensureInstanceSnapshot(ctx context.Context) error {
 		return err
 	}
 	if err := writeInstanceSnapshot(ctx, reg, path); err != nil {
-		if fallback := writeEmptyInstanceSnapshot(path); fallback != nil {
+		if fallback := ensureSnapshotFileExists(path); fallback != nil {
 			return fmt.Errorf("%w (and the empty snapshot could not be written: %v)", err, fallback)
 		}
 		return err
