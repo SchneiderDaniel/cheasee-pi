@@ -335,12 +335,13 @@ the SAME repo — therefore owns its own `cheasee-pi-…` container, its own
 Two different repos, and two worktrees of one repo, run side by side without
 interfering.
 
-> **Migration.** Stacks created before per-worktree identity keep their old
-> slug-only names. If `cheasee-pi start` reports that a container belongs to
-> another workspace, or the sidecar does not list an instance, run
-> `cheasee-pi down` and then `cheasee-pi start` once in that workspace: the
-> name and port are re-derived from the path, so a stale name can only come
-> from a pre-upgrade stack.
+> **Migration.** A stack created before per-worktree identity keeps its old
+> slug-only container and compose project names — `cheasee-pi down` resolves
+> the path-derived name, so it no longer finds that stack and reports nothing to
+> stop. Remove it once on the host (`cheasee-pi clean`, which removes every
+> cheasee-pi container, or `docker compose -p cheasee-pi-<repo-slug> down` from
+> that workspace), then run `cheasee-pi start`: the new stack's name and port
+> are re-derived from the path, and the instance registers itself for discovery.
 
 Within one workspace you can run multiple pi sessions against the same
 container simultaneously from different terminals. Each `docker exec` creates

@@ -12,6 +12,8 @@ import { spawnSync } from "node:child_process";
 
 import type { SpawnSyncOptionsWithStringEncoding } from "node:child_process";
 
+import { createHash } from "node:crypto";
+
 const testXdgHome = mkdtempSync(join(tmpdir(), "cheasee-pi-test-xdg-"));
 
 process.env.XDG_CONFIG_HOME = testXdgHome;
@@ -30,11 +32,21 @@ const BINARY_PATH = process.env.CHEASEE_PI_BIN ?? resolve(process.cwd(), "chease
 
 const SLUG = "cli-install-smoke";
 
-const CONTAINER_NAME = `cheasee-pi-${SLUG}`;
-
-const COMPOSE_PROJECT = CONTAINER_NAME;
-
-const CODEFLOW_CONTAINER = `codeflow-${SLUG}`;
+// Per-worktree instance identity (cmd/cheasee-pi/instance_key.go): container,
+// compose project and derived ports key off the repo slug PLUS the first 8 hex
+// of sha256(workspace path), so two worktrees of one repo never share a
+// container (issue #2155). Checkpoint 5 drives a RAW `docker compose up`, which
+// has no CLI to derive that key — this suite derives the identical names. The
+// workspace only exists from before() on, hence functions, not constants.
+let testRoot = "";
+let workdir = "";
+const instanceKey = (): string =>
+	`${SLUG}-${createHash("sha256").update(workdir).digest("hex").slice(0, 8)}`;
+const containerName = (): string => `cheasee-pi-${instanceKey()}`;
+const codeflowContainer = (): string => `codeflow-${instanceKey()}`;
+// This key is far below both the container (51) and project (43) caps, so the
+// two compose-visible names coincide.
+const composeProject = (): string => containerName();
 
 const HEALTH_TIMEOUT_MS = 120_000;
 
@@ -106,7 +118,7 @@ async function waitForHealthy(timeoutMs: number): Promise<string> {
 	const startTime = Date.now();
 	const deadline = startTime + timeoutMs;
 	while (Date.now() < deadline) {
-		const result = exec(`docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_NAME}`, {
+		const result = exec(`docker inspect --format='{{.State.Health.Status}}' ${containerName()}`, {
 			timeout: 10_000,
 		});
 		if (result.status === 0) {
@@ -123,9 +135,6 @@ async function waitForHealthy(timeoutMs: number): Promise<string> {
 }
 
 describe("CLI install smoke", { timeout: 600_000 }, () => {
-	let testRoot: string;
-	let workdir: string;
-
 	before(() => {
 		// Verify binary exists before starting
 		if (!binaryExists()) {
@@ -144,9 +153,9 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		// The sibling bare mount source: the compose file bind-mounts
 		// ${WORKSPACE_BARE_PATH}:/workspaces/.bare, and compose validates
 		// every volume spec even for raw `up`. Seed it as a bare repo with a
-		// remote so the CLI's per-repo slug derivation is deterministic
-		// (container/project = cheasee-pi-cli-install-smoke, same name both
-		// checkpoint 5's raw compose up and checkpoint 9's `down` resolve);
+		// remote so the CLI's slug derivation is deterministic (container and
+		// project = cheasee-pi-<slug>-<path-digest>, the name checkpoint 5's raw
+		// compose up, checkpoint 8's `start` and checkpoint 9's `down` resolve);
 		// a bare repo without worktrees is still skipped by worktree-fix.
 		const barePath = join(workdir, "..", ".bare");
 		mkdirSync(barePath, { recursive: true });
@@ -175,7 +184,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			});
 			// The per-repo container may not belong to the pinned-name project
 			// above — remove it by name (best-effort safety net on failure).
-			exec(`docker rm -fv ${CONTAINER_NAME} 2>/dev/null || true`, {
+			exec(`docker rm -fv ${containerName()} 2>/dev/null || true`, {
 				timeout: 30_000,
 			});
 			// Remove the images this project built. `compose down` keeps images,
@@ -184,7 +193,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			// images outside the harness's own unique project. Removing just the
 			// tags leaves the build cache, so the harness rebuild stays warm.
 			exec(
-				`docker images --filter "reference=${COMPOSE_PROJECT}-*" --format "{{.Repository}}:{{.Tag}}" | xargs -r docker image rm -f 2>/dev/null || true`,
+				`docker images --filter "reference=${composeProject()}-*" --format "{{.Repository}}:{{.Tag}}" | xargs -r docker image rm -f 2>/dev/null || true`,
 				{ timeout: 60_000 },
 			);
 			// Remove the workspace and its sibling bare repo together.
@@ -304,13 +313,13 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 				// Sibling bare repo — same resolution the CLI applies
 				// (applyComposeEnv: <parent>/.bare → /workspaces/.bare).
 				WORKSPACE_BARE_PATH: join(workdir, "..", ".bare"),
-				// Mirror the CLI's per-repo compose env (applyComposeEnv): the
-				// project and container names carry the repo slug, so the
-				// container created here is the one `cheasee-pi down`
-				// (checkpoint 9) resolves and removes.
-				COMPOSE_PROJECT_NAME: COMPOSE_PROJECT,
-				CHEASEEPI_CONTAINER: CONTAINER_NAME,
-				CODEFLOW_CONTAINER,
+				// Mirror the CLI's per-workspace compose env (applyComposeEnv): the
+				// project and container names carry the instance key, so the
+				// container created here is the one checkpoint 8's `start` reuses
+				// and checkpoint 9's `down` resolves and removes.
+				COMPOSE_PROJECT_NAME: composeProject(),
+				CHEASEEPI_CONTAINER: containerName(),
+				CODEFLOW_CONTAINER: codeflowContainer(),
 				// applyComposeEnv also exports the CLI-resolved absolute
 				// credential path that `secrets.cheasee_auth.file` interpolates.
 				// Raw compose has no CLI to derive it, so pass it here — omitting
@@ -322,7 +331,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		assert.strictEqual(result.status, 0, `compose up exited ${result.status}: ${result.stderr}`);
 
 		// Verify container is Up
-		const psResult = exec(`docker ps --filter name=${CONTAINER_NAME} --format '{{.Status}}'`, {
+		const psResult = exec(`docker ps --filter name=${containerName()} --format '{{.Status}}'`, {
 			timeout: 10_000,
 		});
 		const status = psResult.stdout.trim().toLowerCase();
@@ -343,7 +352,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 	// ── Checkpoint 7: pi --version inside container ────────────────
 
 	it("checkpoint 7 — pi --version exits 0 inside container", () => {
-		const result = exec(`docker exec ${CONTAINER_NAME} pi --version`, { timeout: 30_000 });
+		const result = exec(`docker exec ${containerName()} pi --version`, { timeout: 30_000 });
 		assert.strictEqual(result.status, 0, `pi --version exited ${result.status}: ${result.stderr}`);
 		const version = result.stdout.trim();
 		assert.ok(version.length > 0, `expected pi --version output, got empty`);
@@ -399,10 +408,11 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 	// ── Checkpoint 9: cheasee-pi down removes container ────────────
 
 	it("checkpoint 9 — cheasee-pi down removes container", () => {
-		// down resolves the per-repo compose project (cheasee-pi-<slug>) from
-		// the workspace root like start — run inside the workspace so
-		// findWorkspaceRoot finds cheasee-settings.json, and the slug via the
-		// seeded sibling bare repo's remote, matching checkpoint 5's project.
+		// down resolves the per-workspace compose project (cheasee-pi-<instance
+		// key>) from the workspace root like start — run inside the workspace so
+		// findWorkspaceRoot finds cheasee-settings.json, and the key via the
+		// seeded sibling bare repo's remote + the workspace path, matching
+		// checkpoint 5's project.
 		const result = exec(`"${BINARY_PATH}" down`, { timeout: 60_000, cwd: workdir });
 		assert.strictEqual(result.status, 0, `down exited ${result.status}: ${result.stderr}`);
 		assert.ok(
@@ -411,7 +421,7 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 		);
 
 		// Verify container is gone
-		const psResult = exec(`docker ps --filter name=${CONTAINER_NAME} --format '{{.Names}}'`, {
+		const psResult = exec(`docker ps --filter name=${containerName()} --format '{{.Names}}'`, {
 			timeout: 10_000,
 		});
 		assert.strictEqual(

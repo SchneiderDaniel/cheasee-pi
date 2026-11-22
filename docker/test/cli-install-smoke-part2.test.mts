@@ -28,17 +28,11 @@ process.on("exit", () => {
 
 const BINARY_PATH = process.env.CHEASEE_PI_BIN ?? resolve(process.cwd(), "cheasee-pi");
 
-const SLUG = "cli-install-smoke";
-
-const CONTAINER_NAME = `cheasee-pi-${SLUG}`;
-
-const COMPOSE_PROJECT = CONTAINER_NAME;
-
-const CODEFLOW_CONTAINER = `codeflow-${SLUG}`;
-
-const HEALTH_TIMEOUT_MS = 120_000;
-
-const POLL_INTERVAL_MS = 5_000;
+// This suite drives no container — its boundaries only exercise init, dry-run
+// and refusal paths — so there is no stack identity to derive here. A stack
+// checkpoint needs the per-worktree instance key instead of the bare repo slug
+// (cmd/cheasee-pi/instance_key.go, issue #2155); cli-install-smoke.test.mts
+// derives it.
 
 const CLI_VERSION = "0.68";
 
@@ -83,30 +77,6 @@ function exec(
 
 function binaryExists(): boolean {
 	return existsSync(BINARY_PATH);
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function waitForHealthy(timeoutMs: number): Promise<string> {
-	const startTime = Date.now();
-	const deadline = startTime + timeoutMs;
-	while (Date.now() < deadline) {
-		const result = exec(`docker inspect --format='{{.State.Health.Status}}' ${CONTAINER_NAME}`, {
-			timeout: 10_000,
-		});
-		if (result.status === 0) {
-			const status = result.stdout.trim();
-			if (status === "healthy") return status;
-			if (status === "unhealthy") return status; // terminal failure
-		}
-		// Exponential backoff: start at 2s, cap at 10s
-		const elapsed = Date.now() - startTime;
-		const delay = Math.min(2000 + elapsed * 0.5, POLL_INTERVAL_MS);
-		await sleep(delay);
-	}
-	return "timeout";
 }
 
 describe("CLI install smoke — boundaries", { timeout: 60_000 }, () => {
