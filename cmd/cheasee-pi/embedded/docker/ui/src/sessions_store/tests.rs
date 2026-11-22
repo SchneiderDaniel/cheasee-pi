@@ -1,3 +1,5 @@
+#[path = "tests_description.rs"]
+mod tests_description;
 #[path = "tests_replay.rs"]
 mod tests_replay;
 
@@ -39,6 +41,7 @@ fn parse_header_only_is_a_live_row_not_an_error() {
     let parsed = parse_session_entry(b"{\"type\":\"session\",\"id\":\"live1\"}\n");
     assert_eq!(parsed.id.as_deref(), Some("live1"));
     assert!(parsed.name.is_none());
+    assert!(parsed.first_message.is_none());
     assert_eq!(parsed.message_count, 0);
 }
 
