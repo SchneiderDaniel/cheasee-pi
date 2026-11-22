@@ -146,7 +146,20 @@ def eval_branch_protection($ev):
 			+ (if ($bypass_always | length) > 0 then ["ruleset bypass_actors=\($bypass_always | tojson)"] else [] end)
 			+ (if ($gated_bypass | length) > 0 then ["ruleset bypass_actors=\($gated_bypass | tojson) use bypass_mode=pull_request (an approving review is still required)"] else [] end)
 		) as $facts
-		| if $reviews >= 1 and $admins and ($admin_exempt | length) == 0 then
+		# The classic config can look perfect while an active ruleset still hands
+		# admins a bypass or relaxes the review count, so "admins not exempt" is
+		# only knowable once the effective rules could be read. 200 and 404 both
+		# answer the question (rules present / no ruleset applies); every other
+		# status is a permission or transport gap, and reading it as "no bypass"
+		# would report a pass that no evidence supports.
+		| if ($rules_resp.status != 200 and $rules_resp.status != 404) then
+			{
+				status: "unknown",
+				evidence: ($probe + $facts + [
+					"cannot read the effective branch rules (status \($rules_resp.status)); a ruleset could still exempt admins or change the required review count, so the protection state is unknown"
+				])
+			}
+		elif $reviews >= 1 and $admins and ($admin_exempt | length) == 0 then
 			{status: "pass", evidence: ($probe + $facts)}
 		elif $reviews < 1 then
 			{status: "fail", evidence: ($probe + $facts + ["classic protection requires \($reviews) approving review(s); the checklist requires at least 1"])}

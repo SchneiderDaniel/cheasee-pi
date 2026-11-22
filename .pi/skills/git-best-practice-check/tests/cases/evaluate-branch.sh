@@ -146,6 +146,45 @@ check "no protection at all (404 + 404)" branch-protection \	"{
 	\"rules\":{\"status\":404,\"body\":null}}"
 expect_status fail
 
+# Audit regression: classic protection alone is not enough evidence. When the
+# effective rules cannot be read (401/403), a ruleset could still exempt admins
+# or relax the review count, so the verdict must be `unknown` — never `pass`.
+check "classic protection + rules 403 is unknown, not pass" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":true},
+		\"required_status_checks\":null,
+		\"restrictions\":null}},
+	\"rules\":{\"status\":403,\"body\":null}}"
+expect_status unknown
+expect_evidence "cannot read the effective branch rules"
+expect_evidence "enforce_admins.enabled=true"
+expect_field .remediable false
+
+check "classic protection + rules 401 is unknown, not pass" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":true}}},
+	\"rules\":{\"status\":401,\"body\":null}}"
+expect_status unknown
+expect_evidence "cannot read the effective branch rules"
+
+# Same gap on the admins-exempt path: without the effective rules there is no
+# evidence for "no covering ruleset rule", so it is unknown, not fail.
+check "classic admins exempt + rules 403 is unknown, not fail" branch-protection \
+	"{
+	$CTX,
+	\"protection\":{\"status\":200,\"body\":{
+		\"required_pull_request_reviews\":{\"required_approving_review_count\":1},
+		\"enforce_admins\":{\"enabled\":false}}},
+	\"rules\":{\"status\":403,\"body\":null}}"
+expect_status unknown
+expect_evidence "cannot read the effective branch rules"
+
 check "rules endpoint forbidden is unknown, not unprotected" branch-protection \
 	"{
 	$CTX,

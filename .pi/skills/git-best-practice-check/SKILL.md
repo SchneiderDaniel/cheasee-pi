@@ -80,6 +80,12 @@ Two rules are worth knowing because they change the verdict:
   analyses that stopped arriving months ago mean nothing is scanning now, so the
   practice fails and remediation is offered. analyses without a readable
   timestamp, or a run without a clock input, are `unknown`.
+- **Branch protection needs the effective rules.** Classic branch protection and
+  repository rulesets are two carriers of the same practice, so both are read.
+  If the classic config cannot be read (401/403) or the effective-rules request
+  fails (anything other than 200, or 404 meaning "no ruleset applies"), the row
+  is `unknown`: a ruleset could still exempt admins or change the required
+  review count, so a pass would be unsupported.
 - **Branch names are path segments.** The default branch is read from the
   repository (never assumed `main`) and percent-encoded into every request path,
   so `release/2026` works exactly like `main`.
