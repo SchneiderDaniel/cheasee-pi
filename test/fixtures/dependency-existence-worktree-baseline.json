@@ -6,6 +6,7 @@
 		["go", "github.com/spf13/pflag", "v1.0.9", "go.mod", 9],
 		["go", "go.yaml.in/yaml/v3", "v3.0.4", "go.mod", 10],
 		["go", "golang.org/x/mod", "v0.40.0", "go.mod", 11],
+		["go", "golang.org/x/sys", "v0.47.0", "go.mod", 12],
 		["javascript", "@earendil-works/pi-ai", "1.0.2", "package-lock.json", 12],
 		["javascript", "@earendil-works/pi-coding-agent", "1.0.2", "package-lock.json", 13],
 		["javascript", "@earendil-works/pi-tui", "1.0.2", "package-lock.json", 14],

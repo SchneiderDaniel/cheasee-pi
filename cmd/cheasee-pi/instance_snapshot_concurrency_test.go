@@ -13,14 +13,26 @@ import (
 //
 // Two `start`s finishing out of order interleave the read-probe-write cycle, so
 // the slower one can publish a view it listed BEFORE the other recorded its
-// workspace — shrinking the sidecar's list and dropping a live instance. The
-// cycle is serialised host-wide; the last writer re-reads the registry.
+// workspace — shrinking the sidecar's list, dropping a live instance. The cycle
+// is serialised host-wide; the last writer re-reads the registry.
 // ──────────────────────────────────────────────
 
+// waitClosed reports whether ch closes inside d.
+func waitClosed(ch <-chan struct{}, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ch:
+		return true
+	case <-timer.C:
+		return false
+	}
+}
+
 // gatedInstanceRegistry holds its List until the test releases it, so a
-// publication cycle can be frozen mid-flight while another one runs. It answers
-// with the records captured when the gate was built — the stale view a refresh
-// would have read before the peer recorded itself.
+// publication cycle can be frozen mid-flight; a second one then runs. It answers
+// with the records captured at gate-build time — the stale view a refresh would
+// have read before the peer recorded itself.
 type gatedInstanceRegistry struct {
 	inner   InstanceRegistry
 	entered chan struct{}
@@ -53,16 +65,22 @@ func discoveryTwoRunningRecords(t *testing.T) (InstanceRecord, InstanceRecord) {
 	return ws1, ws2
 }
 
+// snapshotQueueWindow is how long the fresh refresh gets to overtake the stale
+// one. It elapses only on the serialised path (the fresh cycle blocks on the lock
+// by design), so the budget costs the suite 200ms — enough for a lock-less
+// publisher to fail inside one scheduling quantum.
+const snapshotQueueWindow = 200 * time.Millisecond
+
 // TestDiscovery_snapshotConcurrentRefreshKeepsBothInstances forces the
-// out-of-order finish: ws1's cycle lists the registry while only ws1 is
-// recorded, ws2 then records itself and publishes, and ws1's cycle — the one
-// holding the stale read — is released last. The published snapshot must still
-// list both; a shrinking write would hide a running workspace from every sidecar.
+// out-of-order finish that shrank the sidecar's list: ws1's cycle lists a
+// registry holding just ws1, then stalls; ws2 records itself, publishing its
+// complete view; ws1's stale cycle writes last.
 //
-// The lock makes the outcome deterministic: the stale cycle owns the lock while
-// it lists, so the fresh cycle can only publish after it. The sibling test
-// TestDiscovery_snapshotPublicationIsSerialized pins the mechanism directly and
-// fails deterministically if the lock is removed.
+// The publication lock keeps that window shut: the fresh cycle cannot enter
+// during the stale one, so it lists AFTER the stale write, republishing both
+// rows. Without the lock the fresh cycle publishes first, the stale listing
+// overwrites it, leaving one row — this test then fails on the row count,
+// deterministically.
 func TestDiscovery_snapshotConcurrentRefreshKeepsBothInstances(t *testing.T) {
 	ws1, ws2 := discoveryTwoRunningRecords(t)
 	inner := discoverySnapshotRegistry(t, ws1)
@@ -78,17 +96,29 @@ func TestDiscovery_snapshotConcurrentRefreshKeepsBothInstances(t *testing.T) {
 	go func() { staleRead <- writeInstanceSnapshot(context.Background(), gate, path) }()
 	<-gate.entered
 
-	// The peer starts NOW: it records itself and publishes its own view while the
-	// first cycle still holds the stale listing.
+	// The peer starts NOW: it records itself, publishing its own complete view;
+	// the first cycle still holds the stale listing.
 	discoveryRequireNoErr(t, "Record", inner.Record(ws2))
 	freshRead := make(chan error, 1)
-	go func() { freshRead <- writeInstanceSnapshot(context.Background(), inner, path) }()
+	freshFinished := make(chan struct{})
+	go func() {
+		defer close(freshFinished)
+		freshRead <- writeInstanceSnapshot(context.Background(), inner, path)
+	}()
+
+	// A serialised fresh cycle cannot finish here: it blocks on the lock the stale
+	// cycle holds. A cycle that finishes inside the window published concurrently —
+	// its stale write then lands last, dropping ws2.
+	serialised := !waitClosed(freshFinished, snapshotQueueWindow)
 	close(gate.release)
 
 	discoveryRequireNoErr(t, "stale-listing publish", <-staleRead)
 	discoveryRequireNoErr(t, "fresh-listing publish", <-freshRead)
 
 	doc := readSnapshot(t, path)
+	if !serialised {
+		t.Fatalf("the fresh refresh published mid-cycle with a stale one in flight — the read-probe-write cycle must be serialised")
+	}
 	if len(doc) != 2 {
 		t.Fatalf("snapshot = %v, want both instances — the last writer must re-read the registry", doc)
 	}
@@ -128,12 +158,10 @@ func (r *overlapInstanceRegistry) List() ([]InstanceRecord, error) {
 // registry while the first still holds it, then lets the first finish.
 func discoveryRequireNoOverlapAndRelease(t *testing.T, reg *overlapInstanceRegistry) {
 	t.Helper()
-	select {
-	case <-reg.release:
+	// The waiting cycle had 50ms to enter the registry: serialised means it never
+	// could. (A closed channel here means the test bug of double release.)
+	if waitClosed(reg.release, 50*time.Millisecond) {
 		t.Fatal("test bug: release channel already closed")
-	case <-time.After(50 * time.Millisecond):
-		// The waiting cycle had 50ms to enter the registry: serialised means it
-		// never could.
 	}
 	if got := reg.inFlight.Load(); got != 1 {
 		t.Fatalf("in-flight publication cycles = %d, want exactly 1 — cycles must queue, not interleave", got)
