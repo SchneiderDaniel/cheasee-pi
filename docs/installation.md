@@ -401,7 +401,7 @@ Then set the font in your terminal to `JetBrainsMono Nerd Font`.
 
 ### API keys not picked up
 
-Use `cheasee-pi start` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker, the container is named `cheasee-pi-<repo-slug>` (repo slug, not plain `cheasee-pi`):
+Use `cheasee-pi start` (reads `~/.config/cheasee-pi/auth.json`). If you must use raw docker, the container is named `cheasee-pi-<instance-key>` (repo slug plus a digest of the workspace path, not plain `cheasee-pi`):
 
 ```bash
 CONTAINER=$(docker ps --format '{{.Names}}' | grep '^cheasee-pi-')

@@ -39,7 +39,7 @@ func TestCLIDoc_UILoopbackAndPort(t *testing.T) {
 		"docker.uiPort",
 		"CHEASEE_UI_PORT_UNRESOLVED",
 		"⚠ UI port:",
-		"9500 + fnv32(repo-slug) % 1024",
+		"9500 + fnv32(instance-key) % 1024",
 		"loopback",
 	} {
 		if !strings.Contains(cliUI, want) {

@@ -76,6 +76,11 @@ func runDownE(_ *cobra.Command, _ []string) error {
 	}
 	if len(containers) == 0 {
 		fmt.Fprintf(os.Stderr, "  ℹ No cheasee-pi container found for this workspace (project %q) — nothing to stop\n", project)
+		// Nothing is running, so any discovery record for this workspace is
+		// stale; drop it (other workspaces' records are untouched).
+		if err := deregisterInstance(ctx, workspace); err != nil {
+			fmt.Fprintf(os.Stderr, "  ⚠ instance discovery: %v\n", err)
+		}
 		return nil
 	}
 	// compose down removes every service container of the project (agent,
@@ -100,6 +105,11 @@ func runDownE(_ *cobra.Command, _ []string) error {
 	// claims so a stale file cannot block a resume forever.
 	if err := purgeInUseClaims(filepath.Join(workspace, ".pi", "sessions")); err != nil {
 		fmt.Fprintf(os.Stderr, "  ⚠ in-use claims: %v\n", err)
+	}
+	// Deregister AFTER the containers are gone (a failed down keeps the record:
+	// the stack may still be running) and refresh the peer snapshot.
+	if err := deregisterInstance(ctx, workspace); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ instance discovery: %v\n", err)
 	}
 	fmt.Fprintf(os.Stderr, "  ✓ Container stopped and removed\n")
 	return nil

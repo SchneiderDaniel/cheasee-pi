@@ -42,6 +42,11 @@ const (
 	codeflowSpecLabel = "com.cheaseepi.codeflow-spec"
 	codeflowSpecEnv   = "CHEASEEPI_CODEFLOW_SPEC"
 
+	// instanceSnapshotEnv carries the CLI-resolved host snapshot path into the
+	// compose interpolation for the ui service's read-only discovery mount
+	// (see instance_registry.go).
+	instanceSnapshotEnv = "CHEASEEPI_INSTANCE_SNAPSHOT"
+
 	// codeflowConfigJSON is the sidecar config file inside the cache dir,
 	// bind-mounted read-only into the container; codeflowConfigMountDest is
 	// its in-container path (docker-compose.yml).

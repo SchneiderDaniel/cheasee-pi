@@ -16,9 +16,9 @@ func TestStackServices_derivedIdentity(t *testing.T) {
 
 	got := stackServices(root)
 	want := []stackService{
-		{"cheasee-pi", containerName(root), cheaseeImageRef(root)},
-		{"codeflow", codeflowContainerName(root), codeflowImageRef(root)},
-		{"ui", uiContainerName(root), uiImageRef(root)},
+		{"cheasee-pi", containerName(root), cheaseeImageRef(root), root},
+		{"codeflow", codeflowContainerName(root), codeflowImageRef(root), root},
+		{"ui", uiContainerName(root), uiImageRef(root), root},
 	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("stackServices = %v, want %v (order agent → codeflow → ui)", got, want)
@@ -68,6 +68,9 @@ func TestPlanStack(t *testing.T) {
 
 	allRunning := map[string]string{agent.container: "running", codeflow.container: "running", ui.container: "running"}
 	present := map[string]bool{agent.image: true, codeflow.image: true, ui.image: true}
+	// Mount sources: every existing container is bound to THIS workspace (the
+	// mismatch refusal has its own tests in stack_mount_test.go).
+	mounted := mountsFor(services, root)
 
 	cases := []struct {
 		name       string
@@ -137,7 +140,10 @@ func TestPlanStack(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			plan := planStack(services, tc.states, tc.images)
+			plan, err := planStack(services, tc.states, mounted, tc.images)
+			if err != nil {
+				t.Fatalf("planStack: %v", err)
+			}
 			if !slices.Equal(plan.start, tc.start) {
 				t.Errorf("start = %v, want %v", plan.start, tc.start)
 			}
@@ -172,7 +178,10 @@ func TestPlanStack_existingContainerStatesAlwaysStart(t *testing.T) {
 	services := stackServices(root)
 
 	for _, state := range []string{"created", "dead", "paused", "restarting", "exited", "stopped"} {
-		plan := planStack(services, map[string]string{services[0].container: state}, nil)
+		plan, err := planStack(services, map[string]string{services[0].container: state}, mountsFor(services, root), nil)
+		if err != nil {
+			t.Fatalf("state %q: planStack: %v", state, err)
+		}
 		if !slices.Equal(plan.start, []stackService{services[0]}) {
 			t.Errorf("state %q: start = %v, want the existing agent container", state, plan.start)
 		}

@@ -39,7 +39,7 @@ func TestCodeflowHostPort_occupiedFallsBackToNextFree(t *testing.T) {
 	// Hermetic: an inherited CODEFLOW_PORT would skip the probe entirely.
 	t.Setenv("CODEFLOW_PORT", "")
 	root := filepath.Join(t.TempDir(), "ws")
-	start := codeflowPortBase + int(fnv32(repoSlug(root))%codeflowPortRange)
+	start := codeflowPortBase + int(fnv32(instanceKey(root))%codeflowPortRange)
 	if start == codeflowPortBase+codeflowPortRange-1 {
 		t.Skip("derived port at range end — no fallback slot; covered by exhaustion test")
 	}

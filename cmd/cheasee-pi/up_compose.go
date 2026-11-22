@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -374,6 +376,10 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		"PI_UI_PORT", "PI_UI_CONTAINER",
 		"PI_BUILD_STAMP", "CHEASEE_COMMIT",
 		codeflowSpecEnv,
+		// Peer-instance discovery snapshot: rewritten from THIS host's state
+		// dir every run — an inherited value would point the ui service at
+		// another host's file (or at nothing).
+		instanceSnapshotEnv,
 		// Credential path + stamp are derived from THIS host's auth.json every
 		// run; an inherited value would point Compose at another host's file or
 		// pin a stale label.
@@ -438,6 +444,18 @@ func applyComposeEnv(cmd runner, workspaceHostPath, containerName, composeDir st
 		fmt.Fprintf(os.Stderr, "  ⚠ UI port: %v\n", err)
 	} else {
 		env = append(env, "PI_UI_PORT="+port)
+	}
+	// Discovery snapshot source for the read-only ui mount — only when the CLI
+	// has actually published one: a bind source that does not exist would make
+	// docker create a DIRECTORY at the mount target. Otherwise the compose `:-`
+	// default keeps the spec valid and the sidecar lists no peers. Resolution
+	// failures are loud (stderr).
+	if path, err := instanceSnapshotPath(); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ instance snapshot: %v\n", err)
+	} else if _, err := os.Stat(path); err == nil {
+		env = append(env, instanceSnapshotEnv+"="+path)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		fmt.Fprintf(os.Stderr, "  ⚠ instance snapshot %s: %v\n", path, err)
 	}
 	if os.Getenv("CHEASEEPI_SELINUX_RELABEL") == "1" {
 		env = append(env, "VOLUME_RELABEL=:Z")

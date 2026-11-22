@@ -288,6 +288,7 @@ var wantUpDecls = map[string]string{
 	"func:mkWorkspace":             "up_helpers_test.go",
 	"func:stubAutoInitDeps":        "up_helpers_test.go",
 	"func:stubImageGate":           "up_helpers_test.go",
+	"func:stubMountProbe":          "up_helpers_test.go",
 	"func:stackStates":             "up_helpers_test.go",
 	"func:psOutput":                "up_helpers_test.go",
 	"func:allStackStates":          "up_helpers_test.go",

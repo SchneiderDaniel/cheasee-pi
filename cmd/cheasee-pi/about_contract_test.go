@@ -30,7 +30,7 @@ func TestAbout_contentContract(t *testing.T) {
 		{"pi install -l", "skill repos installed via pi install"},
 		{".pi/settings.json", "project-level -l target of pi install"},
 		{"optional browser sidecar", "CodeFlow = optional sidecar"},
-		{"8470 + fnv32(repo-slug) % 1024", "CodeFlow port derivation"},
+		{"8470 + fnv32(instance-key) % 1024", "CodeFlow port derivation"},
 		{"CHEASEE_REF", "CHEASEE_REF build ARG"},
 		{"default main", "CHEASEE_REF default"},
 	}

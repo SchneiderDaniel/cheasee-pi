@@ -90,14 +90,30 @@ func startSession(ctx context.Context, opts startOptions) error {
 		return err
 	}
 
-	// Phases 5-6: extract the version-keyed compose cache, start the stack
+	// Phase 5-6: extract the version-keyed compose cache, start the stack
 	// (existing containers as they are, missing ones created, absent images
 	// built only with --build) and wait for the entrypoint ready marker before
 	// execing pi (see ensureContainerReady).
+	//
+	// The discovery snapshot is materialised first: the ui service bind-mounts
+	// that FILE, and docker would create a directory at a missing source. A
+	// fault is a loud warning, not an abort — an empty snapshot is published in
+	// its place, so the mount target stays valid while the operator sees the
+	// cause.
+	if err := ensureInstanceSnapshot(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ instance discovery: %v\n", err)
+	}
 	if _, err := ensureContainerReady(ctx, root, name, opts.Build); err != nil {
 		return err
 	}
 	publishResolvedPorts(ctx, root, env)
+
+	// Phase 6a: register this instance so peer sidecars (and this one) can list
+	// and link it. Non-fatal by design: a working session must not be refused
+	// because the registry write failed — but it is never silent either.
+	if err := registerRunningInstance(ctx, root); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ instance discovery: %v\n", err)
+	}
 
 	// One-line cheatsheet so a fresh session has the in-pi help and the
 	// stop/cleanup commands in front of it the moment pi launches.

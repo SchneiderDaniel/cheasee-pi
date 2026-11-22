@@ -9,7 +9,8 @@ import (
 
 func TestDerivedNames_ownerRepoIdentity(t *testing.T) {
 	// alice/foo vs bob/foo → distinct identities (owner matters, not just the
-	// repo name); the same repo in two folders → one shared identity.
+	// repo name); the same repo in two worktrees → distinct identities too,
+	// because the workspace PATH — not the remote — is the instance key.
 	parentA, rootA := mkWorkspace(t, `{}`)
 	writeBareRemote(t, parentA, "https://github.com/alice/foo.git")
 	parentB, rootB := mkWorkspace(t, `{}`)
@@ -23,28 +24,28 @@ func TestDerivedNames_ownerRepoIdentity(t *testing.T) {
 	if composeProjectName(rootA) == composeProjectName(rootB) {
 		t.Error("alice/foo and bob/foo must get distinct compose projects")
 	}
-	if containerName(rootA) != containerName(rootC) {
-		t.Error("same repo in two folders must share one container identity")
+	if containerName(rootA) == containerName(rootC) {
+		t.Error("the same repo in two worktrees must get distinct containers — a shared container attaches the second worktree to the first one's mount")
 	}
-	if composeProjectName(rootA) != composeProjectName(rootC) {
-		t.Error("same repo in two folders must share one project identity")
+	if composeProjectName(rootA) == composeProjectName(rootC) {
+		t.Error("the same repo in two worktrees must get distinct compose projects")
 	}
-	if containerName(rootA) != "cheasee-pi-alice-foo" {
-		t.Errorf("containerName = %q, want cheasee-pi-alice-foo", containerName(rootA))
+	if !strings.HasPrefix(containerName(rootA), "cheasee-pi-alice-foo-") {
+		t.Errorf("containerName = %q, want the cheasee-pi-alice-foo- prefix plus the path digest", containerName(rootA))
 	}
 }
 
 func TestDerivedNames_fallbackToBasename(t *testing.T) {
-	// No .bare remote → workspace basename drives the identity.
+	// No .bare remote → workspace basename drives the identity prefix.
 	_, root := mkWorkspace(t, `{}`) // root = <parent>/ws
-	if got := containerName(root); got != "cheasee-pi-ws" {
-		t.Errorf("containerName = %q, want cheasee-pi-ws", got)
-	}
-	if got := codeflowContainerName(root); got != "codeflow-ws" {
-		t.Errorf("codeflowContainerName = %q, want codeflow-ws", got)
-	}
-	if got := composeProjectName(root); got != "cheasee-pi-ws" {
-		t.Errorf("composeProjectName = %q, want cheasee-pi-ws", got)
+	for _, tc := range []struct{ prefix, got string }{
+		{"cheasee-pi-ws-", containerName(root)},
+		{"codeflow-ws-", codeflowContainerName(root)},
+		{"cheasee-pi-ws-", composeProjectName(root)},
+	} {
+		if !strings.HasPrefix(tc.got, tc.prefix) {
+			t.Errorf("name = %q, want the %q basename prefix plus the path digest", tc.got, tc.prefix)
+		}
 	}
 }
 
@@ -87,8 +88,8 @@ func TestCheaseeImageRef_basenameFallbackSlug(t *testing.T) {
 	// exactly the image the docker-compose.yml service `cheasee-pi` builds
 	// under project cheasee-pi-ws.
 	_, root := mkWorkspace(t, `{}`)
-	if got := cheaseeImageRef(root); got != "cheasee-pi-ws-cheasee-pi" {
-		t.Errorf("cheaseeImageRef = %q, want cheasee-pi-ws-cheasee-pi", got)
+	if got := cheaseeImageRef(root); !strings.HasPrefix(got, "cheasee-pi-ws-") || !strings.HasSuffix(got, "-cheasee-pi") {
+		t.Errorf("cheaseeImageRef = %q, want the cheasee-pi-ws-<path-digest> project plus -cheasee-pi", got)
 	}
 }
 

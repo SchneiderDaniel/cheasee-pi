@@ -168,15 +168,12 @@ func TestCLIDoc_AuthRemoveDefaults(t *testing.T) {
 	}
 }
 
-// TestCLIDoc_ContainerNaming verifies the per-repo container name and the
-// sibling .bare mount are documented.
-
-// TestCLIDoc_ContainerNaming verifies the per-repo container name and the
+// TestCLIDoc_ContainerNaming verifies the per-workspace container name and the
 // sibling .bare mount are documented.
 func TestCLIDoc_ContainerNaming(t *testing.T) {
 	content := readCliDoc(t)
-	if !strings.Contains(content, "cheasee-pi-<repo-slug>") {
-		t.Error("docs/cli.md should state the per-repo container name cheasee-pi-<repo-slug>")
+	if !strings.Contains(content, "cheasee-pi-<instance-key>") {
+		t.Error("docs/cli.md should state the per-workspace container name cheasee-pi-<instance-key>")
 	}
 	if !strings.Contains(content, "/workspaces/.bare") {
 		t.Error("docs/cli.md should state the sibling .bare mount at /workspaces/.bare")

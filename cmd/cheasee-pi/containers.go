@@ -31,6 +31,51 @@ func containerRunning(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
 
+// workspaceMountTarget is the in-container path the compose stack always
+// mounts this workspace's host folder at. The HOST source of that mount is the
+// only thing that proves a running container belongs to this workspace: a
+// container created by another worktree carries that worktree's path, so
+// starting it would silently hand this workspace someone else's files.
+const workspaceMountTarget = "/workspaces/main"
+
+// containerMountProbeFormat is the `docker inspect` template for the mount
+// probe: one `<name>|<host source of the workspace mount>` line per container.
+// Docker renders `.Name` with a leading slash (stripped by the parser).
+const containerMountProbeFormat = `{{.Name}}|{{range .Mounts}}{{if eq .Destination "` + workspaceMountTarget + `"}}{{.Source}}{{end}}{{end}}`
+
+// containerMountSources reports the host path each container binds onto
+// /workspaces/main. ONE `docker inspect` answers every name (a per-container
+// inspect would multiply daemon round trips on every start). A name absent from
+// the result has no verifiable mount — the planner treats that as a failure,
+// never as a match. A daemon failure is an error, never an empty map.
+func containerMountSources(ctx context.Context, names []string) (map[string]string, error) {
+	mounts := make(map[string]string, len(names))
+	if len(names) == 0 {
+		return mounts, nil
+	}
+	args := append([]string{"inspect", "--format", containerMountProbeFormat}, names...)
+	out, err := runCommandContext(ctx, "docker", args...).Output()
+	if err != nil {
+		return nil, fmt.Errorf("docker inspect: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		name, source, ok := strings.Cut(line, "|")
+		if !ok {
+			continue
+		}
+		name = strings.TrimPrefix(strings.TrimSpace(name), "/")
+		if name == "" {
+			continue
+		}
+		mounts[name] = strings.TrimSpace(source)
+	}
+	return mounts, nil
+}
+
 // containerExists reports whether the named container exists in any state —
 // running, exited, created. `docker ps -a` is the only listing that sees a
 // stopped container: such a container is started as-is, never recreated, so it

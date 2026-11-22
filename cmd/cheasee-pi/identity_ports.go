@@ -50,8 +50,8 @@ var portProbe = func(port int) error {
 
 // portSpec is the shared resolver for a sidecar's host port. Both sidecars
 // follow one precedence — cheasee-settings.json field > process env var >
-// derived base+fnv32(repoSlug)%span, probed with next-free fallback — and one
-// `docker port <container> <containerPort>/tcp` bound-port read; only the
+// derived base+fnv32(instanceKey)%span, probed with next-free fallback — and
+// one `docker port <container> <containerPort>/tcp` bound-port read; only the
 // constants and the service label differ.
 type portSpec struct {
 	base, span    int
@@ -88,13 +88,15 @@ var uiPort = portSpec{
 
 // hostPort resolves the host port for a workspace: the settings field
 // (explicit per-repo config) > the process env var (passed through untouched)
-// > derived base+fnv32(repoSlug)%span, probed with next-free fallback. Range
+// > derived base+fnv32(instanceKey)%span, probed with next-free fallback.
+// Hashing the instance key (not the bare repo slug) is what keeps two
+// worktrees of one repo in different port bands instead of on one port. Range
 // exhaustion fails closed with an actionable error naming the env var.
 func (p portSpec) hostPort(workspaceRoot string) (string, error) {
 	if port := p.explicitPort(workspaceRoot); port != "" {
 		return port, nil
 	}
-	start := p.base + int(fnv32(repoSlug(workspaceRoot))%uint32(p.span))
+	start := p.base + int(fnv32(instanceKey(workspaceRoot))%uint32(p.span))
 	for port := start; port < p.base+p.span; port++ {
 		if portProbe(port) == nil {
 			return strconv.Itoa(port), nil
@@ -159,9 +161,10 @@ func codeflowBoundPort(ctx context.Context, workspaceRoot string) (string, error
 	return codeflowPort.boundPort(ctx, workspaceRoot)
 }
 
-// uiContainerName follows the repo-slug scheme for the UI sidecar service.
+// uiContainerName follows the instance-key scheme for the UI sidecar service
+// (3-char prefix + 60 = 63).
 func uiContainerName(workspaceRoot string) string {
-	return "ui-" + truncateSlug(repoSlug(workspaceRoot), 54)
+	return "ui-" + truncateSlug(instanceKey(workspaceRoot), 60)
 }
 
 // uiHostPort is a thin delegation to the UI spec (test seam name

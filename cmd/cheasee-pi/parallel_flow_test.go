@@ -53,11 +53,11 @@ func TestRunUpE_parallelWorkspacesDoNotInterfere(t *testing.T) {
 		t.Errorf("ws2 build project %q != up project %q", got, projectB)
 	}
 	// Distinct derived container names per workspace.
-	if !slices.Contains(upEnvA, "CHEASEEPI_CONTAINER=cheasee-pi-alice-repo-a") {
-		t.Errorf("ws1 env must carry its derived container, got %v", upEnvA)
+	if !slices.Contains(upEnvA, "CHEASEEPI_CONTAINER="+containerName(rootA)) {
+		t.Errorf("ws1 env must carry its derived container %q, got %v", containerName(rootA), upEnvA)
 	}
-	if !slices.Contains(upEnvB, "CHEASEEPI_CONTAINER=cheasee-pi-bob-repo-b") {
-		t.Errorf("ws2 env must carry its derived container, got %v", upEnvB)
+	if !slices.Contains(upEnvB, "CHEASEEPI_CONTAINER="+containerName(rootB)) {
+		t.Errorf("ws2 env must carry its derived container %q, got %v", containerName(rootB), upEnvB)
 	}
 	// Both envs carry a numeric CodeFlow port in the derived range.
 	for _, env := range [][]string{upEnvA, upEnvB} {

@@ -421,7 +421,15 @@ async fn handle_local_session(
                     return None;
                 }
             };
-            let _ = out.send(ServerMessage::SessionList { id, sessions }).await;
+            let _ = out
+                .send(ServerMessage::SessionList {
+                    id,
+                    sessions,
+                    // Read-only peer view: the CLI owns discovery, the sidecar
+                    // only decodes the snapshot it published.
+                    instances: crate::instances::load(),
+                })
+                .await;
             None
         }
         ClientMessage::ResumeSession {

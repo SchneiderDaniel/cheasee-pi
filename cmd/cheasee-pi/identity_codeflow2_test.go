@@ -136,7 +136,7 @@ func TestUiHostPort_settingsWinsOverEnv(t *testing.T) {
 func TestUiHostPort_occupiedFallsBackToNextFree(t *testing.T) {
 	t.Setenv("PI_UI_PORT", "")
 	root := filepath.Join(t.TempDir(), "ws")
-	start := uiPortBase + int(fnv32(repoSlug(root))%uiPortRange)
+	start := uiPortBase + int(fnv32(instanceKey(root))%uiPortRange)
 	if start == uiPortBase+uiPortRange-1 {
 		t.Skip("derived port at range end — no fallback slot; covered by exhaustion test")
 	}

@@ -5,7 +5,7 @@
 use leptos::prelude::*;
 
 use crate::app::ConnectionStatus;
-use crate::bridge::{ClientMessage, ServerMessage, SessionRow};
+use crate::bridge::{ClientMessage, InstanceRow, ServerMessage, SessionRow};
 use crate::components::dispatch;
 
 /// Reactive session-list state. Lives for the whole app; the WS adapter feeds it
@@ -13,6 +13,8 @@ use crate::components::dispatch;
 #[derive(Clone, Copy)]
 pub struct SessionListState {
     pub rows: RwSignal<Vec<SessionRow>>,
+    /// Peer Cheasee-Pi instances from the CLI snapshot (read-only).
+    pub instances: RwSignal<Vec<InstanceRow>>,
     pub error: RwSignal<Option<String>>,
 }
 
@@ -26,6 +28,7 @@ impl SessionListState {
     pub fn new() -> Self {
         Self {
             rows: RwSignal::new(Vec::new()),
+            instances: RwSignal::new(Vec::new()),
             error: RwSignal::new(None),
         }
     }
@@ -33,8 +36,13 @@ impl SessionListState {
     /// Reduce one server frame. Returns whether anything changed.
     pub fn reduce_sessions(&self, message: &ServerMessage) -> bool {
         match message {
-            ServerMessage::SessionList { sessions, .. } => {
+            ServerMessage::SessionList {
+                sessions,
+                instances,
+                ..
+            } => {
                 self.rows.set(sessions.clone());
+                self.instances.set(instances.clone());
                 true
             }
             ServerMessage::SessionAction {
@@ -56,6 +64,48 @@ impl SessionListState {
             }
             _ => false,
         }
+    }
+}
+
+/// The running-instances panel: one row per Cheasee-Pi instance the CLI
+/// discovered on this host. The snapshot is read-only and carries no host path,
+/// so every row is a plain loopback link to the peer's OWN ui port.
+#[component]
+fn InstanceList() -> impl IntoView {
+    let sessions = expect_context::<SessionListState>();
+
+    view! {
+        <div class="instances">
+            <h3>"instances"</h3>
+            <ul class="instance-list">
+                {move || {
+                    sessions
+                        .instances
+                        .get()
+                        .into_iter()
+                        .map(|row: InstanceRow| {
+                            let label = if row.label.is_empty() {
+                                row.key.clone()
+                            } else {
+                                row.label.clone()
+                            };
+                            // The peer publishes its UI on loopback at its own
+                            // port; the sidecar only links, it never proxies.
+                            let href = format!("http://127.0.0.1:{}/", row.ui_port);
+                            let state = if row.running { "running" } else { "not running" };
+                            view! {
+                                <li class="instance-row" data-instance-key=row.key.clone()>
+                                    <a class="instance-link" href=href>
+                                        {label}
+                                    </a>
+                                    <span class="instance-state">{state}</span>
+                                </li>
+                            }
+                        })
+                        .collect_view()
+                }}
+            </ul>
+        </div>
     }
 }
 
@@ -107,6 +157,7 @@ pub fn SessionList(status: RwSignal<ConnectionStatus>) -> impl IntoView {
                     {move || sessions.error.get().unwrap_or_default()}
                 </p>
             </Show>
+            <InstanceList/>
             <ul class="session-list">
                 {move || {
                     sessions

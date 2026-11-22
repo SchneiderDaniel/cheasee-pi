@@ -18,8 +18,8 @@ func TestCompose_ResolvedProjectAndImageRefs(t *testing.T) {
 
 	composeEnvForTest(t, root)
 	project := composeProjectName(root)
-	if project != "cheasee-pi-my-repo-v2" {
-		t.Errorf("composeProjectName = %q, want the sanitized cheasee-pi-my-repo-v2", project)
+	if !strings.HasPrefix(project, "cheasee-pi-my-repo-v2-") {
+		t.Errorf("composeProjectName = %q, want the sanitized cheasee-pi-my-repo-v2 plus the path digest", project)
 	}
 	if !regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`).MatchString(project) {
 		t.Errorf("project name %q violates the compose ≥v2.17 charset", project)
@@ -31,8 +31,8 @@ func TestCompose_ResolvedProjectAndImageRefs(t *testing.T) {
 		t.Errorf("cheaseeImageRef = %q, want %q", got, project+"-cheasee-pi")
 	}
 	// The ui service has no image: key, so Compose auto-names it <project>-ui.
-	if got := project + "-ui"; got != "cheasee-pi-my-repo-v2-ui" {
-		t.Errorf("ui auto-image ref = %q, want cheasee-pi-my-repo-v2-ui", got)
+	if got := project + "-ui"; !strings.HasPrefix(got, "cheasee-pi-my-repo-v2-") || !strings.HasSuffix(got, "-ui") {
+		t.Errorf("ui auto-image ref = %q, want <project>-ui", got)
 	}
 }
 

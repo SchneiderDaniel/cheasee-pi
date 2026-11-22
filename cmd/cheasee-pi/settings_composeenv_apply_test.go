@@ -86,7 +86,7 @@ func TestApplyComposeEnv_UIPortOneEntry(t *testing.T) {
 		t.Errorf("PI_UI_PORT must be a port in [9500, 10523], got %q", port)
 	}
 	if !slices.Contains(cmd.env, "PI_UI_CONTAINER="+uiContainerName(workdir)) {
-		t.Errorf("PI_UI_CONTAINER must carry the repo-slug UI name, got %v", cmd.env)
+		t.Errorf("PI_UI_CONTAINER must carry the instance-key UI name, got %v", cmd.env)
 	}
 	// The CodeFlow env is untouched by the UI addition.
 	assertOneCodeflowPort(t, cmd.env)

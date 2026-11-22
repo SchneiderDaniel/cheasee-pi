@@ -157,6 +157,19 @@ request privileged containers and host mounts without ever escaping. The sidecar
 therefore never talks to the Docker API; session control goes through the
 shared workspace mount, not the daemon.
 
+**Cross-instance discovery.** A sidecar can only see its own workspace, so
+finding peers is a CLI job: the CLI is the only layer that owns container
+identity, docker liveness and a host filesystem view. `cheasee-pi start` records
+the instance in `<user cache>/cheasee-pi/instances/<instance-key>.json`
+(`{key, label, uiPort, codeflowPort, startedAt}` — labels and ports, never a host
+path), `cheasee-pi down` removes it, and the CLI publishes a read-only snapshot
+(`<user cache>/cheasee-pi/instances.json`) that the `ui` service bind-mounts at
+`/run/cheaseepi/instances.json:ro`. Liveness is resolved from `docker ps -a` at
+snapshot-write time, so a record left behind by a host crash is dropped instead
+of surfacing as an available instance. The sidecar renders the snapshot and
+links to each peer's own loopback UI port; it never probes the host, never
+scans port bands and never gains a daemon view.
+
 ## Shared extension library (`lib/`)
 
 The `.pi/extensions/lib/` directory contains shared TypeScript modules used across multiple extensions, avoiding code duplication:

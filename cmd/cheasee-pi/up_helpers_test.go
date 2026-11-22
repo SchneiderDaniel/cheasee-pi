@@ -31,14 +31,19 @@ const (
 )
 
 type upCapture struct {
-	composeArgs [][]string
-	composeCmds []*mockCmd
-	imageGates  int               // docker image inspect gate calls (first-build/create probe)
-	imageProbes []string          // image refs inspected
-	imageRefs   map[string]bool   // image ref → present; absent key falls back to imageState
-	imageState  upFlowImageState  // fallback for imageRefs
-	states      map[string]string // container name → state; nil → derived from the stub's running flag
-	starts      []string          // docker start <container> targets
+	composeArgs  [][]string
+	composeCmds  []*mockCmd
+	imageGates   int               // docker image inspect gate calls (first-build/create probe)
+	imageProbes  []string          // image refs inspected
+	imageRefs    map[string]bool   // image ref → present; absent key falls back to imageState
+	imageState   upFlowImageState  // fallback for imageRefs
+	states       map[string]string // container name → state; nil → derived from the stub's running flag
+	starts       []string          // docker start <container> targets
+	mountProbes  int               // mount-source probe calls (docker inspect --format <containerMountProbeFormat>)
+	mountArgv    [][]string        // argv of each mount-source probe
+	mounts       map[string]string // container → reported mount source; absent key → root
+	mountSkipped map[string]bool   // containers the probe reports NO workspace mount for
+	mountErr     error             // forces the mount probe to fail
 }
 
 // stubImageGate returns the runner for a `docker image inspect` probe of ref,
@@ -112,6 +117,36 @@ func (c *upCapture) psOutput(root string, running bool, arg []string) []byte {
 	return []byte(b.String())
 }
 
+// stubMountProbe answers the CLI's mount-source probe: one
+// `<name>|<source>` line per requested container, source defaulting to root.
+func (c *upCapture) stubMountProbe(root string, arg []string) runner {
+	c.mountProbes++
+	c.mountArgv = append(c.mountArgv, append([]string(nil), arg...))
+	if c.mountErr != nil {
+		err := c.mountErr
+		return &mockCmd{outputFn: func() ([]byte, error) { return nil, err }}
+	}
+	var names []string
+	for i, a := range arg {
+		if a == containerMountProbeFormat && i+1 < len(arg) {
+			names = arg[i+1:]
+			break
+		}
+	}
+	var b strings.Builder
+	for _, name := range names {
+		if c.mountSkipped[name] {
+			continue
+		}
+		source, ok := c.mounts[name]
+		if !ok {
+			source = root
+		}
+		b.WriteString("/" + name + "|" + source + "\n")
+	}
+	return &mockCmd{outputFn: func() ([]byte, error) { return []byte(b.String()), nil }}
+}
+
 // stubReadyFlow stubs the docker+git seams for the container-ready tests.
 func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context, arg []string) runner) *upCapture {
 	t.Helper()
@@ -138,6 +173,9 @@ func stubReadyFlow(t *testing.T, root string, dockerFn func(ctx context.Context,
 		}
 		if name == "docker" && slices.Contains(arg, "ps") && c.states != nil {
 			return &mockCmd{outputFn: func() ([]byte, error) { return c.psOutput(root, false, arg), nil }}
+		}
+		if name == "docker" && slices.Contains(arg, containerMountProbeFormat) {
+			return c.stubMountProbe(root, arg)
 		}
 		if name == "docker" && len(arg) > 1 && arg[0] == "start" {
 			c.starts = append(c.starts, arg[1])
@@ -193,6 +231,10 @@ func stubUpFlow(t *testing.T, root string, running bool) *upCapture {
 		}
 		if name == "docker" && slices.Contains(arg, "ps") {
 			return &mockCmd{outputFn: func() ([]byte, error) { return c.psOutput(root, running, arg), nil }}
+		}
+		if name == "docker" && slices.Contains(arg, containerMountProbeFormat) {
+			// Containers the stack already owns are bound to THIS workspace.
+			return c.stubMountProbe(root, arg)
 		}
 		if name == "docker" && len(arg) > 1 && arg[0] == "start" {
 			c.starts = append(c.starts, arg[1])

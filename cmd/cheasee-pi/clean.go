@@ -183,6 +183,13 @@ func cleanAndRemove(ctx context.Context, targets []string) error {
 	if err := removeContainers(ctx, targets); err != nil {
 		return err
 	}
+	// Removed containers must disappear from the discovery snapshot: a peer
+	// sidecar would otherwise keep listing them as running. A failure here is a
+	// warning — the containers are already gone, which is what the operator
+	// asked for.
+	if err := ensureInstanceSnapshot(ctx); err != nil {
+		fmt.Fprintf(os.Stderr, "  ⚠ instance discovery: %v\n", err)
+	}
 	// Claims for the just-removed sessions must not outlive their containers —
 	// a stale claim would block a resume forever. Scoped to the current
 	// workspace: the all-repos sweep does not know sibling mount paths.

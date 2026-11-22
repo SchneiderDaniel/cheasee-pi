@@ -11,6 +11,8 @@ pub mod components;
 pub mod controls;
 pub mod extension_ui;
 pub mod frame;
+#[cfg(feature = "ssr")]
+pub mod instances;
 pub mod protocol;
 pub mod retry;
 pub mod stream;

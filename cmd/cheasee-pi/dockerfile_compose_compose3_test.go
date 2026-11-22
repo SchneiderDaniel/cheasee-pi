@@ -120,8 +120,8 @@ func TestCompose_ResolvedServiceNames(t *testing.T) {
 		}
 	}
 	// Non-tautological: interpolation actually happened (not the bare default).
-	if got := composeService(t, rendered, "ui")["container_name"]; got != "ui-acme-widget" {
-		t.Errorf("ui container_name = %v, want ui-acme-widget (slug resolved from the remote)", got)
+	if got, _ := composeService(t, rendered, "ui")["container_name"].(string); !strings.HasPrefix(got, "ui-acme-widget-") {
+		t.Errorf("ui container_name = %v, want a ui-acme-widget-<path-digest> identity (slug resolved from the remote)", got)
 	}
 }
 
