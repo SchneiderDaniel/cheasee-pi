@@ -44,6 +44,7 @@ fn session_row() -> SessionRow {
     SessionRow {
         id: "abc".into(),
         name: Some("My session".into()),
+        description: Some("My session".into()),
         modified: 7,
         created: None,
         message_count: 3,
@@ -192,6 +193,80 @@ fn frame_dispatcher_malformed_transcript_frame_sets_notice() {
         "the transcript must surface a malformed frame, never kill the connection"
     );
     assert!(!UiSlice::Chrome(&chrome).ingest_frame("not json"), "other slices are a silent no-op");
+}
+
+// ─── Session row wire shape: the additive `description` field ─────────────────
+
+#[test]
+fn frame_session_row_carries_its_description_on_the_wire() {
+    let value = serde_json::to_value(session_row()).unwrap();
+    assert_eq!(value["description"], "My session");
+    assert_eq!(
+        value["name"], "My session",
+        "`name` stays on the wire next to the new field"
+    );
+    assert_eq!(value["messageCount"], 3);
+}
+
+#[test]
+fn frame_session_row_omits_an_absent_description() {
+    let mut row = session_row();
+    row.description = None;
+    let value = serde_json::to_value(row).unwrap();
+    assert!(
+        value.get("description").is_none(),
+        "`skip_serializing_if` keeps the absent case off the wire: {value}"
+    );
+}
+
+#[test]
+fn frame_session_list_decodes_a_legacy_frame_without_a_description() {
+    let frame = json!({
+        "type": "session_list",
+        "sessions": [{
+            "id": "abc",
+            "name": "My session",
+            "modified": 7,
+            "messageCount": 3,
+            "inUse": false,
+            "unavailable": false
+        }]
+    });
+    match serde_json::from_value::<ServerMessage>(frame).unwrap() {
+        ServerMessage::SessionList { sessions, .. } => {
+            assert_eq!(sessions.len(), 1);
+            assert_eq!(sessions[0].id, "abc");
+            assert_eq!(sessions[0].description, None, "additive field -> default");
+        }
+        other => panic!("expected a session_list frame, got {other:?}"),
+    }
+}
+
+#[test]
+fn frame_session_list_wire_shape_still_carries_no_path_or_marker() {
+    let frame = encode(&ServerMessage::SessionList {
+        id: None,
+        sessions: vec![session_row()],
+    });
+    assert!(!frame.contains("\"path\""), "no host path: {frame}");
+    assert!(!frame.contains("inUsePid"), "no process marker: {frame}");
+    assert!(frame.contains("\"description\":\"My session\""), "{frame}");
+}
+
+#[test]
+fn frame_dispatcher_keeps_the_description_on_the_stored_row() {
+    let _owner = owner();
+    let sessions = SessionListState::new();
+    let frame = encode(&ServerMessage::SessionList {
+        id: None,
+        sessions: vec![session_row()],
+    });
+
+    assert!(UiSlice::Sessions(&sessions).ingest_frame(&frame));
+    assert_eq!(
+        sessions.rows.get()[0].description.as_deref(),
+        Some("My session")
+    );
 }
 
 // ─── Fan-out: one decode, then every slice ─────────────────────────────────
