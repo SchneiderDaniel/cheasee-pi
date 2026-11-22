@@ -105,6 +105,7 @@ func TestRootCmd_GroupAssignment(t *testing.T) {
 		"migrate":      groupIDMaintenance,
 		"prune-images": groupIDMaintenance,
 		"rebuild":      groupIDMaintenance,
+		"rebuild-ui":   groupIDMaintenance,
 		"uninstall":    groupIDMaintenance,
 		"completion":   groupIDHelp,
 		"help":         groupIDHelp,
@@ -142,7 +143,7 @@ func TestRootCmd_HelpShowsGroupedLifecycle(t *testing.T) {
 	commandsByGroup := map[string][]string{
 		"Getting started": {"about", "init", "start"},
 		"Daily use":       {"auth", "clean", "down"},
-		"Maintenance":     {"build", "prune-images", "rebuild", "uninstall"},
+		"Maintenance":     {"build", "prune-images", "rebuild", "rebuild-ui", "uninstall"},
 		"Help":            {"completion", "help"},
 	}
 
