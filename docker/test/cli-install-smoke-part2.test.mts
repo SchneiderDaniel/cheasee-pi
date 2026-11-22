@@ -40,7 +40,7 @@ const HEALTH_TIMEOUT_MS = 120_000;
 
 const POLL_INTERVAL_MS = 5_000;
 
-const CLI_VERSION = "0.67.0";
+const CLI_VERSION = "0.68";
 
 function composeDir(): string {
 	return join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "cheasee-pi", CLI_VERSION);

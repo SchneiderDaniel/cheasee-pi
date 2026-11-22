@@ -40,7 +40,7 @@ const HEALTH_TIMEOUT_MS = 120_000;
 
 const POLL_INTERVAL_MS = 5_000;
 
-const CLI_VERSION = "0.67.0";
+const CLI_VERSION = "0.68";
 
 function composeDir(): string {
 	return join(process.env.XDG_CACHE_HOME ?? join(homedir(), ".cache"), "cheasee-pi", CLI_VERSION);
@@ -123,6 +123,7 @@ async function waitForHealthy(timeoutMs: number): Promise<string> {
 }
 
 describe("CLI install smoke", { timeout: 600_000 }, () => {
+	let testRoot: string;
 	let workdir: string;
 
 	before(() => {
@@ -134,9 +135,12 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 			);
 		}
 
-		// Create a fresh EMPTY temp directory for the test — init is
-		// empty-folder-only (cheasee-pi sets the workspace up itself).
-		workdir = mkdtempSync(join(tmpdir(), "cli-install-"));
+		// Give the workspace and sibling bare mount a unique parent. A fixed
+		// /tmp/.bare path survives between runs and makes `remote add origin`
+		// fail on the next run.
+		testRoot = mkdtempSync(join(tmpdir(), "cli-install-"));
+		workdir = join(testRoot, "workspace");
+		mkdirSync(workdir);
 		// The sibling bare mount source: the compose file bind-mounts
 		// ${WORKSPACE_BARE_PATH}:/workspaces/.bare, and compose validates
 		// every volume spec even for raw `up`. Seed it as a bare repo with a
@@ -183,8 +187,8 @@ describe("CLI install smoke", { timeout: 600_000 }, () => {
 				`docker images --filter "reference=${COMPOSE_PROJECT}-*" --format "{{.Repository}}:{{.Tag}}" | xargs -r docker image rm -f 2>/dev/null || true`,
 				{ timeout: 60_000 },
 			);
-			// Remove temp directory
-			rmSync(workdir, { recursive: true, force: true });
+			// Remove the workspace and its sibling bare repo together.
+			rmSync(testRoot, { recursive: true, force: true });
 		}
 	});
 

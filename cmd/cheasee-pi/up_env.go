@@ -168,11 +168,13 @@ var tmpCleanPatterns = []string{
 }
 
 // tmpCleanFindArgs builds the find invocation that prunes the stale scratch
-// patterns in the container's /tmp. maxdepth 1 — never recurses, never
-// traverses mounts (a bind of /tmp would otherwise be swept). Pure function so
-// tests can pin the exact whitelist and -exec form.
+// patterns in the container's /tmp. -ignore_readdir_race prevents a concurrently
+// removed temp directory from turning this best-effort cleanup into a warning.
+// maxdepth 1 — never recurses, never traverses mounts (a bind of /tmp would
+// otherwise be swept). Pure function so tests can pin the exact whitelist and
+// -exec form.
 func tmpCleanFindArgs() []string {
-	expr := []string{"-maxdepth", "1", "-mindepth", "1", "("}
+	expr := []string{"-ignore_readdir_race", "/tmp", "-maxdepth", "1", "-mindepth", "1", "("}
 	for i, p := range tmpCleanPatterns {
 		if i > 0 {
 			expr = append(expr, "-o")
@@ -189,7 +191,7 @@ func tmpCleanFindArgs() []string {
 // cleanup failure must not block start — waitHealthy already gates execing pi
 // on the container being up.
 func cleanContainerTmp(ctx context.Context, name string) error {
-	args := append([]string{"exec", name, "find", "/tmp"}, tmpCleanFindArgs()...)
+	args := append([]string{"exec", name, "find"}, tmpCleanFindArgs()...)
 	out, err := runCommandContext(ctx, "docker", args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("clean container /tmp: %w: %s", err, strings.TrimSpace(string(out)))

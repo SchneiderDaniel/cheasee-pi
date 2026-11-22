@@ -87,9 +87,10 @@ func TestMaskKey(t *testing.T) {
 
 func TestTmpCleanFindArgs_whitelistOnlyMaxdepthOne(t *testing.T) {
 	args := tmpCleanFindArgs()
-	// maxdepth 1 + whitelist: the cleanup never recurses or sweeps mounts
-	if args[0] != "-maxdepth" || args[1] != "1" {
-		t.Fatalf("find args must start with -maxdepth 1, got %v", args[:2])
+	// Ignore entries removed by concurrent /tmp activity, and restrict the
+	// cleanup to direct children so it never recurses or sweeps mounts.
+	if !slices.Equal(args[:4], []string{"-ignore_readdir_race", "/tmp", "-maxdepth", "1"}) {
+		t.Fatalf("find args must ignore readdir races and start at /tmp with -maxdepth 1, got %v", args[:4])
 	}
 	joined := strings.Join(args, " ")
 	for _, p := range tmpCleanPatterns {
